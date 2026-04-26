@@ -68,8 +68,8 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = u"python-pptx"
-copyright = u"2012, 2013, Steve Canny"
+project = u"python-pptx-next"
+copyright = u"2012, 2013, Steve Canny; 2026, <YOUR NAME>"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the

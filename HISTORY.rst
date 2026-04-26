@@ -3,6 +3,39 @@
 Release History
 ---------------
 
+This project was forked from `scanny/python-pptx`_ at version 1.0.2.
+Releases prior to 1.1.0 are upstream history, preserved here verbatim and
+attributed to Steve Canny and the original contributors. Releases from
+1.1.0 onward are made under the ``python-pptx-next`` distribution name on
+PyPI; the importable package name (``pptx``) is unchanged.
+
+.. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
+
+
+1.1.0.dev0 (unreleased)
++++++++++++++++++++++++
+
+This is the first release under the ``python-pptx-next`` name. It is a
+drop-in replacement for ``python-pptx`` 1.0.2: ``import pptx`` continues
+to work and existing user code is unaffected.
+
+Project changes
+~~~~~~~~~~~~~~~
+
+- Renamed the PyPI distribution from ``python-pptx`` to
+  ``python-pptx-next``. The importable package remains ``pptx``.
+- Repository moved to ``codehalwell/python-pptx``.
+- Original ``LICENSE`` (MIT, Steve Canny, 2013) preserved verbatim;
+  fork copyright added on a second line per MIT requirements.
+- Dropped the vestigial ``pyparsing`` line from ``requirements.txt``;
+  it was not in ``pyproject.toml`` runtime deps and is not imported
+  anywhere in ``src/pptx/``.
+- Added Python 3.13 to the supported-versions classifier list.
+
+No API changes in this release. Forthcoming features are tracked in the
+project README and on the GitHub issue tracker.
+
+
 1.0.2 (2024-08-07)
 ++++++++++++++++++
 
