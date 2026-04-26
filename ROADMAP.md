@@ -1,0 +1,343 @@
+# python-pptx-next Roadmap
+
+This roadmap describes the planned evolution of `python-pptx-next` from
+its 1.0.2 fork point through a hypothetical 2.0. It is a living document:
+priorities are listed in order, but ship dates are deliberately not given
+because each milestone is gated on the previous one and on community
+feedback.
+
+## North star
+
+**Make it possible to generate genuinely beautiful PowerPoint
+presentations from Python — animations, transitions, modern visual
+effects, real theme support — without leaving the library and without
+sacrificing the round-trip fidelity that makes `python-pptx` valuable
+today.**
+
+The OOXML element tree already supports almost everything modern users
+want (effects, transitions, animations, themes); the work is to grow the
+public API up to meet it, then layer a thin "design system" on top so the
+*default* output looks good.
+
+## Guiding principles
+
+1. **Drop-in compatibility within 1.x.** `import pptx` keeps working.
+   Existing scripts produce byte-identical or visually-identical output.
+   Breaking changes are batched and held for a clearly-flagged 2.0.
+2. **OOXML faithful by default.** Every new feature maps to a real
+   element in the schema; we do not invent semantics PowerPoint won't
+   render.
+3. **Round-trip safety is a release blocker.** A deck authored in
+   PowerPoint, opened, mutated, and saved must not lose data. Every new
+   feature ships with a round-trip regression test.
+4. **High-level helpers are additive.** They sit on top of the low-level
+   API; they never replace it.
+5. **No corporate dependencies.** Pure Python on top of `lxml`, `Pillow`,
+   `XlsxWriter`. No hosted services, no telemetry, no auth.
+6. **Read should never mutate.** Getter properties are idempotent. Where
+   the upstream library got this wrong, we fix it (with deprecation
+   warnings where behavior actually changes).
+
+## Versioning
+
+| Range | Meaning |
+|---|---|
+| `1.1.x` | First active-fork release. Bug fixes only. No new API. |
+| `1.2.x` – `1.9.x` | New features, additive only. No removals. |
+| `2.0.0` | Breaking changes, deprecation removals, API cleanups. |
+
+Pre-release builds use `.devN`/`.aN`/`.bN` suffixes and publish to PyPI
+under the same distribution name.
+
+## Out of scope
+
+These items have been considered and explicitly deferred or rejected, so
+contributors don't burn time prototyping them:
+
+- **Full SmartArt creation.** The layout algorithms are proprietary and
+  non-trivial to reverse-engineer. We *will* support text substitution
+  inside an existing template's SmartArt (see Phase 7).
+- **A separate pure-Python distribution (`python-pptx-mini`).** `lxml`
+  is reliably available on every modern serverless runtime via manylinux
+  wheels; the maintenance cost of a parallel distribution is not
+  justified.
+- **A pixel-accurate rendering engine.** The text-fit estimator (Phase 5)
+  uses Pillow font metrics for "good enough" auto-fit; we do not aim to
+  replicate PowerPoint's renderer.
+- **Live integration with the PowerPoint application** (COM, AppleScript,
+  Office.js). This library manipulates files on disk; it does not drive
+  a running PowerPoint instance.
+- **`.ppt` (legacy binary format) support.** Out of scope, same as
+  upstream.
+
+---
+
+## Phase 1 — Hygiene and bug fixes (target: 1.1.0)
+
+No new public API. Cleans up known issues that would otherwise compound
+as we add features on top.
+
+- **Non-mutating color getters.** `Font.color` (`text/text.py:305-310`)
+  and `LineFormat.color` (`dml/line.py:21-33`) currently call
+  `self.fill.solid()` on read, silently severing theme inheritance. Fix
+  by adding a non-mutating read path that returns the inherited color
+  when no explicit fill is set, and only mutating on assignment. Add a
+  deprecation note for the old behavior in the docstring.
+- **`max_shape_id` caching at the element level.** `CT_GroupShape`
+  (`oxml/shapes/groupshape.py:150-163`) does an `xpath('//@id')` scan on
+  every shape add, giving O(N²) over a slide. Cache the max at the
+  group-shape level and invalidate on child mutation. Default fast path,
+  no `turbo_add_enabled` collision risk. Keep `turbo_add_enabled` as a
+  deprecated no-op for one minor version.
+- **`PERCENT_40` typo fix** (`enum/dml.py:253`). Currently spelled
+  `ERCENT_40`. Add `PERCENT_40` as the canonical name and keep
+  `ERCENT_40` as a back-compat alias with a `DeprecationWarning`.
+- **Drop Python 3.8.** EOL October 2024. Require 3.9+; bump
+  `requires-python` and `pyright`'s `pythonVersion` accordingly.
+- **CI on GitHub Actions.** Replace dead `.travis.yml` with a workflow
+  matrix across the supported Python versions.
+- **Issues & governance.** `GOVERNANCE.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, an issue-template, a PR-template.
+- **Round-trip test harness.** Generate a deck → open in `python-pptx`
+  → save → diff XML. Used by every later phase.
+
+**Done when:** all 1.0.2 user code runs unchanged, the regression
+harness is green, and the CI matrix passes on 3.9–3.13.
+
+## Phase 2 — Visual effects (target: 1.2.0)
+
+The single highest-impact feature. The OOXML element classes are
+already wired up at `oxml/shapes/shared.py:395`; we just need real
+children.
+
+- **`ShadowFormat`, expanded.** `dml/effect.py:6-42` currently exposes
+  only `inherit`. Add:
+  - `style` (`MSO_SHADOW.OUTER` / `INNER` / `PRESET`)
+  - `color` (`ColorFormat`, supports theme + RGB)
+  - `transparency`, `blur`, `distance`, `angle`, `size` (sx/sy)
+  - `preset` (`MSO_PRESET_SHADOW.OFFSET_DIAGONAL_BOTTOM_RIGHT` etc.,
+    20 presets)
+- **New `GlowFormat`, `ReflectionFormat`, `SoftEdgeFormat`,
+  `BlurFormat`** with a parallel API. Surfaced as
+  `shape.glow`, `shape.reflection`, `shape.soft_edges`, `shape.blur`.
+- **OOXML element classes.** New `oxml/dml/effect.py` with
+  `CT_OuterShadowEffect`, `CT_InnerShadowEffect`, `CT_PresetShadowEffect`,
+  `CT_GlowEffect`, `CT_ReflectionEffect`, `CT_SoftEdgesEffect`,
+  `CT_BlurEffect`. Schema source: `spec/.../dml-main.xsd:1640-1710`.
+- **Inheritance semantics.** Reading a property on a shape with no
+  explicit value returns `None`. (Theme-walking is deferred to Phase 5.)
+- **`RGBColor.alpha` / per-color transparency.** Adds `<a:alpha>`
+  emission inside any `ColorFormat` consumer. Unlocks "glassy card"
+  looks.
+- **`Font.fill`.** Tiny addition: `Font` already has access to `rPr`,
+  but no public `fill`. Add it. Unblocks gradient-text and patterned
+  text titles.
+
+**Done when:** a user can compose a card-style shape with custom outer
+shadow + soft edge + alpha-tinted fill in five lines of Python and
+PowerPoint renders it identically to a card built in the UI.
+
+## Phase 3 — Tables and transitions (target: 1.3.0)
+
+Two unrelated medium-effort wins, packaged together because each is
+small.
+
+- **`Cell.borders`.** Today border styling requires manual XML
+  injection of `<a:lnL>`, `<a:lnR>`, `<a:lnT>`, `<a:lnB>` under
+  `<a:tcPr>`. Add a `Borders` value object exposing
+  `cell.borders.left/right/top/bottom/diagonal_down/diagonal_up`,
+  each a `LineFormat`. Add convenience: `Borders.all(...)`,
+  `Borders.outer(...)`, `Borders.none()`. Fixes the single most-asked-for
+  table feature.
+- **`Slide.transition`.** Today `<p:transition>` is reserved at
+  `oxml/slide.py:162` but unregistered in `oxml/__init__.py`. Wire up:
+  - `transition.kind = MSO_TRANSITION.MORPH` (new enum, ~25 values
+    incl. p14/p15 extension namespaces)
+  - `transition.direction` for direction-aware transitions
+  - `transition.duration` (ms; uses `p14:dur`)
+  - `transition.advance_on_click`, `advance_after`
+  - `Presentation.set_transition(kind, slides=...)` deck-wide helper
+- **Run-level internal hyperlinks.** `run.hyperlink.target_slide =
+  deck.slides[7]` writes a relationship-based action instead of a URI.
+  Single XML attribute swap; missing today.
+
+**Done when:** a deck can be authored with per-cell zebra-striped
+borders and a Morph transition between two title slides.
+
+## Phase 4 — Animations (target: 1.4.0)
+
+The single most-requested feature. Largest design surface in this
+roadmap. We ship the **preset subset only** — the full timing tree is
+expressive enough to break PowerPoint, and 90% of users want one of a
+dozen entrance presets.
+
+- **`pptx.animation` package.** New top-level public module.
+- **Trigger model.** `Trigger.ON_CLICK` /
+  `Trigger.WITH_PREVIOUS` / `Trigger.AFTER_PREVIOUS`, with `delay`.
+- **Entrance presets.** ~12 to start: Appear, Fade, Fade Up/Down/Left/
+  Right, Fly In, Float In, Zoom, Wipe, Wheel, Random Bars. Each maps
+  to a known `presetID` in the `<p:par>/<p:cTn>` tree.
+- **Emphasis presets.** Pulse, Color Pulse, Teeter, Spin, Grow/Shrink.
+- **Exit presets.** Mirror of entrance.
+- **Motion paths.** `MotionPath.line(shape, dx, dy, duration)` and
+  `MotionPath.custom(shape, svg_path_d, duration)` — a curated SVG-path
+  subset (`M`, `L`, `C`).
+- **Sequencing.** `with slide.animations.sequence(start=...): ...`
+  context manager produces a child `cTn` chain.
+- **By-paragraph animation.** For text frames: `Entrance.fade(text_frame,
+  by_paragraph=True)`.
+- **Round-trip preservation.** Custom timelines authored in PowerPoint
+  must survive a read-modify-write cycle untouched, even if our high-level
+  API can't author them. Implementation: opaque `LegacyTimeline` proxy.
+
+**Done when:** a generated 10-slide deck with on-click bullet reveals
+plays in PowerPoint identically to one assembled in the UI, and a deck
+authored in PowerPoint with custom animations is round-tripped without
+loss.
+
+## Phase 5 — Theme, picture effects, advanced fills (target: 1.5.0)
+
+- **Read-only theme API.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]`
+  resolves to `RGBColor`; `prs.theme.fonts.major` / `.minor` return font
+  names. New `pptx.theme` module on top of `oxml/theme.py`.
+- **Theme-aware inheritance** for effect/color getters from Phase 2.
+  When a property has no explicit value, the getter walks
+  `slide → layout → master → theme` and returns the resolved value (or
+  `None` if nothing matches).
+- **Picture effects.** `Picture.transparency`, `.brightness`,
+  `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
+  `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,
+  `<a:grayscl>` inside `<a:blip>`.
+- **Native SVG in `add_picture`.** Embed both an SVG `<asvg:svgBlip>`
+  and a PNG fallback (modern PowerPoint requires both); rasterize via
+  `cairosvg` for the fallback. New optional dependency.
+- **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
+  takes a `kind` argument; `GradientStops` becomes mutable
+  (`append`, `replace`, `__delitem__`).
+- **Line ends, caps, joins, compound lines.** `line.head_end`,
+  `line.tail_end`, `line.cap`, `line.compound`, `line.join`.
+- **Text fit estimator.** Pillow-driven measurement so
+  `TextFrame.fit_text` works without requiring a `font_file=` argument
+  in the common case.
+
+**Done when:** a generated deck honors a brand color palette read from
+the theme, recolors photos to match it, and embeds vector logos at
+print resolution.
+
+## Phase 6 — Slide composition and JSON workflows (target: 1.6.0)
+
+Solves "I want to merge decks" and "I have an LLM that returns JSON."
+
+- **`pptx.compose` package.**
+- **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
+  Clones a slide from another presentation, including its layout
+  reference, with master-deduplication and image-rename collision
+  handling. Closes the upstream issues that today force users into
+  Aspose/Spire.
+- **`apply_template(potx_or_pptx)`.** Re-points slides at masters/layouts
+  imported from a `.potx` or `.pptx`.
+- **`from_spec(spec)`.** Accepts a structured dict
+  (`{'slides': [{'layout': ..., 'title': ..., 'bullets': [...]}]}`) and
+  emits a deck. Trivial layer above the existing API but eliminates the
+  boilerplate every LLM-driven generator currently writes itself.
+- **Theme writer.** Now that we have read-only theme + composition
+  primitives, expose `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] =
+  RGBColor(...)` and `prs.theme.apply(other_theme)`.
+
+**Done when:** `Presentation.import_slide(prs2.slides[3])` produces a
+result indistinguishable from drag-and-drop in PowerPoint, and
+`Presentation.from_spec(json)` produces a 20-slide branded deck from a
+single dict.
+
+## Phase 7 — 3D, SmartArt text substitution (target: 1.7.0)
+
+- **3D primitives.** Bevels (`a:bevelT`/`a:bevelB`) and extrusion
+  (`a:sp3d`) under a new `shape.three_d` accessor. The `<a:scene3d>`
+  / `<a:sp3d>` slots are already reserved at
+  `oxml/shapes/shared.py:368-369`.
+- **SmartArt text substitution.** `slide.smart_art[0].set_text(['NY',
+  'CA', 'TX'])` rewrites the text-list inside an *existing*
+  `diagrams/data1.xml` without touching the layout. Bounded scope —
+  full SmartArt creation remains explicitly out.
+
+**Done when:** a corporate org-chart template can be re-populated with
+fresh names entirely from Python, and a "card" shape can render with
+bevel + soft shadow in three lines.
+
+## Phase 8 — Design system layer (target: 1.8.0)
+
+The piece that turns the low-level API into something where the
+*default* output looks good. Nothing here adds new XML — it's all on
+top of the foundations from earlier phases.
+
+- **`pptx.design.tokens.DesignTokens`.** Palette, typography, radii,
+  shadows, spacings. Sources:
+  - `DesignTokens.from_yaml('brand.yml')`
+  - `DesignTokens.from_pptx('template.pptx')` (extracts from `theme.xml`)
+  - hand-built dict.
+- **`shape.style`.** Token-resolving facade: `shape.style.fill =
+  tokens.palette['primary']`, `shape.style.shadow = tokens.shadows
+  ['card']`. Internally fans out to `fill`, `shadow`, etc.
+- **`pptx.design.layout`.** `Grid(slide, cols=12, gutter=Pt(12))`,
+  `Stack(direction='vertical', gap=Pt(8))` — build-time layout helpers
+  that compute `left`/`top`/`width`/`height` so users don't eyeball EMUs.
+- **`pptx.design.recipes`.** Opinionated parameterized slide
+  constructors: `TitleSlide`, `BulletSlide`, `KPISlide`, `QuoteSlide`,
+  `ImageHero`. Each consumes tokens, places shapes, sets text, applies
+  effects, optionally adds animation/transition.
+- **A small published "starter pack"** — 2–3 example token sets
+  (Modern, Classic, Editorial) with matching screenshots. Lives in
+  `examples/` so it doesn't bloat the package itself.
+
+**Done when:** a user can `pip install python-pptx-next`, copy 30 lines
+from the README, and produce a deck that wouldn't look out of place in
+a series-A pitch.
+
+## Phase 9 — Stretch / community (target: 1.9.0+)
+
+Items that are valuable but not on the critical path:
+
+- Chart palette presets independent of `chart_style`.
+- Per-series chart fills (gradient/pattern) via `ChartFormat`.
+- Chart "quick layouts" (mirroring PowerPoint's gallery).
+- Additional motion-path presets.
+- A slide-thumbnail renderer (likely shells out to LibreOffice headless;
+  optional dependency).
+- Documentation site rebuild.
+
+---
+
+## Phase 10 — 2.0.0 (the breaking-changes release)
+
+Everything that's been accumulating deprecation warnings through 1.x
+gets removed:
+
+- `ShadowFormat.inherit` — replaced by reading individual properties
+  for `None`. Removed.
+- `ERCENT_40` typo alias — removed.
+- `turbo_add_enabled` no-op — removed.
+- `Font.color` mutating-on-read fallback (kept under a deprecation flag
+  in 1.x for users who depended on the old behavior) — removed.
+- `RGBColor.from_string("3C2F80")` (no `#`) deprecated in favor of
+  `RGBColor.from_hex("#3C2F80")` — old method removed.
+- Drop Python versions that hit EOL during 1.x.
+
+No new features in 2.0; it's a cleanup release. New features land in
+2.1.
+
+---
+
+## How to follow / contribute
+
+- **Issues**: GitHub issue tracker on the fork repository.
+- **Roadmap discussion**: each phase gets a tracking meta-issue once the
+  previous phase is in beta.
+- **PR scope**: small. Each public API surface from the phases above
+  should be its own PR with tests, docs, and a HISTORY entry.
+- **What we say no to**: features that require non-trivial new
+  dependencies, features that don't round-trip cleanly, and anything in
+  the "out of scope" list above without a strong new argument.
+
+This document will be updated each release with what actually shipped
+and what slipped. The dates are deliberately absent; the order is the
+commitment.
