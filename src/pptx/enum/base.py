@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import textwrap
+import warnings
 from typing import TYPE_CHECKING, Any, Type, TypeVar
 
 if TYPE_CHECKING:
@@ -12,7 +13,37 @@ if TYPE_CHECKING:
 _T = TypeVar("_T", bound="BaseXmlEnum")
 
 
-class BaseEnum(int, enum.Enum):
+class _DeprecatingEnumMeta(enum.EnumMeta):
+    """Metaclass that issues a `DeprecationWarning` for accesses to deprecated aliases.
+
+    Enum subclasses opt in by declaring a `__deprecated_aliases__` class attribute
+    mapping the deprecated name to the canonical name (e.g.
+    `__deprecated_aliases__ = {"ERCENT_40": "PERCENT_40"}`). The deprecated alias
+    must still be defined as a Python `enum` alias of the canonical member so that
+    user code keeps working; the metaclass simply emits the warning when the alias
+    name is used to look up the member.
+    """
+
+    def __getattribute__(cls, name: str):
+        # -- bypass for dunders to avoid recursion and keep overhead off the hot path --
+        if not (name.startswith("_") and name.endswith("_")):
+            try:
+                aliases = enum.EnumMeta.__getattribute__(cls, "__deprecated_aliases__")
+            except AttributeError:
+                aliases = None
+            if aliases and name in aliases:
+                canonical = aliases[name]
+                warnings.warn(
+                    f"{cls.__name__}.{name} is a deprecated alias for "
+                    f"{cls.__name__}.{canonical}; use the canonical name.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                name = canonical
+        return enum.EnumMeta.__getattribute__(cls, name)
+
+
+class BaseEnum(int, enum.Enum, metaclass=_DeprecatingEnumMeta):
     """Base class for Enums that do not map XML attr values.
 
     The enum's value will be an integer, corresponding to the integer assigned the
@@ -30,7 +61,7 @@ class BaseEnum(int, enum.Enum):
         return f"{self.name} ({self.value})"
 
 
-class BaseXmlEnum(int, enum.Enum):
+class BaseXmlEnum(int, enum.Enum, metaclass=_DeprecatingEnumMeta):
     """Base class for Enums that also map XML attr values.
 
     The enum's value will be an integer, corresponding to the integer assigned the

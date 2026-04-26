@@ -278,3 +278,33 @@ class DescribeRGBColor(object):
 
     def it_can_provide_a_hex_string_rgb_value(self):
         assert str(RGBColor(0x12, 0x34, 0x56)) == "123456"
+
+
+class Describe_LazyColorFormat:
+    """Unit-test suite for `pptx.dml.color._LazyColorFormat`.
+
+    The lazy proxy is what `Font.color` and `LineFormat.color` return; it preserves
+    theme inheritance by not creating an `<a:solidFill>` on read.
+    """
+
+    def it_is_a_ColorFormat_so_isinstance_checks_keep_working(self):
+        from pptx.dml.color import _LazyColorFormat
+
+        proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
+        assert isinstance(proxy, ColorFormat)
+
+    def it_returns_None_for_type_when_no_solid_fill_is_present(self):
+        from pptx.dml.color import _LazyColorFormat
+
+        proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
+        assert proxy.type is None
+        assert proxy.rgb is None
+        assert proxy.theme_color == MSO_THEME_COLOR.NOT_THEME_COLOR
+        assert proxy.brightness == 0
+
+    def it_raises_when_setting_brightness_without_a_color(self):
+        from pptx.dml.color import _LazyColorFormat
+
+        proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
+        with pytest.raises(ValueError, match="can't set brightness when color.type is None"):
+            proxy.brightness = 0.5

@@ -157,10 +157,45 @@ class CT_GroupShape(BaseShapeElement):
 
         In practice, its minimum value is 1 because the spTree element itself
         is always assigned id="1".
+
+        First access scans the document; the result is then cached on the
+        document-root element and kept current as ids are allocated via
+        :meth:`allocate_shape_id`.
         """
-        id_str_lst = self.xpath("//@id")
-        used_ids = [int(id_str) for id_str in id_str_lst if id_str.isdigit()]
-        return max(used_ids) if used_ids else 0
+        return self._ensure_id_cache()
+
+    def allocate_shape_id(self) -> int:
+        """Reserve and return the next unused id for a new shape.
+
+        Caches the running maximum on the document-root element so consecutive
+        adds are O(1) instead of triggering a fresh ``//@id`` scan each call
+        (which is what produced the historical O(N²) behavior over a slide).
+        Callers that mutate the document outside the shape-tree API can call
+        :meth:`invalidate_shape_id_cache` to force a re-scan.
+        """
+        cursor = self._ensure_id_cache() + 1
+        self._set_id_cache(cursor)
+        return cursor
+
+    def invalidate_shape_id_cache(self) -> None:
+        """Drop the cached max-shape-id; next access will re-scan ``//@id``."""
+        root = self.getroottree().getroot()
+        if hasattr(root, "_pptx_shape_id_cursor"):
+            delattr(root, "_pptx_shape_id_cursor")
+
+    def _ensure_id_cache(self) -> int:
+        """Return the cached max shape id, populating it on first access."""
+        root = self.getroottree().getroot()
+        cursor = getattr(root, "_pptx_shape_id_cursor", None)
+        if cursor is None:
+            id_str_lst = self.xpath("//@id")
+            used_ids = [int(s) for s in id_str_lst if s.isdigit()]
+            cursor = max(used_ids) if used_ids else 0
+            self._set_id_cache(cursor)
+        return cursor
+
+    def _set_id_cache(self, value: int) -> None:
+        self.getroottree().getroot()._pptx_shape_id_cursor = value
 
     @classmethod
     def new_grpSp(cls, id_: int, name: str) -> CT_GroupShape:
@@ -237,16 +272,10 @@ class CT_GroupShape(BaseShapeElement):
     def _next_shape_id(self) -> int:
         """Return unique shape id suitable for use with a new shape element.
 
-        The returned id is the next available positive integer drawing object
-        id in shape tree, starting from 1 and making use of any gaps in
-        numbering. In practice, the minimum id is 2 because the spTree
-        element itself is always assigned id="1".
+        Equivalent to :meth:`allocate_shape_id`; preserved for OXML-internal
+        callers (`add_freeform_sp`, `add_grpSp`).
         """
-        id_str_lst = self.xpath("//@id")
-        used_ids = [int(id_str) for id_str in id_str_lst if id_str.isdigit()]
-        for n in range(1, len(used_ids) + 2):
-            if n not in used_ids:
-                return n
+        return self.allocate_shape_id()
 
 
 class CT_GroupShapeNonVisual(BaseShapeElement):

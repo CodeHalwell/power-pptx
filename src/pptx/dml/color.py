@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
+from typing import TYPE_CHECKING, Callable
+
+from pptx.enum.dml import MSO_COLOR_TYPE, MSO_FILL, MSO_THEME_COLOR
 from pptx.oxml.dml.color import (
     CT_HslColor,
     CT_PresetColor,
@@ -11,6 +13,9 @@ from pptx.oxml.dml.color import (
     CT_SRgbColor,
     CT_SystemColor,
 )
+
+if TYPE_CHECKING:
+    from pptx.dml.fill import FillFormat
 
 
 class ColorFormat(object):
@@ -105,6 +110,81 @@ class ColorFormat(object):
                 " or .theme_color first."
             )
             raise ValueError(msg)
+
+
+class _LazyColorFormat(ColorFormat):
+    """Color accessor that defers solid-fill materialization until a color is assigned.
+
+    Reads (`type`, `rgb`, `theme_color`, `brightness`) on a non-solid fill return the
+    "no explicit color" sentinel without mutating the underlying XML, which preserves
+    theme inheritance. Writes to `rgb` or `theme_color` switch the fill to solid first
+    (matching the pre-fix behavior); `brightness` writes still require a color to be
+    set first and raise the original `ValueError` otherwise.
+
+    Callers supply two thunks: `peek_fill` returns the existing |FillFormat| or |None|
+    if there is none, without mutating the underlying XML; `ensure_fill` returns a
+    |FillFormat|, creating the host element if necessary (used only on write paths).
+    """
+
+    def __init__(
+        self,
+        peek_fill: Callable[[], FillFormat | None],
+        ensure_fill: Callable[[], FillFormat],
+    ):
+        # -- intentionally bypass ColorFormat.__init__: this proxy resolves the
+        # -- underlying _xFill/_color lazily through `peek_fill` / `ensure_fill`.
+        self._peek_fill = peek_fill
+        self._ensure_fill = ensure_fill
+
+    @property
+    def brightness(self) -> float:
+        cf = self._color_or_none()
+        return cf.brightness if cf is not None else 0
+
+    @brightness.setter
+    def brightness(self, value: float):
+        cf = self._color_or_none()
+        if cf is None:
+            raise ValueError(
+                "can't set brightness when color.type is None."
+                " Set color.rgb or .theme_color first."
+            )
+        cf.brightness = value
+
+    @property
+    def rgb(self) -> RGBColor | None:
+        cf = self._color_or_none()
+        return cf.rgb if cf is not None else None
+
+    @rgb.setter
+    def rgb(self, value: RGBColor):
+        self._ensure_solid().rgb = value
+
+    @property
+    def theme_color(self) -> MSO_THEME_COLOR:
+        cf = self._color_or_none()
+        return cf.theme_color if cf is not None else MSO_THEME_COLOR.NOT_THEME_COLOR
+
+    @theme_color.setter
+    def theme_color(self, value: MSO_THEME_COLOR):
+        self._ensure_solid().theme_color = value
+
+    @property
+    def type(self) -> MSO_COLOR_TYPE | None:
+        cf = self._color_or_none()
+        return cf.type if cf is not None else None
+
+    def _color_or_none(self) -> ColorFormat | None:
+        fill = self._peek_fill()
+        if fill is None or fill.type != MSO_FILL.SOLID:
+            return None
+        return fill.fore_color
+
+    def _ensure_solid(self) -> ColorFormat:
+        fill = self._ensure_fill()
+        if fill.type != MSO_FILL.SOLID:
+            fill.solid()
+        return fill.fore_color
 
 
 class _Color(object):

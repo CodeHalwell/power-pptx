@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import warnings
 from typing import IO, TYPE_CHECKING, Callable, Iterable, Iterator, cast
 
 from pptx.enum.shapes import PP_PLACEHOLDER, PROG_ID
@@ -83,7 +84,7 @@ class _BaseShapes(ParentedElementProxy):
     def __init__(self, spTree: CT_GroupShape, parent: ProvidesPart):
         super(_BaseShapes, self).__init__(spTree, parent)
         self._spTree = spTree
-        self._cached_max_shape_id = None
+        self._turbo_add_enabled = False
 
     def __getitem__(self, idx: int) -> BaseShape:
         """Return shape at `idx` in sequence, e.g. `shapes[2]`."""
@@ -142,28 +143,26 @@ class _BaseShapes(ParentedElementProxy):
 
     @property
     def turbo_add_enabled(self) -> bool:
-        """True if "turbo-add" mode is enabled. Read/Write.
+        """Deprecated no-op. Read/Write.
 
-        EXPERIMENTAL: This feature can radically improve performance when adding large numbers
-        (hundreds of shapes) to a slide. It works by caching the last shape ID used and
-        incrementing that value to assign the next shape id. This avoids repeatedly searching all
-        shape ids in the slide each time a new ID is required.
-
-        Performance is not noticeably improved for a slide with a relatively small number of
-        shapes, but because the search time rises with the square of the shape count, this option
-        can be useful for optimizing generation of a slide composed of many shapes.
-
-        Shape-id collisions can occur (causing a repair error on load) if more than one |Slide|
-        object is used to interact with the same slide in the presentation. Note that the |Slides|
-        collection creates a new |Slide| object each time a slide is accessed (e.g. `slide =
-        prs.slides[0]`, so you must be careful to limit use to a single |Slide| object.
+        Shape-id allocation is now always cached on the shape-tree element
+        (see :meth:`CT_GroupShape.allocate_shape_id`), so the historical
+        opt-in fast path is effectively always on. The setter is kept as a
+        no-op for back-compat and emits a :class:`DeprecationWarning`; the
+        getter still reflects whatever the user last assigned for the
+        benefit of round-tripping their own code.
         """
-        return self._cached_max_shape_id is not None
+        return self._turbo_add_enabled
 
     @turbo_add_enabled.setter
     def turbo_add_enabled(self, value: bool):
-        enable = bool(value)
-        self._cached_max_shape_id = self._spTree.max_shape_id if enable else None
+        warnings.warn(
+            "turbo_add_enabled is a deprecated no-op; shape-id allocation is now"
+            " always O(1) per add. The setting will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._turbo_add_enabled = bool(value)
 
     @staticmethod
     def _is_member_elm(shape_elm: ShapeElement) -> bool:
@@ -211,12 +210,7 @@ class _BaseShapes(ParentedElementProxy):
         The returned id is 1 greater than the maximum shape id used so far. In practice, the
         minimum id is 2 because the spTree element is always assigned id="1".
         """
-        # ---presence of cached-max-shape-id indicates turbo mode is on---
-        if self._cached_max_shape_id is not None:
-            self._cached_max_shape_id += 1
-            return self._cached_max_shape_id
-
-        return self._spTree.max_shape_id + 1
+        return self._spTree.allocate_shape_id()
 
     def _shape_factory(self, shape_elm: ShapeElement) -> BaseShape:
         """Return an instance of the appropriate shape proxy class for `shape_elm`."""

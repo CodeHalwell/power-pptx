@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from pptx.enum.action import PP_ACTION, PP_ACTION_TYPE
-from pptx.enum.dml import MSO_LINE_DASH_STYLE
+from pptx.enum.dml import MSO_LINE_DASH_STYLE, MSO_PATTERN_TYPE
 
 
 class DescribeBaseEnum:
@@ -71,3 +73,25 @@ class DescribeBaseXmlEnum:
     def and_it_raises_when_the_member_has_no_XML_value(self):
         with pytest.raises(ValueError, match="MSO_LINE_DASH_STYLE.DASH_STYLE_MIXED has no XML r"):
             MSO_LINE_DASH_STYLE.to_xml(-2)
+
+
+class DescribeDeprecatedAliases:
+    """Verify the `_DeprecatingEnumMeta` opt-in alias mechanism."""
+
+    def it_resolves_a_deprecated_alias_to_the_canonical_member(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert MSO_PATTERN_TYPE.ERCENT_40 is MSO_PATTERN_TYPE.PERCENT_40
+
+    def and_it_emits_a_DeprecationWarning_for_alias_access(self):
+        with pytest.warns(DeprecationWarning, match="ERCENT_40 is a deprecated alias"):
+            MSO_PATTERN_TYPE.ERCENT_40
+
+    def but_canonical_member_access_does_not_warn(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert MSO_PATTERN_TYPE.PERCENT_40.xml_value == "pct40"
+
+    def and_xml_round_trip_uses_the_canonical_member(self):
+        assert MSO_PATTERN_TYPE.from_xml("pct40") is MSO_PATTERN_TYPE.PERCENT_40
+        assert MSO_PATTERN_TYPE.to_xml(MSO_PATTERN_TYPE.PERCENT_40) == "pct40"

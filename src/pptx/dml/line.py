@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from pptx.dml.color import _LazyColorFormat
 from pptx.dml.fill import FillFormat
-from pptx.enum.dml import MSO_FILL
 from pptx.util import Emu, lazyproperty
 
 
@@ -20,17 +20,26 @@ class LineFormat(object):
 
     @lazyproperty
     def color(self):
+        """The color settings for this line; a shortcut for ``line.fill.fore_color``.
+
+        Reads are non-mutating: when no explicit ``<a:ln>`` element exists or its
+        fill is not solid, accessing color properties returns the "no explicit
+        color" sentinel (preserving theme inheritance) instead of injecting line
+        and fill XML. The line element and a solid fill are only created when
+        ``rgb`` or ``theme_color`` is assigned.
         """
-        The |ColorFormat| instance that provides access to the color settings
-        for this line. Essentially a shortcut for ``line.fill.fore_color``.
-        As a side-effect, accessing this property causes the line fill type
-        to be set to ``MSO_FILL.SOLID``. If this sounds risky for your use
-        case, use ``line.fill.type`` to non-destructively discover the
-        existing fill type.
+        return _LazyColorFormat(peek_fill=self._peek_fill, ensure_fill=lambda: self.fill)
+
+    def _peek_fill(self):
+        """Return |FillFormat| for the current ``<a:ln>`` element, or |None|.
+
+        Read-only: never injects an ``<a:ln>`` element if one is not already
+        present.
         """
-        if self.fill.type != MSO_FILL.SOLID:
-            self.fill.solid()
-        return self.fill.fore_color
+        ln = self._ln
+        if ln is None:
+            return None
+        return FillFormat.from_fill_parent(ln)
 
     @property
     def dash_style(self):

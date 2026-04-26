@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterator, cast
 
+from pptx.dml.color import _LazyColorFormat
 from pptx.dml.fill import FillFormat
-from pptx.enum.dml import MSO_FILL
 from pptx.enum.lang import MSO_LANGUAGE_ID
 from pptx.enum.text import MSO_AUTO_SIZE, MSO_UNDERLINE, MSO_VERTICAL_ANCHOR
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -304,10 +304,14 @@ class Font(object):
 
     @lazyproperty
     def color(self) -> ColorFormat:
-        """The |ColorFormat| instance that provides access to the color settings for this font."""
-        if self.fill.type != MSO_FILL.SOLID:
-            self.fill.solid()
-        return self.fill.fore_color
+        """The |ColorFormat| instance that provides access to the color settings for this font.
+
+        Reads are non-mutating: when no explicit solid fill is set, accessing color
+        properties returns the "no explicit color" sentinel (preserving theme
+        inheritance) instead of inserting an empty `<a:solidFill>`. The fill is only
+        switched to solid when `rgb` or `theme_color` is assigned.
+        """
+        return _LazyColorFormat(peek_fill=lambda: self.fill, ensure_fill=lambda: self.fill)
 
     @lazyproperty
     def fill(self) -> FillFormat:

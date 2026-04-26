@@ -70,20 +70,35 @@ class DescribeLineFormat(object):
         FillFormat_.from_fill_parent.assert_called_once_with(ln_)
         assert fill is fill_
 
-    def it_has_a_color(self, color_fixture):
-        line, fill_, expected_solid_calls, color_ = color_fixture
-        color = line.color
-        assert fill_.solid.mock_calls == expected_solid_calls
-        assert color is color_
+    def it_reads_color_without_calling_solid(self, line, fill_, fill_prop_, FillFormat_):
+        # -- reads through `line.color` must not switch the fill to solid; the
+        # -- proxy resolves the underlying ColorFormat lazily on write only.
+        for fill_type in (MSO_FILL.SOLID, MSO_FILL.BACKGROUND, None):
+            fill_.reset_mock()
+            fill_.type = fill_type
+            color = line.color
+            _ = color.type
+            _ = color.rgb
+            _ = color.theme_color
+            _ = color.brightness
+            assert fill_.solid.mock_calls == []
+
+    def it_delegates_color_writes_through_to_a_solid_fill(
+        self, line, fill_, fill_prop_, FillFormat_, color_
+    ):
+        from pptx.dml.color import RGBColor
+
+        fill_.type = MSO_FILL.BACKGROUND
+        line.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        assert fill_.solid.mock_calls == [call()]
+        assert color_.rgb == RGBColor(0xFF, 0x00, 0x00)
 
     # fixtures -------------------------------------------------------
 
-    @pytest.fixture(params=[(MSO_FILL.SOLID, False), (MSO_FILL.BACKGROUND, True), (None, True)])
-    def color_fixture(self, request, line, fill_prop_, fill_, color_):
-        pre_call_fill_type, solid_call_expected = request.param
-        fill_.type = pre_call_fill_type
-        expected_solid_calls = [call()] if solid_call_expected else []
-        return line, fill_, expected_solid_calls, color_
+    @pytest.fixture
+    def color_setup(self, line, fill_prop_, fill_, color_):
+        # -- ensures the LineFormat.fill property is mocked to return `fill_` --
+        return line, fill_, color_
 
     @pytest.fixture(
         params=[

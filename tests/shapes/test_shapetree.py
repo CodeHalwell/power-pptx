@@ -141,15 +141,33 @@ class Describe_BaseShapes(object):
         shapes.clone_placeholder(placeholder_)
         assert shapes._element.xml == expected_xml
 
-    def it_knows_if_turbo_add_is_enabled(self, turbo_fixture):
-        shapes, expected_value = turbo_fixture
-        turbo_add_enabled = shapes.turbo_add_enabled
-        assert turbo_add_enabled == expected_value
+    def it_allocates_shape_ids_in_O1_via_a_cached_cursor(self):
+        spTree = element("p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=3})")
+        shapes = _BaseShapes(spTree, None)
 
-    def it_can_change_turbo_add_enabled(self, turbo_set_fixture):
-        shapes, value, expected_value = turbo_set_fixture
-        shapes.turbo_add_enabled = value
-        assert shapes.turbo_add_enabled == expected_value
+        # initial allocation reflects current max + 1
+        assert shapes._next_shape_id == 4
+        # subsequent allocations bump without re-scanning the document
+        assert shapes._next_shape_id == 5
+        assert shapes._next_shape_id == 6
+        # max_shape_id reads the cache without further allocation
+        assert spTree.max_shape_id == 6
+
+    def it_treats_turbo_add_enabled_as_a_deprecated_noop(self):
+        import warnings
+
+        shapes = _BaseShapes(None, None)
+        # default: getter returns False without warning
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert shapes.turbo_add_enabled is False
+
+        # setter emits DeprecationWarning but accepts the value
+        with pytest.warns(DeprecationWarning, match="turbo_add_enabled is a deprecated no-op"):
+            shapes.turbo_add_enabled = True
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            assert shapes.turbo_add_enabled is True
 
     def it_finds_the_next_shape_id_to_help(self, next_id_fixture):
         shapes, expected_value = next_id_fixture
@@ -249,31 +267,6 @@ class Describe_BaseShapes(object):
         spTree = element("p:spTree/(p:cNvPr{name=Title 1},p:cNvPr{name=Table Placeholder " "3})")
         shapes = SlideShapes(spTree, None)
         return shapes, ph_type, sp_id, orient, expected_name
-
-    @pytest.fixture(params=[(None, False), (42, True)])
-    def turbo_fixture(self, request):
-        cached_max_shape_id, expected_value = request.param
-        shapes = _BaseShapes(None, None)
-        if cached_max_shape_id:
-            shapes._cached_max_shape_id = cached_max_shape_id
-        return shapes, expected_value
-
-    @pytest.fixture(
-        params=[
-            ("p:spTree/p:nvSpPr", True),
-            ("p:spTree/p:nvSpPr/p:cNvPr{id=2}", True),
-            ("p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=3})", False),
-            (
-                "p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=1},p:" "cNvPr{id=1},p:cNvPr{id=4})",
-                True,
-            ),
-        ]
-    )
-    def turbo_set_fixture(self, request):
-        spTree_cxml, value = request.param
-        shapes = _BaseShapes(element(spTree_cxml), None)
-        expected_value = value
-        return shapes, value, expected_value
 
     # fixture components ---------------------------------------------
 

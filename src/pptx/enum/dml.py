@@ -157,6 +157,8 @@ class MSO_PATTERN_TYPE(BaseXmlEnum):
     https://learn.microsoft.com/en-us/office/vba/api/Office.MsoPatternType
     """
 
+    __deprecated_aliases__ = {"ERCENT_40": "PERCENT_40"}
+
     CROSS = (51, "cross", "Cross")
     """Cross"""
 
@@ -250,8 +252,11 @@ class MSO_PATTERN_TYPE(BaseXmlEnum):
     PERCENT_30 = (5, "pct30", "30% of the foreground color.")
     """30% of the foreground color."""
 
-    ERCENT_40 = (6, "pct40", "40% of the foreground color.")
+    PERCENT_40 = (6, "pct40", "40% of the foreground color.")
     """40% of the foreground color."""
+
+    ERCENT_40 = (6, "pct40", "40% of the foreground color.")
+    """Deprecated alias for :attr:`PERCENT_40` (preserved for back-compat)."""
 
     PERCENT_5 = (1, "pct5", "5% of the foreground color.")
     """5% of the foreground color."""
