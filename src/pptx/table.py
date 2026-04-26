@@ -510,10 +510,6 @@ class _RowCollection(Subshape):
         self._parent.notify_height_changed()
 
 
-_BORDER_EDGES = ("lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr")
-_OUTER_EDGES = ("lnL", "lnR", "lnT", "lnB")
-
-
 class _BorderEdge(object):
     """Adapter exposing the |LineFormat| parent contract for one cell-border edge.
 
@@ -547,38 +543,45 @@ class _Borders(object):
     Returned by `cell.borders`. Each edge is a |LineFormat|; assignments such
     as `cell.borders.left.color.rgb = RGBColor(...)` materialize the border
     XML on demand. Convenience helpers act on multiple edges in one call.
+
+    Edge accessors (`left`, `right`, etc.) construct a fresh |LineFormat| on
+    every access rather than caching one. This keeps the common
+    set → ``none()`` → set-again flow correct: after ``none()`` removes the
+    underlying ``<a:ln*>`` element, the next access returns a |LineFormat|
+    that re-creates the element on first write, instead of writing through
+    a stale reference to a detached element.
     """
 
     def __init__(self, tc: CT_TableCell):
         super(_Borders, self).__init__()
         self._tc = tc
 
-    @lazyproperty
+    @property
     def left(self) -> LineFormat:
         """|LineFormat| for the left edge (`a:lnL`)."""
         return LineFormat(_BorderEdge(self._tc, "lnL"))
 
-    @lazyproperty
+    @property
     def right(self) -> LineFormat:
         """|LineFormat| for the right edge (`a:lnR`)."""
         return LineFormat(_BorderEdge(self._tc, "lnR"))
 
-    @lazyproperty
+    @property
     def top(self) -> LineFormat:
         """|LineFormat| for the top edge (`a:lnT`)."""
         return LineFormat(_BorderEdge(self._tc, "lnT"))
 
-    @lazyproperty
+    @property
     def bottom(self) -> LineFormat:
         """|LineFormat| for the bottom edge (`a:lnB`)."""
         return LineFormat(_BorderEdge(self._tc, "lnB"))
 
-    @lazyproperty
+    @property
     def diagonal_down(self) -> LineFormat:
         """|LineFormat| for the top-left-to-bottom-right diagonal (`a:lnTlToBr`)."""
         return LineFormat(_BorderEdge(self._tc, "lnTlToBr"))
 
-    @lazyproperty
+    @property
     def diagonal_up(self) -> LineFormat:
         """|LineFormat| for the bottom-left-to-top-right diagonal (`a:lnBlToTr`)."""
         return LineFormat(_BorderEdge(self._tc, "lnBlToTr"))
@@ -602,13 +605,20 @@ class _Borders(object):
         """Remove all border edge elements from the cell.
 
         Restores theme/style inheritance for every edge. Diagonal borders are
-        also cleared.
+        also cleared. Note: |LineFormat| objects retrieved before this call
+        cache an internal reference to the now-detached ``<a:ln*>`` element
+        and should not be reused; re-access via ``cell.borders.left`` (etc.)
+        to get a fresh |LineFormat| over a re-created element.
         """
         tcPr = self._tc.tcPr
         if tcPr is None:
             return
-        for edge in _BORDER_EDGES:
-            getattr(tcPr, "_remove_%s" % edge)()
+        tcPr._remove_lnL()
+        tcPr._remove_lnR()
+        tcPr._remove_lnT()
+        tcPr._remove_lnB()
+        tcPr._remove_lnTlToBr()
+        tcPr._remove_lnBlToTr()
 
     @staticmethod
     def _apply(line: LineFormat, width: Length | None, color: tuple[int, int, int] | None) -> None:

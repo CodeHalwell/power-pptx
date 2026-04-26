@@ -170,6 +170,10 @@ class _LazyColorFormat(ColorFormat):
 
     @alpha.setter
     def alpha(self, value: float | None):
+        # -- alpha is a modifier on an existing color, not a color choice itself
+        # -- (cf. brightness). It deliberately does NOT auto-materialize a solid
+        # -- fill the way `rgb` and `theme_color` do, because "transparent
+        # -- nothing" is not a meaningful color. Set `rgb` or `theme_color` first.
         cf = self._color_or_none()
         if cf is None:
             raise ValueError(

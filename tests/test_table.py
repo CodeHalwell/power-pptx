@@ -837,8 +837,30 @@ class Describe_Borders(object):
         assert isinstance(line, LineFormat)
         assert isinstance(line._parent, _BorderEdge)
         assert line._parent._edge == expected_edge
-        # -- second access returns same instance (lazyproperty) --
-        assert getattr(borders, attr) is line
+
+    def it_returns_a_fresh_LineFormat_on_each_edge_access(self):
+        # -- prevents stale-fill bugs after `none()` invalidates the underlying
+        # -- ln element; see `it_supports_set_clear_set_color_assignment`. --
+        tc = element("a:tc/a:tcPr")
+        borders = _Borders(tc)
+
+        assert borders.left is not borders.left
+
+    def it_supports_set_clear_set_color_assignment(self):
+        # -- regression: previously, lazyproperty caching of `LineFormat`
+        # -- (and its cached FillFormat) caused the second color write to
+        # -- mutate a detached `<a:lnL>` orphan rather than re-creating the
+        # -- element. --
+        tc = element("a:tc/a:tcPr")
+        borders = _Borders(tc)
+
+        borders.left.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        borders.none()
+        borders.left.color.rgb = RGBColor(0x00, 0xFF, 0x00)
+
+        lnL = tc.tcPr.lnL
+        assert lnL is not None
+        assert "00FF00" in lnL.xml
 
     def it_does_not_create_border_xml_on_read(self):
         tc = element("a:tc")
