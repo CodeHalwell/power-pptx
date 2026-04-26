@@ -6,6 +6,7 @@ from behave import given, then, when
 from helpers import test_pptx
 
 from pptx import Presentation
+from pptx.dml.color import ColorFormat
 from pptx.enum.dml import MSO_LINE
 from pptx.util import Length, Pt
 
@@ -58,12 +59,8 @@ def when_I_assign_value_to_line_width(context, line_width):
 
 @then("line.color is a ColorFormat object")
 def then_line_color_is_a_ColorFormat_object(context):
-    class_name = context.line.color.__class__.__name__
-    expected_value = "ColorFormat"
-    assert class_name == expected_value, "expected '%s', got '%s'" % (
-        expected_value,
-        class_name,
-    )
+    color = context.line.color
+    assert isinstance(color, ColorFormat), "expected a ColorFormat, got %r" % type(color)
 
 
 @then("line.dash_style is {dash_style}")
