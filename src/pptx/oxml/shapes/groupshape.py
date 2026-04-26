@@ -188,9 +188,8 @@ class CT_GroupShape(BaseShapeElement):
         root = self.getroottree().getroot()
         cursor = getattr(root, "_pptx_shape_id_cursor", None)
         if cursor is None:
-            id_str_lst = self.xpath("//@id")
-            used_ids = [int(s) for s in id_str_lst if s.isdigit()]
-            cursor = max(used_ids) if used_ids else 0
+            used_ids = (int(s) for s in self.xpath("//@id") if s.isdigit())
+            cursor = max(used_ids, default=0)
             self._set_id_cache(cursor)
         return cursor
 
