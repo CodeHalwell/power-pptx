@@ -30,6 +30,28 @@ class ColorFormat(object):
         self._color = color
 
     @property
+    def alpha(self):
+        """Read/write float in [0.0, 1.0] giving the per-color alpha.
+
+        `1.0` is fully opaque (the default when no `<a:alpha>` element is
+        present); `0.0` is fully transparent. Maps to the `<a:alpha>` child of
+        the underlying color element. Assigning |None| removes any explicit
+        alpha, restoring full opacity.
+        """
+        return self._color.alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        if isinstance(self._color, _NoneColor):
+            raise ValueError(
+                "can't set alpha when color.type is None."
+                " Set color.rgb or .theme_color first."
+            )
+        if value is not None:
+            self._validate_alpha_value(value)
+        self._color.alpha = value
+
+    @property
     def brightness(self):
         """
         Read/write float value between -1.0 and 1.0 indicating the brightness
@@ -111,6 +133,11 @@ class ColorFormat(object):
             )
             raise ValueError(msg)
 
+    @staticmethod
+    def _validate_alpha_value(value):
+        if value < 0.0 or value > 1.0:
+            raise ValueError("alpha must be number in range 0.0 to 1.0")
+
 
 class _LazyColorFormat(ColorFormat):
     """Color accessor that defers solid-fill materialization until a color is assigned.
@@ -135,6 +162,21 @@ class _LazyColorFormat(ColorFormat):
         # -- underlying _xFill/_color lazily through `peek_fill` / `ensure_fill`.
         self._peek_fill = peek_fill
         self._ensure_fill = ensure_fill
+
+    @property
+    def alpha(self) -> float:
+        cf = self._color_or_none()
+        return cf.alpha if cf is not None else 1.0
+
+    @alpha.setter
+    def alpha(self, value: float | None):
+        cf = self._color_or_none()
+        if cf is None:
+            raise ValueError(
+                "can't set alpha when color.type is None."
+                " Set color.rgb or .theme_color first."
+            )
+        cf.alpha = value
 
     @property
     def brightness(self) -> float:
@@ -210,6 +252,21 @@ class _Color(object):
         self._xClr = xClr
 
     @property
+    def alpha(self):
+        """Float in [0.0, 1.0]; `1.0` (fully opaque) when no `<a:alpha>` is set."""
+        alpha_elm = self._xClr.alpha
+        if alpha_elm is None:
+            return 1.0
+        return alpha_elm.val
+
+    @alpha.setter
+    def alpha(self, value):
+        self._xClr.clear_alpha()
+        if value is None or value == 1.0:
+            return
+        self._xClr.add_alpha(value)
+
+    @property
     def brightness(self):
         lumMod, lumOff = self._xClr.lumMod, self._xClr.lumOff
         # a tint is lighter, a shade is darker
@@ -273,6 +330,16 @@ class _HslColor(_Color):
 
 
 class _NoneColor(_Color):
+    @property
+    def alpha(self):
+        return 1.0
+
+    @alpha.setter
+    def alpha(self, value):
+        raise AttributeError(
+            "no .alpha property on color type '%s'" % self.__class__.__name__
+        )
+
     @property
     def color_type(self):
         return None

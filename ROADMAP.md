@@ -72,33 +72,33 @@ contributors don't burn time prototyping them:
 
 ---
 
-## Phase 1 — Hygiene and bug fixes (target: 1.1.0)
+## Phase 1 — Hygiene and bug fixes (target: 1.1.0)  *— SHIPPED*
 
 No new public API. Cleans up known issues that would otherwise compound
 as we add features on top.
 
-- **Non-mutating color getters.** `Font.color` (`text/text.py:305-310`)
+- [x] **Non-mutating color getters.** `Font.color` (`text/text.py:305-310`)
   and `LineFormat.color` (`dml/line.py:21-33`) currently call
   `self.fill.solid()` on read, silently severing theme inheritance. Fix
   by adding a non-mutating read path that returns the inherited color
   when no explicit fill is set, and only mutating on assignment. Add a
   deprecation note for the old behavior in the docstring.
-- **`max_shape_id` caching at the element level.** `CT_GroupShape`
+- [x] **`max_shape_id` caching at the element level.** `CT_GroupShape`
   (`oxml/shapes/groupshape.py:150-163`) does an `xpath('//@id')` scan on
   every shape add, giving O(N²) over a slide. Cache the max at the
   group-shape level and invalidate on child mutation. Default fast path,
   no `turbo_add_enabled` collision risk. Keep `turbo_add_enabled` as a
   deprecated no-op for one minor version.
-- **`PERCENT_40` typo fix** (`enum/dml.py:253`). Currently spelled
+- [x] **`PERCENT_40` typo fix** (`enum/dml.py:253`). Currently spelled
   `ERCENT_40`. Add `PERCENT_40` as the canonical name and keep
   `ERCENT_40` as a back-compat alias with a `DeprecationWarning`.
-- **Drop Python 3.8.** EOL October 2024. Require 3.9+; bump
+- [x] **Drop Python 3.8.** EOL October 2024. Require 3.9+; bump
   `requires-python` and `pyright`'s `pythonVersion` accordingly.
-- **CI on GitHub Actions.** Replace dead `.travis.yml` with a workflow
+- [x] **CI on GitHub Actions.** Replace dead `.travis.yml` with a workflow
   matrix across the supported Python versions.
-- **Issues & governance.** `GOVERNANCE.md`, `CONTRIBUTING.md`,
+- [x] **Issues & governance.** `GOVERNANCE.md`, `CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, an issue-template, a PR-template.
-- **Round-trip test harness.** Generate a deck → open in `python-pptx`
+- [x] **Round-trip test harness.** Generate a deck → open in `python-pptx`
   → save → diff XML. Used by every later phase.
 
 **Done when:** all 1.0.2 user code runs unchanged, the regression
@@ -276,12 +276,16 @@ children.
   `CT_BlurEffect`. Schema source: `spec/.../dml-main.xsd:1640-1710`.
 - **Inheritance semantics.** Reading a property on a shape with no
   explicit value returns `None`. (Theme-walking is deferred to Phase 5.)
-- **`RGBColor.alpha` / per-color transparency.** Adds `<a:alpha>`
+- [x] **`RGBColor.alpha` / per-color transparency.** Adds `<a:alpha>`
   emission inside any `ColorFormat` consumer. Unlocks "glassy card"
-  looks.
-- **`Font.fill`.** Tiny addition: `Font` already has access to `rPr`,
+  looks. Surfaced as `color_format.alpha` (read/write float in
+  `[0.0, 1.0]`, defaulting to fully opaque); also available on the
+  `_LazyColorFormat` proxy returned by `Font.color` / `LineFormat.color`,
+  with the same non-mutating read semantics.
+- [x] **`Font.fill`.** Tiny addition: `Font` already has access to `rPr`,
   but no public `fill`. Add it. Unblocks gradient-text and patterned
-  text titles.
+  text titles. *(Already present upstream as `Font.fill`, kept and
+  documented.)*
 
 **Done when:** a user can compose a card-style shape with custom outer
 shadow + soft edge + alpha-tinted fill in five lines of Python and
@@ -292,7 +296,7 @@ PowerPoint renders it identically to a card built in the UI.
 Two unrelated medium-effort wins, packaged together because each is
 small.
 
-- **`Cell.borders`.** Today border styling requires manual XML
+- [x] **`Cell.borders`.** Today border styling requires manual XML
   injection of `<a:lnL>`, `<a:lnR>`, `<a:lnT>`, `<a:lnB>` under
   `<a:tcPr>`. Add a `Borders` value object exposing
   `cell.borders.left/right/top/bottom/diagonal_down/diagonal_up`,
@@ -307,7 +311,7 @@ small.
   - `transition.duration` (ms; uses `p14:dur`)
   - `transition.advance_on_click`, `advance_after`
   - `Presentation.set_transition(kind, slides=...)` deck-wide helper
-- **Run-level internal hyperlinks.** `run.hyperlink.target_slide =
+- [x] **Run-level internal hyperlinks.** `run.hyperlink.target_slide =
   deck.slides[7]` writes a relationship-based action instead of a URI.
   Single XML attribute swap; missing today.
 

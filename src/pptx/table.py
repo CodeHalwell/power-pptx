@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterator
 
 from pptx.dml.fill import FillFormat
+from pptx.dml.line import LineFormat
 from pptx.oxml.table import TcRange
 from pptx.shapes import Subshape
 from pptx.text.text import TextFrame
@@ -12,7 +13,8 @@ from pptx.util import Emu, lazyproperty
 
 if TYPE_CHECKING:
     from pptx.enum.text import MSO_VERTICAL_ANCHOR
-    from pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCol, CT_TableRow
+    from pptx.oxml.shapes.shared import CT_LineProperties
+    from pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCellProperties, CT_TableCol, CT_TableRow
     from pptx.parts.slide import BaseSlidePart
     from pptx.shapes.graphfrm import GraphicFrame
     from pptx.types import ProvidesPart
@@ -186,6 +188,18 @@ class _Cell(Subshape):
         if not isinstance(other, type(self)):
             return True
         return self._tc is not other._tc
+
+    @lazyproperty
+    def borders(self) -> _Borders:
+        """|_Borders| value object exposing per-edge border line formatting.
+
+        Each border edge is a |LineFormat| reachable as `borders.left`,
+        `borders.right`, `borders.top`, `borders.bottom`, `borders.diagonal_down`,
+        and `borders.diagonal_up`. Convenience helpers `borders.all(...)`,
+        `borders.outer(...)`, and `borders.none()` apply settings across
+        multiple edges in one call.
+        """
+        return _Borders(self._tc)
 
     @lazyproperty
     def fill(self) -> FillFormat:
@@ -494,3 +508,113 @@ class _RowCollection(Subshape):
     def notify_height_changed(self):
         """Called by a row when its height changes. Pass along to parent."""
         self._parent.notify_height_changed()
+
+
+_BORDER_EDGES = ("lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr")
+_OUTER_EDGES = ("lnL", "lnR", "lnT", "lnB")
+
+
+class _BorderEdge(object):
+    """Adapter exposing the |LineFormat| parent contract for one cell-border edge.
+
+    A cell border (`a:lnL`, `a:lnR`, etc.) is itself an `<a:ln>`-shaped element
+    living inside `<a:tcPr>`. |LineFormat| expects its parent to expose
+    `get_or_add_ln()` and `ln`; this adapter routes those calls to the matching
+    edge-specific accessor on `a:tcPr`, so a single |LineFormat| implementation
+    serves shape lines and table borders alike.
+    """
+
+    def __init__(self, tc: CT_TableCell, edge: str):
+        super(_BorderEdge, self).__init__()
+        self._tc = tc
+        self._edge = edge
+
+    def get_or_add_ln(self) -> CT_LineProperties:
+        tcPr = self._tc.get_or_add_tcPr()
+        return getattr(tcPr, "get_or_add_%s" % self._edge)()
+
+    @property
+    def ln(self) -> CT_LineProperties | None:
+        tcPr = self._tc.tcPr
+        if tcPr is None:
+            return None
+        return getattr(tcPr, self._edge)
+
+
+class _Borders(object):
+    """Per-edge line formatting for a table cell.
+
+    Returned by `cell.borders`. Each edge is a |LineFormat|; assignments such
+    as `cell.borders.left.color.rgb = RGBColor(...)` materialize the border
+    XML on demand. Convenience helpers act on multiple edges in one call.
+    """
+
+    def __init__(self, tc: CT_TableCell):
+        super(_Borders, self).__init__()
+        self._tc = tc
+
+    @lazyproperty
+    def left(self) -> LineFormat:
+        """|LineFormat| for the left edge (`a:lnL`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnL"))
+
+    @lazyproperty
+    def right(self) -> LineFormat:
+        """|LineFormat| for the right edge (`a:lnR`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnR"))
+
+    @lazyproperty
+    def top(self) -> LineFormat:
+        """|LineFormat| for the top edge (`a:lnT`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnT"))
+
+    @lazyproperty
+    def bottom(self) -> LineFormat:
+        """|LineFormat| for the bottom edge (`a:lnB`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnB"))
+
+    @lazyproperty
+    def diagonal_down(self) -> LineFormat:
+        """|LineFormat| for the top-left-to-bottom-right diagonal (`a:lnTlToBr`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnTlToBr"))
+
+    @lazyproperty
+    def diagonal_up(self) -> LineFormat:
+        """|LineFormat| for the bottom-left-to-top-right diagonal (`a:lnBlToTr`)."""
+        return LineFormat(_BorderEdge(self._tc, "lnBlToTr"))
+
+    def all(self, width: Length | None = None, color: tuple[int, int, int] | None = None) -> None:
+        """Apply `width` and/or `color` to every border edge (4 sides + 2 diagonals).
+
+        `color` is an `(r, g, b)` 3-tuple of ints in 0–255 (compatible with
+        |RGBColor|). Either argument may be |None| to leave that aspect alone.
+        """
+        for edge in (self.left, self.right, self.top, self.bottom,
+                     self.diagonal_down, self.diagonal_up):
+            self._apply(edge, width, color)
+
+    def outer(self, width: Length | None = None, color: tuple[int, int, int] | None = None) -> None:
+        """Apply `width` and/or `color` to the four outer edges (left/right/top/bottom)."""
+        for edge in (self.left, self.right, self.top, self.bottom):
+            self._apply(edge, width, color)
+
+    def none(self) -> None:
+        """Remove all border edge elements from the cell.
+
+        Restores theme/style inheritance for every edge. Diagonal borders are
+        also cleared.
+        """
+        tcPr = self._tc.tcPr
+        if tcPr is None:
+            return
+        for edge in _BORDER_EDGES:
+            getattr(tcPr, "_remove_%s" % edge)()
+
+    @staticmethod
+    def _apply(line: LineFormat, width: Length | None, color: tuple[int, int, int] | None) -> None:
+        from pptx.dml.color import RGBColor
+
+        if width is not None:
+            line.width = width
+        if color is not None:
+            line.color.rgb = color if isinstance(color, RGBColor) else RGBColor(*color)

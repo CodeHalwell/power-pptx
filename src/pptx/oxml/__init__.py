@@ -221,6 +221,7 @@ from pptx.oxml.dml.color import (  # noqa: E402
     CT_Color,
     CT_HslColor,
     CT_Percentage,
+    CT_PositiveFixedPercentage,
     CT_PresetColor,
     CT_SchemeColor,
     CT_ScRgbColor,
@@ -228,6 +229,7 @@ from pptx.oxml.dml.color import (  # noqa: E402
     CT_SystemColor,
 )
 
+register_element_cls("a:alpha", CT_PositiveFixedPercentage)
 register_element_cls("a:bgClr", CT_Color)
 register_element_cls("a:fgClr", CT_Color)
 register_element_cls("a:hslClr", CT_HslColor)
@@ -383,6 +385,12 @@ register_element_cls("a:chExt", CT_PositiveSize2D)
 register_element_cls("a:chOff", CT_Point2D)
 register_element_cls("a:ext", CT_PositiveSize2D)
 register_element_cls("a:ln", CT_LineProperties)
+register_element_cls("a:lnB", CT_LineProperties)
+register_element_cls("a:lnBlToTr", CT_LineProperties)
+register_element_cls("a:lnL", CT_LineProperties)
+register_element_cls("a:lnR", CT_LineProperties)
+register_element_cls("a:lnT", CT_LineProperties)
+register_element_cls("a:lnTlToBr", CT_LineProperties)
 register_element_cls("a:off", CT_Point2D)
 register_element_cls("a:xfrm", CT_Transform2D)
 register_element_cls("c:spPr", CT_ShapeProperties)

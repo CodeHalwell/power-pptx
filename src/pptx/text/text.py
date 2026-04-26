@@ -30,6 +30,8 @@ if TYPE_CHECKING:
         CT_TextParagraph,
         CT_TextParagraphProperties,
     )
+    from pptx.parts.slide import SlidePart
+    from pptx.slide import Slide
     from pptx.types import ProvidesExtents, ProvidesPart
 
 
@@ -454,6 +456,38 @@ class _Hyperlink(Subshape):
         if url:
             self._add_hlinkClick(url)
 
+    @property
+    def target_slide(self) -> Slide | None:
+        """Slide in this presentation that this hyperlink jumps to.
+
+        Read/write. Returns |None| when no hyperlink is present, or when the
+        hyperlink targets an external URL rather than an internal slide. Assigning a
+        |Slide| writes a relationship-based slide-jump action
+        (``ppaction://hlinksldjump``) instead of a URI; assigning |None| removes the
+        hyperlink.
+        """
+        hlink = self._hlinkClick
+        if hlink is None:
+            return None
+        if hlink.action != "ppaction://hlinksldjump":
+            return None
+        rId = hlink.rId
+        if not rId:
+            return None
+        slide_part = cast("SlidePart", self.part.related_part(rId))
+        return slide_part.slide
+
+    @target_slide.setter
+    def target_slide(self, slide: Slide | None):
+        if self._hlinkClick is not None:
+            self._remove_hlinkClick()
+        if slide is None:
+            return
+        rId = self.part.relate_to(slide.part, RT.SLIDE)
+        hlink = self._rPr.get_or_add_hlinkClick()
+        hlink.action = "ppaction://hlinksldjump"
+        hlink.rId = rId
+
     def _add_hlinkClick(self, url: str):
         rId = self.part.relate_to(url, RT.HYPERLINK, is_external=True)
         self._rPr.add_hlinkClick(rId)
@@ -464,7 +498,9 @@ class _Hyperlink(Subshape):
 
     def _remove_hlinkClick(self):
         assert self._hlinkClick is not None
-        self.part.drop_rel(self._hlinkClick.rId)
+        rId = self._hlinkClick.rId
+        if rId:
+            self.part.drop_rel(rId)
         self._rPr._remove_hlinkClick()  # pyright: ignore[reportPrivateUsage]
 
 

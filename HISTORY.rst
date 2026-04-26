@@ -34,8 +34,27 @@ Project changes
 - Dropped Python 3.8 (EOL October 2024). Minimum supported version is
   now 3.9, matching ``pyright``'s configured ``pythonVersion``.
 
-No API changes in this release. Forthcoming features are tracked in the
-project README and on the GitHub issue tracker.
+New API
+~~~~~~~
+
+- ``Cell.borders`` (Phase 4): per-edge line formatting on table cells.
+  ``cell.borders.left``/``.right``/``.top``/``.bottom``/``.diagonal_down``/
+  ``.diagonal_up`` each return a ``LineFormat``. Convenience helpers
+  ``cell.borders.all(width=, color=)``, ``cell.borders.outer(...)``, and
+  ``cell.borders.none()`` apply or clear border settings across multiple
+  edges in one call. Backed by the OOXML ``a:lnL/lnR/lnT/lnB/lnTlToBr/
+  lnBlToTr`` children of ``a:tcPr``.
+- ``run.hyperlink.target_slide`` (Phase 4): assign a ``Slide`` to make
+  a text run an internal hyperlink. Writes a relationship-based
+  ``ppaction://hlinksldjump`` action; assigning ``None`` clears it. The
+  symmetric getter resolves the relationship back to the target slide,
+  mirroring ``Shape.click_action.target_slide``.
+- ``ColorFormat.alpha`` (Phase 3): per-color transparency. Read/write
+  float in ``[0.0, 1.0]`` (``1.0`` is fully opaque, the default; ``0.0``
+  is fully transparent). Maps to the ``<a:alpha>`` child of any
+  ``<a:srgbClr>``/``<a:schemeClr>``/etc. Available on the lazy proxy
+  returned by ``Font.color`` and ``LineFormat.color`` with the same
+  non-mutating read semantics as the rest of that proxy.
 
 
 1.0.2 (2024-08-07)

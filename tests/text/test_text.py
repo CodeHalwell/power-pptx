@@ -711,6 +711,53 @@ class Describe_Hyperlink(object):
         hlink.part.drop_rel.assert_called_once_with(rId_existing)
         hlink.part.relate_to.assert_called_once_with(new_url, RT.HYPERLINK, is_external=True)
 
+    def it_returns_None_target_slide_when_no_hyperlink(self, hlink):
+        assert hlink.target_slide is None
+
+    def it_returns_None_target_slide_when_hyperlink_is_external(self, hlink_with_url_):
+        hlink, _, _ = hlink_with_url_
+        # -- external hyperlink has no `action` attribute --
+        assert hlink.target_slide is None
+
+    def it_can_set_target_slide_to_jump_to_a_slide(self, request, hlink, rId):
+        slide_ = loose_mock(request, name="slide_")
+        slide_.part = loose_mock(request, name="slide_part_")
+        hlink.part.relate_to.return_value = rId
+
+        hlink.target_slide = slide_
+
+        hlink.part.relate_to.assert_called_once_with(slide_.part, RT.SLIDE)
+        hlinkClick = hlink._rPr.hlinkClick
+        assert hlinkClick is not None
+        assert hlinkClick.action == "ppaction://hlinksldjump"
+        assert hlinkClick.rId == rId
+
+    def it_resolves_target_slide_through_the_relationship(self, request, hlink, rId):
+        slide_ = loose_mock(request, name="slide_")
+        slide_part_ = loose_mock(request, name="slide_part_")
+        slide_part_.slide = slide_
+        slide_.part = slide_part_
+        hlink.part.related_part.return_value = slide_part_
+        hlink.part.relate_to.return_value = rId
+
+        hlink.target_slide = slide_
+        result = hlink.target_slide
+
+        hlink.part.related_part.assert_called_once_with(rId)
+        assert result is slide_
+
+    def it_clears_target_slide_when_set_to_None(self, request, hlink, rId):
+        slide_ = loose_mock(request, name="slide_")
+        slide_.part = loose_mock(request, name="slide_part_")
+        hlink.part.relate_to.return_value = rId
+
+        hlink.target_slide = slide_
+        hlink.target_slide = None
+
+        hlink.part.drop_rel.assert_called_once_with(rId)
+        assert hlink._rPr.hlinkClick is None
+        assert hlink.target_slide is None
+
     # fixtures ---------------------------------------------
 
     @pytest.fixture

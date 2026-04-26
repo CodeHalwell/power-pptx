@@ -6,13 +6,17 @@ from __future__ import annotations
 
 import pytest
 
+from pptx.dml.color import RGBColor
 from pptx.dml.fill import FillFormat
+from pptx.dml.line import LineFormat
 from pptx.enum.text import MSO_ANCHOR
 from pptx.oxml.ns import qn
 from pptx.oxml.table import CT_Table, CT_TableCell, TcRange
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.table import (
     Table,
+    _BorderEdge,
+    _Borders,
     _Cell,
     _CellCollection,
     _Column,
@@ -210,6 +214,16 @@ class Describe_Cell(object):
     def it_has_a_fill(self, fill_fixture):
         cell = fill_fixture
         assert isinstance(cell.fill, FillFormat)
+
+    def it_provides_access_to_a_borders_object(self):
+        tc = element("a:tc/a:tcPr")
+        cell = _Cell(tc, None)
+
+        borders = cell.borders
+
+        assert isinstance(borders, _Borders)
+        # -- caches the same instance across access --
+        assert cell.borders is borders
 
     def it_knows_whether_it_is_merge_origin_cell(self, origin_fixture):
         tc, expected_value = origin_fixture
@@ -798,3 +812,142 @@ class Describe_RowCollection(object):
         tbl_cxml, expected_len = request.param
         rows = _RowCollection(element(tbl_cxml), None)
         return rows, expected_len
+
+
+class Describe_Borders(object):
+    """Unit-test suite for `pptx.table._Borders` object."""
+
+    @pytest.mark.parametrize(
+        ("attr", "expected_edge"),
+        [
+            ("left", "lnL"),
+            ("right", "lnR"),
+            ("top", "lnT"),
+            ("bottom", "lnB"),
+            ("diagonal_down", "lnTlToBr"),
+            ("diagonal_up", "lnBlToTr"),
+        ],
+    )
+    def it_exposes_a_LineFormat_for_each_edge(self, attr, expected_edge):
+        tc = element("a:tc/a:tcPr")
+        borders = _Borders(tc)
+
+        line = getattr(borders, attr)
+
+        assert isinstance(line, LineFormat)
+        assert isinstance(line._parent, _BorderEdge)
+        assert line._parent._edge == expected_edge
+        # -- second access returns same instance (lazyproperty) --
+        assert getattr(borders, attr) is line
+
+    def it_does_not_create_border_xml_on_read(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        # -- accessing color without assignment should not materialize XML --
+        _ = borders.left.color.rgb
+
+        assert tc.tcPr is None or tc.tcPr.lnL is None
+
+    def it_materializes_border_xml_when_color_assigned(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        borders.left.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+
+        assert tc.tcPr is not None
+        lnL = tc.tcPr.lnL
+        assert lnL is not None
+        assert lnL.eg_lineFillProperties is not None
+
+    def it_can_apply_outer_borders_in_one_call(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        borders.outer(width=Pt(1), color=RGBColor(0x00, 0x00, 0xFF))
+
+        tcPr = tc.tcPr
+        assert tcPr is not None
+        for edge in ("lnL", "lnR", "lnT", "lnB"):
+            assert getattr(tcPr, edge) is not None
+        # -- diagonals untouched --
+        assert tcPr.lnTlToBr is None
+        assert tcPr.lnBlToTr is None
+
+    def it_can_apply_all_borders_including_diagonals(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        borders.all(width=Pt(0.5))
+
+        tcPr = tc.tcPr
+        assert tcPr is not None
+        for edge in ("lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr"):
+            assert getattr(tcPr, edge) is not None
+
+    def it_accepts_an_rgb_tuple_for_color(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        borders.outer(color=(10, 20, 30))
+
+        # -- assignment succeeded; conversion produced an srgbClr child --
+        assert tc.tcPr.lnL is not None
+
+    def it_can_remove_all_borders(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+        borders.all(width=Pt(1))
+        # -- preconditions --
+        assert tc.tcPr.lnL is not None
+
+        borders.none()
+
+        # -- every border edge cleared --
+        tcPr = tc.tcPr
+        for edge in ("lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr"):
+            assert getattr(tcPr, edge) is None
+
+    def it_silently_no_ops_remove_when_no_tcPr(self):
+        tc = element("a:tc")
+        borders = _Borders(tc)
+        # -- precondition: no tcPr present --
+        assert tc.tcPr is None
+
+        borders.none()  # should not raise
+
+        assert tc.tcPr is None
+
+
+class Describe_BorderEdge(object):
+    """Unit-test suite for `pptx.table._BorderEdge` object."""
+
+    def it_returns_None_for_ln_when_no_tcPr(self):
+        tc = element("a:tc")
+        edge = _BorderEdge(tc, "lnL")
+        assert edge.ln is None
+
+    def it_returns_None_for_ln_when_edge_element_absent(self):
+        tc = element("a:tc/a:tcPr")
+        edge = _BorderEdge(tc, "lnL")
+        assert edge.ln is None
+
+    def it_creates_tcPr_and_edge_on_get_or_add_ln(self):
+        tc = element("a:tc")
+        edge = _BorderEdge(tc, "lnR")
+
+        ln = edge.get_or_add_ln()
+
+        assert ln is not None
+        assert tc.tcPr is not None
+        assert tc.tcPr.lnR is ln
+
+    def it_returns_the_existing_edge_element_when_present(self):
+        tc = element("a:tc")
+        edge = _BorderEdge(tc, "lnT")
+        first = edge.get_or_add_ln()
+
+        second = edge.get_or_add_ln()
+
+        assert first is second
+        assert edge.ln is first

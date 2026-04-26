@@ -79,6 +79,43 @@ class DescribeColorFormat(object):
         with pytest.raises(ValueError):
             color_format.brightness = 0.5
 
+    def it_returns_one_for_alpha_when_no_alpha_set(self, rgb_color_format):
+        assert rgb_color_format.alpha == 1.0
+
+    def it_can_set_and_read_alpha_on_an_RGB_color(self, rgb_color_format):
+        rgb_color_format.alpha = 0.5
+        assert rgb_color_format.alpha == 0.5
+
+    def it_emits_alpha_child_in_xml_when_alpha_assigned(self, rgb_color_format):
+        rgb_color_format.alpha = 0.4
+        assert "<a:alpha val=" in rgb_color_format._xFill.xml
+
+    def it_can_clear_alpha_by_assigning_None(self, rgb_color_format):
+        rgb_color_format.alpha = 0.5
+        rgb_color_format.alpha = None
+        assert rgb_color_format.alpha == 1.0
+        assert "<a:alpha" not in rgb_color_format._xFill.xml
+
+    def it_clears_alpha_when_assigned_value_is_one(self, rgb_color_format):
+        rgb_color_format.alpha = 0.5
+        rgb_color_format.alpha = 1.0
+        assert "<a:alpha" not in rgb_color_format._xFill.xml
+
+    def it_raises_on_attempt_to_set_alpha_out_of_range(self, rgb_color_format):
+        with pytest.raises(ValueError, match="alpha must be number in range 0.0 to 1.0"):
+            rgb_color_format.alpha = 1.1
+        with pytest.raises(ValueError, match="alpha must be number in range 0.0 to 1.0"):
+            rgb_color_format.alpha = -0.1
+
+    def it_raises_on_attempt_to_set_alpha_on_None_color_type(
+        self, color_format_having_none_color_type
+    ):
+        with pytest.raises(ValueError, match="can't set alpha when color.type is None"):
+            color_format_having_none_color_type.alpha = 0.5
+
+    def it_returns_one_for_alpha_on_None_color_type(self, color_format_having_none_color_type):
+        assert color_format_having_none_color_type.alpha == 1.0
+
     # fixtures ---------------------------------------------
 
     @pytest.fixture
@@ -308,3 +345,16 @@ class Describe_LazyColorFormat:
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         with pytest.raises(ValueError, match="can't set brightness when color.type is None"):
             proxy.brightness = 0.5
+
+    def it_returns_one_for_alpha_when_no_solid_fill_is_present(self):
+        from pptx.dml.color import _LazyColorFormat
+
+        proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
+        assert proxy.alpha == 1.0
+
+    def it_raises_when_setting_alpha_without_a_color(self):
+        from pptx.dml.color import _LazyColorFormat
+
+        proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
+        with pytest.raises(ValueError, match="can't set alpha when color.type is None"):
+            proxy.alpha = 0.5
