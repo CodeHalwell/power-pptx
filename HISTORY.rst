@@ -31,6 +31,8 @@ Project changes
   it was not in ``pyproject.toml`` runtime deps and is not imported
   anywhere in ``src/pptx/``.
 - Added Python 3.13 to the supported-versions classifier list.
+- Dropped Python 3.8 (EOL October 2024). Minimum supported version is
+  now 3.9, matching ``pyright``'s configured ``pythonVersion``.
 
 No API changes in this release. Forthcoming features are tracked in the
 project README and on the GitHub issue tracker.
