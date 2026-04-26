@@ -104,10 +104,160 @@ as we add features on top.
 **Done when:** all 1.0.2 user code runs unchanged, the regression
 harness is green, and the CI matrix passes on 3.9–3.13.
 
-## Phase 2 — Visual effects (target: 1.2.0)
+## Phase 2 — Layout integrity and JSON authoring (target: 1.2.0)
 
-The single highest-impact feature. The OOXML element classes are
-already wired up at `oxml/shapes/shared.py:395`; we just need real
+The first thing people notice about an auto-generated deck is bad
+geometry: shapes overlap when they shouldn't, text spills out of its
+container, things sit slightly off the slide. This phase makes "the
+deck physically lays out correctly" a property the library can detect
+and (where safe) repair, and exposes a JSON entry point so LLM-driven
+generators can route straight into the linter without rewriting
+boilerplate.
+
+### Linter
+
+A read-only inspector that reports geometric and typographic issues on
+a slide or whole deck.
+
+```python
+report = slide.lint()                  # SlideLintReport
+report.issues                          # list[LintIssue]
+report.has_errors                      # bool
+report.summary()                       # human-readable string
+
+deck_report = prs.lint()               # DeckLintReport, slide-by-slide
+```
+
+Initial issue types:
+
+- `TextOverflow(shape, ratio)` — measured text extent exceeds the
+  text-frame extent. Uses Pillow `ImageDraw.textbbox` with the run's
+  font metrics; respects margins, vertical anchor, line spacing, and
+  `auto_size`. Builds on the existing `TextFitter` in `text/layout.py`.
+- `ShapeCollision(a, b, intersection_area, intersection_pct)` — two
+  shapes' bounding boxes overlap and the overlap is not declared
+  intentional (see relationship model below).
+- `OffSlide(shape, side)` — shape is wholly or partly outside the slide
+  bounds.
+- `TextTooSmall(shape, point_size)` — body text below a configurable
+  minimum (default 9pt; warning, not error).
+- (stretch) `LowContrast(shape, ratio)` — text-on-fill contrast below
+  WCAG 2.1 AA. Requires resolving theme colors, so depends on the
+  Phase 5 theme reader; ships in 1.5.x or later.
+
+### Relationship model — declaring intentional overlaps
+
+Without intent markers, every shadow, badge, and layered card trips
+the collision detector. Three escape hatches:
+
+1. **Group-implicit.** Shapes inside the same `<p:grpSp>` are treated
+   as cooperating. Putting a badge and its underlying card in a group
+   silences collisions between them.
+2. **Explicit pairwise.** `shape_a.allow_overlap_with(shape_b)`. Stored
+   on the shape's `<a:extLst>` under a private namespace
+   (`urn:python-pptx-next:lint`) so it round-trips through PowerPoint
+   without losing the marker.
+3. **Layer hints.** `shape.layer = "badge"`,
+   `shape.layer_above = "card"`. Asserts a deliberate z-order
+   relationship; the linter treats overlaps consistent with the layer
+   declaration as intentional and inconsistent ones as errors.
+
+In JSON specs (below), all three are expressible as fields on a shape
+entry, so an LLM can declare its intent at generation time.
+
+### Auto-fix
+
+Some issues can be repaired without designer judgment; some can't.
+
+- **`TextOverflow` → autofit.** Apply `MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`
+  using a Pillow-driven sizing pass, respecting a configurable minimum
+  font size. If the minimum is hit and text still overflows, downgrade
+  to a `TextOverflow` warning.
+- **`OffSlide` → nudge.** Translate the shape so it sits inside the
+  slide. Logs an info-level note; never silent.
+- **`ShapeCollision` → not auto-fixable.** Nudging shapes apart almost
+  always breaks the design. Reported only.
+
+```python
+report.auto_fix()                      # mutates; returns list of fixes
+report.auto_fix(dry_run=True)          # preview; no mutation
+```
+
+### Validation hooks
+
+```python
+prs.lint_on_save = "off"               # default, no checks at save
+prs.lint_on_save = "warn"              # log via stdlib logging
+prs.lint_on_save = "raise"             # raise LintError on save
+```
+
+Off by default to preserve drop-in compatibility with 1.0.2 user code.
+
+### JSON authoring
+
+A single entry point for generator scripts (LLM or otherwise):
+
+```python
+from pptx import Presentation
+from pptx.compose import from_spec
+
+prs = from_spec({
+    "theme": {"palette": "modern_blue", "fonts": "inter"},
+    "slides": [
+        {
+            "layout": "title",
+            "title": "Q4 Review",
+            "subtitle": "April 2026",
+            "transition": "morph",
+        },
+        {
+            "layout": "kpi_grid",
+            "title": "Run-rate metrics",
+            "kpis": [
+                {"label": "ARR", "value": "$182M", "delta": +0.27},
+                {"label": "NDR", "value": "131%", "delta": +0.03},
+            ],
+        },
+        {
+            "layout": "bullets",
+            "title": "Customer impact",
+            "bullets": [
+                "Two flagship customers shipped this week.",
+                "NPS improved 8 points QoQ.",
+            ],
+        },
+    ],
+    "lint": "raise",                   # fail loudly on bad output
+})
+```
+
+Schema is JSON-schema-validated before construction. Layout names
+resolve to Phase 8 design recipes when those exist; in 1.2.0 they map
+to a small built-in set of layouts using the host presentation's
+master.
+
+### What's deliberately *not* in this phase
+
+- Theme palette resolution (Phase 5).
+- The full `pptx.design.recipes` library (Phase 8). 1.2.0 ships with
+  ~5 hand-rolled layouts so `from_spec` is useful immediately.
+- Live re-layout on edit. The linter inspects; it does not maintain a
+  constraint graph.
+
+### Done when
+
+A 20-slide deck generated from a JSON spec by an LLM is run through
+the linter and produces zero `error`-severity issues, and the same
+linter applied to a hand-built deck flags every one of a curated set
+of "real-world LLM mistakes" (text overflow, shapes off-slide, charts
+stacked under titles).
+
+---
+
+## Phase 3 — Visual effects (target: 1.3.0)
+
+The single highest-impact *visual* feature. The OOXML element classes
+are already wired up at `oxml/shapes/shared.py:395`; we just need real
 children.
 
 - **`ShadowFormat`, expanded.** `dml/effect.py:6-42` currently exposes
@@ -137,7 +287,7 @@ children.
 shadow + soft edge + alpha-tinted fill in five lines of Python and
 PowerPoint renders it identically to a card built in the UI.
 
-## Phase 3 — Tables and transitions (target: 1.3.0)
+## Phase 4 — Tables and transitions (target: 1.4.0)
 
 Two unrelated medium-effort wins, packaged together because each is
 small.
@@ -164,7 +314,7 @@ small.
 **Done when:** a deck can be authored with per-cell zebra-striped
 borders and a Morph transition between two title slides.
 
-## Phase 4 — Animations (target: 1.4.0)
+## Phase 5 — Animations (target: 1.5.0)
 
 The single most-requested feature. Largest design surface in this
 roadmap. We ship the **preset subset only** — the full timing tree is
@@ -195,7 +345,7 @@ plays in PowerPoint identically to one assembled in the UI, and a deck
 authored in PowerPoint with custom animations is round-tripped without
 loss.
 
-## Phase 5 — Theme, picture effects, advanced fills (target: 1.5.0)
+## Phase 6 — Theme, picture effects, advanced fills (target: 1.6.0)
 
 - **Read-only theme API.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]`
   resolves to `RGBColor`; `prs.theme.fonts.major` / `.minor` return font
@@ -224,11 +374,13 @@ loss.
 the theme, recolors photos to match it, and embeds vector logos at
 print resolution.
 
-## Phase 6 — Slide composition and JSON workflows (target: 1.6.0)
+## Phase 7 — Slide composition and theme writer (target: 1.7.0)
 
-Solves "I want to merge decks" and "I have an LLM that returns JSON."
+Solves "I want to merge decks" — the JSON entry point already shipped
+in Phase 2, but cross-presentation operations are the remaining piece.
 
-- **`pptx.compose` package.**
+- **`pptx.compose` package** (extending the module introduced in
+  Phase 2 for `from_spec`).
 - **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
   Clones a slide from another presentation, including its layout
   reference, with master-deduplication and image-rename collision
@@ -236,20 +388,15 @@ Solves "I want to merge decks" and "I have an LLM that returns JSON."
   Aspose/Spire.
 - **`apply_template(potx_or_pptx)`.** Re-points slides at masters/layouts
   imported from a `.potx` or `.pptx`.
-- **`from_spec(spec)`.** Accepts a structured dict
-  (`{'slides': [{'layout': ..., 'title': ..., 'bullets': [...]}]}`) and
-  emits a deck. Trivial layer above the existing API but eliminates the
-  boilerplate every LLM-driven generator currently writes itself.
 - **Theme writer.** Now that we have read-only theme + composition
   primitives, expose `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] =
   RGBColor(...)` and `prs.theme.apply(other_theme)`.
 
 **Done when:** `Presentation.import_slide(prs2.slides[3])` produces a
-result indistinguishable from drag-and-drop in PowerPoint, and
-`Presentation.from_spec(json)` produces a 20-slide branded deck from a
-single dict.
+result indistinguishable from drag-and-drop in PowerPoint, and a brand
+theme can be swapped in from a `.potx` in one call.
 
-## Phase 7 — 3D, SmartArt text substitution (target: 1.7.0)
+## Phase 8 — 3D, SmartArt text substitution (target: 1.8.0)
 
 - **3D primitives.** Bevels (`a:bevelT`/`a:bevelB`) and extrusion
   (`a:sp3d`) under a new `shape.three_d` accessor. The `<a:scene3d>`
@@ -264,7 +411,7 @@ single dict.
 fresh names entirely from Python, and a "card" shape can render with
 bevel + soft shadow in three lines.
 
-## Phase 8 — Design system layer (target: 1.8.0)
+## Phase 9 — Design system layer (target: 1.9.0)
 
 The piece that turns the low-level API into something where the
 *default* output looks good. Nothing here adds new XML — it's all on
@@ -293,7 +440,7 @@ top of the foundations from earlier phases.
 from the README, and produce a deck that wouldn't look out of place in
 a series-A pitch.
 
-## Phase 9 — Stretch / community (target: 1.9.0+)
+## Phase 10 — Stretch / community (target: 1.10.0+)
 
 Items that are valuable but not on the critical path:
 
@@ -307,7 +454,7 @@ Items that are valuable but not on the critical path:
 
 ---
 
-## Phase 10 — 2.0.0 (the breaking-changes release)
+## Phase 11 — 2.0.0 (the breaking-changes release)
 
 Everything that's been accumulating deprecation warnings through 1.x
 gets removed:
