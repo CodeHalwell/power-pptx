@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-pptx-next"
-authors = [{name = "<YOUR NAME>", email = "<YOUR_EMAIL>"}]
-maintainers = [{name = "<YOUR NAME>", email = "<YOUR_EMAIL>"}]
+authors = [{name = "Daniel Halwell", email = "danielhalwell@gmail.com"}]
+maintainers = [{name = "Daniel Halwell", email = "danielhalwell@gmail.com"}]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
