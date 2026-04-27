@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from pptx.action import ActionSetting
-from pptx.dml.effect import ShadowFormat
+from pptx.dml.effect import GlowFormat, ShadowFormat, SoftEdgeFormat
 from pptx.shared import ElementProxy
 from pptx.util import lazyproperty
 
@@ -165,6 +165,15 @@ class BaseShape(object):
         self._element.rot = value
 
     @lazyproperty
+    def glow(self) -> GlowFormat:
+        """|GlowFormat| object providing access to glow effect for this shape.
+
+        A |GlowFormat| object is always returned even when no glow is explicitly
+        defined.  Reading ``glow.radius`` returns None in that case.
+        """
+        return GlowFormat(self._element.spPr)
+
+    @lazyproperty
     def shadow(self) -> ShadowFormat:
         """|ShadowFormat| object providing access to shadow for this shape.
 
@@ -173,6 +182,15 @@ class BaseShape(object):
         behavior).
         """
         return ShadowFormat(self._element.spPr)
+
+    @lazyproperty
+    def soft_edges(self) -> SoftEdgeFormat:
+        """|SoftEdgeFormat| object providing access to soft-edge effect for this shape.
+
+        A |SoftEdgeFormat| object is always returned even when no soft-edge is
+        explicitly defined.  Reading ``soft_edges.radius`` returns None in that case.
+        """
+        return SoftEdgeFormat(self._element.spPr)
 
     @property
     def shape_id(self) -> int:
