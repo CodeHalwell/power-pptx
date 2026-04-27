@@ -138,9 +138,9 @@ class Presentation(PartElementProxy):
         self,
         kind: "MSO_TRANSITION_TYPE | None" = cast("MSO_TRANSITION_TYPE", _UNSET),
         *,
-        duration: object = _UNSET,
-        advance_on_click: object = _UNSET,
-        advance_after: object = _UNSET,
+        duration: int | None = cast(int, _UNSET),
+        advance_on_click: bool | None = cast(bool, _UNSET),
+        advance_after: int | None = cast(int, _UNSET),
     ) -> None:
         """Apply a transition to every slide in this presentation.
 
@@ -166,14 +166,10 @@ class Presentation(PartElementProxy):
         for slide in self.slides:
             transition = slide.transition
             if kind is not _UNSET:
-                transition.kind = kind  # pyright: ignore[reportArgumentType]
+                transition.kind = kind
             if duration is not _UNSET:
-                transition.duration = duration  # pyright: ignore[reportAttributeAccessIssue]
+                transition.duration = duration
             if advance_on_click is not _UNSET:
-                transition.advance_on_click = (  # pyright: ignore[reportAttributeAccessIssue]
-                    advance_on_click
-                )
+                transition.advance_on_click = advance_on_click
             if advance_after is not _UNSET:
-                transition.advance_after = (  # pyright: ignore[reportAttributeAccessIssue]
-                    advance_after
-                )
+                transition.advance_after = advance_after

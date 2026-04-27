@@ -323,7 +323,9 @@ class BlurFormat(object):
     """Provides access to the Gaussian blur effect on a shape.
 
     All property reads are non-mutating; assigning a non-None value lazily
-    creates the `<a:effectLst>`/`<a:blur>` hierarchy.
+    creates the `<a:effectLst>`/`<a:blur>` hierarchy.  Clearing the last
+    explicit attribute drops the `<a:blur>` element again so theme
+    inheritance is preserved.
     """
 
     def __init__(self, spPr: CT_ShapeProperties):
@@ -339,9 +341,8 @@ class BlurFormat(object):
     def radius(self, value: Length | None):
         if value is None:
             if self._blur is not None:
-                effectLst: CT_EffectList | None = self._element.effectLst
-                if effectLst is not None:
-                    effectLst._remove_blur()  # pyright: ignore[reportPrivateUsage]
+                self._blur.rad = None  # type: ignore[assignment]
+                self._maybe_drop_blur()
         else:
             self._get_or_add_blur().rad = value  # type: ignore[assignment]
 
@@ -362,6 +363,7 @@ class BlurFormat(object):
         if value is None:
             if self._blur is not None:
                 self._blur.grow = None  # type: ignore[assignment]
+                self._maybe_drop_blur()
         else:
             self._get_or_add_blur().grow = bool(value)  # type: ignore[assignment]
 
@@ -382,6 +384,20 @@ class BlurFormat(object):
         if blur is None:
             blur = effectLst.get_or_add_blur()
         return blur
+
+    def _maybe_drop_blur(self) -> None:
+        """Remove `<a:blur>` when no explicit attributes remain.
+
+        Keeps theme inheritance intact when a caller clears every property
+        they previously assigned.
+        """
+        blur = self._blur
+        if blur is None:
+            return
+        if not blur.attrib:
+            effectLst = self._element.effectLst
+            if effectLst is not None:
+                effectLst._remove_blur()  # pyright: ignore[reportPrivateUsage]
 
 
 class ReflectionFormat(object):
