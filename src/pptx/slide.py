@@ -228,13 +228,11 @@ class SlideTransition(object):
             return
         local = value.xml_value
         prefix = "p14" if local in P14_TRANSITION_NAMES else "p"
-        kind_elm = etree.SubElement(
-            transition,
+        kind_elm = etree.Element(
             qn("%s:%s" % (prefix, local)),
             nsmap={prefix: _PREFIX_TO_URI[prefix]},
         )
-        # the SubElement appends; move it to position 0 (before any sndAc/extLst)
-        transition.remove(kind_elm)
+        # insert at position 0 (before any sndAc/extLst)
         transition.insert(0, kind_elm)
 
     @property
