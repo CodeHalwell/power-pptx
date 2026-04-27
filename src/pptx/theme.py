@@ -60,6 +60,17 @@ class Theme:
 # ThemeColors
 # ---------------------------------------------------------------------------
 
+# OOXML defines bg1/bg2/tx1/tx2 as logical aliases that always resolve to
+# lt1/lt2/dk1/dk2 respectively in the <a:clrScheme> element.  The scheme
+# never stores bg*/tx* child elements, so we must remap before the lookup.
+_CLR_SCHEME_ALIAS: dict[str, str] = {
+    "bg1": "lt1",
+    "bg2": "lt2",
+    "tx1": "dk1",
+    "tx2": "dk2",
+}
+
+
 class ThemeColors:
     """Dict-like read-only view of a theme's color scheme.
 
@@ -104,8 +115,9 @@ class ThemeColors:
         if clr_scheme is None:
             return None
 
-        slot_tag = qn(f"a:{theme_color.xml_value}")
-        slot_elm = clr_scheme.find(slot_tag)
+        # bg1/bg2/tx1/tx2 are OOXML aliases; clrScheme only stores lt1/lt2/dk1/dk2.
+        slot_name = _CLR_SCHEME_ALIAS.get(theme_color.xml_value, theme_color.xml_value)
+        slot_elm = clr_scheme.find(qn(f"a:{slot_name}"))
         if slot_elm is None:
             return None
 
