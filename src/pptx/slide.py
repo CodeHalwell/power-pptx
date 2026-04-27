@@ -25,6 +25,7 @@ from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
 
 if TYPE_CHECKING:
+    from pptx.lint import SlideLintReport
     from pptx.oxml.presentation import CT_SlideIdList, CT_SlideMasterIdList
     from pptx.oxml.slide import (
         CT_CommonSlideData,
@@ -343,6 +344,23 @@ class Slide(_BaseSlide):
     """Slide object. Provides access to shapes and slide-level properties."""
 
     part: SlidePart  # pyright: ignore[reportIncompatibleMethodOverride]
+
+    def lint(self) -> SlideLintReport:
+        """Inspect this slide for geometric and typographic issues.
+
+        Returns a |SlideLintReport| with a list of detected issues (text
+        overflow, shapes off-slide, shape collisions).  The report is
+        generated fresh on each call.
+
+        Example::
+
+            report = slide.lint()
+            if report.has_errors:
+                print(report.summary())
+        """
+        from pptx.lint import lint_slide
+
+        return lint_slide(self)
 
     @property
     def follow_master_background(self):

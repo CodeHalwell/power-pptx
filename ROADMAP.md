@@ -114,7 +114,7 @@ and (where safe) repair, and exposes a JSON entry point so LLM-driven
 generators can route straight into the linter without rewriting
 boilerplate.
 
-### Linter
+### [x] Linter
 
 A read-only inspector that reports geometric and typographic issues on
 a slide or whole deck.
@@ -165,7 +165,7 @@ the collision detector. Three escape hatches:
 In JSON specs (below), all three are expressible as fields on a shape
 entry, so an LLM can declare its intent at generation time.
 
-### Auto-fix
+### [x] Auto-fix
 
 Some issues can be repaired without designer judgment; some can't.
 
@@ -260,21 +260,20 @@ The single highest-impact *visual* feature. The OOXML element classes
 are already wired up at `oxml/shapes/shared.py:395`; we just need real
 children.
 
-- **`ShadowFormat`, expanded.** `dml/effect.py:6-42` currently exposes
-  only `inherit`. Add:
-  - `style` (`MSO_SHADOW.OUTER` / `INNER` / `PRESET`)
-  - `color` (`ColorFormat`, supports theme + RGB)
-  - `transparency`, `blur`, `distance`, `angle`, `size` (sx/sy)
-  - `preset` (`MSO_PRESET_SHADOW.OFFSET_DIAGONAL_BOTTOM_RIGHT` etc.,
-    20 presets)
-- **New `GlowFormat`, `ReflectionFormat`, `SoftEdgeFormat`,
-  `BlurFormat`** with a parallel API. Surfaced as
-  `shape.glow`, `shape.reflection`, `shape.soft_edges`, `shape.blur`.
-- **OOXML element classes.** New `oxml/dml/effect.py` with
-  `CT_OuterShadowEffect`, `CT_InnerShadowEffect`, `CT_PresetShadowEffect`,
-  `CT_GlowEffect`, `CT_ReflectionEffect`, `CT_SoftEdgesEffect`,
-  `CT_BlurEffect`. Schema source: `spec/.../dml-main.xsd:1640-1710`.
-- **Inheritance semantics.** Reading a property on a shape with no
+- [x] **`ShadowFormat`, expanded.** `dml/effect.py:6-42` now exposes
+  `blur_radius`, `distance`, `direction`, and `color` (`ColorFormat`, supports
+  theme + RGB) in addition to the existing `inherit` property. All reads are
+  non-mutating; the `<a:effectLst>`/`<a:outerShdw>` hierarchy is created lazily
+  on first write. (`style`/`preset` enum attributes deferred — complex variant
+  handling; `size`/skew attrs deferred to a follow-up.)
+- [x] **New `GlowFormat`, `SoftEdgeFormat`** with a parallel non-mutating API.
+  Surfaced as `shape.glow` (radius, color) and `shape.soft_edges` (radius).
+  `ReflectionFormat` and `BlurFormat` are deferred to a follow-up.
+- [x] **OOXML element classes.** New `oxml/dml/effect.py` with `CT_EffectList`,
+  `CT_OuterShadowEffect`, `CT_GlowEffect`, `CT_SoftEdgesEffect`. Remaining
+  variants (`CT_InnerShadowEffect`, `CT_ReflectionEffect`, `CT_BlurEffect`)
+  deferred to a follow-up.
+- [x] **Inheritance semantics.** Reading a property on a shape with no
   explicit value returns `None`. (Theme-walking is deferred to Phase 5.)
 - [x] **`RGBColor.alpha` / per-color transparency.** Adds `<a:alpha>`
   emission inside any `ColorFormat` consumer. Unlocks "glassy card"
