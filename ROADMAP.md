@@ -303,14 +303,22 @@ small.
   each a `LineFormat`. Add convenience: `Borders.all(...)`,
   `Borders.outer(...)`, `Borders.none()`. Fixes the single most-asked-for
   table feature.
-- **`Slide.transition`.** Today `<p:transition>` is reserved at
-  `oxml/slide.py:162` but unregistered in `oxml/__init__.py`. Wire up:
-  - `transition.kind = MSO_TRANSITION.MORPH` (new enum, ~25 values
-    incl. p14/p15 extension namespaces)
-  - `transition.direction` for direction-aware transitions
-  - `transition.duration` (ms; uses `p14:dur`)
-  - `transition.advance_on_click`, `advance_after`
-  - `Presentation.set_transition(kind, slides=...)` deck-wide helper
+- [x] **`Slide.transition`.** `<p:transition>` is now wired up via
+  `CT_SlideTransition` and exposed as `slide.transition` (a
+  `SlideTransition` proxy). Initial scope:
+  - `transition.kind = MSO_TRANSITION.MORPH` — `MSO_TRANSITION_TYPE`
+    enum covering 25+ kinds, including `p14:` extension transitions
+    (Morph, Vortex, Conveyor, Switch, Gallery, Fly Through). The
+    `p14` namespace was added to `oxml/ns.py`.
+  - `transition.duration` (ms; reads/writes `p14:dur`, falls back to
+    mapping the legacy `spd` bucket on read).
+  - `transition.advance_on_click` (writes `advClick="0"|"1"`).
+  - `transition.advance_after` (ms; writes `advTm`).
+  - `transition.clear()` removes the `<p:transition>` element entirely.
+  - Reads on an unset transition return `None` and never mutate XML,
+    keeping theme inheritance intact.
+  - Direction attributes and the `Presentation.set_transition(...)`
+    deck-wide helper are deferred to a follow-up.
 - [x] **Run-level internal hyperlinks.** `run.hyperlink.target_slide =
   deck.slides[7]` writes a relationship-based action instead of a URI.
   Single XML attribute swap; missing today.
@@ -368,8 +376,14 @@ loss.
 - **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
   takes a `kind` argument; `GradientStops` becomes mutable
   (`append`, `replace`, `__delitem__`).
-- **Line ends, caps, joins, compound lines.** `line.head_end`,
-  `line.tail_end`, `line.cap`, `line.compound`, `line.join`.
+- [x] **Line ends, caps, joins, compound lines.** `line.head_end`,
+  `line.tail_end` (each a `LineEndFormat` exposing `.type`, `.width`,
+  `.length`), `line.cap` (`MSO_LINE_CAP`), `line.compound`
+  (`MSO_LINE_COMPOUND`), and `line.join` (`MSO_LINE_JOIN`, mapping to
+  `<a:round/>` / `<a:bevel/>` / `<a:miter/>`). Reads are non-mutating;
+  setting an end attribute lazily creates `<a:ln>`/`<a:headEnd>` and
+  clearing the last attribute drops the end element again so theme
+  inheritance is preserved.
 - **Text fit estimator.** Pillow-driven measurement so
   `TextFrame.fit_text` works without requiring a `font_file=` argument
   in the common case.

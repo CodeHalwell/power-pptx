@@ -139,6 +139,143 @@ class MSO_LINE_DASH_STYLE(BaseXmlEnum):
 MSO_LINE = MSO_LINE_DASH_STYLE
 
 
+class MSO_LINE_CAP_STYLE(BaseXmlEnum):
+    """Specifies the end-cap style for a line.
+
+    Alias: ``MSO_LINE_CAP``
+
+    Example::
+
+        from pptx.enum.dml import MSO_LINE_CAP
+
+        shape.line.cap = MSO_LINE_CAP.ROUND
+
+    Maps to the `cap` attribute on `<a:ln>`.
+    """
+
+    FLAT = (3, "flat", "Flat end cap (no extension beyond the line end).")
+    """Flat end cap (no extension beyond the line end)."""
+
+    ROUND = (1, "rnd", "Rounded end cap.")
+    """Rounded end cap."""
+
+    SQUARE = (2, "sq", "Square end cap (extends past the line end).")
+    """Square end cap (extends past the line end)."""
+
+
+MSO_LINE_CAP = MSO_LINE_CAP_STYLE
+
+
+class MSO_LINE_COMPOUND_STYLE(BaseXmlEnum):
+    """Specifies the compound (multi-stroke) style for a line.
+
+    Alias: ``MSO_LINE_COMPOUND``
+
+    Example::
+
+        from pptx.enum.dml import MSO_LINE_COMPOUND
+
+        shape.line.compound = MSO_LINE_COMPOUND.DOUBLE
+
+    Maps to the `cmpd` attribute on `<a:ln>`.
+    """
+
+    SINGLE = (1, "sng", "Single line.")
+    """Single line."""
+
+    THICK_THIN = (2, "thickThin", "Thick line followed by thin.")
+    """Thick line followed by thin."""
+
+    THIN_THICK = (3, "thinThick", "Thin line followed by thick.")
+    """Thin line followed by thick."""
+
+    DOUBLE = (4, "dbl", "Two parallel lines of equal width.")
+    """Two parallel lines of equal width."""
+
+    TRIPLE = (5, "tri", "Three parallel lines (thin-thick-thin).")
+    """Three parallel lines (thin-thick-thin)."""
+
+
+MSO_LINE_COMPOUND = MSO_LINE_COMPOUND_STYLE
+
+
+class MSO_LINE_JOIN_STYLE(BaseEnum):
+    """Specifies the join style at corners of a stroked line.
+
+    Alias: ``MSO_LINE_JOIN``
+
+    Example::
+
+        from pptx.enum.dml import MSO_LINE_JOIN
+
+        shape.line.join = MSO_LINE_JOIN.ROUND
+
+    Each member corresponds to a child element of `<a:ln>`: `<a:round/>`,
+    `<a:bevel/>`, or `<a:miter/>`.
+    """
+
+    ROUND = (1, "Round join — corresponds to `<a:round/>`.")
+    """Round join — corresponds to `<a:round/>`."""
+
+    BEVEL = (2, "Bevel join — corresponds to `<a:bevel/>`.")
+    """Bevel join — corresponds to `<a:bevel/>`."""
+
+    MITER = (3, "Miter join — corresponds to `<a:miter/>`.")
+    """Miter join — corresponds to `<a:miter/>`."""
+
+
+MSO_LINE_JOIN = MSO_LINE_JOIN_STYLE
+
+
+class MSO_LINE_END_TYPE(BaseXmlEnum):
+    """Specifies the arrowhead style at one end of a line.
+
+    Example::
+
+        from pptx.enum.dml import MSO_LINE_END_TYPE
+
+        shape.line.head_end.type = MSO_LINE_END_TYPE.ARROW
+
+    Maps to the `type` attribute on `<a:headEnd>` / `<a:tailEnd>`.
+    """
+
+    NONE = (1, "none", "No arrowhead.")
+    """No arrowhead."""
+
+    ARROW = (2, "arrow", "Open arrowhead.")
+    """Open arrowhead."""
+
+    DIAMOND = (3, "diamond", "Diamond-shaped end.")
+    """Diamond-shaped end."""
+
+    OVAL = (4, "oval", "Oval (filled circle) end.")
+    """Oval (filled circle) end."""
+
+    STEALTH = (5, "stealth", "Stealth (concave) arrowhead.")
+    """Stealth (concave) arrowhead."""
+
+    TRIANGLE = (6, "triangle", "Filled triangular arrowhead.")
+    """Filled triangular arrowhead."""
+
+
+class MSO_LINE_END_SIZE(BaseXmlEnum):
+    """Specifies the relative size of an arrowhead's width or length.
+
+    Used by both `head_end.width` / `head_end.length` and the corresponding
+    `tail_end` properties. Maps to the `w` and `len` attributes on
+    `<a:headEnd>` / `<a:tailEnd>`.
+    """
+
+    SMALL = (1, "sm", "Small arrowhead width or length.")
+    """Small arrowhead width or length."""
+
+    MEDIUM = (2, "med", "Medium arrowhead width or length.")
+    """Medium arrowhead width or length."""
+
+    LARGE = (3, "lg", "Large arrowhead width or length.")
+    """Large arrowhead width or length."""
+
+
 class MSO_PATTERN_TYPE(BaseXmlEnum):
     """Specifies the fill pattern used in a shape.
 

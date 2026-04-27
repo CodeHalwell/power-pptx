@@ -372,6 +372,8 @@ register_element_cls("p:pic", CT_Picture)
 
 from pptx.oxml.shapes.shared import (  # noqa: E402
     CT_ApplicationNonVisualDrawingProps,
+    CT_LineEndProperties,
+    CT_LineJoinMiterProperties,
     CT_LineProperties,
     CT_NonVisualDrawingProps,
     CT_Placeholder,
@@ -384,6 +386,7 @@ from pptx.oxml.shapes.shared import (  # noqa: E402
 register_element_cls("a:chExt", CT_PositiveSize2D)
 register_element_cls("a:chOff", CT_Point2D)
 register_element_cls("a:ext", CT_PositiveSize2D)
+register_element_cls("a:headEnd", CT_LineEndProperties)
 register_element_cls("a:ln", CT_LineProperties)
 register_element_cls("a:lnB", CT_LineProperties)
 register_element_cls("a:lnBlToTr", CT_LineProperties)
@@ -391,7 +394,9 @@ register_element_cls("a:lnL", CT_LineProperties)
 register_element_cls("a:lnR", CT_LineProperties)
 register_element_cls("a:lnT", CT_LineProperties)
 register_element_cls("a:lnTlToBr", CT_LineProperties)
+register_element_cls("a:miter", CT_LineJoinMiterProperties)
 register_element_cls("a:off", CT_Point2D)
+register_element_cls("a:tailEnd", CT_LineEndProperties)
 register_element_cls("a:xfrm", CT_Transform2D)
 register_element_cls("c:spPr", CT_ShapeProperties)
 register_element_cls("p:cNvPr", CT_NonVisualDrawingProps)
@@ -413,6 +418,7 @@ from pptx.oxml.slide import (  # noqa: E402
     CT_SlideLayoutIdListEntry,
     CT_SlideMaster,
     CT_SlideTiming,
+    CT_SlideTransition,
     CT_TimeNodeList,
     CT_TLMediaNodeVideo,
 )
@@ -429,6 +435,7 @@ register_element_cls("p:sldLayoutId", CT_SlideLayoutIdListEntry)
 register_element_cls("p:sldLayoutIdLst", CT_SlideLayoutIdList)
 register_element_cls("p:sldMaster", CT_SlideMaster)
 register_element_cls("p:timing", CT_SlideTiming)
+register_element_cls("p:transition", CT_SlideTransition)
 register_element_cls("p:video", CT_TLMediaNodeVideo)
 
 

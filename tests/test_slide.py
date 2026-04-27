@@ -24,6 +24,7 @@ from pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
+from pptx.enum.presentation import MSO_TRANSITION_TYPE
 from pptx.slide import (
     NotesMaster,
     NotesSlide,
@@ -32,6 +33,7 @@ from pptx.slide import (
     SlideLayouts,
     SlideMaster,
     SlideMasters,
+    SlideTransition,
     Slides,
     _Background,
     _BaseMaster,
@@ -342,6 +344,13 @@ class DescribeSlide(object):
         slide, notes_slide_ = notes_slide_fixture
         assert slide.notes_slide is notes_slide_
 
+    def it_provides_a_transition(self):
+        slide = Slide(element("p:sld/p:cSld"), None)
+        transition = slide.transition
+        assert isinstance(transition, SlideTransition)
+        # caching: same instance on every call
+        assert slide.transition is transition
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture
@@ -441,6 +450,147 @@ class DescribeSlide(object):
     @pytest.fixture
     def slide_part_(self, request):
         return instance_mock(request, SlidePart)
+
+
+class DescribeSlideTransition(object):
+    """Unit-test suite for `pptx.slide.SlideTransition` objects."""
+
+    def it_returns_None_when_no_transition_is_set(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        assert transition.kind is None
+        assert transition.duration is None
+        assert transition.advance_on_click is None
+        assert transition.advance_after is None
+        # reads must be non-mutating
+        assert sld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}transition") is None
+
+    @pytest.mark.parametrize(
+        ("transition_cxml", "expected"),
+        [
+            ("p:transition", MSO_TRANSITION_TYPE.NONE),
+            ("p:transition/p:fade", MSO_TRANSITION_TYPE.FADE),
+            ("p:transition/p:wipe", MSO_TRANSITION_TYPE.WIPE),
+            ("p:transition/p:cut", MSO_TRANSITION_TYPE.CUT),
+            ("p:transition/p:zoom", MSO_TRANSITION_TYPE.ZOOM),
+        ],
+    )
+    def it_reads_the_kind_from_the_child_element(self, transition_cxml, expected):
+        sld = element("p:sld/p:cSld")
+        sld.append(element(transition_cxml))
+        transition = SlideTransition(sld)
+        assert transition.kind == expected
+
+    def it_can_set_a_standard_kind(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.FADE
+        assert transition.kind == MSO_TRANSITION_TYPE.FADE
+        # round-trip XML contains <p:fade/> as a child of <p:transition>
+        t_elm = sld.transition
+        assert t_elm is not None
+        assert (
+            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade")
+            is not None
+        )
+
+    def it_can_set_a_p14_kind(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.MORPH
+        assert transition.kind == MSO_TRANSITION_TYPE.MORPH
+        t_elm = sld.transition
+        assert t_elm is not None
+        assert (
+            t_elm.find("{http://schemas.microsoft.com/office/powerpoint/2010/main}morph")
+            is not None
+        )
+
+    def it_replaces_a_pre_existing_kind_child(self):
+        sld = element("p:sld/p:cSld")
+        sld.append(element("p:transition/p:fade"))
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.WIPE
+        assert transition.kind == MSO_TRANSITION_TYPE.WIPE
+        t_elm = sld.transition
+        assert t_elm is not None
+        assert (
+            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade")
+            is None
+        )
+
+    def it_clears_the_transition_when_kind_is_set_to_None(self):
+        sld = element("p:sld/p:cSld")
+        sld.append(element("p:transition/p:fade"))
+        transition = SlideTransition(sld)
+        transition.kind = None
+        assert sld.transition is None
+
+    def it_round_trips_duration_and_advance_attributes(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.FADE
+        transition.duration = 1500
+        transition.advance_on_click = False
+        transition.advance_after = 5000
+        assert transition.duration == 1500
+        assert transition.advance_on_click is False
+        assert transition.advance_after == 5000
+
+    def it_maps_legacy_spd_attribute_to_milliseconds(self):
+        sld = element("p:sld/p:cSld")
+        sld.append(element('p:transition{spd=med}'))
+        transition = SlideTransition(sld)
+        assert transition.duration == 750
+
+    def it_clears_individual_attributes(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.FADE
+        transition.duration = 1500
+        transition.advance_after = 5000
+
+        transition.duration = None
+        transition.advance_after = None
+        assert transition.duration is None
+        assert transition.advance_after is None
+
+    def it_raises_TypeError_on_non_enum_kind(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        with pytest.raises(TypeError):
+            transition.kind = "fade"
+
+    @pytest.mark.parametrize(
+        "ms",
+        [-1, -1000],
+    )
+    def it_rejects_negative_durations(self, ms):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        with pytest.raises(ValueError):
+            transition.duration = ms
+
+    def it_rejects_negative_advance_after(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        with pytest.raises(ValueError):
+            transition.advance_after = -100
+
+    def it_supports_clear_to_remove_the_transition(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.FADE
+        transition.duration = 1000
+        transition.clear()
+        assert sld.transition is None
+        assert transition.kind is None
+
+    def it_clear_is_idempotent(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.clear()  # no-op when no transition is present
+        assert sld.transition is None
 
 
 class DescribeSlides(object):

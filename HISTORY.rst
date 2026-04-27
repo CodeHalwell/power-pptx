@@ -55,6 +55,24 @@ New API
   ``<a:srgbClr>``/``<a:schemeClr>``/etc. Available on the lazy proxy
   returned by ``Font.color`` and ``LineFormat.color`` with the same
   non-mutating read semantics as the rest of that proxy.
+- ``LineFormat`` line-style additions (Phase 6): ``line.cap``
+  (``MSO_LINE_CAP``: ``FLAT``/``ROUND``/``SQUARE``), ``line.compound``
+  (``MSO_LINE_COMPOUND``: single, double, thick-thin, thin-thick,
+  triple), ``line.join`` (``MSO_LINE_JOIN``: round/bevel/miter mapping
+  to the ``<a:round/>``/``<a:bevel/>``/``<a:miter/>`` children), plus
+  ``line.head_end`` and ``line.tail_end`` ``LineEndFormat`` proxies
+  exposing ``.type`` (``MSO_LINE_END_TYPE``), ``.width`` and
+  ``.length`` (``MSO_LINE_END_SIZE``). All reads are non-mutating;
+  clearing the last attribute on a head/tail end drops the element so
+  theme inheritance is preserved.
+- ``Slide.transition`` (Phase 4): a ``SlideTransition`` proxy exposing
+  ``.kind`` (``MSO_TRANSITION_TYPE``, including PowerPoint 2010+
+  ``p14`` extension transitions like ``MORPH``, ``CONVEYOR``,
+  ``VORTEX``), ``.duration`` (milliseconds, via ``p14:dur`` with
+  fallback mapping for the legacy ``spd`` bucket), ``.advance_on_click``
+  and ``.advance_after``. Reads on a slide with no explicit
+  ``<p:transition>`` return ``None`` and never mutate; ``.clear()``
+  removes the element entirely.
 
 
 1.0.2 (2024-08-07)

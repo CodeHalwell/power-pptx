@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from pptx.dml.fill import CT_GradientFillProperties
+from pptx.enum.dml import (
+    MSO_LINE_CAP_STYLE,
+    MSO_LINE_COMPOUND_STYLE,
+    MSO_LINE_END_SIZE,
+    MSO_LINE_END_TYPE,
+)
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.oxml.ns import qn
 from pptx.oxml.simpletypes import (
@@ -264,8 +270,16 @@ class CT_LineProperties(BaseOxmlElement):
     )
     prstDash = ZeroOrOne("a:prstDash", successors=_tag_seq[5:])
     custDash = ZeroOrOne("a:custDash", successors=_tag_seq[6:])
+    eg_lineJoinProperties = ZeroOrOneChoice(
+        (Choice("a:round"), Choice("a:bevel"), Choice("a:miter")),
+        successors=_tag_seq[9:],
+    )
+    headEnd = ZeroOrOne("a:headEnd", successors=_tag_seq[10:])
+    tailEnd = ZeroOrOne("a:tailEnd", successors=_tag_seq[11:])
     del _tag_seq
     w = OptionalAttribute("w", ST_LineWidth, default=Emu(0))
+    cap = OptionalAttribute("cap", MSO_LINE_CAP_STYLE)
+    cmpd = OptionalAttribute("cmpd", MSO_LINE_COMPOUND_STYLE)
 
     @property
     def eg_fillProperties(self):
@@ -290,6 +304,32 @@ class CT_LineProperties(BaseOxmlElement):
         self._remove_custDash()
         prstDash = self.get_or_add_prstDash()
         prstDash.val = val
+
+
+class CT_LineEndProperties(BaseOxmlElement):
+    """`a:headEnd` / `a:tailEnd` custom element class.
+
+    Defines the arrowhead at one end of a stroked line.
+    """
+
+    type: MSO_LINE_END_TYPE | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "type", MSO_LINE_END_TYPE
+    )
+    w: MSO_LINE_END_SIZE | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "w", MSO_LINE_END_SIZE
+    )
+    len: MSO_LINE_END_SIZE | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "len", MSO_LINE_END_SIZE
+    )
+
+
+class CT_LineJoinMiterProperties(BaseOxmlElement):
+    """`a:miter` custom element class.
+
+    Specifies a miter join with an optional `lim` (limit) attribute.
+    """
+
+    lim = OptionalAttribute("lim", ST_PositiveCoordinate)
 
 
 class CT_NonVisualDrawingProps(BaseOxmlElement):

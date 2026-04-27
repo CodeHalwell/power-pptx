@@ -6,8 +6,16 @@ import pytest
 
 from pptx.dml.color import ColorFormat
 from pptx.dml.fill import FillFormat
-from pptx.dml.line import LineFormat
-from pptx.enum.dml import MSO_FILL, MSO_LINE
+from pptx.dml.line import LineEndFormat, LineFormat
+from pptx.enum.dml import (
+    MSO_FILL,
+    MSO_LINE,
+    MSO_LINE_CAP,
+    MSO_LINE_COMPOUND,
+    MSO_LINE_END_SIZE,
+    MSO_LINE_END_TYPE,
+    MSO_LINE_JOIN,
+)
 from pptx.oxml.shapes.shared import CT_LineProperties
 from pptx.shapes.autoshape import Shape
 
@@ -181,3 +189,149 @@ class DescribeLineFormat(object):
         shape_ = instance_mock(request, Shape)
         shape_.get_or_add_ln.return_value = ln_
         return shape_
+
+    # cap, compound, join, head_end, tail_end tests --------------------
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "expected"),
+        [
+            ("p:spPr", None),
+            ("p:spPr/a:ln", None),
+            ("p:spPr/a:ln{cap=flat}", MSO_LINE_CAP.FLAT),
+            ("p:spPr/a:ln{cap=rnd}", MSO_LINE_CAP.ROUND),
+            ("p:spPr/a:ln{cap=sq}", MSO_LINE_CAP.SQUARE),
+        ],
+    )
+    def it_knows_its_cap(self, spPr_cxml: str, expected):
+        line = LineFormat(element(spPr_cxml))
+        assert line.cap == expected
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "value", "expected_cxml"),
+        [
+            (
+                "p:spPr{a:b=c}",
+                MSO_LINE_CAP.ROUND,
+                "p:spPr{a:b=c}/a:ln{cap=rnd}",
+            ),
+            ("p:spPr/a:ln", MSO_LINE_CAP.SQUARE, "p:spPr/a:ln{cap=sq}"),
+            ("p:spPr/a:ln{cap=flat}", MSO_LINE_CAP.ROUND, "p:spPr/a:ln{cap=rnd}"),
+            ("p:spPr/a:ln{cap=flat}", None, "p:spPr/a:ln"),
+            ("p:spPr", None, "p:spPr"),
+        ],
+    )
+    def it_can_change_its_cap(self, spPr_cxml: str, value, expected_cxml: str):
+        spPr = element(spPr_cxml)
+        line = LineFormat(spPr)
+        line.cap = value
+        assert spPr.xml == xml(expected_cxml)
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "expected"),
+        [
+            ("p:spPr", None),
+            ("p:spPr/a:ln{cmpd=sng}", MSO_LINE_COMPOUND.SINGLE),
+            ("p:spPr/a:ln{cmpd=dbl}", MSO_LINE_COMPOUND.DOUBLE),
+            ("p:spPr/a:ln{cmpd=thinThick}", MSO_LINE_COMPOUND.THIN_THICK),
+            ("p:spPr/a:ln{cmpd=tri}", MSO_LINE_COMPOUND.TRIPLE),
+        ],
+    )
+    def it_knows_its_compound(self, spPr_cxml: str, expected):
+        line = LineFormat(element(spPr_cxml))
+        assert line.compound == expected
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "value", "expected_cxml"),
+        [
+            (
+                "p:spPr{a:b=c}",
+                MSO_LINE_COMPOUND.DOUBLE,
+                "p:spPr{a:b=c}/a:ln{cmpd=dbl}",
+            ),
+            ("p:spPr/a:ln{cmpd=sng}", MSO_LINE_COMPOUND.TRIPLE, "p:spPr/a:ln{cmpd=tri}"),
+            ("p:spPr/a:ln{cmpd=sng}", None, "p:spPr/a:ln"),
+        ],
+    )
+    def it_can_change_its_compound(self, spPr_cxml: str, value, expected_cxml: str):
+        spPr = element(spPr_cxml)
+        line = LineFormat(spPr)
+        line.compound = value
+        assert spPr.xml == xml(expected_cxml)
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "expected"),
+        [
+            ("p:spPr", None),
+            ("p:spPr/a:ln", None),
+            ("p:spPr/a:ln/a:round", MSO_LINE_JOIN.ROUND),
+            ("p:spPr/a:ln/a:bevel", MSO_LINE_JOIN.BEVEL),
+            ("p:spPr/a:ln/a:miter", MSO_LINE_JOIN.MITER),
+        ],
+    )
+    def it_knows_its_join(self, spPr_cxml: str, expected):
+        line = LineFormat(element(spPr_cxml))
+        assert line.join == expected
+
+    @pytest.mark.parametrize(
+        ("spPr_cxml", "value", "expected_cxml"),
+        [
+            (
+                "p:spPr{a:b=c}",
+                MSO_LINE_JOIN.MITER,
+                "p:spPr{a:b=c}/a:ln/a:miter",
+            ),
+            ("p:spPr/a:ln/a:bevel", MSO_LINE_JOIN.MITER, "p:spPr/a:ln/a:miter"),
+            ("p:spPr/a:ln/a:round", None, "p:spPr/a:ln"),
+            ("p:spPr", None, "p:spPr"),
+        ],
+    )
+    def it_can_change_its_join(self, spPr_cxml: str, value, expected_cxml: str):
+        spPr = element(spPr_cxml)
+        line = LineFormat(spPr)
+        line.join = value
+        assert spPr.xml == xml(expected_cxml)
+
+    def it_rejects_invalid_join_value(self):
+        spPr = element("p:spPr")
+        line = LineFormat(spPr)
+        with pytest.raises(ValueError):
+            line.join = "not-an-enum-member"
+
+    def it_provides_a_head_end(self):
+        spPr = element("p:spPr")
+        line = LineFormat(spPr)
+        assert isinstance(line.head_end, LineEndFormat)
+        # caching: same instance is returned each call
+        assert line.head_end is line.head_end
+
+    def it_writes_head_end_attributes_lazily(self):
+        spPr = element("p:spPr{a:b=c}")
+        line = LineFormat(spPr)
+
+        # reads on a missing element do not mutate
+        assert line.head_end.type is None
+        assert spPr.xml == xml("p:spPr{a:b=c}")
+
+        line.head_end.type = MSO_LINE_END_TYPE.ARROW
+        line.head_end.width = MSO_LINE_END_SIZE.LARGE
+        line.head_end.length = MSO_LINE_END_SIZE.MEDIUM
+
+        assert spPr.xml == xml(
+            "p:spPr{a:b=c}/a:ln/a:headEnd{type=arrow,w=lg,len=med}"
+        )
+        assert line.head_end.type == MSO_LINE_END_TYPE.ARROW
+        assert line.head_end.width == MSO_LINE_END_SIZE.LARGE
+        assert line.head_end.length == MSO_LINE_END_SIZE.MEDIUM
+
+    def it_drops_the_end_element_when_all_attrs_are_cleared(self):
+        spPr = element("p:spPr/a:ln/a:tailEnd{type=stealth,w=sm}")
+        line = LineFormat(spPr)
+        line.tail_end.type = None
+        line.tail_end.width = None
+        assert spPr.xml == xml("p:spPr/a:ln")
+
+    def it_keeps_other_attrs_when_one_is_cleared(self):
+        spPr = element("p:spPr/a:ln/a:tailEnd{type=oval,w=med}")
+        line = LineFormat(spPr)
+        line.tail_end.type = None
+        assert spPr.xml == xml("p:spPr/a:ln/a:tailEnd{w=med}")
