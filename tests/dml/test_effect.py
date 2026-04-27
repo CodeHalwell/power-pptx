@@ -108,6 +108,37 @@ class DescribeBlurFormat(object):
         blur.grow = None
         assert blur.grow is None
 
+    def it_drops_blur_element_when_last_attribute_cleared_via_grow(self):
+        # `grow=False` then `grow=None` was previously leaving an empty
+        # `<a:blur/>` behind that blocked theme inheritance even though
+        # every exposed property read `None`.
+        spPr = element("p:spPr")
+        blur = BlurFormat(spPr)
+
+        blur.grow = False
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.blur is not None
+
+        blur.grow = None
+        # The empty <a:blur> element must be removed so theme inheritance
+        # is restored.
+        assert spPr.effectLst is None or spPr.effectLst.blur is None
+
+    def it_keeps_blur_when_other_attribute_remains(self):
+        # Clearing `radius` while `grow` is still set must NOT drop the
+        # element — that would silently lose the user's `grow` choice.
+        spPr = element("p:spPr")
+        blur = BlurFormat(spPr)
+
+        blur.radius = Emu(63500)
+        blur.grow = False
+
+        blur.radius = None
+
+        assert spPr.effectLst.blur is not None
+        assert blur.radius is None
+        assert blur.grow is False
+
 
 class DescribeReflectionFormat(object):
     def it_returns_None_for_unset_attributes(self):
