@@ -267,10 +267,10 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     except (IndexError, AttributeError):
         font_pt = _DEFAULT_FONT_PT
 
-    # Estimate shape inner width in EMU (use full width as proxy)
+    # Estimate shape inner width/height in EMU, accounting for text-frame margins.
     try:
-        frame_w = int(shape.width or 0)
-        frame_h = int(shape.height or 0)
+        frame_w = int(shape.width or 0) - int(tf.margin_left or 0) - int(tf.margin_right or 0)
+        frame_h = int(shape.height or 0) - int(tf.margin_top or 0) - int(tf.margin_bottom or 0)
     except Exception:
         return issues
 
@@ -284,7 +284,7 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
 
     chars_per_line = max(1, frame_w / char_w_emu)
     lines_available = max(1, frame_h / line_h_emu)
-    estimated_lines = len(text) / chars_per_line
+    estimated_lines = sum(max(1.0, len(line) / chars_per_line) for line in text.split("\n"))
 
     if estimated_lines > lines_available:
         ratio = estimated_lines / lines_available

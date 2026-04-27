@@ -2,15 +2,107 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from pptx.dml.color import ColorFormat
-from pptx.oxml.xmlchemy import OxmlElement
+from pptx.enum.dml import MSO_THEME_COLOR
 
 if TYPE_CHECKING:
-    from pptx.oxml.dml.effect import CT_EffectList, CT_GlowEffect, CT_OuterShadowEffect
+    from pptx.dml.color import RGBColor
+    from pptx.enum.dml import MSO_COLOR_TYPE
+    from pptx.oxml.dml.effect import (
+        CT_EffectList,
+        CT_GlowEffect,
+        CT_OuterShadowEffect,
+        CT_SoftEdgesEffect,
+    )
     from pptx.oxml.shapes.shared import CT_ShapeProperties
     from pptx.util import Length
+
+
+class _LazyEffectColorFormat:
+    """Non-mutating ColorFormat proxy for visual-effect elements (shadow, glow).
+
+    Reads (`type`, `rgb`, `theme_color`, `brightness`, `alpha`) peek at the
+    existing effect element without touching the XML.  When the element doesn't
+    exist yet, reads return the appropriate "no color" sentinel values.
+
+    Writes (`rgb=`, `theme_color=`) lazily create the effectLst + effect element
+    hierarchy on first assignment, then delegate to a real `ColorFormat`.
+
+    `peek()` must return the existing effect element or None without any side
+    effects; `ensure()` must return the element (creating it if absent).
+    """
+
+    def __init__(
+        self,
+        peek: Callable[[], CT_OuterShadowEffect | CT_GlowEffect | None],
+        ensure: Callable[[], CT_OuterShadowEffect | CT_GlowEffect],
+    ):
+        self._peek = peek
+        self._ensure = ensure
+
+    @property
+    def type(self) -> MSO_COLOR_TYPE | None:
+        cf = self._existing_cf()
+        return cf.type if cf is not None else None
+
+    @property
+    def rgb(self) -> RGBColor | None:
+        cf = self._existing_cf()
+        return cf.rgb if cf is not None else None
+
+    @rgb.setter
+    def rgb(self, value: RGBColor):
+        self._ensure_cf().rgb = value
+
+    @property
+    def theme_color(self) -> MSO_THEME_COLOR:
+        cf = self._existing_cf()
+        return cf.theme_color if cf is not None else MSO_THEME_COLOR.NOT_THEME_COLOR
+
+    @theme_color.setter
+    def theme_color(self, value: MSO_THEME_COLOR):
+        self._ensure_cf().theme_color = value
+
+    @property
+    def brightness(self) -> float:
+        cf = self._existing_cf()
+        return cf.brightness if cf is not None else 0.0
+
+    @brightness.setter
+    def brightness(self, value: float):
+        cf = self._existing_cf()
+        if cf is None:
+            raise ValueError(
+                "can't set brightness when color.type is None."
+                " Set color.rgb or .theme_color first."
+            )
+        cf.brightness = value
+
+    @property
+    def alpha(self) -> float:
+        cf = self._existing_cf()
+        return cf.alpha if cf is not None else 1.0
+
+    @alpha.setter
+    def alpha(self, value: float | None):
+        cf = self._existing_cf()
+        if cf is None:
+            raise ValueError(
+                "can't set alpha when color.type is None."
+                " Set color.rgb or .theme_color first."
+            )
+        cf.alpha = value
+
+    def _existing_cf(self) -> ColorFormat | None:
+        """ColorFormat for the effect element if it exists, else None."""
+        el = self._peek()
+        return None if el is None else ColorFormat.from_colorchoice_parent(el)
+
+    def _ensure_cf(self) -> ColorFormat:
+        """ColorFormat for the effect element, creating the element if needed."""
+        return ColorFormat.from_colorchoice_parent(self._ensure())
 
 
 class ShadowFormat(object):
@@ -96,17 +188,15 @@ class ShadowFormat(object):
             self._get_or_add_outerShdw().dir = value  # type: ignore[assignment]
 
     @property
-    def color(self) -> ColorFormat:
-        """ColorFormat for shadow color.
+    def color(self) -> _LazyEffectColorFormat:
+        """Non-mutating color accessor for the shadow color.
 
-        Returns a ColorFormat whose type is None when no explicit shadow color
-        is set.  Assigning to `color.rgb` or `color.theme_color` lazily
-        creates the shadow element hierarchy.
+        Reading any sub-property (``type``, ``rgb``, ``theme_color``) on a
+        shape with no explicit shadow returns the appropriate "no color"
+        sentinel without touching the XML.  Writing to ``color.rgb`` or
+        ``color.theme_color`` lazily creates the ``<a:outerShdw>`` hierarchy.
         """
-        outerShdw = self._outerShdw
-        if outerShdw is None:
-            outerShdw = self._get_or_add_outerShdw()
-        return ColorFormat.from_colorchoice_parent(outerShdw)
+        return _LazyEffectColorFormat(lambda: self._outerShdw, self._get_or_add_outerShdw)
 
     # ------------------------------------------------------------------
     # Internals
@@ -146,24 +236,22 @@ class GlowFormat(object):
     @radius.setter
     def radius(self, value: Length | None):
         if value is None:
+            # Only remove the attribute — preserves any explicitly set color.
             if self._glow is not None:
-                effectLst: CT_EffectList | None = self._element.effectLst
-                if effectLst is not None:
-                    effectLst._remove_glow()  # pyright: ignore[reportPrivateUsage]
+                self._glow.rad = None  # type: ignore[assignment]
         else:
             self._get_or_add_glow().rad = value  # type: ignore[assignment]
 
     @property
-    def color(self) -> ColorFormat:
-        """ColorFormat for the glow color.
+    def color(self) -> _LazyEffectColorFormat:
+        """Non-mutating color accessor for the glow color.
 
-        Returns a ColorFormat whose type is None when no explicit glow color
-        is set.  Assigning to color.rgb lazily creates the glow hierarchy.
+        Reading any sub-property on a shape with no explicit glow returns the
+        appropriate "no color" sentinel without touching the XML.  Writing to
+        ``color.rgb`` or ``color.theme_color`` lazily creates the
+        ``<a:glow>`` hierarchy.
         """
-        glow = self._glow
-        if glow is None:
-            glow = self._get_or_add_glow()
-        return ColorFormat.from_colorchoice_parent(glow)
+        return _LazyEffectColorFormat(lambda: self._glow, self._get_or_add_glow)
 
     # ------------------------------------------------------------------
     # Internals
@@ -215,13 +303,13 @@ class SoftEdgeFormat(object):
     # ------------------------------------------------------------------
 
     @property
-    def _softEdge(self):
+    def _softEdge(self) -> CT_SoftEdgesEffect | None:
         effectLst: CT_EffectList | None = self._element.effectLst
         if effectLst is None:
             return None
         return effectLst.softEdge
 
-    def _get_or_add_softEdge(self):
+    def _get_or_add_softEdge(self) -> CT_SoftEdgesEffect:
         effectLst: CT_EffectList = self._element.get_or_add_effectLst()
         softEdge = effectLst.softEdge
         if softEdge is None:

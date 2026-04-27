@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pptx.dml.effect import ShadowFormat
+from pptx.dml.effect import GlowFormat, ShadowFormat, SoftEdgeFormat
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.shapes.base import BaseShape
 from pptx.util import lazyproperty
@@ -41,6 +41,11 @@ class GroupShape(BaseShape):
         return False
 
     @lazyproperty
+    def glow(self) -> GlowFormat:
+        """|GlowFormat| object representing glow effect for this group."""
+        return GlowFormat(self._grpSp.grpSpPr)
+
+    @lazyproperty
     def shadow(self) -> ShadowFormat:
         """|ShadowFormat| object representing shadow effect for this group.
 
@@ -48,6 +53,11 @@ class GroupShape(BaseShape):
         this group shape (i.e. when the group inherits its shadow behavior).
         """
         return ShadowFormat(self._grpSp.grpSpPr)
+
+    @lazyproperty
+    def soft_edges(self) -> SoftEdgeFormat:
+        """|SoftEdgeFormat| object representing soft-edge effect for this group."""
+        return SoftEdgeFormat(self._grpSp.grpSpPr)
 
     @property
     def shape_type(self) -> MSO_SHAPE_TYPE:
