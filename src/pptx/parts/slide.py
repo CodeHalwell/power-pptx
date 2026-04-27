@@ -295,3 +295,21 @@ class SlideMasterPart(BaseSlidePart):
         The |SlideMaster| object representing this part.
         """
         return SlideMaster(self._element, self)
+
+    @property
+    def theme(self):
+        """Return a |Theme| object for the theme related to this slide master.
+
+        Returns ``None`` when no theme relationship is present.
+        """
+        from pptx.oxml import parse_xml
+        from pptx.theme import Theme
+
+        try:
+            theme_part = self.part_related_by(RT.THEME)
+        except KeyError:
+            return None
+        # Theme parts may be loaded as generic Part objects (no _element attr)
+        # when no typed class is registered; parse from blob in that case.
+        elm = getattr(theme_part, "_element", None) or parse_xml(theme_part.blob)
+        return Theme(elm)

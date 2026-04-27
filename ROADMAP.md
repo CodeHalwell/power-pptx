@@ -332,24 +332,29 @@ roadmap. We ship the **preset subset only** — the full timing tree is
 expressive enough to break PowerPoint, and 90% of users want one of a
 dozen entrance presets.
 
-- **`pptx.animation` package.** New top-level public module.
-- **Trigger model.** `Trigger.ON_CLICK` /
+- [x] **`pptx.animation` module.** New top-level public module with
+  `Entrance`, `Exit`, `Emphasis`, and `SlideAnimations` classes.
+  Accessible via `slide.animations`.
+- [x] **Trigger model.** `Trigger.ON_CLICK` /
   `Trigger.WITH_PREVIOUS` / `Trigger.AFTER_PREVIOUS`, with `delay`.
-- **Entrance presets.** ~12 to start: Appear, Fade, Fade Up/Down/Left/
-  Right, Fly In, Float In, Zoom, Wipe, Wheel, Random Bars. Each maps
+  Implemented in `pptx/enum/animation.py` as `PP_ANIM_TRIGGER`;
+  `Trigger` alias exported from `pptx.animation`.
+- [x] **Entrance presets.** 8 presets: Appear, Fade, Fly In (4
+  directions), Float In, Wipe, Zoom, Wheel, Random Bars. Each maps
   to a known `presetID` in the `<p:par>/<p:cTn>` tree.
-- **Emphasis presets.** Pulse, Color Pulse, Teeter, Spin, Grow/Shrink.
-- **Exit presets.** Mirror of entrance.
+- [x] **Emphasis presets.** Pulse, Spin, Teeter — using `<p:animScale>`,
+  `<p:animRot>` behaviors.
+- [x] **Exit presets.** Disappear, Fade, Fly Out, Float Out, Wipe, Zoom
+  (mirror of entrance with `presetClass="exit"` and `transition="out"`).
+- [x] **Round-trip preservation.** New effects are appended to the
+  existing timing tree without touching any pre-existing `<p:par>` nodes;
+  PowerPoint-authored animations survive a read-modify-write cycle intact.
 - **Motion paths.** `MotionPath.line(shape, dx, dy, duration)` and
-  `MotionPath.custom(shape, svg_path_d, duration)` — a curated SVG-path
-  subset (`M`, `L`, `C`).
+  `MotionPath.custom(shape, svg_path_d, duration)` — deferred to follow-up.
 - **Sequencing.** `with slide.animations.sequence(start=...): ...`
-  context manager produces a child `cTn` chain.
+  context manager — deferred to follow-up.
 - **By-paragraph animation.** For text frames: `Entrance.fade(text_frame,
-  by_paragraph=True)`.
-- **Round-trip preservation.** Custom timelines authored in PowerPoint
-  must survive a read-modify-write cycle untouched, even if our high-level
-  API can't author them. Implementation: opaque `LegacyTimeline` proxy.
+  by_paragraph=True)` — deferred to follow-up.
 
 **Done when:** a generated 10-slide deck with on-click bullet reveals
 plays in PowerPoint identically to one assembled in the UI, and a deck
@@ -358,13 +363,15 @@ loss.
 
 ## Phase 6 — Theme, picture effects, advanced fills (target: 1.6.0)
 
-- **Read-only theme API.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]`
+- [x] **Read-only theme API.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]`
   resolves to `RGBColor`; `prs.theme.fonts.major` / `.minor` return font
-  names. New `pptx.theme` module on top of `oxml/theme.py`.
+  names. New `pptx/theme.py` module (`Theme`, `ThemeColors`, `ThemeFonts`)
+  on top of the expanded `oxml/theme.py`. Wired into `Presentation.theme`
+  and `SlideMasterPart.theme`.
 - **Theme-aware inheritance** for effect/color getters from Phase 2.
   When a property has no explicit value, the getter walks
   `slide → layout → master → theme` and returns the resolved value (or
-  `None` if nothing matches).
+  `None` if nothing matches). Deferred to follow-up.
 - **Picture effects.** `Picture.transparency`, `.brightness`,
   `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
   `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,

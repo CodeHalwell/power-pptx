@@ -105,6 +105,23 @@ class Presentation(PartElementProxy):
         sldSz = self._element.get_or_add_sldSz()
         sldSz.cx = width
 
+    @property
+    def theme(self):
+        """Return a |Theme| object providing read-only access to the color palette and fonts.
+
+        Navigates to the theme part of the first slide master, which is where
+        Office applications store the active theme.  Returns ``None`` if no
+        slide master (and therefore no theme) is present.
+
+        Example::
+
+            from pptx.enum.dml import MSO_THEME_COLOR
+
+            rgb   = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]
+            major = prs.theme.fonts.major   # e.g. "Calibri"
+        """
+        return self.slide_master.part.theme
+
     @lazyproperty
     def slides(self):
         """|Slides| object containing the slides in this presentation."""

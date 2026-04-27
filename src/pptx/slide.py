@@ -25,6 +25,7 @@ from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
 
 if TYPE_CHECKING:
+    from pptx.animation import SlideAnimations
     from pptx.lint import SlideLintReport
     from pptx.oxml.presentation import CT_SlideIdList, CT_SlideMasterIdList
     from pptx.oxml.slide import (
@@ -344,6 +345,26 @@ class Slide(_BaseSlide):
     """Slide object. Provides access to shapes and slide-level properties."""
 
     part: SlidePart  # pyright: ignore[reportIncompatibleMethodOverride]
+
+    @lazyproperty
+    def animations(self) -> SlideAnimations:
+        """Return a |SlideAnimations| object for adding animation effects to this slide.
+
+        Animations are appended to the slide's timing tree in the order they
+        are added.  Existing animations (e.g. authored in PowerPoint) are
+        preserved and new effects are appended after them.
+
+        Example::
+
+            from pptx.animation import Entrance, Trigger
+
+            Entrance.fade(slide, shape)
+            Entrance.fly_in(slide, shape2, direction="left",
+                            trigger=Trigger.WITH_PREVIOUS)
+        """
+        from pptx.animation import SlideAnimations
+
+        return SlideAnimations(self)
 
     def lint(self) -> SlideLintReport:
         """Inspect this slide for geometric and typographic issues.
