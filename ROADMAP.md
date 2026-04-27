@@ -193,7 +193,7 @@ prs.lint_on_save = "raise"             # raise LintError on save
 
 Off by default to preserve drop-in compatibility with 1.0.2 user code.
 
-### JSON authoring
+### [x] JSON authoring
 
 A single entry point for generator scripts (LLM or otherwise):
 
@@ -372,10 +372,12 @@ loss.
   When a property has no explicit value, the getter walks
   `slide → layout → master → theme` and returns the resolved value (or
   `None` if nothing matches). Deferred to follow-up.
-- **Picture effects.** `Picture.transparency`, `.brightness`,
+- [x] **Picture effects.** `Picture.transparency`, `.brightness`,
   `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
   `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,
-  `<a:grayscl>` inside `<a:blip>`.
+  `<a:grayscl>` inside `<a:blip>`.  Exposed via `picture.effects`
+  (`PictureEffects` proxy in `pptx/dml/picture.py`).  `set_duotone()`
+  accepts `RGBColor`, hex strings, or RGB 3-tuples.
 - **Native SVG in `add_picture`.** Embed both an SVG `<asvg:svgBlip>`
   and a PNG fallback (modern PowerPoint requires both); rasterize via
   `cairosvg` for the fallback. New optional dependency.
@@ -489,8 +491,9 @@ gets removed:
 - `turbo_add_enabled` no-op — removed.
 - `Font.color` mutating-on-read fallback (kept under a deprecation flag
   in 1.x for users who depended on the old behavior) — removed.
-- `RGBColor.from_string("3C2F80")` (no `#`) deprecated in favor of
-  `RGBColor.from_hex("#3C2F80")` — old method removed.
+- [x] `RGBColor.from_hex("#3C2F80")` **added** (accepts strings with or
+  without `#`).  `RGBColor.from_string("3C2F80")` is kept as-is in 1.x;
+  it will be removed in 2.0 in favour of `from_hex`.
 - Drop Python versions that hit EOL during 1.x.
 
 No new features in 2.0; it's a cleanup release. New features land in

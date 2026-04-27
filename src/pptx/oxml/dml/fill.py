@@ -23,9 +23,45 @@ from pptx.oxml.xmlchemy import (
 
 
 class CT_Blip(BaseOxmlElement):
-    """
-    <a:blip> element
-    """
+    """`<a:blip>` element — image reference plus optional per-image effects."""
+
+    # Child tag order follows the OOXML CT_Blip content model.
+    _tag_seq = (
+        "a:alphaBiLevel",
+        "a:alphaCeiling",
+        "a:alphaFloor",
+        "a:alphaInv",
+        "a:alphaMod",
+        "a:alphaModFix",
+        "a:alphaRepl",
+        "a:biLevel",
+        "a:blur",
+        "a:clrChange",
+        "a:clrRepl",
+        "a:duotone",
+        "a:fillOverlay",
+        "a:grayscl",
+        "a:hsl",
+        "a:lum",
+        "a:tint",
+        "a:extLst",
+    )
+    alphaModFix: CT_AlphaModFixEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:alphaModFix", successors=_tag_seq[6:]
+    )
+    biLevel: CT_BiLevelEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:biLevel", successors=_tag_seq[8:]
+    )
+    duotone: CT_DuotoneEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:duotone", successors=_tag_seq[12:]
+    )
+    grayscl: CT_GrayscaleEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:grayscl", successors=_tag_seq[14:]
+    )
+    lum: CT_LuminanceEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:lum", successors=_tag_seq[16:]
+    )
+    del _tag_seq
 
     rEmbed = OptionalAttribute("r:embed", ST_RelationshipId)
 
@@ -179,6 +215,59 @@ class CT_RelativeRect(BaseOxmlElement):
     t = OptionalAttribute("t", ST_Percentage, default=0.0)
     r = OptionalAttribute("r", ST_Percentage, default=0.0)
     b = OptionalAttribute("b", ST_Percentage, default=0.0)
+
+
+class CT_AlphaModFixEffect(BaseOxmlElement):
+    """`<a:alphaModFix>` element — scales the alpha (opacity) of an image.
+
+    `amt` is a `ST_PositiveFixedPercentage` where ``1.0`` (100%) means fully
+    opaque and ``0.0`` means fully transparent.  When absent, the element is
+    treated as 100% opaque by PowerPoint.
+    """
+
+    amt = OptionalAttribute("amt", ST_PositiveFixedPercentage, default=1.0)
+
+
+class CT_BiLevelEffect(BaseOxmlElement):
+    """`<a:biLevel>` element — converts the image to a two-color (black/white) palette.
+
+    `thresh` is the luminance threshold: pixels darker than this become black,
+    brighter ones become white.  ``0.5`` (50%) approximates PowerPoint's "Washout" preset.
+    """
+
+    thresh = OptionalAttribute("thresh", ST_PositiveFixedPercentage, default=0.5)
+
+
+_DUOTONE_COLOR_CHOICES = (
+    Choice("a:scrgbClr"),
+    Choice("a:srgbClr"),
+    Choice("a:hslClr"),
+    Choice("a:sysClr"),
+    Choice("a:schemeClr"),
+    Choice("a:prstClr"),
+)
+
+
+class CT_DuotoneEffect(BaseOxmlElement):
+    """`<a:duotone>` element — maps the image to two-color tone.
+
+    Contains exactly two color-choice child elements (dark tone and light tone).
+    """
+
+
+class CT_GrayscaleEffect(BaseOxmlElement):
+    """`<a:grayscl>` element — converts the image to grayscale.  No attributes."""
+
+
+class CT_LuminanceEffect(BaseOxmlElement):
+    """`<a:lum>` element — adjusts the brightness and contrast of an image.
+
+    Both `bright` and `contrast` are `ST_Percentage` floats in the range
+    ``[-1.0, 1.0]`` where ``0.0`` means no change.
+    """
+
+    bright = OptionalAttribute("bright", ST_Percentage, default=0.0)
+    contrast = OptionalAttribute("contrast", ST_Percentage, default=0.0)
 
 
 class CT_SolidColorFillProperties(BaseOxmlElement):

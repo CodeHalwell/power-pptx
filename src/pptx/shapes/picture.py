@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pptx.dml.line import LineFormat
+from pptx.dml.picture import PictureEffects
 from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE, PP_MEDIA_TYPE
 from pptx.shapes.base import BaseShape
 from pptx.shared import ParentedElementProxy
@@ -177,6 +178,18 @@ class Picture(_BasePicture):
             spPr._remove_custGeom()  # pyright: ignore[reportPrivateUsage]
             prstGeom = spPr._add_prstGeom()  # pyright: ignore[reportPrivateUsage]
         prstGeom.prst = member
+
+    @lazyproperty
+    def effects(self) -> PictureEffects:
+        """Provides access to image-level effects: transparency, brightness, contrast, recolor.
+
+        The underlying ``<a:blip>`` element must be present (which it always is for a
+        normal embedded-image picture).
+        """
+        blip = self._pic.blipFill.blip
+        if blip is None:
+            raise ValueError("picture has no embedded image blip element")
+        return PictureEffects(blip)
 
     @property
     def image(self):

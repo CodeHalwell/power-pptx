@@ -243,21 +243,31 @@ register_element_cls("a:sysClr", CT_SystemColor)
 
 
 from pptx.oxml.dml.fill import (  # noqa: E402
+    CT_AlphaModFixEffect,
+    CT_BiLevelEffect,
     CT_Blip,
     CT_BlipFillProperties,
+    CT_DuotoneEffect,
     CT_GradientFillProperties,
     CT_GradientStop,
     CT_GradientStopList,
+    CT_GrayscaleEffect,
     CT_GroupFillProperties,
     CT_LinearShadeProperties,
+    CT_LuminanceEffect,
     CT_NoFillProperties,
     CT_PatternFillProperties,
     CT_RelativeRect,
     CT_SolidColorFillProperties,
 )
 
+register_element_cls("a:alphaModFix", CT_AlphaModFixEffect)
+register_element_cls("a:biLevel", CT_BiLevelEffect)
 register_element_cls("a:blip", CT_Blip)
 register_element_cls("a:blipFill", CT_BlipFillProperties)
+register_element_cls("a:duotone", CT_DuotoneEffect)
+register_element_cls("a:grayscl", CT_GrayscaleEffect)
+register_element_cls("a:lum", CT_LuminanceEffect)
 register_element_cls("a:gradFill", CT_GradientFillProperties)
 register_element_cls("a:grpFill", CT_GroupFillProperties)
 register_element_cls("a:gs", CT_GradientStop)

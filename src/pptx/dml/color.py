@@ -442,6 +442,17 @@ class RGBColor(tuple):
         return "%02X%02X%02X" % self
 
     @classmethod
+    def from_hex(cls, hex_str: str) -> "RGBColor":
+        """Return a new instance from an RGB hex string, with or without a leading ``'#'``.
+
+        Accepts both ``'#3C2F80'`` and ``'3C2F80'``. Prefer this over
+        :meth:`from_string` for new code; ``from_string`` will be removed in 2.0.
+        """
+        if hex_str.startswith("#"):
+            hex_str = hex_str[1:]
+        return cls.from_string(hex_str)
+
+    @classmethod
     def from_string(cls, rgb_hex_str):
         """
         Return a new instance from an RGB color hex string like ``'3C2F80'``.

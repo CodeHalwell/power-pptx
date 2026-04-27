@@ -21,3 +21,8 @@ class InvalidXmlError(PythonPptxError):
     Raised when a value is encountered in the XML that is not valid according
     to the schema.
     """
+
+
+class LintError(PythonPptxError):
+    """Raised by :func:`~pptx.compose.from_spec` when ``lint="raise"`` and the
+    linter detects errors in the generated presentation."""
