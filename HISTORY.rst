@@ -73,6 +73,27 @@ New API
   and ``.advance_after``. Reads on a slide with no explicit
   ``<p:transition>`` return ``None`` and never mutate; ``.clear()``
   removes the element entirely.
+- ``Presentation.set_transition`` (Phase 4): deck-wide convenience that
+  applies the same transition (or partial update) to every slide in a
+  single call. Accepts ``kind``, ``duration``, ``advance_on_click``,
+  and ``advance_after``; unspecified arguments are left untouched on
+  each slide so callers can bump the duration without disturbing the
+  kind. Passing ``kind=None`` removes the ``<p:transition>`` element
+  on every slide.
+- ``BaseShape.blur`` and ``BaseShape.reflection`` (Phase 3): two
+  additional non-mutating effect proxies. ``shape.blur`` exposes
+  ``.radius`` (EMU) and ``.grow``; ``shape.reflection`` exposes
+  ``.blur_radius``, ``.distance``, ``.direction``, ``.start_alpha``,
+  and ``.end_alpha``. Reads on a shape with no explicit effect return
+  ``None`` and never mutate the XML; the underlying ``<a:blur>`` /
+  ``<a:reflection>`` element is created on first write and dropped
+  again when the last explicit attribute is cleared, preserving theme
+  inheritance.
+- New OOXML element classes ``CT_BlurEffect``, ``CT_InnerShadowEffect``,
+  and ``CT_ReflectionEffect`` (Phase 3) registered for ``<a:blur>``,
+  ``<a:innerShdw>``, and ``<a:reflection>`` so PowerPoint-authored
+  effects round-trip without loss even when no high-level proxy is
+  used.
 
 
 1.0.2 (2024-08-07)

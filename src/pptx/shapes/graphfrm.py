@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from pptx.dml.effect import GlowFormat, ShadowFormat, SoftEdgeFormat
+from pptx.dml.effect import (
+    BlurFormat,
+    GlowFormat,
+    ReflectionFormat,
+    ShadowFormat,
+    SoftEdgeFormat,
+)
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.shapes.base import BaseShape
 from pptx.shared import ParentedElementProxy
@@ -87,12 +93,31 @@ class GraphicFrame(BaseShape):
         return _OleFormat(self._graphicFrame.graphicData, self._parent)
 
     @lazyproperty
+    def blur(self) -> BlurFormat:
+        """Unconditionally raises |NotImplementedError|.
+
+        Gaussian blur access for graphic-frame objects is content-specific
+        (i.e. different for charts, tables, etc.) and has not yet been
+        implemented.
+        """
+        raise NotImplementedError("blur property on GraphicFrame not yet supported")
+
+    @lazyproperty
     def glow(self) -> GlowFormat:
         """Unconditionally raises |NotImplementedError|.
 
         Glow effect access for graphic-frame objects is not yet implemented.
         """
         raise NotImplementedError("glow property on GraphicFrame not yet supported")
+
+    @lazyproperty
+    def reflection(self) -> ReflectionFormat:
+        """Unconditionally raises |NotImplementedError|.
+
+        Reflection effect access for graphic-frame objects is not yet
+        implemented.
+        """
+        raise NotImplementedError("reflection property on GraphicFrame not yet supported")
 
     @lazyproperty
     def shadow(self) -> ShadowFormat:

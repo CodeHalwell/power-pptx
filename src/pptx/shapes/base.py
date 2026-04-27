@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from pptx.action import ActionSetting
-from pptx.dml.effect import GlowFormat, ShadowFormat, SoftEdgeFormat
+from pptx.dml.effect import (
+    BlurFormat,
+    GlowFormat,
+    ReflectionFormat,
+    ShadowFormat,
+    SoftEdgeFormat,
+)
 from pptx.shared import ElementProxy
 from pptx.util import lazyproperty
 
@@ -165,6 +171,15 @@ class BaseShape(object):
         self._element.rot = value
 
     @lazyproperty
+    def blur(self) -> BlurFormat:
+        """|BlurFormat| object providing access to the Gaussian blur effect.
+
+        Always returned, even when no blur is explicitly set.  Reading
+        ``blur.radius`` returns None in that case.
+        """
+        return BlurFormat(self._element.spPr)
+
+    @lazyproperty
     def glow(self) -> GlowFormat:
         """|GlowFormat| object providing access to glow effect for this shape.
 
@@ -172,6 +187,15 @@ class BaseShape(object):
         defined.  Reading ``glow.radius`` returns None in that case.
         """
         return GlowFormat(self._element.spPr)
+
+    @lazyproperty
+    def reflection(self) -> ReflectionFormat:
+        """|ReflectionFormat| object providing access to the reflection effect.
+
+        Always returned, even when no reflection is explicitly set.  Reads of
+        the individual properties return None in that case.
+        """
+        return ReflectionFormat(self._element.spPr)
 
     @lazyproperty
     def shadow(self) -> ShadowFormat:

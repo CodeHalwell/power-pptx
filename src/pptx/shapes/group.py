@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pptx.dml.effect import GlowFormat, ShadowFormat, SoftEdgeFormat
+from pptx.dml.effect import (
+    BlurFormat,
+    GlowFormat,
+    ReflectionFormat,
+    ShadowFormat,
+    SoftEdgeFormat,
+)
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.shapes.base import BaseShape
 from pptx.util import lazyproperty
@@ -41,9 +47,19 @@ class GroupShape(BaseShape):
         return False
 
     @lazyproperty
+    def blur(self) -> BlurFormat:
+        """|BlurFormat| object representing the Gaussian blur on this group."""
+        return BlurFormat(self._grpSp.grpSpPr)
+
+    @lazyproperty
     def glow(self) -> GlowFormat:
         """|GlowFormat| object representing glow effect for this group."""
         return GlowFormat(self._grpSp.grpSpPr)
+
+    @lazyproperty
+    def reflection(self) -> ReflectionFormat:
+        """|ReflectionFormat| object representing the reflection on this group."""
+        return ReflectionFormat(self._grpSp.grpSpPr)
 
     @lazyproperty
     def shadow(self) -> ShadowFormat:

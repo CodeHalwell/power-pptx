@@ -266,13 +266,17 @@ children.
   non-mutating; the `<a:effectLst>`/`<a:outerShdw>` hierarchy is created lazily
   on first write. (`style`/`preset` enum attributes deferred — complex variant
   handling; `size`/skew attrs deferred to a follow-up.)
-- [x] **New `GlowFormat`, `SoftEdgeFormat`** with a parallel non-mutating API.
-  Surfaced as `shape.glow` (radius, color) and `shape.soft_edges` (radius).
-  `ReflectionFormat` and `BlurFormat` are deferred to a follow-up.
+- [x] **New `GlowFormat`, `SoftEdgeFormat`, `BlurFormat`, `ReflectionFormat`**
+  with a parallel non-mutating API.  Surfaced as `shape.glow` (radius, color),
+  `shape.soft_edges` (radius), `shape.blur` (radius, grow), and
+  `shape.reflection` (blur_radius, distance, direction, start_alpha,
+  end_alpha).  Reflection clears its `<a:reflection>` element when the last
+  explicit attribute is removed, preserving theme inheritance.
 - [x] **OOXML element classes.** New `oxml/dml/effect.py` with `CT_EffectList`,
-  `CT_OuterShadowEffect`, `CT_GlowEffect`, `CT_SoftEdgesEffect`. Remaining
-  variants (`CT_InnerShadowEffect`, `CT_ReflectionEffect`, `CT_BlurEffect`)
-  deferred to a follow-up.
+  `CT_OuterShadowEffect`, `CT_GlowEffect`, `CT_SoftEdgesEffect`,
+  `CT_BlurEffect`, `CT_InnerShadowEffect`, and `CT_ReflectionEffect`. Inner
+  shadow currently has no high-level proxy — the OOXML class is registered so
+  PowerPoint-authored inner shadows round-trip cleanly.
 - [x] **Inheritance semantics.** Reading a property on a shape with no
   explicit value returns `None`. (Theme-walking is deferred to Phase 5.)
 - [x] **`RGBColor.alpha` / per-color transparency.** Adds `<a:alpha>`
@@ -316,8 +320,12 @@ small.
   - `transition.clear()` removes the `<p:transition>` element entirely.
   - Reads on an unset transition return `None` and never mutate XML,
     keeping theme inheritance intact.
-  - Direction attributes and the `Presentation.set_transition(...)`
-    deck-wide helper are deferred to a follow-up.
+  - [x] **Deck-wide helper.** `Presentation.set_transition(kind=...,
+    duration=..., advance_on_click=..., advance_after=...)` applies the
+    same transition (or partial update) to every slide in a single call.
+    Unspecified kwargs are left untouched on each slide so callers can
+    bump the duration without disturbing the kind.
+  - Direction attributes are deferred to a follow-up.
 - [x] **Run-level internal hyperlinks.** `run.hyperlink.target_slide =
   deck.slides[7]` writes a relationship-based action instead of a URI.
   Single XML attribute swap; missing today.

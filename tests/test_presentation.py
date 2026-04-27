@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from pptx.enum.presentation import MSO_TRANSITION_TYPE
 from pptx.parts.coreprops import CorePropertiesPart
 from pptx.parts.presentation import PresentationPart
 from pptx.parts.slide import NotesMasterPart
@@ -76,7 +77,43 @@ class DescribePresentation(object):
         prs.save(file_)
         prs_part_.save.assert_called_once_with(file_)
 
+    def it_can_apply_a_transition_to_every_slide(self, set_transition_fixture):
+        prs, slides_, kind = set_transition_fixture
+        prs.set_transition(kind, duration=750, advance_on_click=True)
+        for slide_ in slides_:
+            assert slide_.transition.kind == kind
+            assert slide_.transition.duration == 750
+            assert slide_.transition.advance_on_click is True
+
+    def it_leaves_unspecified_transition_attrs_alone(self, set_transition_fixture):
+        prs, slides_, kind = set_transition_fixture
+        # set everything once
+        prs.set_transition(kind, duration=750, advance_on_click=True)
+        # then bump only the duration
+        prs.set_transition(duration=500)
+        for slide_ in slides_:
+            assert slide_.transition.kind == kind
+            assert slide_.transition.duration == 500
+            assert slide_.transition.advance_on_click is True
+
+    def it_clears_transition_kind_when_passed_None(self, set_transition_fixture):
+        prs, slides_, kind = set_transition_fixture
+        prs.set_transition(kind)
+        prs.set_transition(kind=None)
+        for slide_ in slides_:
+            assert slide_.transition.kind is None
+
     # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def set_transition_fixture(self):
+        from pptx import Presentation as _Presentation
+
+        prs = _Presentation()
+        # add three blank slides
+        for _ in range(3):
+            prs.slides.add_slide(prs.slide_layouts[5])
+        return prs, list(prs.slides), MSO_TRANSITION_TYPE.MORPH
 
     @pytest.fixture
     def core_props_fixture(self, prs_part_, core_properties_):

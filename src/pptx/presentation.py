@@ -9,10 +9,15 @@ from pptx.slide import SlideMasters, Slides
 from pptx.util import lazyproperty
 
 if TYPE_CHECKING:
+    from pptx.enum.presentation import MSO_TRANSITION_TYPE
     from pptx.oxml.presentation import CT_Presentation, CT_SlideId
     from pptx.parts.presentation import PresentationPart
     from pptx.slide import NotesMaster, SlideLayouts
     from pptx.util import Length
+
+# Sentinel used by `set_transition` so callers can distinguish "leave the
+# existing value alone" from "explicitly clear it" (which is `None`).
+_UNSET = object()
 
 
 class Presentation(PartElementProxy):
@@ -128,3 +133,47 @@ class Presentation(PartElementProxy):
         sldIdLst = self._element.get_or_add_sldIdLst()
         self.part.rename_slide_parts([cast("CT_SlideId", sldId).rId for sldId in sldIdLst])
         return Slides(sldIdLst, self)
+
+    def set_transition(
+        self,
+        kind: "MSO_TRANSITION_TYPE | None" = cast("MSO_TRANSITION_TYPE", _UNSET),
+        *,
+        duration: object = _UNSET,
+        advance_on_click: object = _UNSET,
+        advance_after: object = _UNSET,
+    ) -> None:
+        """Apply a transition to every slide in this presentation.
+
+        Convenience for the common "give the whole deck the same transition"
+        case; equivalent to looping over :attr:`slides` and assigning to each
+        slide's :attr:`~pptx.slide.Slide.transition` properties.
+
+        Any argument left unspecified is left untouched on each slide, so
+        partial updates (e.g. only changing ``duration``) are safe::
+
+            from pptx.enum.presentation import MSO_TRANSITION
+
+            prs.set_transition(MSO_TRANSITION.MORPH, duration=750)
+
+            # later, just bump the duration without disturbing the kind
+            prs.set_transition(duration=500)
+
+        Passing ``kind=None`` clears the transition element on every slide
+        (restoring inheritance/defaults).  Passing ``duration=None``,
+        ``advance_on_click=None``, or ``advance_after=None`` clears that
+        individual attribute on every slide.
+        """
+        for slide in self.slides:
+            transition = slide.transition
+            if kind is not _UNSET:
+                transition.kind = kind  # pyright: ignore[reportArgumentType]
+            if duration is not _UNSET:
+                transition.duration = duration  # pyright: ignore[reportAttributeAccessIssue]
+            if advance_on_click is not _UNSET:
+                transition.advance_on_click = (  # pyright: ignore[reportAttributeAccessIssue]
+                    advance_on_click
+                )
+            if advance_after is not _UNSET:
+                transition.advance_after = (  # pyright: ignore[reportAttributeAccessIssue]
+                    advance_after
+                )

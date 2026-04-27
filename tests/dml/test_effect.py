@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from pptx.dml.effect import ShadowFormat
+from pptx.dml.effect import BlurFormat, ReflectionFormat, ShadowFormat
+from pptx.util import Emu
 
 from ..unitutil.cxml import element, xml
 
@@ -52,3 +53,113 @@ class DescribeShadowFormat(object):
         shadow = ShadowFormat(element(cxml))
         expected_value = xml(expected_cxml)
         return shadow, value, expected_value
+
+
+class DescribeBlurFormat(object):
+    def it_returns_None_for_radius_when_no_blur_element(self):
+        blur = BlurFormat(element("p:spPr"))
+        assert blur.radius is None
+        assert blur.grow is None
+        # read must not have mutated XML
+        assert blur._element.xml == xml("p:spPr")
+
+    def it_reads_explicit_radius_and_grow(self):
+        spPr = element("p:spPr/a:effectLst/a:blur{rad=63500,grow=0}")
+        blur = BlurFormat(spPr)
+        assert blur.radius == Emu(63500)
+        assert blur.grow is False
+
+    def it_creates_blur_element_lazily_on_radius_set(self):
+        spPr = element("p:spPr")
+        blur = BlurFormat(spPr)
+
+        # before write: no <a:effectLst> child
+        assert spPr.effectLst is None
+
+        blur.radius = Emu(63500)
+
+        # after write: <a:effectLst><a:blur rad="63500"/></a:effectLst>
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.blur is not None
+        assert blur.radius == Emu(63500)
+
+    def it_drops_blur_element_on_radius_None(self):
+        spPr = element("p:spPr/a:effectLst/a:blur{rad=63500}")
+        blur = BlurFormat(spPr)
+
+        blur.radius = None
+
+        # blur child is dropped; the surrounding effectLst can stay since
+        # it may host other effects
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.blur is None
+
+    def it_can_round_trip_grow(self):
+        spPr = element("p:spPr")
+        blur = BlurFormat(spPr)
+
+        blur.radius = Emu(63500)
+        blur.grow = True
+        assert blur.grow is True
+
+        blur.grow = False
+        assert blur.grow is False
+
+        blur.grow = None
+        assert blur.grow is None
+
+
+class DescribeReflectionFormat(object):
+    def it_returns_None_for_unset_attributes(self):
+        reflection = ReflectionFormat(element("p:spPr"))
+        assert reflection.blur_radius is None
+        assert reflection.distance is None
+        assert reflection.direction is None
+        assert reflection.start_alpha is None
+        assert reflection.end_alpha is None
+        assert reflection._element.xml == xml("p:spPr")
+
+    def it_reads_explicit_attributes(self):
+        spPr = element(
+            "p:spPr/a:effectLst/a:reflection{blurRad=38100,dist=50800,dir=5400000"
+            ",stA=50000,endA=0}"
+        )
+        reflection = ReflectionFormat(spPr)
+        assert reflection.blur_radius == Emu(38100)
+        assert reflection.distance == Emu(50800)
+        assert reflection.direction == 90.0
+        assert reflection.start_alpha == 0.5
+        assert reflection.end_alpha == 0.0
+
+    def it_creates_reflection_element_lazily_on_set(self):
+        spPr = element("p:spPr")
+        reflection = ReflectionFormat(spPr)
+
+        assert spPr.effectLst is None
+
+        reflection.blur_radius = Emu(38100)
+
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.reflection is not None
+        assert reflection.blur_radius == Emu(38100)
+
+    def it_drops_reflection_when_last_attribute_cleared(self):
+        spPr = element("p:spPr/a:effectLst/a:reflection{blurRad=38100}")
+        reflection = ReflectionFormat(spPr)
+
+        reflection.blur_radius = None
+
+        # the empty <a:reflection> element should have been removed; the
+        # surrounding <a:effectLst> can stay since it may host other effects
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.reflection is None
+
+    def it_keeps_reflection_when_other_attributes_remain(self):
+        spPr = element("p:spPr/a:effectLst/a:reflection{blurRad=38100,dist=50800}")
+        reflection = ReflectionFormat(spPr)
+
+        reflection.blur_radius = None
+
+        assert spPr.effectLst.reflection is not None
+        assert reflection.blur_radius is None
+        assert reflection.distance == Emu(50800)
