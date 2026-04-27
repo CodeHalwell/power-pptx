@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterator, cast
 
 from pptx.dml.fill import FillFormat
+from pptx.enum.presentation import (
+    MSO_TRANSITION_TYPE,
+    P14_TRANSITION_NAMES,
+)
 from pptx.enum.shapes import PP_PLACEHOLDER
+from pptx.oxml.ns import qn
 from pptx.shapes.shapetree import (
     LayoutPlaceholders,
     LayoutShapes,
@@ -173,6 +178,167 @@ class NotesSlide(_BaseSlide):
         return NotesSlideShapes(self._element.spTree, self)
 
 
+class SlideTransition(object):
+    """Provides access to the transition into a slide.
+
+    A |SlideTransition| object is returned by :attr:`Slide.transition`
+    whether or not an explicit ``<p:transition>`` element is present on the
+    slide; reads on properties of an absent transition return |None| and
+    never mutate the underlying XML, so theme inheritance is preserved.
+
+    Setting any property creates the ``<p:transition>`` element on demand;
+    use :meth:`clear` to remove the element entirely (restoring the default
+    "no explicit transition" state).
+    """
+
+    def __init__(self, sld_elm):
+        self._sld = sld_elm
+
+    @property
+    def kind(self) -> MSO_TRANSITION_TYPE | None:
+        """Transition kind as :ref:`MsoTransitionType`, or |None| if not set."""
+        transition = self._sld.transition
+        if transition is None:
+            return None
+        kind_elm = transition.kind_element
+        if kind_elm is None:
+            # explicit `<p:transition/>` with no child means "cut" / no animation
+            return MSO_TRANSITION_TYPE.NONE
+        local = kind_elm.tag.rsplit("}", 1)[-1]
+        try:
+            return MSO_TRANSITION_TYPE.from_xml(local)
+        except ValueError:
+            return None
+
+    @kind.setter
+    def kind(self, value: MSO_TRANSITION_TYPE | None) -> None:
+        if value is None:
+            self.clear()
+            return
+        if not isinstance(value, MSO_TRANSITION_TYPE):
+            raise TypeError(
+                "kind must be a MSO_TRANSITION_TYPE member or None, got %r" % (value,)
+            )
+        transition = self._sld.get_or_add_transition()
+        # remove any pre-existing kind child
+        existing = transition.kind_element
+        if existing is not None:
+            transition.remove(existing)
+        if value is MSO_TRANSITION_TYPE.NONE:
+            return
+        local = value.xml_value
+        prefix = "p14" if local in P14_TRANSITION_NAMES else "p"
+        kind_elm = etree.Element(
+            qn("%s:%s" % (prefix, local)),
+            nsmap={prefix: _PREFIX_TO_URI[prefix]},
+        )
+        # insert at position 0 (before any sndAc/extLst)
+        transition.insert(0, kind_elm)
+
+    @property
+    def duration(self) -> int | None:
+        """Transition duration in milliseconds, or |None| if not explicitly set.
+
+        Resolves the ``p14:dur`` attribute (PowerPoint 2010+ extension) if
+        present; falls back to mapping the legacy ``spd`` bucket
+        (``slow``/``med``/``fast`` ↔ 1000/750/500 ms) otherwise.
+        """
+        transition = self._sld.transition
+        if transition is None:
+            return None
+        dur_attr = transition.get(qn("p14:dur"))
+        if dur_attr is not None:
+            try:
+                return int(dur_attr)
+            except ValueError:
+                return None
+        spd = transition.spd
+        if spd is None:
+            return None
+        return _SPD_TO_MS.get(spd)
+
+    @duration.setter
+    def duration(self, ms: int | None) -> None:
+        if ms is None:
+            # clearing on a slide that inherits should be a no-op, not a
+            # mutation that introduces an empty `<p:transition>` element
+            transition = self._sld.transition
+            if transition is None:
+                return
+            transition.attrib.pop(qn("p14:dur"), None)
+            # also drop the legacy `spd` bucket; otherwise the getter falls
+            # back to it and reads as still-explicitly-set
+            transition.spd = None
+            return
+        if ms < 0:
+            raise ValueError("duration must be a non-negative integer (milliseconds)")
+        transition = self._sld.get_or_add_transition()
+        transition.set(qn("p14:dur"), str(int(ms)))
+        # writing an explicit ms duration supersedes any legacy bucket
+        transition.spd = None
+
+    @property
+    def advance_on_click(self) -> bool | None:
+        """Whether the slide advances on mouse-click; |None| if unset."""
+        transition = self._sld.transition
+        if transition is None:
+            return None
+        return transition.advClick
+
+    @advance_on_click.setter
+    def advance_on_click(self, value: bool | None) -> None:
+        if value is None:
+            transition = self._sld.transition
+            if transition is None:
+                return
+            transition.advClick = None
+            return
+        transition = self._sld.get_or_add_transition()
+        transition.advClick = bool(value)
+
+    @property
+    def advance_after(self) -> int | None:
+        """Auto-advance time (milliseconds), or |None| if not auto-advancing."""
+        transition = self._sld.transition
+        if transition is None:
+            return None
+        return transition.advTm
+
+    @advance_after.setter
+    def advance_after(self, ms: int | None) -> None:
+        if ms is None:
+            transition = self._sld.transition
+            if transition is None:
+                return
+            transition.advTm = None
+            return
+        if ms < 0:
+            raise ValueError("advance_after must be a non-negative integer (milliseconds)")
+        transition = self._sld.get_or_add_transition()
+        transition.advTm = int(ms)
+
+    def clear(self) -> None:
+        """Remove the ``<p:transition>`` element entirely.
+
+        After this call, the slide has no explicit transition; reads return
+        |None| again. Idempotent: safe to call when no transition is set.
+        """
+        self._sld._remove_transition()
+
+
+_SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}
+
+
+_PREFIX_TO_URI = {
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+    "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
+}
+
+
+# -- imported here to avoid a circular import at module load time --
+from lxml import etree  # noqa: E402
+
+
 class Slide(_BaseSlide):
     """Slide object. Provides access to shapes and slide-level properties."""
 
@@ -233,6 +399,17 @@ class Slide(_BaseSlide):
     def slide_layout(self) -> SlideLayout:
         """|SlideLayout| object this slide inherits appearance from."""
         return self.part.slide_layout
+
+    @lazyproperty
+    def transition(self) -> SlideTransition:
+        """|SlideTransition| object describing the transition into this slide.
+
+        The same instance is returned on each call. Reads on individual
+        properties of the returned object are non-mutating; the underlying
+        ``<p:transition>`` element is created only when a property is
+        assigned.
+        """
+        return SlideTransition(self._element)
 
 
 class Slides(ParentedElementProxy):

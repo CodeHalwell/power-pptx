@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, cast
 from pptx.oxml import parse_from_template, parse_xml
 from pptx.oxml.dml.fill import CT_GradientFillProperties
 from pptx.oxml.ns import nsdecls
-from pptx.oxml.simpletypes import XsdString
+from pptx.oxml.simpletypes import XsdBoolean, XsdString, XsdUnsignedInt
 from pptx.oxml.xmlchemy import (
     BaseOxmlElement,
     Choice,
@@ -162,6 +162,9 @@ class CT_Slide(_BaseSlideElement):
     _tag_seq = ("p:cSld", "p:clrMapOvr", "p:transition", "p:timing", "p:extLst")
     cSld: CT_CommonSlideData = OneAndOnlyOne("p:cSld")  # pyright: ignore[reportAssignmentType]
     clrMapOvr = ZeroOrOne("p:clrMapOvr", successors=_tag_seq[2:])
+    transition: CT_SlideTransition | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "p:transition", successors=_tag_seq[3:]
+    )
     timing = ZeroOrOne("p:timing", successors=_tag_seq[4:])
     del _tag_seq
 
@@ -299,6 +302,45 @@ class CT_SlideMaster(_BaseSlideElement):
         "p:sldLayoutIdLst", successors=_tag_seq[3:]
     )
     del _tag_seq
+
+
+class CT_SlideTransition(BaseOxmlElement):
+    """`p:transition` element, specifying the transition into a slide.
+
+    The transition kind is encoded by which child element is present (e.g.
+    ``<p:fade/>``, ``<p:wipe/>``, ``<p14:morph/>``); ``<p:transition>`` may
+    have at most one such child. Attributes control timing:
+
+    * ``spd`` – legacy speed bucket (``slow``, ``med``, ``fast``).
+    * ``advClick`` – whether the slide advances on mouse click. Default is
+      ``True`` if the attribute is absent; setting it to ``False`` is the
+      common case for kiosk-style auto-advance.
+    * ``advTm`` – auto-advance time, in milliseconds.
+    """
+
+    spd: str | None = OptionalAttribute("spd", XsdString)  # pyright: ignore[reportAssignmentType]
+    advClick: bool | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "advClick", XsdBoolean
+    )
+    advTm: int | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "advTm", XsdUnsignedInt
+    )
+
+    @property
+    def kind_element(self):
+        """The single transition-kind child element, or |None| if not set.
+
+        The transition-kind element is the first child whose tag is not a
+        sound-action or extension-list element; that gives us the right
+        answer for both standard ``p:`` transitions and PowerPoint-2010+
+        ``p14:`` transitions without enumerating every known kind.
+        """
+        for child in self:
+            local = child.tag.rsplit("}", 1)[-1]
+            if local in ("sndAc", "extLst"):
+                continue
+            return child
+        return None
 
 
 class CT_SlideTiming(BaseOxmlElement):
