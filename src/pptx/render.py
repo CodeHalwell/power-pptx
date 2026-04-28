@@ -27,6 +27,7 @@ the rest of the library never depends on subprocess or LibreOffice.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -140,7 +141,10 @@ def render_slide_thumbnails(
                 % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
             )
 
-        png_paths = sorted(p for p in work_dir.glob("*.png") if p.name != deck_path.name)
+        png_paths = sorted(
+            (p for p in work_dir.glob("*.png") if p.name != deck_path.name),
+            key=_natural_sort_key,
+        )
         if not png_paths:
             raise ThumbnailRendererError(
                 "soffice produced no PNG output; ensure your LibreOffice "
@@ -158,6 +162,23 @@ def render_slide_thumbnails(
     finally:
         if cleanup_tmp and return_bytes:
             shutil.rmtree(work_dir, ignore_errors=True)
+
+
+_NATURAL_SORT_RE = re.compile(r"(\d+)")
+
+
+def _natural_sort_key(path: Path):
+    """Return a sort key that treats embedded digit runs as integers.
+
+    LibreOffice writes one PNG per slide with the slide index appended to
+    the basename — e.g. ``deck-1.png``, ``deck-2.png``, …, ``deck-10.png``.
+    Plain lexicographic sorting puts ``deck-10.png`` before ``deck-2.png``,
+    which silently scrambles ``slide_indexes=`` lookups for any deck with
+    ten or more slides.  Splitting the name into alternating
+    text / int chunks gives the human-intuitive ordering.
+    """
+    parts = _NATURAL_SORT_RE.split(path.name)
+    return tuple((int(p) if p.isdigit() else p) for p in parts)
 
 
 def _select_indexes(paths: Sequence[Path], indexes: Iterable[int]) -> List[Path]:
@@ -184,27 +205,55 @@ def render_slide_thumbnail(
 
     The slide must belong to a :class:`Presentation` whose ``save()``
     will produce a complete deck on disk.  Internally this calls
-    :func:`render_slide_thumbnails` and picks the entry matching the
-    slide's deck-order index.
+    :func:`render_slide_thumbnails` against a private temporary
+    directory; that directory is always cleaned up before this
+    function returns, regardless of which return mode is selected:
+
+    * ``return_bytes=True``  — returns PNG ``bytes``; temp dir removed.
+    * ``out_path=...``       — returns the destination ``Path``; temp dir removed.
+    * neither                — returns a stable ``Path`` to a small
+      ``NamedTemporaryFile`` PNG (``delete=False``).  The bigger temp
+      directory holding the saved deck is cleaned up; the caller owns
+      cleanup of the returned PNG file.
     """
     prs = _presentation_for(slide)
     idx = list(prs.slides).index(slide)
-    paths = render_slide_thumbnails(
-        prs,
-        slide_indexes=[idx],
-        soffice_bin=soffice_bin,
-        timeout=timeout,
-        return_bytes=return_bytes,
-    )
-    only = paths[0]
+
     if return_bytes:
-        return only  # type: ignore[return-value]
-    if out_path is not None:
-        target = Path(out_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(only, target)
-        return target
-    return only  # type: ignore[return-value]
+        # `render_slide_thumbnails` cleans up its own temp dir when
+        # `return_bytes=True`, so no extra wrapping is needed here.
+        data = render_slide_thumbnails(
+            prs,
+            slide_indexes=[idx],
+            soffice_bin=soffice_bin,
+            timeout=timeout,
+            return_bytes=True,
+        )
+        return data[0]
+
+    # Otherwise, control the temp dir ourselves so we can copy the PNG
+    # out and remove the directory (which also holds the saved deck).
+    with tempfile.TemporaryDirectory(prefix="pptx-thumb-") as tmp:
+        paths = render_slide_thumbnails(
+            prs,
+            slide_indexes=[idx],
+            out_dir=tmp,
+            soffice_bin=soffice_bin,
+            timeout=timeout,
+        )
+        src = paths[0]
+        if out_path is not None:
+            target = Path(out_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, target)
+            return target
+        # No destination given: persist the single PNG to a stable
+        # tempfile so the returned path remains valid after the
+        # `TemporaryDirectory` context exits.
+        fd, persistent = tempfile.mkstemp(prefix="pptx-thumb-", suffix=".png")
+        os.close(fd)
+        shutil.copyfile(src, persistent)
+        return Path(persistent)
 
 
 def _presentation_for(slide: "_Slide") -> "_Presentation":

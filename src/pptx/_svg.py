@@ -43,13 +43,25 @@ def load_image_blob(source: PathOrFile) -> Tuple[bytes, str | None]:
     blob.  The filename component is best-effort and is only used as a
     nice-to-have for the partname; ``None`` is returned for in-memory
     sources.
+
+    .. note::
+       File-like sources are rewound with ``source.seek(0)`` before
+       reading when seeking is supported, so the *entire* contents of
+       the stream are loaded regardless of where the cursor was when
+       the function was called.  This matches the behavior of
+       :meth:`Image.from_file` (used by ``add_picture``) and means
+       callers who pass a partially-read stream will get the full blob,
+       not just the unread tail.  Pass a :class:`bytes` blob directly
+       if you want to feed the function a pre-sliced subset of a
+       stream.
     """
     if isinstance(source, (bytes, bytearray)):
         return bytes(source), None
     if isinstance(source, (str, os.PathLike)):
         with open(source, "rb") as f:
             return f.read(), os.path.basename(os.fspath(source))
-    # Assume file-like.
+    # Assume file-like.  Match `Image.from_file`'s rewind-then-read
+    # convention so behavior is consistent across the picture APIs.
     if callable(getattr(source, "seek", None)):
         source.seek(0)
     return source.read(), None
