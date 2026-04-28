@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import IO, TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, Literal, cast
 
 from pptx.shared import PartElementProxy
 from pptx.slide import SlideMasters, Slides
@@ -12,7 +12,8 @@ if TYPE_CHECKING:
     from pptx.enum.presentation import MSO_TRANSITION_TYPE
     from pptx.oxml.presentation import CT_Presentation, CT_SlideId
     from pptx.parts.presentation import PresentationPart
-    from pptx.slide import NotesMaster, SlideLayouts
+    from pptx.parts.slide import SlidePart
+    from pptx.slide import NotesMaster, Slide, SlideLayouts
     from pptx.util import Length
 
 # Sentinel used by `set_transition` so callers can distinguish "leave the
@@ -133,6 +134,82 @@ class Presentation(PartElementProxy):
         sldIdLst = self._element.get_or_add_sldIdLst()
         self.part.rename_slide_parts([cast("CT_SlideId", sldId).rId for sldId in sldIdLst])
         return Slides(sldIdLst, self)
+
+    def import_slide(
+        self,
+        source_slide: Slide,
+        merge_master: Literal["dedupe", "clone"] = "dedupe",
+    ) -> Slide:
+        """Copy *source_slide* into this presentation and return the new |Slide|.
+
+        The imported slide is appended after any existing slides.
+
+        Parameters
+        ----------
+        source_slide:
+            A |Slide| object from any |Presentation| instance, including this one.
+        merge_master:
+            Controls how the slide master is handled:
+
+            ``'dedupe'`` *(default)*
+                Reuse an existing master in this presentation if its XML is
+                identical to the source master's XML (normalised byte-for-byte
+                compare).  Clone the master otherwise.
+
+            ``'clone'``
+                Always clone the source master, even if an identical one
+                already exists.
+
+        Returns
+        -------
+        Slide
+            The newly imported slide.
+
+        Example::
+
+            src = pptx.Presentation("source.pptx")
+            dst = pptx.Presentation("dest.pptx")
+            new_slide = dst.import_slide(src.slides[0])
+            dst.save("merged.pptx")
+        """
+        from pptx._slide_importer import import_slide as _import_slide
+
+        return _import_slide(source_slide.part, self.part, merge_master=merge_master)
+
+    def apply_template(
+        self,
+        template_path_or_stream: str | IO[bytes],
+    ) -> None:
+        """Re-point every slide in this presentation at masters from *template_path_or_stream*.
+
+        After this call every slide inherits theme, fonts, and colours from
+        the template.  Slide content (shapes, text, animations) is preserved.
+
+        The template can be a ``.potx`` or any ``.pptx``/``.pptm`` file — the
+        master(s) inside are used regardless of the extension.
+
+        Layout matching (in priority order):
+
+        1. Same ``<p:cSld name="…">`` name.
+        2. Same layout ``type`` attribute (e.g. ``"title"``, ``"obj"``).
+        3. Fall back to the template's first layout.
+
+        Parameters
+        ----------
+        template_path_or_stream:
+            Path to a ``.potx``/``.pptx`` file, or a file-like object.
+
+        Example::
+
+            prs = pptx.Presentation("deck.pptx")
+            prs.apply_template("brand.potx")
+            prs.save("branded_deck.pptx")
+        """
+        from pptx._template_applier import apply_template as _apply_template
+        from pptx.api import Presentation as _Presentation
+
+        tpl = _Presentation(template_path_or_stream)
+        _apply_template(self.part, tpl.part)
 
     def set_transition(
         self,

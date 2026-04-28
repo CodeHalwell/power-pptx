@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from pptx.presentation import Presentation
     from pptx.shapes.placeholder import LayoutPlaceholder, MasterPlaceholder
     from pptx.shapes.shapetree import NotesSlidePlaceholder
+    from pptx.smart_art import SmartArtCollection
     from pptx.text.text import TextFrame
 
 
@@ -424,6 +425,27 @@ class Slide(_BaseSlide):
     def shapes(self) -> SlideShapes:
         """Sequence of shape objects appearing on this slide."""
         return SlideShapes(self._element.spTree, self)
+
+    @property
+    def smart_art(self) -> SmartArtCollection:
+        """Return a |SmartArtCollection| for this slide.
+
+        Provides indexed access to SmartArt graphics on the slide.  Each item
+        is a |SmartArtShape| whose :attr:`~SmartArtShape.texts` property gives
+        the current text list and :meth:`~SmartArtShape.set_text` replaces it.
+
+        Example::
+
+            org_chart = slide.smart_art[0]
+            print(org_chart.texts)                # ['CEO', 'CTO', 'CFO']
+            org_chart.set_text(['Alice', 'Bob', 'Carol'])
+
+        Returns an empty collection (length 0) when there are no SmartArt
+        shapes on the slide.
+        """
+        from pptx.smart_art import SmartArtCollection
+
+        return SmartArtCollection(self)
 
     @property
     def slide_id(self) -> int:

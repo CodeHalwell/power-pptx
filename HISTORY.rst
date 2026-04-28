@@ -12,6 +12,54 @@ PyPI; the importable package name (``pptx``) is unchanged.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+1.8.0 (unreleased)
++++++++++++++++++++
+
+New API — Phase 8 (3D primitives and SmartArt text substitution)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``shape.three_d`` accessor: ``ThreeDFormat`` facade exposing
+  ``bevel_top``/``bevel_bottom`` (``_BevelFormat`` with ``preset``,
+  ``width``, ``height``), ``extrusion_height``, ``extrusion_color``,
+  ``contour_width``, ``contour_color``, and ``preset_material``.
+  Backed by ``CT_Shape3D`` and ``CT_Scene3D`` element classes in
+  ``pptx.oxml.dml.three_d``.  ``BevelPreset`` and ``PresetMaterial``
+  enumerations added to ``pptx.enum.dml``.
+
+- ``slide.smart_art``: ``SmartArtCollection`` providing indexed and
+  iterable access to SmartArt graphics on a slide.  Each item is a
+  ``SmartArtShape`` with:
+
+  - ``texts`` property — ordered list of node text strings.
+  - ``set_text(values, *, strict=True)`` — replaces node text in
+    document order without touching layout, style, or colour parts.
+
+  ``DiagramDataPart`` and sibling part classes registered so SmartArt
+  ``diagrams/data#.xml``, ``layout#``, ``quickStyle#``, and ``colors#``
+  parts are handled as typed ``XmlPart`` subclasses.
+
+
+1.7.0 (unreleased)
++++++++++++++++++++
+
+New API — Phase 7 (slide composition)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``Presentation.import_slide(source_slide, merge_master='dedupe'|'clone')``:
+  clones a slide from any ``Presentation`` into the receiver.  Copies
+  the slide part and all its dependencies (images, charts, media,
+  notes, SmartArt diagram parts, …).  Master/layout/theme parts are
+  either deduped against existing masters (``'dedupe'``) or always
+  cloned fresh (``'clone'``).  Slide IDs and partnames are guaranteed
+  collision-free.
+
+- ``Presentation.apply_template(path_or_stream)``: re-points every
+  slide's layout/master/theme at masters from a ``.potx`` or ``.pptx``
+  template.  Slide content is preserved.  Layout matching: name → type
+  → first layout.  Unreferenced old masters/layouts/themes are dropped
+  from the saved package.
+
+
 1.1.0.dev0 (unreleased)
 +++++++++++++++++++++++
 

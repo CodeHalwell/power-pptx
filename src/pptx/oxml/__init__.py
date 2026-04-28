@@ -298,6 +298,22 @@ register_element_cls("a:reflection", CT_ReflectionEffect)
 register_element_cls("a:softEdge", CT_SoftEdgesEffect)
 
 
+from pptx.oxml.dml.three_d import (  # noqa: E402
+    CT_Bevel,
+    CT_ContourColor,
+    CT_ExtrusionColor,
+    CT_Scene3D,
+    CT_Shape3D,
+)
+
+register_element_cls("a:bevelT", CT_Bevel)
+register_element_cls("a:bevelB", CT_Bevel)
+register_element_cls("a:contourClr", CT_ContourColor)
+register_element_cls("a:extrusionClr", CT_ExtrusionColor)
+register_element_cls("a:scene3d", CT_Scene3D)
+register_element_cls("a:sp3d", CT_Shape3D)
+
+
 from pptx.oxml.dml.line import CT_PresetLineDashProperties  # noqa: E402
 
 register_element_cls("a:prstDash", CT_PresetLineDashProperties)
