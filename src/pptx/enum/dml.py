@@ -545,3 +545,108 @@ class MSO_THEME_COLOR_INDEX(BaseXmlEnum):
 
 
 MSO_THEME_COLOR = MSO_THEME_COLOR_INDEX
+
+
+class BevelPreset(BaseXmlEnum):
+    """Preset bevel style for the top or bottom face of a 3-D shape.
+
+    Used with ``shape.three_d.bevel_top`` and ``shape.three_d.bevel_bottom``.
+
+    Maps to the ``prst`` attribute on ``<a:bevelT>`` / ``<a:bevelB>``.
+    """
+
+    ANGLE = (1, "angle", "Angle bevel.")
+    """Angle bevel."""
+
+    ART_DECO = (2, "artDeco", "Art Deco bevel.")
+    """Art Deco bevel."""
+
+    CIRCLE = (3, "circle", "Circle bevel.")
+    """Circle bevel."""
+
+    CONVEX = (4, "convex", "Convex bevel.")
+    """Convex bevel."""
+
+    COOL_SLANT = (5, "coolSlant", "Cool slant bevel.")
+    """Cool slant bevel."""
+
+    CROSS = (6, "cross", "Cross bevel.")
+    """Cross bevel."""
+
+    DIVOT = (7, "divot", "Divot bevel.")
+    """Divot bevel."""
+
+    HARD_EDGE = (8, "hardEdge", "Hard edge bevel.")
+    """Hard edge bevel."""
+
+    NONE = (9, "none", "No bevel.")
+    """No bevel."""
+
+    RELAXED_INSET = (10, "relaxedInset", "Relaxed inset bevel.")
+    """Relaxed inset bevel."""
+
+    RIBLET = (11, "riblet", "Riblet bevel.")
+    """Riblet bevel."""
+
+    SLOPE = (12, "slope", "Slope bevel.")
+    """Slope bevel."""
+
+    SOFT_ROUND = (13, "softRound", "Soft round bevel.")
+    """Soft round bevel."""
+
+
+class PresetMaterial(BaseXmlEnum):
+    """Preset 3-D surface material for a shape.
+
+    Used with ``shape.three_d.preset_material``.
+
+    Maps to the ``prstMaterial`` attribute on ``<a:sp3d>``.
+    """
+
+    CLEAR = (1, "clear", "Clear (transparent) material.")
+    """Clear (transparent) material."""
+
+    DK_EDGE = (2, "dkEdge", "Dark-edge material.")
+    """Dark-edge material."""
+
+    FLAT = (3, "flat", "Flat (non-reflective) material.")
+    """Flat (non-reflective) material."""
+
+    LEGACY_MATTE = (4, "legacyMatte", "Legacy matte material.")
+    """Legacy matte material."""
+
+    LEGACY_METAL = (5, "legacyMetal", "Legacy metal material.")
+    """Legacy metal material."""
+
+    LEGACY_PLASTIC = (6, "legacyPlastic", "Legacy plastic material.")
+    """Legacy plastic material."""
+
+    LEGACY_WIREFRAME = (7, "legacyWireframe", "Legacy wireframe material.")
+    """Legacy wireframe material."""
+
+    MATTE = (8, "matte", "Matte material.")
+    """Matte material."""
+
+    METAL = (9, "metal", "Metal material.")
+    """Metal material."""
+
+    NONE = (10, "none", "No material (flat).")
+    """No material (flat)."""
+
+    PLASTIC = (11, "plastic", "Plastic material.")
+    """Plastic material."""
+
+    POWDER = (12, "powder", "Powder material.")
+    """Powder material."""
+
+    SOFT_EDGE = (13, "softEdge", "Soft-edge material.")
+    """Soft-edge material."""
+
+    SOFT_METAL = (14, "softMetal", "Soft-metal material.")
+    """Soft-metal material."""
+
+    TRANSLUCENT_POWDER = (15, "translucentPowder", "Translucent powder material.")
+    """Translucent powder material."""
+
+    WARM_MATTE = (16, "warmMatte", "Warm matte material.")
+    """Warm matte material."""

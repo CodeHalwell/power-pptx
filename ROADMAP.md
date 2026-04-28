@@ -433,12 +433,12 @@ in Phase 2, but cross-presentation operations are the remaining piece.
 
 - **`pptx.compose` package** (extending the module introduced in
   Phase 2 for `from_spec`).
-- **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
+- [x] **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
   Clones a slide from another presentation, including its layout
   reference, with master-deduplication and image-rename collision
   handling. Closes the upstream issues that today force users into
   Aspose/Spire.
-- **`apply_template(potx_or_pptx)`.** Re-points slides at masters/layouts
+- [x] **`apply_template(potx_or_pptx)`.** Re-points slides at masters/layouts
   imported from a `.potx` or `.pptx`.
 - [x] **Theme writer.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] =
   RGBColor(...)` writes a fresh `<a:srgbClr>` into the requested
@@ -456,11 +456,11 @@ theme can be swapped in from a `.potx` in one call.
 
 ## Phase 8 — 3D, SmartArt text substitution (target: 1.8.0)
 
-- **3D primitives.** Bevels (`a:bevelT`/`a:bevelB`) and extrusion
+- [x] **3D primitives.** Bevels (`a:bevelT`/`a:bevelB`) and extrusion
   (`a:sp3d`) under a new `shape.three_d` accessor. The `<a:scene3d>`
   / `<a:sp3d>` slots are already reserved at
   `oxml/shapes/shared.py:368-369`.
-- **SmartArt text substitution.** `slide.smart_art[0].set_text(['NY',
+- [x] **SmartArt text substitution.** `slide.smart_art[0].set_text(['NY',
   'CA', 'TX'])` rewrites the text-list inside an *existing*
   `diagrams/data1.xml` without touching the layout. Bounded scope —
   full SmartArt creation remains explicitly out.

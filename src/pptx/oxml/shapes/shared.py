@@ -38,6 +38,7 @@ from pptx.util import Emu
 
 if TYPE_CHECKING:
     from pptx.oxml.action import CT_Hyperlink
+    from pptx.oxml.dml.three_d import CT_Scene3D, CT_Shape3D
     from pptx.oxml.shapes.autoshape import CT_CustomGeometry2D, CT_PresetGeometry2D
     from pptx.util import Length
 
@@ -389,6 +390,8 @@ class CT_ShapeProperties(BaseOxmlElement):
 
     get_or_add_xfrm: Callable[[], CT_Transform2D]
     get_or_add_ln: Callable[[], CT_LineProperties]
+    get_or_add_scene3d: Callable[[], CT_Scene3D]
+    get_or_add_sp3d: Callable[[], CT_Shape3D]
     _add_prstGeom: Callable[[], CT_PresetGeometry2D]
     _remove_custGeom: Callable[[], None]
 
@@ -433,6 +436,12 @@ class CT_ShapeProperties(BaseOxmlElement):
         "a:ln", successors=_tag_seq[10:]
     )
     effectLst = ZeroOrOne("a:effectLst", successors=_tag_seq[11:])
+    scene3d: CT_Scene3D | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:scene3d", successors=_tag_seq[13:]
+    )
+    sp3d: CT_Shape3D | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:sp3d", successors=_tag_seq[14:]
+    )
     del _tag_seq
 
     @property

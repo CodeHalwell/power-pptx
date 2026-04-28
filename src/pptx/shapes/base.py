@@ -12,6 +12,7 @@ from pptx.dml.effect import (
     ShadowFormat,
     SoftEdgeFormat,
 )
+from pptx.dml.three_d import ThreeDFormat
 from pptx.shared import ElementProxy
 from pptx.util import lazyproperty
 
@@ -215,6 +216,25 @@ class BaseShape(object):
         explicitly defined.  Reading ``soft_edges.radius`` returns None in that case.
         """
         return SoftEdgeFormat(self._element.spPr)
+
+    @lazyproperty
+    def three_d(self) -> ThreeDFormat:
+        """|ThreeDFormat| object providing access to 3-D formatting for this shape.
+
+        A |ThreeDFormat| object is always returned even when no 3-D properties are
+        explicitly defined.  Reading e.g. ``three_d.bevel_top.preset`` returns None in that case.
+
+        Example::
+
+            from pptx.enum.dml import BevelPreset, PresetMaterial
+            from pptx.util import Pt
+
+            shape.three_d.bevel_top.preset = BevelPreset.CIRCLE
+            shape.three_d.bevel_top.width = Pt(4)
+            shape.three_d.extrusion_height = Pt(6)
+            shape.three_d.preset_material = PresetMaterial.MATTE
+        """
+        return ThreeDFormat(self._element.spPr)
 
     @property
     def shape_id(self) -> int:
