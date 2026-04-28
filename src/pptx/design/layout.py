@@ -65,10 +65,16 @@ class Box(NamedTuple):
 def _slide_dimensions(slide: "Slide") -> tuple[Length, Length]:
     """Return ``(slide_width, slide_height)`` for `slide`.
 
-    Raises :class:`ValueError` if either dimension is unset on the host
-    presentation.
+    Raises :class:`ValueError` if `slide` is not attached to a presentation
+    or if either dimension is unset on that presentation.
     """
-    presentation = slide.part.package.presentation_part.presentation
+    try:
+        presentation = slide.part.package.presentation_part.presentation
+    except AttributeError as e:
+        raise ValueError(
+            "slide must be attached to a presentation to use a Grid; "
+            "add it via `prs.slides.add_slide(...)` first"
+        ) from e
     width, height = presentation.slide_width, presentation.slide_height
     if width is None or height is None:
         raise ValueError(

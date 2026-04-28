@@ -134,6 +134,17 @@ class DescribeFillFormat(object):
         with pytest.raises(ValueError, match="gradient kind must be one of"):
             fill.gradient(kind="diagonal")
 
+    def it_does_not_mutate_the_fill_when_gradient_kind_is_invalid(self):
+        spPr = element("p:spPr/a:solidFill/a:srgbClr{val=FF0000}")
+        fill = FillFormat.from_fill_parent(spPr)
+        original_xml = spPr.xml
+
+        with pytest.raises(ValueError):
+            fill.gradient(kind="diagonal")
+
+        assert spPr.xml == original_xml
+        assert fill.type == MSO_FILL.SOLID
+
     def it_provides_gradient_kind_on_a_gradient_fill(self, type_prop_, grad_fill_):
         type_prop_.return_value = MSO_FILL.GRADIENT
         grad_fill_.gradient_kind = "radial"
@@ -762,12 +773,17 @@ class Describe_GradientStops(object):
         assert new_stop.color.rgb == RGBColor(0, 128, 255)
 
     def it_can_append_a_stop_without_an_explicit_color(self):
+        from pptx.enum.dml import MSO_THEME_COLOR
+
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
         new_stop = stops.append(0.33)
 
         assert len(stops) == 3
         assert new_stop.position == 0.33
+        # default placeholder is schemeClr accent1 — without this the emitted
+        # `<a:gs>` would lack the required color choice child
+        assert new_stop.color.theme_color == MSO_THEME_COLOR.ACCENT_1
 
     def it_raises_TypeError_on_unsupported_color(self):
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
@@ -805,6 +821,29 @@ class Describe_GradientStops(object):
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
         with pytest.raises(ValueError, match="at least 2"):
             stops.replace([(0.0, "FF8800")])
+
+    def it_can_replace_using_existing_scheme_color_stops(self):
+        # Default gsLst stops are schemeClr (accent1); reading .rgb on them
+        # returns None, which would break a naive replace() that read
+        # `entry.color.rgb`. This test verifies the deep-copy path.
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        stops.replace(list(stops))
+
+        # Round-tripping existing scheme stops preserves their XML exactly
+        assert gsLst.xml == original_xml
+
+    def it_leaves_existing_stops_intact_when_replace_validation_fails(self):
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        with pytest.raises(TypeError):
+            stops.replace([(0.0, "FF8800"), (1.0, 12345)])
+
+        assert gsLst.xml == original_xml
 
 
 class Describe_GradientStop(object):

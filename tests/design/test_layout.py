@@ -80,6 +80,14 @@ class DescribeGrid:
         with pytest.raises(ValueError):
             Grid(slide, cols=4, margin=Inches(20))
 
+    def it_raises_a_clear_error_for_a_detached_slide(self):
+        # An object that looks slide-shaped but isn't attached to a presentation
+        class _FakeSlide:
+            pass
+
+        with pytest.raises(ValueError, match="attached to a presentation"):
+            Grid(_FakeSlide(), cols=4)
+
     def it_accepts_2_tuple_and_4_tuple_margins(self, slide):
         g2 = Grid(slide, cols=2, rows=1, margin=(Pt(10), Pt(20)))
         # 2-tuple is (vertical, horizontal)

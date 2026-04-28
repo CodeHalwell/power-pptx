@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from pptx.dml.color import ColorFormat, RGBColor
-from pptx.enum.dml import MSO_FILL
+from pptx.enum.dml import MSO_FILL, MSO_THEME_COLOR
 from pptx.oxml.dml.fill import (
     CT_BlipFillProperties,
     CT_GradientFillProperties,
@@ -70,6 +71,8 @@ class FillFormat(object):
         """
         return self._fill.fore_color
 
+    _GRADIENT_KINDS = ("linear", "radial", "rectangular", "shape")
+
     def gradient(self, kind: str = "linear"):
         """Sets the fill type to gradient.
 
@@ -91,8 +94,14 @@ class FillFormat(object):
 
         When called on an existing gradient with a different kind, the
         gradient stops are preserved; only the path/lin shading element is
-        swapped out.
+        swapped out. Invalid `kind` values raise ``ValueError`` *before*
+        any fill mutation, leaving the existing fill untouched.
         """
+        if kind not in self._GRADIENT_KINDS:
+            raise ValueError(
+                "gradient kind must be one of %r; got %r"
+                % (self._GRADIENT_KINDS, kind)
+            )
         gradFill = self._xPr.get_or_change_to_gradFill()
         if kind != "linear":
             gradFill.change_to_kind(kind)
@@ -446,31 +455,62 @@ class _GradientStops(Sequence):
         gs = self._gsLst._add_gs()
         gs.pos = float(position)
         stop = _GradientStop(gs)
-        if color is not None:
+        if color is None:
+            # Default placeholder color so the emitted `<a:gs>` is valid OOXML
+            # (the schema requires a color choice child). Callers can mutate
+            # the returned stop's `.color` afterwards.
+            stop.color.theme_color = MSO_THEME_COLOR.ACCENT_1
+        else:
             stop.color.rgb = self._coerce_rgb(color)
         return stop
 
     def replace(self, stops):
-        """Replace all stops with the (position, color) pairs in `stops`.
+        """Replace all stops with the entries in `stops`.
 
-        Each item is either a 2-tuple ``(position, color)`` (where `color`
+        Each entry is either a 2-tuple ``(position, color)`` (where `color`
         follows the same rules as :meth:`append`) or an existing
-        :class:`_GradientStop` to copy. The new sequence must contain at
-        least 2 entries.
+        :class:`_GradientStop` — including stops whose color is a theme,
+        scheme, system, or preset color. Existing-stop entries are deep-
+        copied as-is so non-RGB color choices round-trip without loss.
+
+        The new sequence must contain at least 2 entries. The replacement
+        is atomic: if any entry is invalid the existing stops are left
+        untouched.
         """
         stops = list(stops)
         if len(stops) < self._MIN_STOP_COUNT:
             raise ValueError(
                 "a gradient must have at least %d stops" % self._MIN_STOP_COUNT
             )
-        for gs in self._gs_children:
-            self._gsLst.remove(gs)
+
+        # Pre-validate every entry so a failure (bad color, malformed tuple)
+        # raises *before* we touch the existing stops.
+        validated = []
         for entry in stops:
             if isinstance(entry, _GradientStop):
-                position, color = entry.position, entry.color.rgb
-            else:
+                validated.append(("copy", entry._gs))
+                continue
+            try:
                 position, color = entry
-            self.append(position, color)
+            except (TypeError, ValueError) as e:
+                raise TypeError(
+                    "replace() entries must be (position, color) tuples or "
+                    "_GradientStop instances; got %r" % (entry,)
+                ) from e
+            float(position)
+            if color is not None:
+                self._coerce_rgb(color)
+            validated.append(("new", float(position), color))
+
+        # Mutate only after all entries are validated.
+        for gs in self._gs_children:
+            self._gsLst.remove(gs)
+        for entry in validated:
+            if entry[0] == "copy":
+                self._gsLst.append(copy.deepcopy(entry[1]))
+            else:
+                _, position, color = entry
+                self.append(position, color)
 
     @property
     def _gs_children(self):
