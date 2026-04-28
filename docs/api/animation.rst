@@ -9,7 +9,7 @@ Animations
 |SlideAnimations| objects
 -------------------------
 
-.. autoclass:: SlideAnimations()
+.. autoclass:: SlideAnimations
 
 
 Entrance presets

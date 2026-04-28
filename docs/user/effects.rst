@@ -88,11 +88,15 @@ Line ends, caps, joins, compound lines
 
 ::
 
-    from pptx.enum.dml import MSO_LINE_CAP, MSO_LINE_COMPOUND, MSO_LINE_JOIN
+    from pptx.enum.dml import (
+        MSO_LINE_CAP_STYLE,
+        MSO_LINE_COMPOUND_STYLE,
+        MSO_LINE_JOIN_STYLE,
+    )
 
     line = shape.line
     line.head_end.type = "TRIANGLE"
     line.tail_end.length = "LARGE"
-    line.cap = MSO_LINE_CAP.ROUND
-    line.compound = MSO_LINE_COMPOUND.DOUBLE
-    line.join = MSO_LINE_JOIN.BEVEL
+    line.cap = MSO_LINE_CAP_STYLE.ROUND
+    line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE
+    line.join = MSO_LINE_JOIN_STYLE.BEVEL

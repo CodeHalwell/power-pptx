@@ -6,7 +6,8 @@ authoring and cross-presentation operations.
 ## JSON authoring with `from_spec`
 
 The single entry point for generator scripts (LLM or otherwise). The
-spec is JSON-schema-validated before construction:
+spec dict is validated for known keys and value shapes before
+construction (no JSON Schema is involved):
 
 ```python
 from pptx.compose import from_spec
@@ -47,8 +48,15 @@ Layout names map either to Phase-9 design recipes (where supplied) or
 to a small built-in set of layouts using the host presentation's
 master.
 
-The `lint` field accepts `"off"`, `"warn"`, or `"raise"` — same
-semantics as `prs.lint_on_save`.
+The `lint` field accepts `"off"`, `"warn"`, or `"raise"`:
+
+- ``"off"`` (default) — no lint pass.
+- ``"warn"`` — log every issue through the stdlib ``logging`` module.
+- ``"raise"`` — raise ``pptx.exc.LintError`` if any error-severity
+  issue is found.
+
+`from_spec` runs the lint pass internally; outside of `from_spec`,
+iterate the slides yourself (see `lint.md`).
 
 ## Cross-presentation operations
 
@@ -111,8 +119,18 @@ for slide in body.slides:
 # 3. Re-skin everything against the latest brand template
 apply_template(deck, "brand-2026.potx")
 
-# 4. Lint and save
-deck.lint_on_save = "raise"
+# 4. Lint and save (no Presentation-level lint hook in 1.1; iterate)
+from pptx.exc import LintError
+
+errors = []
+for slide in deck.slides:
+    slide.lint().auto_fix()
+    errors.extend(
+        i for i in slide.lint().issues if i.severity.value == "error"
+    )
+if errors:
+    raise LintError("; ".join(str(e) for e in errors))
+
 deck.save("final.pptx")
 ```
 

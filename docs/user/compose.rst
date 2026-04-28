@@ -10,7 +10,8 @@ JSON authoring
 --------------
 
 ``from_spec`` is a single entry point for generator scripts (LLM or
-otherwise).  The spec is JSON-schema-validated before construction::
+otherwise).  The spec dict is validated for known keys and value
+shapes before construction (no JSON Schema is involved)::
 
     from pptx.compose import from_spec
 

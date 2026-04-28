@@ -136,11 +136,12 @@ tf.fit_text(font_family="Inter", max_size=24)
 # Braces: let PowerPoint shrink on the way down if a user later edits
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
-# Catch anything that slipped through
+# Catch anything that slipped through. auto_fix() mutates the slide
+# (currently: nudges OffSlide shapes back in), so we re-lint to see
+# the residual issues.
+slide.lint().auto_fix()
 report = slide.lint()
-report.auto_fix()                       # nudges OffSlide shapes back in
-errors = [i for i in slide.lint().issues
-          if i.severity.value == "error"]
+errors = [i for i in report.issues if i.severity.value == "error"]
 if errors:
     raise RuntimeError("\n".join(str(e) for e in errors))
 

@@ -4,10 +4,9 @@ Layout linter
 =============
 
 |pp| includes a read-only inspector that reports geometric and typographic
-issues on a slide or whole deck.  It is designed for scripts that
-generate slides programmatically — most usefully for LLM-driven
-generators that occasionally produce overflowing text or off-slide
-shapes.
+issues on a slide.  It is designed for scripts that generate slides
+programmatically — most usefully for LLM-driven generators that
+occasionally produce overflowing text or off-slide shapes.
 
 Running the linter
 ------------------
@@ -19,51 +18,83 @@ Running the linter
     report.has_errors      # bool
     print(report.summary())
 
-    deck_report = prs.lint()       # slide-by-slide
+For a whole deck, iterate the slides yourself::
+
+    all_issues = []
+    for slide in prs.slides:
+        all_issues.extend(slide.lint().issues)
+
+The :func:`pptx.compose.from_spec` entry point also accepts a
+deck-level ``"lint": "warn" | "raise"`` field that walks every slide
+and surfaces issues for you.
 
 Issue types
 -----------
 
-* :class:`pptx.lint.TextOverflow` — measured text extent exceeds the
-  text-frame extent.  Uses Pillow font metrics and respects margins,
-  vertical anchor, line spacing, and ``auto_size``.
+* :class:`pptx.lint.TextOverflow` — estimated text extent exceeds the
+  text-frame extent.  The current 1.1 implementation uses a fast
+  character/line-count heuristic (default character width of
+  ``0.55 × pt``, line height of ``1.2 × pt``) and respects text-frame
+  margins; shapes with ``auto_size`` set to ``TEXT_TO_FIT_SHAPE`` or
+  ``SHAPE_TO_FIT_TEXT`` are skipped because they cannot overflow by
+  definition.  A Pillow-driven measurement pass is on the roadmap.
 * :class:`pptx.lint.OffSlide` — a shape is wholly or partly outside the
   slide bounds.
-* :class:`pptx.lint.ShapeCollision` — two shapes overlap and the overlap
-  is not declared intentional through the relationship model below.
+* :class:`pptx.lint.ShapeCollision` — two shapes' bounding boxes overlap
+  significantly.
 
-Declaring intentional overlaps
-------------------------------
-
-Three escape hatches keep deliberate layered designs (badges, shadows)
-from tripping the collision detector:
-
-1. **Group-implicit** — shapes inside the same ``<p:grpSp>`` cooperate.
-2. **Explicit pairwise** — ``shape_a.allow_overlap_with(shape_b)``.  The
-   marker is stored under a private namespace so it round-trips.
-3. **Layer hints** — ``shape.layer = "badge"`` and
-   ``shape.layer_above = "card"``.
+Each issue carries a ``severity`` (:class:`~pptx.lint.LintSeverity`),
+a ``code`` string, a human-readable ``message``, and a ``shapes``
+tuple of the shapes it implicates.
 
 Auto-fix
 --------
 
 Some issues can be repaired without designer judgment::
 
-    fixes = report.auto_fix()              # mutates
+    fixes = report.auto_fix()              # mutates; returns list[str]
     preview = report.auto_fix(dry_run=True)
 
-* ``TextOverflow`` is repaired by applying autofit (``TEXT_TO_FIT_SHAPE``)
-  with a configurable minimum font size; if the floor is hit the issue
-  is downgraded to a warning.
-* ``OffSlide`` is repaired by translating the shape inside the slide.
-* ``ShapeCollision`` is reported only — auto-nudging usually breaks the
-  design.
+Currently auto-fixable:
 
-Save-time hooks
----------------
+* ``OffSlide`` — translates the shape so it sits inside the slide
+  bounds.
+
+Not auto-fixable in 1.1:
+
+* ``TextOverflow`` — requires designer judgment on font size vs
+  content.  Use ``text_frame.fit_text(...)`` (which measures with
+  Pillow font metrics and bakes a fitting size into the XML) or set
+  ``text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` to let
+  PowerPoint shrink at render time.
+* ``ShapeCollision`` — auto-nudging shapes apart almost always breaks
+  the design.
+
+Recommended pattern for generators
+----------------------------------
 
 ::
 
-    prs.lint_on_save = "off"     # default; preserves drop-in compat
-    prs.lint_on_save = "warn"    # log via the stdlib `logging` module
-    prs.lint_on_save = "raise"   # raise LintError on save
+    from pptx.exc import LintError
+
+    prs = build_deck_from_user_input(...)
+
+    # 1. Auto-fix what we can (currently: nudge OffSlide shapes back in)
+    for slide in prs.slides:
+        slide.lint().auto_fix()
+
+    # 2. Re-run and bail on any remaining errors
+    remaining: list = []
+    for slide in prs.slides:
+        remaining.extend(
+            i for i in slide.lint().issues
+            if i.severity.value == "error"
+        )
+    if remaining:
+        raise LintError("; ".join(str(i) for i in remaining))
+
+    prs.save("out.pptx")
+
+When building through :func:`pptx.compose.from_spec`, the
+``"lint": "raise"`` field on the spec dict does the same thing in
+fewer lines.

@@ -177,7 +177,7 @@ def render_thumbnails(prs: Presentation, out_dir: str | Path) -> list[Path]:
     from pptx.render import ThumbnailRendererUnavailable
 
     try:
-        return prs.render_thumbnails(out_dir=out_dir, width=1280)
+        return prs.render_thumbnails(out_dir=out_dir)
     except ThumbnailRendererUnavailable as exc:
         print(f"thumbnail render skipped: {exc}")
         return []
@@ -214,11 +214,17 @@ if __name__ == "__main__":
 - Persist `TOKENS` separately (YAML or `.pptx`) and load with
   `DesignTokens.from_yaml(...)` / `DesignTokens.from_pptx(...)`. That
   way design and code evolve independently.
-- Replace `prs.lint_on_save = "raise"` with `"warn"` in production if
-  you need decks to ship even with cosmetic warnings; keep `"raise"`
-  in CI.
-- For very large decks, run `prs.lint().auto_fix()` *before* save and
-  only raise on the residual issues.
+- In production, run `_lint_or_die(...)` (or its equivalent) explicitly
+  before save. Use `slide.lint().auto_fix()` to repair what can be
+  fixed automatically (currently: nudge `OffSlide` shapes back inside
+  the slide bounds), then decide what to do with the residual issues —
+  log warning-severity issues but ship the deck, raise on
+  error-severity issues. Keep the stricter "raise on any error"
+  behaviour in CI.
+- There is no `Presentation`-level lint hook in 1.1; iterate
+  `prs.slides` and call `slide.lint()` per slide, or use
+  `pptx.compose.from_spec(..., lint="raise")` if you can express the
+  deck as a spec.
 - If you want the chart palette to align with brand tokens rather than
   the built-in `"modern"`, pass an explicit list:
   `chart.apply_palette([TOKENS.palette["primary"], ...])`.

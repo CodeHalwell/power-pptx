@@ -13,7 +13,7 @@ Convenience methods
 
 ::
 
-    paths = prs.render_thumbnails(out_dir="thumbs", width=1280)
+    paths = prs.render_thumbnails(out_dir="thumbs")
     png   = slide.render_thumbnail(return_bytes=True)
 
 Module-level entry points
@@ -30,10 +30,13 @@ Module-level entry points
         prs,
         out_dir="thumbs",
         slide_indexes=[0, 3, 7],
-        width=1280,
         soffice_bin="/opt/libreoffice/program/soffice",
         timeout=60,
     )
+
+The output resolution is whatever LibreOffice's headless PNG converter
+chooses — there is no ``width=`` knob.  Post-process with Pillow if you
+need a specific size.
 
 Set the ``POWER_PPTX_SOFFICE`` environment variable to override the
 binary path globally; ``return_bytes=True`` returns each image as raw

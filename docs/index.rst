@@ -35,8 +35,9 @@ Feature support
   apply a theme imported from a ``.potx``
 * Compose presentations from a JSON spec, import slides between decks, and
   apply a template to existing slides
-* Run a layout linter against a slide or whole deck and (where safe) auto-fix
-  text overflow and off-slide shapes
+* Run a layout linter on each slide to detect text overflow, off-slide
+  shapes, and shape collisions; auto-fix nudges off-slide shapes back
+  inside the slide bounds (text-overflow auto-fix is on the roadmap)
 * Build with a design-token system, opinionated slide recipes, and ``Grid`` /
   ``Stack`` layout primitives
 * Recolor charts from named palettes and toggle title / legend / axis-label
