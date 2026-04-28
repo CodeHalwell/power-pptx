@@ -41,7 +41,7 @@ New API — Phase 9 (design-system layer, partial)
   tokens are non-destructive; ``None`` clears the corresponding effect.
 
 - ``pptx.design.recipes``: opinionated parameterized slide
-  constructors.  Five recipes ship in 1.9.0 — ``title_slide``,
+  constructors.  Five recipes are included — ``title_slide``,
   ``bullet_slide``, ``kpi_slide``, ``quote_slide``, and
   ``image_hero_slide`` — each taking the host ``Presentation``, the
   recipe-specific content kwargs (e.g. ``title=``, ``bullets=``,

@@ -6,8 +6,8 @@ Recipes are deliberately additive: they sit on top of the low-level shape
 APIs and the :class:`~pptx.design.style.ShapeStyle` facade, and never invent
 new OOXML semantics.
 
-The five recipes shipped in 1.9.0 cover the slide types that account for
-most of a typical pitch deck:
+The five recipes cover the slide types that account for most of a
+typical pitch deck:
 
 * :func:`title_slide`        — title + subtitle hero slide.
 * :func:`bullet_slide`       — title + bulleted body.
