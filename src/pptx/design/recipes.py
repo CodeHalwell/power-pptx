@@ -378,10 +378,7 @@ def image_hero_slide(
     band_color = _palette(tokens, ("primary", "neutral")) or RGBColor(0, 0, 0)
     band.fill.solid()
     band.fill.fore_color.rgb = band_color
-    try:
-        band.fill.fore_color.alpha = 0.55
-    except (AttributeError, ValueError):
-        pass
+    band.fill.fore_color.alpha = 0.55
     band.text_frame.text = ""
 
     margin = Inches(0.6)
@@ -423,13 +420,9 @@ def image_hero_slide(
 
 def _add_blank(prs: "Presentation") -> "Slide":
     layouts = prs.slide_layouts
-    blank = None
-    try:
-        blank = layouts.get_by_name("Blank")
-    except Exception:  # pragma: no cover - defensive
-        blank = None
+    blank = layouts.get_by_name("Blank")
     if blank is None:
-        blank = layouts[len(layouts) - 1]
+        blank = layouts[-1]
     return prs.slides.add_slide(blank)
 
 
