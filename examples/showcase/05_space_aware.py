@@ -88,24 +88,33 @@ def _fit_text_demo(prs: Presentation) -> None:
     )
 
     # Left: naive Pt(36) — overflows the box.
+    # Box geometry deliberately tight so 36pt overflows visibly and
+    # fit_text has to drop the size by ~14pt to make it fit.
     left_box = slide.shapes.add_textbox(
-        Inches(0.6), Inches(2.1), Inches(6.0), Inches(3.0),
+        Inches(0.6), Inches(2.1), Inches(6.0), Inches(2.0),
     )
     _stamp_card(left_box, fill=SURFACE, line=DANGER)
     ltf = left_box.text_frame
     ltf.word_wrap = True
     ltf.margin_left = ltf.margin_right = Pt(14)
     ltf.margin_top = ltf.margin_bottom = Pt(14)
+    # ``add_textbox`` defaults to ``SHAPE_TO_FIT_TEXT``, which would
+    # silently grow the box and hide the demo. Pin auto_size to NONE
+    # so 36pt actually overflows.
+    ltf.auto_size = MSO_AUTO_SIZE.NONE
     ltf.text = LONG_TITLE
-    p = ltf.paragraphs[0]
-    p.font.size = Pt(36)
-    p.font.bold = True
-    p.font.color.rgb = NEUTRAL
-    _caption(slide, Inches(0.6), Inches(5.4), "Naive Pt(36) — overflows the box")
+    # Style the run, not just the paragraph — paragraph-level font
+    # properties don't apply to runs that already exist.
+    run = ltf.paragraphs[0].runs[0]
+    run.font.name = "Inter"
+    run.font.size = Pt(36)
+    run.font.bold = True
+    run.font.color.rgb = NEUTRAL
+    _caption(slide, Inches(0.6), Inches(4.4), "Naive Pt(36) — overflows the box")
 
-    # Right: fit_text picks the largest whole-pt that fits.
+    # Right: identical geometry, fit_text picks the largest whole-pt.
     right_box = slide.shapes.add_textbox(
-        Inches(6.7), Inches(2.1), Inches(6.0), Inches(3.0),
+        Inches(6.7), Inches(2.1), Inches(6.0), Inches(2.0),
     )
     _stamp_card(right_box, fill=SURFACE, line=PRIMARY)
     rtf = right_box.text_frame
@@ -113,9 +122,10 @@ def _fit_text_demo(prs: Presentation) -> None:
     rtf.margin_left = rtf.margin_right = Pt(14)
     rtf.margin_top = rtf.margin_bottom = Pt(14)
     rtf.text = LONG_TITLE
+    # fit_text bakes the largest whole-pt that fits + sets auto_size=NONE.
     rtf.fit_text(font_family="Inter", max_size=36, bold=True)
-    rtf.paragraphs[0].font.color.rgb = NEUTRAL
-    _caption(slide, Inches(6.7), Inches(5.4),
+    rtf.paragraphs[0].runs[0].font.color.rgb = NEUTRAL
+    _caption(slide, Inches(6.7), Inches(4.4),
              "fit_text — largest whole-pt that fits the box")
 
 
