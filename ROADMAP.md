@@ -1,6 +1,6 @@
-# python-pptx-next Roadmap
+# power-pptx Roadmap
 
-This roadmap describes the planned evolution of `python-pptx-next` from
+This roadmap describes the planned evolution of `power-pptx` from
 its 1.0.2 fork point through a hypothetical 2.0. It is a living document:
 priorities are listed in order, but ship dates are deliberately not given
 because each milestone is gated on the previous one and on community
@@ -155,7 +155,7 @@ the collision detector. Three escape hatches:
    silences collisions between them.
 2. **Explicit pairwise.** `shape_a.allow_overlap_with(shape_b)`. Stored
    on the shape's `<a:extLst>` under a private namespace
-   (`urn:python-pptx-next:lint`) so it round-trips through PowerPoint
+   (`urn:power-pptx:lint`) so it round-trips through PowerPoint
    without losing the marker.
 3. **Layer hints.** `shape.layer = "badge"`,
    `shape.layer_above = "card"`. Asserts a deliberate z-order
@@ -499,7 +499,7 @@ top of the foundations from earlier phases.
   (Modern, Classic, Editorial) with matching screenshots. Lives in
   `examples/` so it doesn't bloat the package itself.
 
-**Done when:** a user can `pip install python-pptx-next`, copy 30 lines
+**Done when:** a user can `pip install power-pptx`, copy 30 lines
 from the README, and produce a deck that wouldn't look out of place in
 a series-A pitch.
 

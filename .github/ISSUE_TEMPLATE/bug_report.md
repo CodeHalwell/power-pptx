@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible defect in python-pptx-next
+about: Report a reproducible defect in power-pptx
 labels: bug
 ---
 
@@ -32,6 +32,6 @@ What actually happened. Include the full traceback if an exception was raised.
 ## Environment
 
 - Python version: (e.g. 3.12.2)
-- `python-pptx-next` version: (e.g. 1.1.0)
+- `power-pptx` version: (e.g. 1.1.0)
 - Platform: (e.g. macOS 14, Ubuntu 24.04, Windows 11)
-- Installed via: (e.g. `pip install python-pptx-next`)
+- Installed via: (e.g. `pip install power-pptx`)

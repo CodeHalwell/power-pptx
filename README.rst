@@ -1,7 +1,7 @@
-python-pptx-next
-================
+power-pptx
+==========
 
-*python-pptx-next* is an actively-maintained fork of the excellent
+*power-pptx* is an actively-maintained fork of the excellent
 `python-pptx`_ library by `Steve Canny`_, picking up where the upstream's
 1.0.2 release left off. It is a Python library for creating, reading, and
 updating PowerPoint (.pptx) files.
@@ -9,7 +9,7 @@ updating PowerPoint (.pptx) files.
 The import path is unchanged (``import pptx``) so it is a drop-in
 replacement; only the distribution name on PyPI differs::
 
-    pip install python-pptx-next
+    pip install power-pptx
 
 A typical use is generating a PowerPoint presentation from dynamic content
 such as a database query, analytics output, or a JSON payload — perhaps in

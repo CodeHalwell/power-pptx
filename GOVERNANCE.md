@@ -1,6 +1,6 @@
 # Project governance
 
-`python-pptx-next` is an actively-maintained fork of `python-pptx`. This
+`power-pptx` is an actively-maintained fork of `python-pptx`. This
 document describes how decisions get made and how new contributors can
 gain commit rights.
 
@@ -56,14 +56,14 @@ PR; an issue with the `phase-N` label is enough to record intent.
 
 ## Releases
 
-`python-pptx-next` follows semantic versioning as described in the
+`power-pptx` follows semantic versioning as described in the
 roadmap's [Versioning](ROADMAP.md#versioning) section:
 
 - `1.x.y` — additive changes only; no removals.
 - `2.0.0` — breaking changes batched together; no new features.
 
 Pre-release builds use the `.devN` / `.aN` / `.bN` suffixes and publish
-to PyPI under the same distribution name (`python-pptx-next`).
+to PyPI under the same distribution name (`power-pptx`).
 
 ## Code of conduct
 

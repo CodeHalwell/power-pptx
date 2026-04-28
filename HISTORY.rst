@@ -6,7 +6,7 @@ Release History
 This project was forked from `scanny/python-pptx`_ at version 1.0.2.
 Releases prior to 1.1.0 are upstream history, preserved here verbatim and
 attributed to Steve Canny and the original contributors. Releases from
-1.1.0 onward are made under the ``python-pptx-next`` distribution name on
+1.1.0 onward are made under the ``power-pptx`` distribution name on
 PyPI; the importable package name (``pptx``) is unchanged.
 
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
@@ -15,7 +15,7 @@ PyPI; the importable package name (``pptx``) is unchanged.
 1.1.0.dev0 (unreleased)
 +++++++++++++++++++++++
 
-This is the first release under the ``python-pptx-next`` name. It is a
+This is the first release under the ``power-pptx`` name. It is a
 drop-in replacement for ``python-pptx`` 1.0.2: ``import pptx`` continues
 to work and existing user code is unaffected.
 
@@ -23,7 +23,7 @@ Project changes
 ~~~~~~~~~~~~~~~
 
 - Renamed the PyPI distribution from ``python-pptx`` to
-  ``python-pptx-next``. The importable package remains ``pptx``.
+  ``power-pptx``. The importable package remains ``pptx``.
 - Repository moved to ``codehalwell/python-pptx``.
 - Original ``LICENSE`` (MIT, Steve Canny, 2013) preserved verbatim;
   fork copyright added on a second line per MIT requirements.

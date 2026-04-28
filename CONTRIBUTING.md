@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for considering a contribution to `python-pptx-next`.
+Thank you for considering a contribution to `power-pptx`.
 
 This document covers the basics: how to propose a change, what your PR
 needs to look like, and how the test suite is laid out.
@@ -23,7 +23,7 @@ include:
 
 - A small, self-contained snippet that reproduces the issue.
 - The output you got and the output you expected.
-- The Python version, `python-pptx-next` version, and platform.
+- The Python version, `power-pptx` version, and platform.
 
 If the bug touches an existing PowerPoint file, please attach a
 minimal redacted `.pptx` that still triggers the issue.

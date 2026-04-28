@@ -1,4 +1,4 @@
-"""Round-trip diff harness for python-pptx-next.
+"""Round-trip diff harness for power-pptx.
 
 Save a deck, reopen it, save it again, and assert that no XML part has changed
 between the two saves. Per the project roadmap, this is the gate every later

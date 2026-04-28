@@ -68,7 +68,7 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = u"python-pptx-next"
+project = u"power-pptx"
 copyright = u"2012, 2013, Steve Canny; 2026, Daniel Halwell"
 
 # The version info for the project you're documenting, acts as replacement for
