@@ -105,6 +105,59 @@ class DescribeFillFormat(object):
 
         assert gradient_stops is gradient_stops_
 
+    @pytest.mark.parametrize(
+        ("kind", "expected_path_attr"),
+        [("radial", "circle"), ("rectangular", "rect"), ("shape", "shape")],
+    )
+    def it_can_set_a_non_linear_gradient_kind(self, kind, expected_path_attr):
+        fill = FillFormat.from_fill_parent(element("p:spPr"))
+        fill.gradient(kind=kind)
+        assert fill.gradient_kind == kind
+        gradFill = fill._xPr.eg_fillProperties
+        assert gradFill.path is not None
+        assert gradFill.path.path == expected_path_attr
+        assert gradFill.lin is None
+
+    def it_switches_back_to_linear_when_called_without_kind(self):
+        fill = FillFormat.from_fill_parent(element("p:spPr"))
+        fill.gradient(kind="radial")
+
+        fill.gradient()
+
+        assert fill.gradient_kind == "linear"
+        gradFill = fill._xPr.eg_fillProperties
+        assert gradFill.path is None
+        assert gradFill.lin is not None
+
+    def it_raises_on_an_unknown_gradient_kind(self):
+        fill = FillFormat.from_fill_parent(element("p:spPr"))
+        with pytest.raises(ValueError, match="gradient kind must be one of"):
+            fill.gradient(kind="diagonal")
+
+    def it_does_not_mutate_the_fill_when_gradient_kind_is_invalid(self):
+        spPr = element("p:spPr/a:solidFill/a:srgbClr{val=FF0000}")
+        fill = FillFormat.from_fill_parent(spPr)
+        original_xml = spPr.xml
+
+        with pytest.raises(ValueError):
+            fill.gradient(kind="diagonal")
+
+        assert spPr.xml == original_xml
+        assert fill.type == MSO_FILL.SOLID
+
+    def it_provides_gradient_kind_on_a_gradient_fill(self, type_prop_, grad_fill_):
+        type_prop_.return_value = MSO_FILL.GRADIENT
+        grad_fill_.gradient_kind = "radial"
+        fill = FillFormat(None, grad_fill_)
+
+        assert fill.gradient_kind == "radial"
+
+    def it_raises_TypeError_for_gradient_kind_when_not_gradient(self, type_prop_, grad_fill_):
+        type_prop_.return_value = None
+        fill = FillFormat(None, grad_fill_)
+        with pytest.raises(TypeError):
+            fill.gradient_kind
+
     def it_raises_on_non_gradient_fill(self, grad_fill_, type_prop_):
         type_prop_.return_value = None
         fill = FillFormat(None, grad_fill_)
@@ -368,6 +421,20 @@ class Describe_GradFill(object):
             grad_fill.gradient_angle
         with pytest.raises(ValueError):
             grad_fill.gradient_angle = 43.21
+
+    @pytest.mark.parametrize(
+        ("cxml", "expected_kind"),
+        [
+            ("a:gradFill", None),
+            ("a:gradFill/a:lin", "linear"),
+            ("a:gradFill/a:path{path=circle}", "radial"),
+            ("a:gradFill/a:path{path=rect}", "rectangular"),
+            ("a:gradFill/a:path{path=shape}", "shape"),
+        ],
+    )
+    def it_knows_its_gradient_kind(self, cxml, expected_kind):
+        grad_fill = _GradFill(element(cxml))
+        assert grad_fill.gradient_kind == expected_kind
 
     def it_knows_its_fill_type(self, fill_type_fixture):
         grad_fill, expected_value = fill_type_fixture
@@ -674,6 +741,109 @@ class Describe_GradientStops(object):
         assert len(stops) == 2
         for stop in stops:
             assert isinstance(stop, _GradientStop)
+
+    def it_can_append_a_stop_with_an_RGBColor(self):
+        from pptx.dml.color import RGBColor
+
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        new_stop = stops.append(0.5, RGBColor(0xFF, 0x00, 0x00))
+
+        assert len(stops) == 3
+        assert isinstance(new_stop, _GradientStop)
+        assert new_stop.position == 0.5
+        assert new_stop.color.rgb == RGBColor(0xFF, 0x00, 0x00)
+
+    def it_can_append_a_stop_with_a_hex_string(self):
+        from pptx.dml.color import RGBColor
+
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        new_stop = stops.append(0.25, "#3C2F80")
+
+        assert new_stop.color.rgb == RGBColor(0x3C, 0x2F, 0x80)
+
+    def it_can_append_a_stop_with_a_3_tuple(self):
+        from pptx.dml.color import RGBColor
+
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        new_stop = stops.append(0.75, (0, 128, 255))
+
+        assert new_stop.color.rgb == RGBColor(0, 128, 255)
+
+    def it_can_append_a_stop_without_an_explicit_color(self):
+        from pptx.enum.dml import MSO_THEME_COLOR
+
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        new_stop = stops.append(0.33)
+
+        assert len(stops) == 3
+        assert new_stop.position == 0.33
+        # default placeholder is schemeClr accent1 — without this the emitted
+        # `<a:gs>` would lack the required color choice child
+        assert new_stop.color.theme_color == MSO_THEME_COLOR.ACCENT_1
+
+    def it_raises_TypeError_on_unsupported_color(self):
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        with pytest.raises(TypeError):
+            stops.append(0.5, 12345)
+
+    def it_can_delete_a_stop(self):
+        gsLst = CT_GradientStopList.new_gsLst()
+        gsLst._add_gs().pos = 0.5
+        stops = _GradientStops(gsLst)
+        assert len(stops) == 3
+
+        del stops[1]
+
+        assert len(stops) == 2
+
+    def it_raises_when_delete_would_drop_below_minimum(self):
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+        with pytest.raises(ValueError, match="at least 2"):
+            del stops[0]
+
+    def it_can_replace_all_stops(self):
+        from pptx.dml.color import RGBColor
+
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+
+        stops.replace([(0.0, "FF8800"), (1.0, RGBColor(0, 0, 0))])
+
+        assert len(stops) == 2
+        assert stops[0].position == 0.0
+        assert stops[1].color.rgb == RGBColor(0, 0, 0)
+
+    def it_raises_when_replace_provides_too_few(self):
+        stops = _GradientStops(CT_GradientStopList.new_gsLst())
+        with pytest.raises(ValueError, match="at least 2"):
+            stops.replace([(0.0, "FF8800")])
+
+    def it_can_replace_using_existing_scheme_color_stops(self):
+        # Default gsLst stops are schemeClr (accent1); reading .rgb on them
+        # returns None, which would break a naive replace() that read
+        # `entry.color.rgb`. This test verifies the deep-copy path.
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        stops.replace(list(stops))
+
+        # Round-tripping existing scheme stops preserves their XML exactly
+        assert gsLst.xml == original_xml
+
+    def it_leaves_existing_stops_intact_when_replace_validation_fails(self):
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        with pytest.raises(TypeError):
+            stops.replace([(0.0, "FF8800"), (1.0, 12345)])
+
+        assert gsLst.xml == original_xml
 
 
 class Describe_GradientStop(object):

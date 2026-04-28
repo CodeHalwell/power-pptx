@@ -37,6 +37,26 @@ Project changes
 New API
 ~~~~~~~
 
+- Radial / rectangular / shape-path gradients (Phase 6): ``FillFormat.gradient``
+  now accepts a ``kind`` argument.  ``fill.gradient(kind="radial")`` writes a
+  ``<a:path path="circle"/>`` shading element; ``"rectangular"`` writes
+  ``"rect"``; ``"shape"`` follows the bounding shape.  ``fill.gradient_kind``
+  reports the resolved value (``"linear"``/``"radial"``/``"rectangular"``/
+  ``"shape"``/``None``).  Switching kinds preserves existing gradient stops.
+  ``GradientStops`` is now mutable: ``stops.append(position, color)``,
+  ``stops.replace([(pos, color), ...])``, and ``del stops[i]`` (the OOXML
+  2-stop minimum is enforced).  ``color`` accepts ``RGBColor``, hex strings
+  (with or without leading ``#``), 3-tuples, or ``None`` (placeholder
+  ``schemeClr accent1`` color).
+- ``pptx.design.layout`` (Phase 9): build-time geometry helpers that compute
+  ``Box(left, top, width, height)`` rectangles so callers don't eyeball EMUs.
+  ``Grid(slide, cols=12, rows=6, gutter=Pt(12), margin=Inches(0.5))`` allocates
+  rectangles via ``grid.cell(col=, row=, col_span=, row_span=)`` or applies
+  them directly with ``grid.place(shape, ...)``.  ``Stack(direction="vertical"
+  | "horizontal", gap=Pt(8), left=, top=, width=, height=)`` walks a running
+  cursor via ``stack.next(width=, height=)`` / ``stack.place(shape, ...)``;
+  ``stack.reset()`` rewinds.  Pure geometry — no XML is read or mutated until
+  the caller invokes a ``place()``.
 - ``MotionPath`` (Phase 5): convenience class for adding motion-path
   animations.  ``MotionPath.line(slide, shape, dx, dy)`` accepts EMU
   deltas (typically built with ``Inches(...)``/``Pt(...)``) and

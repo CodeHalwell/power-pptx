@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from pptx.dml.color import ColorFormat
-from pptx.enum.dml import MSO_FILL
+from pptx.dml.color import ColorFormat, RGBColor
+from pptx.enum.dml import MSO_FILL, MSO_THEME_COLOR
 from pptx.oxml.dml.fill import (
     CT_BlipFillProperties,
     CT_GradientFillProperties,
@@ -70,7 +71,9 @@ class FillFormat(object):
         """
         return self._fill.fore_color
 
-    def gradient(self):
+    _GRADIENT_KINDS = ("linear", "radial", "rectangular", "shape")
+
+    def gradient(self, kind: str = "linear"):
         """Sets the fill type to gradient.
 
         If the fill is not already a gradient, a default gradient is added.
@@ -79,8 +82,32 @@ class FillFormat(object):
         90-degrees (upward), with two stops. The first stop is Accent-1 with
         tint 100%, shade 100%, and satMod 130%. The second stop is Accent-1
         with tint 50%, shade 100%, and satMod 350%.
+
+        `kind` selects the gradient shape:
+
+        * ``"linear"`` (default) — straight-line gradient parameterized by
+          angle (the historical behavior).
+        * ``"radial"`` — circular gradient (`<a:path path="circle"/>`).
+        * ``"rectangular"`` — rectangular gradient (`<a:path path="rect"/>`).
+        * ``"shape"`` — gradient that follows the bounding shape of its
+          container (`<a:path path="shape"/>`).
+
+        When called on an existing gradient with a different kind, the
+        gradient stops are preserved; only the path/lin shading element is
+        swapped out. Invalid `kind` values raise ``ValueError`` *before*
+        any fill mutation, leaving the existing fill untouched.
         """
+        if kind not in self._GRADIENT_KINDS:
+            raise ValueError(
+                "gradient kind must be one of %r; got %r"
+                % (self._GRADIENT_KINDS, kind)
+            )
         gradFill = self._xPr.get_or_change_to_gradFill()
+        if kind != "linear":
+            gradFill.change_to_kind(kind)
+        elif gradFill.path is not None:
+            # convert an existing radial/rectangular/shape gradient back to linear
+            gradFill.change_to_kind("linear")
         self._fill = _GradFill(gradFill)
 
     @property
@@ -104,6 +131,18 @@ class FillFormat(object):
         if self.type != MSO_FILL.GRADIENT:
             raise TypeError("Fill is not of type MSO_FILL_TYPE.GRADIENT")
         self._fill.gradient_angle = value
+
+    @property
+    def gradient_kind(self):
+        """One of ``"linear" | "radial" | "rectangular" | "shape" | None``.
+
+        Raises |TypeError| when fill is not gradient (call `fill.gradient()`
+        first). Returns |None| when the gradient inherits its shading
+        element from the style hierarchy.
+        """
+        if self.type != MSO_FILL.GRADIENT:
+            raise TypeError("Fill is not of type MSO_FILL_TYPE.GRADIENT")
+        return self._fill.gradient_kind
 
     @property
     def gradient_stops(self):
@@ -221,8 +260,24 @@ class _BlipFill(_Fill):
 class _GradFill(_Fill):
     """Proxies an `a:gradFill` element."""
 
+    _PATH_KINDS = {"circle": "radial", "rect": "rectangular", "shape": "shape"}
+
     def __init__(self, gradFill):
         self._element = self._gradFill = gradFill
+
+    @property
+    def gradient_kind(self):
+        """One of ``"linear" | "radial" | "rectangular" | "shape" | None``.
+
+        Returns ``None`` when the gradient inherits its shading element from
+        the style hierarchy (no `<a:lin>` or `<a:path>` child is present).
+        """
+        path = self._gradFill.path
+        if path is not None:
+            return self._PATH_KINDS.get(path.path)
+        if self._gradFill.lin is not None:
+            return "linear"
+        return None
 
     @property
     def gradient_angle(self):
@@ -355,16 +410,123 @@ class _GradientStops(Sequence):
     than that as required to achieve the desired effect (three is perhaps
     most common). Stops are sequenced in the order they are transitioned
     through.
+
+    The collection is mutable: stops can be added with :meth:`append`,
+    removed with ``del stops[i]``, and the entire stop sequence can be
+    swapped out with :meth:`replace`. The OOXML schema requires at least
+    two `<a:gs>` children, so :meth:`__delitem__` raises when removing a
+    stop would leave fewer than two.
     """
+
+    _MIN_STOP_COUNT = 2
 
     def __init__(self, gsLst):
         self._gsLst = gsLst
 
+    def __delitem__(self, idx):
+        gs_children = self._gs_children
+        if len(gs_children) - 1 < self._MIN_STOP_COUNT:
+            raise ValueError(
+                "a gradient must have at least %d stops; cannot delete"
+                % self._MIN_STOP_COUNT
+            )
+        target = gs_children[idx]
+        self._gsLst.remove(target)
+
     def __getitem__(self, idx):
-        return _GradientStop(self._gsLst[idx])
+        return _GradientStop(self._gs_children[idx])
 
     def __len__(self):
-        return len(self._gsLst)
+        return len(self._gs_children)
+
+    def append(self, position, color=None):
+        """Append a new stop at `position` with `color`.
+
+        `position` is a float in ``[0.0, 1.0]``. `color` may be:
+
+        * |None| (default): a placeholder ``schemeClr accent1`` color is
+          written; mutate ``returned_stop.color`` to refine it.
+        * an :class:`~pptx.dml.color.RGBColor` instance.
+        * a 3-tuple of integers in ``[0, 255]``.
+        * a hex string like ``"3C2F80"`` (with or without leading ``#``).
+
+        Returns the newly-added :class:`_GradientStop`.
+        """
+        gs = self._gsLst._add_gs()
+        gs.pos = float(position)
+        stop = _GradientStop(gs)
+        if color is None:
+            # Default placeholder color so the emitted `<a:gs>` is valid OOXML
+            # (the schema requires a color choice child). Callers can mutate
+            # the returned stop's `.color` afterwards.
+            stop.color.theme_color = MSO_THEME_COLOR.ACCENT_1
+        else:
+            stop.color.rgb = self._coerce_rgb(color)
+        return stop
+
+    def replace(self, stops):
+        """Replace all stops with the entries in `stops`.
+
+        Each entry is either a 2-tuple ``(position, color)`` (where `color`
+        follows the same rules as :meth:`append`) or an existing
+        :class:`_GradientStop` — including stops whose color is a theme,
+        scheme, system, or preset color. Existing-stop entries are deep-
+        copied as-is so non-RGB color choices round-trip without loss.
+
+        The new sequence must contain at least 2 entries. The replacement
+        is atomic: if any entry is invalid the existing stops are left
+        untouched.
+        """
+        stops = list(stops)
+        if len(stops) < self._MIN_STOP_COUNT:
+            raise ValueError(
+                "a gradient must have at least %d stops" % self._MIN_STOP_COUNT
+            )
+
+        # Pre-validate every entry so a failure (bad color, malformed tuple)
+        # raises *before* we touch the existing stops.
+        validated = []
+        for entry in stops:
+            if isinstance(entry, _GradientStop):
+                validated.append(("copy", entry._gs))
+                continue
+            try:
+                position, color = entry
+            except (TypeError, ValueError) as e:
+                raise TypeError(
+                    "replace() entries must be (position, color) tuples or "
+                    "_GradientStop instances; got %r" % (entry,)
+                ) from e
+            float(position)
+            if color is not None:
+                self._coerce_rgb(color)
+            validated.append(("new", float(position), color))
+
+        # Mutate only after all entries are validated.
+        for gs in self._gs_children:
+            self._gsLst.remove(gs)
+        for entry in validated:
+            if entry[0] == "copy":
+                self._gsLst.append(copy.deepcopy(entry[1]))
+            else:
+                _, position, color = entry
+                self.append(position, color)
+
+    @property
+    def _gs_children(self):
+        return list(self._gsLst.gs_lst)
+
+    @staticmethod
+    def _coerce_rgb(color):
+        if isinstance(color, RGBColor):
+            return color
+        if isinstance(color, str):
+            return RGBColor.from_hex(color)
+        if isinstance(color, tuple) and len(color) == 3:
+            return RGBColor(*color)
+        raise TypeError(
+            "color must be RGBColor, hex string, 3-tuple, or None; got %r" % type(color)
+        )
 
 
 class _GradientStop(ElementProxy):

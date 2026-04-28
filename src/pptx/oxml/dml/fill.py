@@ -118,6 +118,30 @@ class CT_GradientFillProperties(BaseOxmlElement):
             "</a:gradFill>\n" % nsdecls("a")
         )
 
+    def change_to_kind(self, kind):
+        """Switch the gradient between linear and the non-linear path kinds.
+
+        `kind` is one of ``"linear" | "radial" | "rectangular" | "shape"``.
+        Removes whichever of `<a:lin>`/`<a:path>` is currently present and
+        adds the appropriate child. Returns the newly-added element so
+        callers can set additional attributes on it.
+        """
+        if kind == "linear":
+            self._remove_path()
+            self._remove_lin()
+            return self._add_lin()
+        path_attr = {"radial": "circle", "rectangular": "rect", "shape": "shape"}.get(kind)
+        if path_attr is None:
+            raise ValueError(
+                "gradient kind must be one of 'linear', 'radial', "
+                "'rectangular', 'shape'; got %r" % kind
+            )
+        self._remove_lin()
+        self._remove_path()
+        path_elm = self._add_path()
+        path_elm.path = path_attr
+        return path_elm
+
     def _new_gsLst(self):
         """Override default to add minimum subtree."""
         return CT_GradientStopList.new_gsLst()
