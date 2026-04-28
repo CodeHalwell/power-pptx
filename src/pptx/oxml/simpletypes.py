@@ -526,6 +526,16 @@ class ST_Percentage(BaseIntType):
         return float(float_part) / 100.0
 
 
+class ST_PathShadeType(XsdStringEnumeration):
+    """Valid values for `a:path@path` attribute on a gradient `<a:path>` element."""
+
+    CIRCLE = "circle"
+    RECT = "rect"
+    SHAPE = "shape"
+
+    _members = (CIRCLE, RECT, SHAPE)
+
+
 class ST_PlaceholderSize(XsdTokenEnumeration):
     """
     Valid values for <p:ph> sz (size) attribute

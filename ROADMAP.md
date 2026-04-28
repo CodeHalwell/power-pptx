@@ -401,9 +401,15 @@ loss.
 - **Native SVG in `add_picture`.** Embed both an SVG `<asvg:svgBlip>`
   and a PNG fallback (modern PowerPoint requires both); rasterize via
   `cairosvg` for the fallback. New optional dependency.
-- **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
-  takes a `kind` argument; `GradientStops` becomes mutable
-  (`append`, `replace`, `__delitem__`).
+- [x] **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
+  now accepts a `kind` argument (``"linear" | "radial" | "rectangular" |
+  "shape"``) and exposes the resolved value via `fill.gradient_kind`.
+  Switching kinds preserves the existing gradient stops and only swaps
+  the `<a:lin>`/`<a:path>` shading element.  `GradientStops` is now
+  mutable: `stops.append(position, color)`, `stops.replace([(pos, color),
+  ...])`, and `del stops[i]` (the OOXML 2-stop minimum is enforced).
+  Colors accept `RGBColor`, hex strings (with or without leading `#`),
+  3-tuples, or `None` (placeholder `accent1`).
 - [x] **Line ends, caps, joins, compound lines.** `line.head_end`,
   `line.tail_end` (each a `LineEndFormat` exposing `.type`, `.width`,
   `.length`), `line.cap` (`MSO_LINE_CAP`), `line.compound`
@@ -477,9 +483,14 @@ top of the foundations from earlier phases.
 - **`shape.style`.** Token-resolving facade: `shape.style.fill =
   tokens.palette['primary']`, `shape.style.shadow = tokens.shadows
   ['card']`. Internally fans out to `fill`, `shadow`, etc.
-- **`pptx.design.layout`.** `Grid(slide, cols=12, gutter=Pt(12))`,
-  `Stack(direction='vertical', gap=Pt(8))` — build-time layout helpers
-  that compute `left`/`top`/`width`/`height` so users don't eyeball EMUs.
+- [x] **`pptx.design.layout`.** `Grid(slide, cols=12, rows=6, gutter=Pt(12),
+  margin=...)` allocates `Box(left, top, width, height)` rectangles for any
+  cell or span (`grid.cell(col, row, col_span, row_span)`); `grid.place(
+  shape, ...)` writes them onto a shape.  `Stack(direction="vertical" |
+  "horizontal", gap=Pt(8), left=..., top=..., width=..., height=...)`
+  exposes a running cursor via `stack.next(width=..., height=...)` /
+  `stack.place(shape, ...)`, with `stack.reset()` to rewind.  Pure
+  build-time geometry — no XML is read or mutated until a `place()` call.
 - **`pptx.design.recipes`.** Opinionated parameterized slide
   constructors: `TitleSlide`, `BulletSlide`, `KPISlide`, `QuoteSlide`,
   `ImageHero`. Each consumes tokens, places shapes, sets text, applies

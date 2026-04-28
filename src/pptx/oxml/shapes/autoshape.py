@@ -12,6 +12,7 @@ from pptx.oxml.ns import nsdecls
 from pptx.oxml.shapes.shared import BaseShapeElement
 from pptx.oxml.simpletypes import (
     ST_Coordinate,
+    ST_PathShadeType,
     ST_PositiveCoordinate,
     XsdBoolean,
     XsdString,
@@ -83,7 +84,13 @@ class CT_NonVisualDrawingShapeProps(BaseShapeElement):
 
 
 class CT_Path2D(BaseOxmlElement):
-    """`a:path` custom element class."""
+    """`a:path` custom element class.
+
+    Used both as a 2D drawing path child of `a:pathLst` (geometry) and as the
+    non-linear shade-property child of `a:gradFill`. The gradient-only
+    `path` attribute (``"circle" | "rect" | "shape"``) is exposed alongside
+    the geometry-only `w`/`h` attributes — neither overlaps in valid OOXML.
+    """
 
     _add_close: Callable[[], CT_Path2DClose]
     _add_lnTo: Callable[[], CT_Path2DLineTo]
@@ -97,6 +104,9 @@ class CT_Path2D(BaseOxmlElement):
     )
     h: Length | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "h", ST_PositiveCoordinate
+    )
+    path: str | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "path", ST_PathShadeType
     )
 
     def add_close(self) -> CT_Path2DClose:
