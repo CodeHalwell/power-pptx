@@ -504,13 +504,25 @@ top of the foundations from earlier phases.
   exposes a running cursor via `stack.next(width=..., height=...)` /
   `stack.place(shape, ...)`, with `stack.reset()` to rewind.  Pure
   build-time geometry — no XML is read or mutated until a `place()` call.
-- **`pptx.design.recipes`.** Opinionated parameterized slide
-  constructors: `TitleSlide`, `BulletSlide`, `KPISlide`, `QuoteSlide`,
-  `ImageHero`. Each consumes tokens, places shapes, sets text, applies
-  effects, optionally adds animation/transition.
-- **A small published "starter pack"** — 2–3 example token sets
-  (Modern, Classic, Editorial) with matching screenshots. Lives in
-  `examples/` so it doesn't bloat the package itself.
+- [x] **`pptx.design.recipes`.** Opinionated parameterized slide
+  constructors shipped as plain functions in `pptx/design/recipes.py`:
+  `title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, and
+  `image_hero_slide`.  Each consumes a `DesignTokens` (palette +
+  typography + optional `card` shadow), places shapes through the
+  existing `add_shape` / `add_textbox` / `add_picture` APIs, applies
+  styling via `shape.style`, and accepts an optional `transition=`
+  kwarg.  Recipes that touch a `kpi_slide`'s delta colors honor
+  `palette["positive"]` / `palette["negative"]`, falling back to a
+  green/red default when unset; `image_hero_slide` uses
+  `palette["on_primary"]` for the overlay text and tints the bottom
+  band with `palette["primary"]` at 55% alpha.
+- [x] **A small published "starter pack"** — three example token sets
+  (Modern, Classic, Editorial) under `examples/starter_pack/`, each
+  exporting both `SPEC` (the raw dict) and `TOKENS` (a built
+  `DesignTokens`).  `examples/starter_pack/build_preview.py` renders
+  one preview deck per set (title + bullets + KPI + quote) so callers
+  can compare them side-by-side; the generated `.pptx` files land in
+  `examples/starter_pack/_out/` (gitignored).
 
 **Done when:** a user can `pip install power-pptx`, copy 30 lines
 from the README, and produce a deck that wouldn't look out of place in

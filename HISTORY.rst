@@ -40,6 +40,26 @@ New API — Phase 9 (design-system layer, partial)
   ``ShadowToken`` assignment leaves unset fields untouched so partial
   tokens are non-destructive; ``None`` clears the corresponding effect.
 
+- ``pptx.design.recipes``: opinionated parameterized slide
+  constructors.  Five recipes are included — ``title_slide``,
+  ``bullet_slide``, ``kpi_slide``, ``quote_slide``, and
+  ``image_hero_slide`` — each taking the host ``Presentation``, the
+  recipe-specific content kwargs (e.g. ``title=``, ``bullets=``,
+  ``kpis=``), an optional ``DesignTokens`` for palette/typography
+  resolution, and an optional ``transition=`` name.  Recipes use the
+  ``Blank`` layout and place every shape themselves so the rendered
+  geometry doesn't depend on the host template's master.  ``kpi_slide``
+  honors ``palette["positive"]`` / ``palette["negative"]`` when
+  tinting deltas (falling back to green/red), and applies
+  ``tokens.shadows["card"]`` to each card when present.
+
+- A starter pack of three example token sets — ``modern``, ``classic``,
+  and ``editorial`` — lives at ``examples/starter_pack/``.  Each
+  module exports both a ``SPEC`` dict (suitable for serialising) and
+  a ready-to-use ``TOKENS`` (a built ``DesignTokens``).
+  ``examples/starter_pack/build_preview.py`` renders a comparison
+  deck per set into ``examples/starter_pack/_out/`` (gitignored).
+
 Phase 10 — additional motion-path presets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
