@@ -108,3 +108,16 @@ This class is not intended to be constructed directly.
    :members:
    :exclude-members: clone_master_placeholders
    :inherited-members:
+
+
+|SlideTransition| objects
+-------------------------
+
+The :attr:`~pptx.slide.Slide.transition` property of |Slide| returns a
+|SlideTransition| proxy backed by ``<p:transition>``. Reads on an unset
+transition return |None| and never mutate XML, keeping theme inheritance
+intact.
+
+.. autoclass:: pptx.slide.SlideTransition
+   :members:
+   :undoc-members:

@@ -10,7 +10,7 @@ build:
 sphinx:
   configuration: docs/conf.py
   # -- fail on all warnings to avoid broken references --
-  # fail_on_warning: true
+  fail_on_warning: true
 
 # -- package versions required to build your documentation --
 # -- see https://docs.readthedocs.io/en/stable/guides/reproducible-builds.html --

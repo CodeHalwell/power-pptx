@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Callable
 
 from pptx.dml.color import ColorFormat
@@ -133,11 +134,28 @@ class ShadowFormat(object):
         Assigning True removes any explicit `<a:effectLst>` (restoring
         inheritance for *all* effects).  Assigning False ensures the element
         is present but leaves it empty (no visible effect).
+
+        .. deprecated:: 1.1
+            Read individual properties (``shadow.blur_radius`` etc.) for
+            ``None`` instead.  ``inherit`` is scheduled for removal in 2.0.
         """
+        warnings.warn(
+            "ShadowFormat.inherit is deprecated; read individual properties "
+            "(blur_radius, distance, direction, color) for None instead. "
+            "Will be removed in power-pptx 2.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._element.effectLst is None
 
     @inherit.setter
     def inherit(self, value: bool):
+        warnings.warn(
+            "ShadowFormat.inherit is deprecated; assign individual properties "
+            "to None to clear them. Will be removed in power-pptx 2.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if bool(value):
             self._element._remove_effectLst()  # pyright: ignore[reportPrivateUsage]
         else:

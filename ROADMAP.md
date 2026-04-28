@@ -612,10 +612,21 @@ Items that are valuable but not on the critical path:
   and a configurable timeout.  Raises
   `ThumbnailRendererUnavailable` with an install hint when `soffice`
   isn't on PATH and `ThumbnailRendererError` on conversion failure.
-- **Documentation site rebuild.** Deferred — large dedicated effort,
-  outside the per-feature shipping cadence the rest of the roadmap is
-  built around.  Will be picked up once the API has stabilised on
-  the 1.x line.
+- [x] **Documentation site rebuild.** Sphinx config rewritten for the
+  fork (modern theme, refreshed substitution table, ``fail_on_warning``
+  on Read-the-Docs); ``README.rst`` rewritten around the new feature
+  set; ``docs/index.rst`` reorganised; new user-guide chapters added
+  for visual effects, animations, transitions, the layout linter,
+  composition, themes, the design-system layer, advanced charts, and
+  slide thumbnails; new API-reference pages added for ``pptx.animation``,
+  ``pptx.lint``, ``pptx.compose``, ``pptx.theme`` (plus
+  ``pptx.inherit.resolve_color``), ``pptx.design`` (tokens, style,
+  layout, recipes), ``pptx.render``, and ``pptx.smart_art``; the
+  ``DrawingML`` reference page now covers the full Phase 3/6 effect
+  family; new enum pages cover ``MSO_LINE_CAP_STYLE``,
+  ``MSO_LINE_COMPOUND_STYLE``, ``MSO_LINE_JOIN_STYLE``,
+  ``MSO_LINE_END_TYPE``, ``MSO_LINE_END_SIZE``,
+  ``MSO_TRANSITION_TYPE``, and ``PP_ANIM_TRIGGER``.
 
 ---
 
@@ -639,6 +650,25 @@ they cannot be checked off on the 1.x line:
 
 No new features in 2.0; it's a cleanup release. New features land in
 2.1.
+
+### 1.x readiness for the 2.0 cut (shipped in 1.1.0)
+
+These are the 1.x-line preparations that make the 2.0 removals
+mechanical when the time comes:
+
+- [x] `ShadowFormat.inherit` emits a `DeprecationWarning` on both read
+  and write, with a message pointing callers at the per-property
+  reads.  Tests assert the warning fires.
+- [x] `MSO_PATTERN_TYPE.ERCENT_40` is wired through the
+  `_DeprecatingEnumMeta` machinery and emits a `DeprecationWarning`
+  on access, with `PERCENT_40` as the canonical name.
+- [x] `shapes.turbo_add_enabled` setter emits a `DeprecationWarning`
+  noting that shape-id allocation is now always O(1).
+- [x] `Font.color` was switched to a non-mutating `_LazyColorFormat`
+  proxy in Phase 1; the upstream behavior of inserting an empty
+  `<a:solidFill>` on read is gone in 1.x, so the 2.0 removal is just
+  documentation cleanup (no flag is needed).
+- [x] `RGBColor.from_hex` already shipped (Phase 11 row above).
 
 ---
 

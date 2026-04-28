@@ -12,11 +12,27 @@ PyPI; the importable package name (``pptx``) is unchanged.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
-1.9.0 (unreleased)
-+++++++++++++++++++
+1.1.0 (2026-04-28)
+++++++++++++++++++
 
-New API — Phase 9 (design-system layer, partial)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This is the inaugural release under the ``power-pptx`` distribution name
+on PyPI.  It is a drop-in replacement for ``python-pptx`` 1.0.2:
+``import pptx`` continues to work and existing user code is unaffected.
+It bundles every feature from Phases 1 through 10 of the fork's roadmap —
+visual effects, animations, transitions, theme reader/writer, JSON
+authoring, the layout linter, design tokens and slide recipes, chart
+palettes and quick layouts, slide thumbnails, and more.
+
+The Sphinx documentation has also been rebuilt: every new module ships
+with a user-guide chapter and an API-reference page, the substitution
+table covers every public class added by the fork, and Read-the-Docs
+builds now fail on Sphinx warnings.
+
+The full per-phase changelog follows; the project changes summary is
+collected near the end under "Project changes".
+
+Phase 9 — design-system layer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - ``pptx.design.tokens.DesignTokens``: source-agnostic container for
   brand tokens — ``palette`` (str → ``RGBColor``), ``typography``
@@ -175,11 +191,8 @@ Phase 6 — text-fit estimator on Linux / minimal runtimes
   directory scan are skipped silently.
 
 
-1.8.0 (unreleased)
-+++++++++++++++++++
-
-New API — Phase 8 (3D primitives and SmartArt text substitution)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Phase 8 — 3D primitives and SmartArt text substitution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - ``shape.three_d`` accessor: ``ThreeDFormat`` facade exposing
   ``bevel_top``/``bevel_bottom`` (``_BevelFormat`` with ``preset``,
@@ -202,11 +215,8 @@ New API — Phase 8 (3D primitives and SmartArt text substitution)
   parts are handled as typed ``XmlPart`` subclasses.
 
 
-1.7.0 (unreleased)
-+++++++++++++++++++
-
-New API — Phase 7 (slide composition)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Phase 7 — slide composition
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - ``Presentation.import_slide(source_slide, merge_master='dedupe'|'clone')``:
   clones a slide from any ``Presentation`` into the receiver.  Copies
@@ -223,19 +233,12 @@ New API — Phase 7 (slide composition)
   from the saved package.
 
 
-1.1.0.dev0 (unreleased)
-+++++++++++++++++++++++
-
-This is the first release under the ``power-pptx`` name. It is a
-drop-in replacement for ``python-pptx`` 1.0.2: ``import pptx`` continues
-to work and existing user code is unaffected.
-
 Project changes
 ~~~~~~~~~~~~~~~
 
 - Renamed the PyPI distribution from ``python-pptx-next`` to
   ``power-pptx``. The importable package remains ``pptx``.
-- Repository moved to ``codehalwell/python-pptx``.
+- Repository moved to ``codehalwell/power-pptx``.
 - Original ``LICENSE`` (MIT, Steve Canny, 2013) preserved verbatim;
   fork copyright added on a second line per MIT requirements.
 - Dropped the vestigial ``pyparsing`` line from ``requirements.txt``;
@@ -244,6 +247,41 @@ Project changes
 - Added Python 3.13 to the supported-versions classifier list.
 - Dropped Python 3.8 (EOL October 2024). Minimum supported version is
   now 3.9, matching ``pyright``'s configured ``pythonVersion``.
+
+Documentation
+~~~~~~~~~~~~~
+
+- Sphinx config rebuilt for ``power-pptx``: switched to the
+  ``sphinx-rtd-theme``, removed dead upstream-specific hacks, refreshed
+  the substitution table, and turned on ``fail_on_warning`` for
+  Read-the-Docs builds.
+- New user-guide chapters: visual effects, animations, slide
+  transitions, layout linter, JSON authoring + cross-presentation
+  composition, themes, design-system layer, advanced charts (palettes
+  / quick layouts / per-series fills), and slide thumbnails.
+- New API reference pages: ``pptx.animation``, ``pptx.lint``,
+  ``pptx.compose``, ``pptx.theme`` (plus ``pptx.inherit.resolve_color``),
+  ``pptx.design`` (tokens, style, layout, recipes), ``pptx.render``,
+  ``pptx.smart_art``, plus enum pages for ``MSO_LINE_CAP_STYLE``,
+  ``MSO_LINE_COMPOUND_STYLE``, ``MSO_LINE_JOIN_STYLE``,
+  ``MSO_LINE_END_TYPE``, ``MSO_LINE_END_SIZE``, ``MSO_TRANSITION_TYPE``,
+  and ``PP_ANIM_TRIGGER``.
+- ``ShadowFormat`` and the ``DrawingML`` reference page surface the
+  full Phase 3/6 effect family (``GlowFormat``, ``SoftEdgeFormat``,
+  ``BlurFormat``, ``ReflectionFormat``, ``LineEndFormat``,
+  ``PictureEffects``).
+
+Deprecations (scheduled for removal in 2.0)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``ShadowFormat.inherit`` now emits a ``DeprecationWarning`` on both
+  read and write. Read individual properties (``blur_radius``,
+  ``distance``, ``direction``, ``color``) for ``None`` instead.  The
+  ``inherit`` property is scheduled for removal in 2.0.
+- ``MSO_PATTERN_TYPE.ERCENT_40`` is now an aliased member of
+  ``PERCENT_40`` and emits a ``DeprecationWarning`` on access.
+- ``shapes.turbo_add_enabled`` setter remains a no-op and emits a
+  ``DeprecationWarning`` (shape-id allocation is now always O(1)).
 
 New API
 ~~~~~~~

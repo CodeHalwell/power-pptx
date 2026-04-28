@@ -6,6 +6,7 @@
 *.pyc
 /dist/
 /docs/.build
+/docs/_build/
 out.txt
 _scratch/
 /spec/gen_spec/spec*.db
