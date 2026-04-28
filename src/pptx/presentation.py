@@ -55,6 +55,18 @@ class Presentation(PartElementProxy):
         """
         self.part.save(file)
 
+    def render_thumbnails(self, **kwargs):
+        """Render PNG thumbnails for every slide via headless LibreOffice.
+
+        Thin wrapper around :func:`pptx.render.render_slide_thumbnails` that
+        forwards `out_dir`, `slide_indexes`, `soffice_bin`, `timeout`, and
+        `return_bytes` keyword arguments.  Requires ``soffice`` (LibreOffice)
+        on PATH; raises ``ThumbnailRendererUnavailable`` otherwise.
+        """
+        from pptx.render import render_slide_thumbnails
+
+        return render_slide_thumbnails(self, **kwargs)
+
     @property
     def slide_height(self) -> Length | None:
         """Height of slides in this presentation, in English Metric Units (EMU).

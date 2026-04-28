@@ -41,6 +41,7 @@ class CONTENT_TYPE:
     OFC_OLE_OBJECT = "application/vnd.openxmlformats-officedocument.oleObject"
     OFC_PACKAGE = "application/vnd.openxmlformats-officedocument.package"
     OFC_THEME = "application/vnd.openxmlformats-officedocument.theme+xml"
+    SVG = "image/svg+xml"
     OFC_THEME_OVERRIDE = "application/vnd.openxmlformats-officedocument.themeOverride+xml"
     OFC_VML_DRAWING = "application/vnd.openxmlformats-officedocument.vmlDrawing"
     OPC_CORE_PROPERTIES = "application/vnd.openxmlformats-package.core-properties+xml"

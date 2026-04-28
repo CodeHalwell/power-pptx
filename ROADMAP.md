@@ -388,19 +388,36 @@ loss.
   names. New `pptx/theme.py` module (`Theme`, `ThemeColors`, `ThemeFonts`)
   on top of the expanded `oxml/theme.py`. Wired into `Presentation.theme`
   and `SlideMasterPart.theme`.
-- **Theme-aware inheritance** for effect/color getters from Phase 2.
-  When a property has no explicit value, the getter walks
-  `slide → layout → master → theme` and returns the resolved value (or
-  `None` if nothing matches). Deferred to follow-up.
+- [x] **Theme-aware inheritance** for effect/color getters from Phase 2.
+  New `pptx.inherit.resolve_color(color_format, theme=prs.theme)` helper
+  returns the effective `RGBColor` for any `ColorFormat` (including the
+  `_LazyColorFormat` proxy on `Font.color` / `LineFormat.color`):
+  explicit RGB colors are returned as-is, scheme colors resolve through
+  `theme.colors[…]`, and unset colors return `None` without mutating XML.
+  `brightness` is applied by blending the resolved RGB toward white or
+  black, mirroring PowerPoint's `lumMod`/`lumOff` model.  Full
+  placeholder-walking (`slide → layout → master`) is intentionally
+  deferred to a follow-up — this resolver covers the 80% case
+  (theme-color lookup) without touching XML.
 - [x] **Picture effects.** `Picture.transparency`, `.brightness`,
   `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
   `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,
   `<a:grayscl>` inside `<a:blip>`.  Exposed via `picture.effects`
   (`PictureEffects` proxy in `pptx/dml/picture.py`).  `set_duotone()`
   accepts `RGBColor`, hex strings, or RGB 3-tuples.
-- **Native SVG in `add_picture`.** Embed both an SVG `<asvg:svgBlip>`
-  and a PNG fallback (modern PowerPoint requires both); rasterize via
-  `cairosvg` for the fallback. New optional dependency.
+- [x] **Native SVG in `add_picture`.** New
+  `slide.shapes.add_svg_picture(svg_file, left, top, width=None,
+  height=None, *, png_fallback=None)` embeds both an
+  `<asvg:svgBlip>` (Office 2016+ SVG extension) and a PNG fallback
+  inside the same `<a:blip>`, so PowerPoint and earlier viewers
+  render the right thing.  When `png_fallback` is omitted the SVG
+  is rasterised via the optional `cairosvg` dependency, with a
+  clear `CairoSvgUnavailable` error guiding callers to install it
+  or supply their own fallback.  New `image/svg+xml` content type is
+  registered with the package so SVG parts round-trip through
+  PowerPoint untouched.  Helper module: `pptx/_svg.py`
+  (`looks_like_svg`, `rasterize_svg`, `add_svg_image_part`,
+  `add_svg_blip_extension`).
 - [x] **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
   now accepts a `kind` argument (``"linear" | "radial" | "rectangular" |
   "shape"``) and exposes the resolved value via `fill.gradient_kind`.
@@ -418,9 +435,18 @@ loss.
   setting an end attribute lazily creates `<a:ln>`/`<a:headEnd>` and
   clearing the last attribute drops the end element again so theme
   inheritance is preserved.
-- **Text fit estimator.** Pillow-driven measurement so
+- [x] **Text fit estimator.** Pillow-driven measurement so
   `TextFrame.fit_text` works without requiring a `font_file=` argument
-  in the common case.
+  in the common case.  `FontFiles._font_directories()` now also
+  enumerates Linux paths (`/usr/share/fonts`, `/usr/local/share/fonts`,
+  `~/.fonts`, `~/.local/share/fonts`) and returns `[]` on unrecognised
+  platforms instead of raising `OSError`.  When no matching system font
+  can be located, the estimator falls back to Pillow's bundled default
+  font (`ImageFont.load_default(size=...)` on Pillow ≥10.1, otherwise
+  the unsized bitmap default), so `fit_text()` produces a usable size
+  on bare runtimes (CI, serverless, minimal Docker images) instead of
+  raising `KeyError` / `OSError`.  Malformed font files are skipped
+  during the directory scan.
 
 **Done when:** a generated deck honors a brand color palette read from
 the theme, recolors photos to match it, and embeds vector logos at
@@ -431,8 +457,14 @@ print resolution.
 Solves "I want to merge decks" — the JSON entry point already shipped
 in Phase 2, but cross-presentation operations are the remaining piece.
 
-- **`pptx.compose` package** (extending the module introduced in
-  Phase 2 for `from_spec`).
+- [x] **`pptx.compose` package** (extending the module introduced in
+  Phase 2 for `from_spec`).  Now a real package: `pptx.compose`
+  re-exports `from_spec`, `import_slide`, and `apply_template` from a
+  single import path so callers can do `from pptx.compose import
+  from_spec, import_slide, apply_template`.  The implementations
+  remain in private submodules (`pptx.compose.from_spec`,
+  `pptx._slide_importer`, `pptx._template_applier`) so the public
+  surface stays small.
 - [x] **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
   Clones a slide from another presentation, including its layout
   reference, with master-deduplication and image-rename collision
@@ -532,9 +564,34 @@ a series-A pitch.
 
 Items that are valuable but not on the critical path:
 
-- Chart palette presets independent of `chart_style`.
-- Per-series chart fills (gradient/pattern) via `ChartFormat`.
-- Chart "quick layouts" (mirroring PowerPoint's gallery).
+- [x] **Chart palette presets independent of `chart_style`.**
+  `Chart.apply_palette(palette)` recolors every series in a chart from a
+  named built-in preset (``modern``, ``classic``, ``editorial``,
+  ``vibrant``, ``monochrome_blue``, ``monochrome_warm``) or an iterable
+  of color-likes (`RGBColor`, hex strings with or without `#`, or
+  `(r, g, b)` triples).  Series are recolored in declaration order;
+  palettes wrap when the chart has more series than colors.  The
+  `chart_style` integer is left untouched, so the palette overrides only
+  the per-series fill without rewriting the rest of the style.  New
+  module: `pptx/chart/palettes.py` exposes `CHART_PALETTES`,
+  `palette_names()`, and `resolve_palette()` for callers that want to
+  share the same color set with non-chart shapes.
+- [x] **Per-series chart fills (gradient/pattern) via `ChartFormat`.**
+  `chart.series[i].format.fill` is a full `FillFormat`, so all gradient
+  kinds (`linear` / `radial` / `rectangular` / `shape`) and pattern
+  fills (`MSO_PATTERN_TYPE`) work per-series with no chart-specific
+  shim.  Locked in with regression tests in
+  `tests/chart/test_chart.py`.
+- [x] **Chart "quick layouts" (mirroring PowerPoint's gallery).**
+  `Chart.apply_quick_layout(layout)` toggles title / legend / axis-title /
+  gridline visibility in opinionated combinations.  Ten built-in
+  presets ship in `pptx.chart.quick_layouts` (`title_legend_right`,
+  `title_legend_bottom`, `title_legend_top`, `title_legend_left`,
+  `title_no_legend`, `no_title_no_legend`, `title_axes_legend_right`,
+  `title_axes_legend_bottom`, `minimal`, `dense`); custom layouts can be
+  supplied as a dict spec.  Missing spec keys leave the chart untouched
+  so layouts compose cleanly, and charts without category/value axes
+  (e.g. pie) silently skip the corresponding keys.
 - [x] Additional motion-path presets.  `MotionPath` now exposes
   `diagonal`, `circle` (closed cubic-bezier loop, with a `clockwise`
   flag), `arc` (quadratic-bezier hop with configurable `height`),
@@ -544,16 +601,30 @@ Items that are valuable but not on the critical path:
   inputs against the slide's dimensions and route through the same
   `slide.animations.add_motion` plumbing as `MotionPath.line`, so they
   honor the Phase 5 trigger model and round-trip cleanly.
-- A slide-thumbnail renderer (likely shells out to LibreOffice headless;
-  optional dependency).
-- Documentation site rebuild.
+- [x] **Slide-thumbnail renderer (LibreOffice shell-out).** New
+  `pptx.render` module with `render_slide_thumbnails(prs, ...)` and
+  `render_slide_thumbnail(slide, ...)`, plus convenience methods
+  `Presentation.render_thumbnails()` and `Slide.render_thumbnail()`.
+  Drives `soffice --headless --convert-to png` to rasterise slides;
+  supports custom binary path (via the `soffice_bin=` argument or
+  `POWER_PPTX_SOFFICE` env var), per-slide selection (`slide_indexes=`),
+  bytes-or-paths return (`return_bytes=True`), custom output directory,
+  and a configurable timeout.  Raises
+  `ThumbnailRendererUnavailable` with an install hint when `soffice`
+  isn't on PATH and `ThumbnailRendererError` on conversion failure.
+- **Documentation site rebuild.** Deferred — large dedicated effort,
+  outside the per-feature shipping cadence the rest of the roadmap is
+  built around.  Will be picked up once the API has stabilised on
+  the 1.x line.
 
 ---
 
 ## Phase 11 — 2.0.0 (the breaking-changes release)
 
 Everything that's been accumulating deprecation warnings through 1.x
-gets removed:
+gets removed.  Phase 11 is intentionally a *2.0* release — these
+removals are tracked here so the deprecation surface is visible, but
+they cannot be checked off on the 1.x line:
 
 - `ShadowFormat.inherit` — replaced by reading individual properties
   for `None`. Removed.

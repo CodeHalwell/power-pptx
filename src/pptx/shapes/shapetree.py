@@ -366,6 +366,67 @@ class _BaseGroupShapes(_BaseShapes):
         self._recalculate_extents()
         return cast(Picture, self._shape_factory(pic))
 
+    def add_svg_picture(
+        self,
+        svg_file,
+        left: Length,
+        top: Length,
+        width: Length | None = None,
+        height: Length | None = None,
+        *,
+        png_fallback=None,
+    ) -> Picture:
+        """Add an SVG picture with a PNG fallback (Office 2016+ compatible).
+
+        Modern PowerPoint requires every embedded SVG to ship alongside
+        a raster fallback: the slide's ``<a:blip>`` references the PNG
+        and an ``<asvg:svgBlip>`` extension references the SVG.  This
+        method handles both halves.
+
+        `svg_file` is a path, file-like object, or raw ``bytes`` blob
+        of SVG markup.  `png_fallback` is the raster fallback in the
+        same forms.  When `png_fallback` is ``None`` the SVG is
+        rasterised via ``cairosvg`` (an *optional* dependency); a
+        clear error is raised if it isn't installed.
+
+        `left` / `top` / `width` / `height` work exactly as in
+        :meth:`add_picture` — both extents default to the rasterised
+        PNG's native size when omitted.
+        """
+        from io import BytesIO
+
+        from pptx._svg import (
+            add_svg_blip_extension,
+            add_svg_image_part,
+            load_image_blob,
+            looks_like_svg,
+            rasterize_svg,
+        )
+
+        svg_blob, svg_filename = load_image_blob(svg_file)
+        if not looks_like_svg(svg_blob):
+            raise ValueError(
+                "svg_file does not appear to contain SVG markup; pass an "
+                "SVG path, file-like, or bytes blob."
+            )
+
+        if png_fallback is None:
+            png_blob = rasterize_svg(svg_blob)
+        else:
+            png_blob, _ = load_image_blob(png_fallback)
+
+        # Register the PNG fallback through the existing
+        # Pillow-aware pipeline so dpi / size detection still works.
+        png_part, png_rId = self.part.get_or_add_image_part(BytesIO(png_blob))
+        pic = self._add_pic_from_image_part(png_part, png_rId, left, top, width, height)
+
+        # Register the SVG and inject the blip extension.
+        _, svg_rId = add_svg_image_part(self.part, svg_blob, svg_filename)
+        add_svg_blip_extension(pic, svg_rId)
+
+        self._recalculate_extents()
+        return cast(Picture, self._shape_factory(pic))
+
     def add_shape(
         self, autoshape_type_id: MSO_SHAPE, left: Length, top: Length, width: Length, height: Length
     ) -> Shape:

@@ -367,6 +367,17 @@ class Slide(_BaseSlide):
 
         return SlideAnimations(self)
 
+    def render_thumbnail(self, **kwargs):
+        """Render this slide to a PNG via headless LibreOffice.
+
+        Thin wrapper around :func:`pptx.render.render_slide_thumbnail`.
+        Forwards `out_path`, `soffice_bin`, `timeout`, and `return_bytes`
+        keyword arguments.  Requires ``soffice`` on PATH.
+        """
+        from pptx.render import render_slide_thumbnail
+
+        return render_slide_thumbnail(self, **kwargs)
+
     def lint(self) -> SlideLintReport:
         """Inspect this slide for geometric and typographic issues.
 

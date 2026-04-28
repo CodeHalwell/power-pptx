@@ -236,10 +236,15 @@ class TextFrame(Subshape):
         The best-fit font size is the largest integer point size not greater than `max_size` that
         allows all the text in this text frame to fit inside its extents when rendered using the
         font described by `family`, `bold`, and `italic`. If `font_file` is specified, it is used
-        to calculate the fit, whether or not it matches `family`, `bold`, and `italic`.
+        to calculate the fit, whether or not it matches `family`, `bold`, and `italic`. When no
+        font file is provided and no matching system font can be located, Pillow's bundled
+        default font is used so `fit_text` produces a usable estimate rather than raising.
         """
         if font_file is None:
-            font_file = FontFiles.find(family, bold, italic)
+            try:
+                font_file = FontFiles.find(family, bold, italic)
+            except (KeyError, OSError):
+                font_file = None
         return TextFitter.best_fit_font_size(self.text, self._extents, max_size, font_file)
 
     @property

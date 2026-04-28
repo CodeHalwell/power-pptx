@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from pptx.text.layout import TextFitter, _BinarySearchTree, _Line, _LineSource
+from pptx.text.layout import TextFitter, _BinarySearchTree, _Fonts, _Line, _LineSource
 
 from ..unitutil.mock import (
     ANY,
@@ -220,6 +220,48 @@ class Describe_LineSource(object):
             ("foo bar baz", _LineSource("")),
         )
         assert all((a == b) for a, b in zip(expected, line_source))
+
+
+class Describe_Fonts(object):
+    """Unit-test suite for `pptx.text.layout._Fonts` object."""
+
+    def it_uses_pillows_default_font_when_no_path_is_given(self, request):
+        """Pillow's bundled default lets `fit_text` work on platforms without
+        the requested family installed (notably most Linux runtimes)."""
+        # Reset memo so this test is independent of others
+        _Fonts.fonts = {}
+        from PIL import ImageFont
+
+        load_default_ = function_mock(
+            request, "pptx.text.layout.ImageFont.load_default", autospec=False
+        )
+        truetype_ = function_mock(
+            request, "pptx.text.layout.ImageFont.truetype", autospec=False
+        )
+        load_default_.return_value = "default-font"
+
+        font = _Fonts.font(None, 12)
+
+        load_default_.assert_called_once_with(size=12)
+        truetype_.assert_not_called()
+        assert font == "default-font"
+        # Cleanup memo to avoid leaking the mock into other tests
+        _Fonts.fonts = {}
+        # Reference ImageFont so `from PIL import` is not flagged unused
+        assert ImageFont is not None
+
+    def it_falls_back_to_unsized_default_on_old_pillow(self, request):
+        _Fonts.fonts = {}
+        load_default_ = function_mock(
+            request, "pptx.text.layout.ImageFont.load_default", autospec=False
+        )
+        load_default_.side_effect = [TypeError("no size kwarg"), "old-default"]
+
+        font = _Fonts.font(None, 12)
+
+        assert load_default_.call_args_list == [call(size=12), call()]
+        assert font == "old-default"
+        _Fonts.fonts = {}
 
 
 # produces different results on Linux, fails Travis-CI

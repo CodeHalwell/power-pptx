@@ -298,9 +298,26 @@ class _Fonts(object):
 
     @classmethod
     def font(cls, font_path, point_size):
-        if (font_path, point_size) not in cls.fonts:
-            cls.fonts[(font_path, point_size)] = ImageFont.truetype(font_path, point_size)
-        return cls.fonts[(font_path, point_size)]
+        key = (font_path, point_size)
+        if key not in cls.fonts:
+            cls.fonts[key] = cls._load(font_path, point_size)
+        return cls.fonts[key]
+
+    @staticmethod
+    def _load(font_path, point_size):
+        if font_path is None:
+            # `font_path=None` opts in to Pillow's bundled default font; this
+            # is the fallback when no matching system font can be located, so
+            # `TextFrame.fit_text` works on platforms without the requested
+            # family installed (notably most Linux runtimes).
+            try:
+                return ImageFont.load_default(size=point_size)
+            except TypeError:
+                # Pillow < 10.1 does not accept a `size` argument; fall back
+                # to the unsized bitmap default. Less accurate but at least
+                # never blows up.
+                return ImageFont.load_default()
+        return ImageFont.truetype(font_path, point_size)
 
 
 def _rendered_size(text, point_size, font_file):

@@ -37,6 +37,7 @@ image_content_types = {
     "jpeg": CT.JPEG,
     "jpg": CT.JPEG,
     "png": CT.PNG,
+    "svg": CT.SVG,
     "tif": CT.TIFF,
     "tiff": CT.TIFF,
     "wdp": CT.MS_PHOTO,
