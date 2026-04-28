@@ -37,6 +37,42 @@ Project changes
 New API
 ~~~~~~~
 
+- ``MotionPath`` (Phase 5): convenience class for adding motion-path
+  animations.  ``MotionPath.line(slide, shape, dx, dy)`` accepts EMU
+  deltas (typically built with ``Inches(...)``/``Pt(...)``) and
+  normalizes them against the slide's dimensions before emitting the
+  motion-path attribute, so the *absolute* travel distance is preserved
+  across slide sizes.  ``MotionPath.custom(slide, shape, path_str)``
+  passes an OOXML motion-path expression through verbatim.  Both
+  delegate to ``SlideAnimations.add_motion`` and inherit the trigger /
+  delay / duration model from the rest of Phase 5.
+- ``SlideAnimations.sequence()`` (Phase 5): context manager that
+  groups the contained ``Entrance``/``Exit``/``Emphasis``/``MotionPath``
+  effects into a single click-driven chain.  Inside the block, the
+  first effect (whose ``trigger`` was not explicitly supplied) fires on
+  ``Trigger.ON_CLICK`` (or whatever ``start=`` is passed) and every
+  subsequent effect defaults to ``Trigger.AFTER_PREVIOUS``, producing
+  effects that play one after another.  Explicit per-call triggers
+  still override the sequence default; sequences cannot be nested.
+- ``Entrance.fade(slide, text_frame, by_paragraph=True)`` (Phase 5):
+  by-paragraph entrance animations.  Accepts a ``TextFrame`` or any
+  shape with a ``text_frame``; emits one entrance effect per paragraph,
+  each targeting ``<p:txEl>/<p:pRg st=N end=N/>`` so PowerPoint reveals
+  paragraphs one at a time.  The first paragraph fires on the supplied
+  trigger and subsequent paragraphs on ``Trigger.AFTER_PREVIOUS``.
+  Available presets: ``appear``, ``fade``, ``wipe``, ``zoom``, ``wheel``,
+  ``random_bars``.  The ``by_paragraph=`` keyword is also exposed on
+  ``SlideAnimations.add_entrance`` for advanced use.
+- ``Theme`` writer (Phase 7): ``prs.theme`` is now read/write.
+  ``theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x66, 0x00)``
+  rewrites the requested ``clrScheme`` slot with a fresh ``<a:srgbClr>``;
+  alias slots (``BACKGROUND_1``/``BACKGROUND_2``/``TEXT_1``/``TEXT_2``)
+  resolve to their canonical ``lt1``/``lt2``/``dk1``/``dk2`` target.
+  ``theme.fonts.major = "Inter"`` and ``theme.fonts.minor = "Inter"``
+  rewrite the ``<a:majorFont>/<a:minorFont>/<a:latin typeface=…/>``
+  typeface.  ``theme.apply(other_prs.theme)`` bulk-copies the palette
+  and font pair.  ``theme.name`` is now writable.  Themes are loaded
+  via a typed ``ThemePart(XmlPart)`` so writes round-trip on save.
 - ``Cell.borders`` (Phase 4): per-edge line formatting on table cells.
   ``cell.borders.left``/``.right``/``.top``/``.bottom``/``.diagonal_down``/
   ``.diagonal_up`` each return a ``LineFormat``. Convenience helpers

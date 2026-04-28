@@ -6,7 +6,7 @@ OOXML and round-trips through PowerPoint without loss.
 
 Typical usage::
 
-    from pptx.animation import Entrance, Exit, Emphasis, Trigger
+    from pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
 
     # Fade a shape in on the next mouse click (default trigger)
     Entrance.fade(slide, shape)
@@ -20,13 +20,27 @@ Typical usage::
     # Fade exit
     Exit.fade(slide, shape)
 
+    # Move along a straight line, two inches right and one inch down
+    from pptx.util import Inches
+    MotionPath.line(slide, shape, Inches(2), Inches(1))
+
+    # Fade in each paragraph of a text frame, one after another
+    Entrance.fade(slide, text_frame, by_paragraph=True)
+
+    # Sequence multiple effects one after another with a single click
+    with slide.animations.sequence():
+        Entrance.fade(slide, title)
+        Entrance.fly_in(slide, body)
+        Emphasis.pulse(slide, badge)
+
     # Via the slide proxy
     slide.animations.add_entrance("fade", shape)
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Iterator, cast
 
 from pptx.enum.animation import PP_ANIM_TRIGGER
 from pptx.oxml.ns import nsdecls, qn
@@ -35,9 +49,15 @@ from pptx.oxml import parse_xml
 if TYPE_CHECKING:
     from pptx.shapes.base import BaseShape
     from pptx.slide import Slide
+    from pptx.text.text import TextFrame
 
 #: Short alias; application code reads ``Trigger.ON_CLICK`` more naturally.
 Trigger = PP_ANIM_TRIGGER
+
+# Sentinel for "trigger not specified" — lets `sequence()` distinguish an
+# explicit caller-supplied trigger from the default.  Don't use ``None``
+# because that's a valid attribute value elsewhere.
+_TRIGGER_UNSET = object()
 
 # ---------------------------------------------------------------------------
 # Namespace helpers
@@ -150,6 +170,46 @@ def _anim_motion_xml(ctn_id: int, spid: int, duration: int, path: str) -> str:
     )
 
 
+def _visibility_set_xml_for_paragraph(
+    ctn_id: int, spid: int, paragraph_idx: int, visible: bool
+) -> str:
+    """Return XML for a `<p:set>` targeting a single paragraph by index."""
+    val = "visible" if visible else "hidden"
+    return (
+        "<p:set>\n"
+        "  <p:cBhvr>\n"
+        f'    <p:cTn id="{ctn_id}" dur="1" fill="hold"/>\n'
+        f'    <p:tgtEl><p:spTgt spid="{spid}">'
+        f'<p:txEl><p:pRg st="{paragraph_idx}" end="{paragraph_idx}"/></p:txEl>'
+        "</p:spTgt></p:tgtEl>\n"
+        "    <p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>\n"
+        "  </p:cBhvr>\n"
+        f'  <p:to><p:strVal val="{val}"/></p:to>\n'
+        "</p:set>\n"
+    )
+
+
+def _anim_effect_xml_for_paragraph(
+    ctn_id: int,
+    spid: int,
+    paragraph_idx: int,
+    duration: int,
+    filter_str: str,
+    transition: str,
+) -> str:
+    """Return XML for a `<p:animEffect>` targeting a single paragraph by index."""
+    return (
+        f'<p:animEffect transition="{transition}" filter="{filter_str}">\n'
+        "  <p:cBhvr>\n"
+        f'    <p:cTn id="{ctn_id}" dur="{duration}"/>\n'
+        f'    <p:tgtEl><p:spTgt spid="{spid}">'
+        f'<p:txEl><p:pRg st="{paragraph_idx}" end="{paragraph_idx}"/></p:txEl>'
+        "</p:spTgt></p:tgtEl>\n"
+        "  </p:cBhvr>\n"
+        "</p:animEffect>\n"
+    )
+
+
 def _anim_scale_xml(ctn_id: int, spid: int, duration: int, x: int = 133333, y: int = 133333) -> str:
     """Return XML for a `<p:animScale>` (used by Pulse emphasis)."""
     return (
@@ -193,18 +253,29 @@ class SlideAnimations:
 
     def __init__(self, slide: Slide):
         self._slide = slide
+        # Sequence-context state: when active, the first add_* call uses
+        # `_seq_start` as its trigger and subsequent calls default to
+        # AFTER_PREVIOUS so effects play one after another from a single click.
+        # `_seq_delay` is added to the first effect's `delay` so that
+        # `sequence(delay=N)` shifts the whole chain forward by N ms.
+        self._seq_active: bool = False
+        self._seq_start: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK
+        self._seq_count: int = 0
+        self._seq_delay: int = 0
+        self._seq_delay_consumed: bool = False
 
     # -- public API ----------------------------------------------------------
 
     def add_entrance(
         self,
         preset: str,
-        shape: BaseShape,
+        shape: BaseShape | TextFrame,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
         direction: str = "bottom",
+        by_paragraph: bool = False,
     ) -> None:
         """Append an entrance animation for *shape* to the slide timeline.
 
@@ -214,16 +285,43 @@ class SlideAnimations:
 
         *direction* is only used for ``"fly_in"``; accepted values are
         ``"bottom"`` (default), ``"top"``, ``"left"``, ``"right"``.
+
+        Pass ``by_paragraph=True`` to animate each paragraph of a text
+        frame separately.  *shape* may then be either a |TextFrame| or
+        any shape that exposes a ``text_frame`` (e.g. an autoshape or
+        placeholder).  The first paragraph fires on the supplied
+        *trigger*; subsequent paragraphs fire after the previous one.
+        Currently supports the ``"fade"``, ``"appear"``, ``"wipe"``,
+        ``"zoom"``, ``"wheel"``, and ``"random_bars"`` presets — others
+        raise :class:`ValueError`.
         """
         if preset not in _ENTRANCE_PRESETS:
             raise ValueError(
                 f"Unknown entrance preset {preset!r}. "
                 f"Choose from: {sorted(_ENTRANCE_PRESETS)}"
             )
+
+        if by_paragraph:
+            self._add_entrance_by_paragraph(
+                preset, shape, trigger=trigger, delay=delay, duration=duration
+            )
+            return
+
+        # When by_paragraph=False, *shape* must be a BaseShape (something
+        # with a shape_id).  The union type is only widened to support
+        # the by_paragraph=True case, so guard explicitly here rather
+        # than relying on a duck-typed AttributeError later.
+        if not hasattr(shape, "shape_id"):
+            raise TypeError(
+                f"add_entrance requires a shape with a shape_id; got "
+                f"{type(shape).__name__!r}.  Pass by_paragraph=True to "
+                "animate a TextFrame's paragraphs individually."
+            )
+        bshape = cast("BaseShape", shape)
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
-        behaviors = self._entrance_behaviors(preset, shape.shape_id, duration, direction)
+        behaviors = self._entrance_behaviors(preset, bshape.shape_id, duration, direction)
         self._append_effect(
-            shape.shape_id, preset_id, "entr", preset_subtype, trigger, delay, behaviors
+            bshape.shape_id, preset_id, "entr", preset_subtype, trigger, delay, behaviors
         )
 
     def add_exit(
@@ -231,7 +329,7 @@ class SlideAnimations:
         preset: str,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
         direction: str = "bottom",
@@ -258,7 +356,7 @@ class SlideAnimations:
         preset: str,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 1000,
         degrees: float = 360.0,
@@ -280,6 +378,77 @@ class SlideAnimations:
         self._append_effect(
             shape.shape_id, preset_id, "emph", preset_subtype, trigger, delay, behaviors
         )
+
+    def add_motion(
+        self,
+        shape: BaseShape,
+        path: str,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Append a motion-path animation that moves *shape* along *path*.
+
+        *path* is an OOXML motion-path string (the same syntax PowerPoint
+        uses internally): ``"M x y L x y E"`` for a single straight
+        segment, ``"M x y C x1 y1 x2 y2 x y E"`` for a cubic bezier, etc.
+        Coordinates are normalized to the slide's width and height
+        (``0,0`` is the shape's starting position; ``1,0`` is one slide
+        width to the right).  The terminating ``E`` is required.
+
+        Use :meth:`MotionPath.line` for a coordinate-aware convenience
+        wrapper, or :meth:`MotionPath.custom` to pass an arbitrary path.
+        """
+        ids = self._reserve_ids(1)
+        behaviors = _anim_motion_xml(ids[0], shape.shape_id, duration, path)
+        # presetID 64 is PowerPoint's "Custom Path" path animation.
+        self._append_effect(
+            shape.shape_id, 64, "path", 0, trigger, delay, behaviors
+        )
+
+    @contextmanager
+    def sequence(
+        self,
+        *,
+        start: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        delay: int = 0,
+    ) -> Iterator[SlideAnimations]:
+        """Group the contained animations into a single sequenced run.
+
+        Inside the ``with`` block, the first effect added (whose
+        ``trigger`` was not explicitly set) fires on *start* and every
+        subsequent effect defaults to :attr:`Trigger.AFTER_PREVIOUS`,
+        producing a chain of effects that play one after another from a
+        single click.
+
+        Effects whose *trigger* is explicitly supplied still honour the
+        caller's choice — sequencing is opt-in per call.
+
+        Example::
+
+            with slide.animations.sequence(delay=200):
+                Entrance.fade(slide, title)
+                Entrance.fly_in(slide, body)
+                Emphasis.pulse(slide, badge)
+
+        Sequences cannot be nested — entering a sequence inside another
+        raises :class:`RuntimeError`.
+        """
+        if self._seq_active:
+            raise RuntimeError("animation sequences cannot be nested")
+        self._seq_active = True
+        self._seq_start = start
+        self._seq_delay = delay
+        self._seq_delay_consumed = False
+        self._seq_count = 0
+        try:
+            yield self
+        finally:
+            self._seq_active = False
+            self._seq_count = 0
+            self._seq_delay = 0
+            self._seq_delay_consumed = False
 
     # -- behavior builders ---------------------------------------------------
 
@@ -354,6 +523,140 @@ class SlideAnimations:
             )
         return ""
 
+    # -- by-paragraph entrance ---------------------------------------------
+
+    # Subset of entrance presets where targeting an individual paragraph
+    # makes sense.  Direction-aware presets (fly_in, float_in) are
+    # excluded because PowerPoint's per-paragraph wrappers don't support
+    # the motion-path component cleanly.
+    _PARAGRAPH_PRESETS = frozenset({
+        "appear", "fade", "wipe", "zoom", "wheel", "random_bars",
+    })
+
+    def _add_entrance_by_paragraph(
+        self,
+        preset: str,
+        target: BaseShape | TextFrame,
+        *,
+        trigger: PP_ANIM_TRIGGER,
+        delay: int,
+        duration: int,
+    ) -> None:
+        """Append one entrance effect per paragraph of a text frame.
+
+        Resolves *target* to a (shape, text_frame) pair, then emits a
+        chain of effects: the first uses *trigger*, the rest use
+        AFTER_PREVIOUS so the text reveals one paragraph at a time.
+        """
+        if preset not in self._PARAGRAPH_PRESETS:
+            raise ValueError(
+                f"by_paragraph=True is not supported for preset {preset!r}. "
+                f"Choose from: {sorted(self._PARAGRAPH_PRESETS)}"
+            )
+
+        from pptx.text.text import TextFrame as _TextFrame
+
+        if isinstance(target, _TextFrame):
+            text_frame = target
+            # Walk up the parent chain until we hit something with a
+            # `shape_id` (a |BaseShape|).  TextFrames inside table cells
+            # have an intermediate `_Cell` parent that has no shape_id;
+            # those cells live inside a `GraphicFrame` further up.  If
+            # nothing in the chain has a shape_id, the TextFrame isn't
+            # attached to a slide-level shape and we can't target it.
+            parent = target._parent  # type: ignore[attr-defined]
+            seen: set[int] = set()
+            while parent is not None and not hasattr(parent, "shape_id"):
+                if id(parent) in seen:
+                    parent = None  # cycle guard
+                    break
+                seen.add(id(parent))
+                parent = getattr(parent, "_parent", None)
+            if parent is None or not hasattr(parent, "shape_id"):
+                raise TypeError(
+                    "by_paragraph=True requires a TextFrame whose parent "
+                    "chain reaches a shape; "
+                    f"{type(target._parent).__name__!r} has no shape_id "  # type: ignore[attr-defined]
+                    "ancestor (table-cell text frames are not yet supported)."
+                )
+            shape = cast("BaseShape", parent)
+        else:
+            text_frame = getattr(target, "text_frame", None)
+            if text_frame is None or not hasattr(target, "shape_id"):
+                raise TypeError(
+                    "by_paragraph=True requires a TextFrame or a shape with "
+                    f"a text_frame and shape_id; got {type(target).__name__!r}"
+                )
+            shape = cast("BaseShape", target)
+
+        spid: int = shape.shape_id
+        preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
+        # Resolve the first trigger now so subsequent effects can chain
+        # off it via AFTER_PREVIOUS.  The default trigger inside a
+        # `sequence()` context is honoured via _resolve_default_trigger.
+        first_trigger = self._resolve_default_trigger(trigger)
+        for i, _para in enumerate(text_frame.paragraphs):
+            effect_trigger = first_trigger if i == 0 else PP_ANIM_TRIGGER.AFTER_PREVIOUS
+            effect_delay = delay if i == 0 else 0
+            behaviors = self._paragraph_entrance_behaviors(preset, spid, i, duration)
+            self._append_effect(
+                spid,
+                preset_id,
+                "entr",
+                preset_subtype,
+                effect_trigger,
+                effect_delay,
+                behaviors,
+            )
+
+    def _paragraph_entrance_behaviors(
+        self, preset: str, spid: int, paragraph_idx: int, duration: int
+    ) -> str:
+        """Return the behaviors XML for a paragraph-targeted entrance preset."""
+        ids = self._reserve_ids(2)
+        vis_xml = _visibility_set_xml_for_paragraph(
+            ids[0], spid, paragraph_idx, visible=True
+        )
+        if preset == "appear":
+            return vis_xml
+        filter_str = _EFFECT_FILTER.get(preset, "fade")
+        return vis_xml + _anim_effect_xml_for_paragraph(
+            ids[1], spid, paragraph_idx, duration, filter_str, "in"
+        )
+
+    # -- trigger / sequence resolution -------------------------------------
+
+    def _resolve_default_trigger(self, trigger: PP_ANIM_TRIGGER) -> PP_ANIM_TRIGGER:
+        """Map the ``_TRIGGER_UNSET`` sentinel to a concrete trigger.
+
+        When called outside a sequence, an unset trigger falls back to
+        ``Trigger.ON_CLICK``.  Inside a sequence, the first effect uses
+        the sequence's ``start`` trigger and subsequent effects default
+        to ``Trigger.AFTER_PREVIOUS``.
+        """
+        if trigger is not _TRIGGER_UNSET:
+            return trigger
+        if not self._seq_active:
+            return PP_ANIM_TRIGGER.ON_CLICK
+        if self._seq_count == 0:
+            self._seq_count += 1
+            return self._seq_start
+        self._seq_count += 1
+        return PP_ANIM_TRIGGER.AFTER_PREVIOUS
+
+    def _consume_sequence_delay(self, delay: int) -> int:
+        """Add the sequence's ``delay`` to the first effect's *delay*.
+
+        ``sequence(delay=N)`` shifts the whole chain by N ms, so the
+        sequence-level delay is added to the first effect's per-call
+        ``delay`` and never applied again within the same block.
+        Returns *delay* unchanged when no sequence is active.
+        """
+        if self._seq_active and not self._seq_delay_consumed:
+            self._seq_delay_consumed = True
+            return delay + self._seq_delay
+        return delay
+
     # -- timing tree management ----------------------------------------------
 
     def _append_effect(
@@ -369,6 +672,8 @@ class SlideAnimations:
         """Build the animation XML and insert it into the slide timing tree."""
         root_ctn = self._get_or_create_root_ctn()
 
+        trigger = self._resolve_default_trigger(trigger)
+        delay = self._consume_sequence_delay(delay)
         grp_id, node_type, wrapper_delay = self._resolve_trigger(trigger)
 
         indent_behaviors = "\n".join(
@@ -480,7 +785,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
     ) -> None:
         """Shape pops into view instantly (no duration)."""
@@ -490,15 +795,26 @@ class Entrance:
     def fade(
         cls,
         slide: Slide,
-        shape: BaseShape,
+        shape: BaseShape | TextFrame,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
+        by_paragraph: bool = False,
     ) -> None:
-        """Shape fades in."""
+        """Shape fades in.
+
+        With ``by_paragraph=True``, *shape* may be a |TextFrame| or any
+        shape with a ``text_frame``; one fade effect is added per
+        paragraph and they reveal sequentially after the first click.
+        """
         slide.animations.add_entrance(
-            "fade", shape, trigger=trigger, delay=delay, duration=duration
+            "fade",
+            shape,
+            trigger=trigger,
+            delay=delay,
+            duration=duration,
+            by_paragraph=by_paragraph,
         )
 
     @classmethod
@@ -508,7 +824,7 @@ class Entrance:
         shape: BaseShape,
         *,
         direction: str = "bottom",
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -528,7 +844,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -543,7 +859,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -558,7 +874,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -573,7 +889,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -588,7 +904,7 @@ class Entrance:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -611,7 +927,7 @@ class Exit:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
     ) -> None:
         """Shape vanishes instantly."""
@@ -623,7 +939,7 @@ class Exit:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -639,7 +955,7 @@ class Exit:
         shape: BaseShape,
         *,
         direction: str = "bottom",
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -659,7 +975,7 @@ class Exit:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -674,7 +990,7 @@ class Exit:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -689,7 +1005,7 @@ class Exit:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
     ) -> None:
@@ -711,7 +1027,7 @@ class Emphasis:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 300,
     ) -> None:
@@ -727,7 +1043,7 @@ class Emphasis:
         shape: BaseShape,
         *,
         degrees: float = 360.0,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 1000,
     ) -> None:
@@ -742,7 +1058,7 @@ class Emphasis:
         slide: Slide,
         shape: BaseShape,
         *,
-        trigger: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.ON_CLICK,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 800,
     ) -> None:
@@ -750,3 +1066,93 @@ class Emphasis:
         slide.animations.add_emphasis(
             "teeter", shape, trigger=trigger, delay=delay, duration=duration
         )
+
+
+class MotionPath:
+    """Convenience class for adding motion-path animations.
+
+    A motion path moves a shape along a parametric path while playing.
+    Coordinates are normalized to the slide's width and height: ``(0,0)``
+    is the shape's starting position, ``(1,0)`` is one slide-width to
+    the right, ``(0,1)`` is one slide-height down.
+
+    Example::
+
+        from pptx.animation import MotionPath, Trigger
+        from pptx.util import Inches
+
+        # Slide it two inches to the right and one inch down
+        MotionPath.line(slide, badge, Inches(2), Inches(1))
+
+        # Or hand-roll a path: a quarter-circle to the right
+        MotionPath.custom(
+            slide, badge, "M 0 0 C 0 -0.2 0.2 -0.2 0.2 0 E"
+        )
+    """
+
+    @classmethod
+    def line(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        dx: int,
+        dy: int,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* in a straight line by ``(dx, dy)`` EMU.
+
+        *dx* and *dy* are absolute deltas in English Metric Units (EMU)
+        — typically built with :func:`pptx.util.Inches`,
+        :func:`pptx.util.Pt`, etc.  They are normalized to the slide's
+        size before being written into the motion-path attribute, so a
+        path encoded against a 10-inch-wide slide still moves the right
+        absolute distance on a wide-screen slide.
+        """
+        slide_w, slide_h = _slide_dimensions_emu(slide)
+        nx = float(dx) / slide_w
+        ny = float(dy) / slide_h
+        path = f"M 0 0 L {nx:g} {ny:g} E"
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def custom(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        path: str,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* along an arbitrary OOXML motion *path* string.
+
+        *path* is a PowerPoint motion-path expression, e.g.
+        ``"M 0 0 L 0.5 0 E"`` for a horizontal half-slide hop.  The
+        terminating ``E`` (path end) is required.
+        """
+        if not path or "E" not in path:
+            raise ValueError(
+                "motion path must be a non-empty OOXML path string ending in 'E'"
+            )
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+
+def _slide_dimensions_emu(slide: Slide) -> tuple[int, int]:
+    """Return the (width, height) of *slide*'s presentation in EMU.
+
+    Falls back to PowerPoint's default 10in × 7.5in if either dimension
+    is missing (which should not happen for any well-formed deck).
+    """
+    prs_part = slide.part.package.presentation_part
+    presentation = prs_part.presentation
+    width = presentation.slide_width or 9_144_000   # 10 inches
+    height = presentation.slide_height or 6_858_000  # 7.5 inches
+    return int(width), int(height)

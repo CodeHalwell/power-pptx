@@ -357,12 +357,24 @@ dozen entrance presets.
 - [x] **Round-trip preservation.** New effects are appended to the
   existing timing tree without touching any pre-existing `<p:par>` nodes;
   PowerPoint-authored animations survive a read-modify-write cycle intact.
-- **Motion paths.** `MotionPath.line(shape, dx, dy, duration)` and
-  `MotionPath.custom(shape, svg_path_d, duration)` — deferred to follow-up.
-- **Sequencing.** `with slide.animations.sequence(start=...): ...`
-  context manager — deferred to follow-up.
-- **By-paragraph animation.** For text frames: `Entrance.fade(text_frame,
-  by_paragraph=True)` — deferred to follow-up.
+- [x] **Motion paths.** `MotionPath.line(slide, shape, dx, dy)` accepts
+  EMU deltas and normalizes them against the slide's dimensions before
+  emitting the path attribute; `MotionPath.custom(slide, shape,
+  path_str)` passes an OOXML motion-path expression through verbatim.
+  Both effects route through `SlideAnimations.add_motion`, share the
+  Phase 5 trigger model, and round-trip cleanly.
+- [x] **Sequencing.** `with slide.animations.sequence(start=...): ...`
+  context manager defaults the first contained effect to *start* (or
+  `Trigger.ON_CLICK`) and subsequent effects to
+  `Trigger.AFTER_PREVIOUS`, so a chain of presets fires from a single
+  click.  Explicit per-call triggers still win.  Sequences cannot be
+  nested.
+- [x] **By-paragraph animation.** `Entrance.fade(slide, text_frame,
+  by_paragraph=True)` (also accepts a shape with a `text_frame`) emits
+  one entrance effect per paragraph using `<p:txEl>/<p:pRg>` targeting,
+  chained with `Trigger.AFTER_PREVIOUS` so paragraphs reveal one at a
+  time.  Currently supports `appear`, `fade`, `wipe`, `zoom`, `wheel`,
+  and `random_bars` — direction-aware presets remain a follow-up.
 
 **Done when:** a generated 10-slide deck with on-click bullet reveals
 plays in PowerPoint identically to one assembled in the UI, and a deck
@@ -422,9 +434,15 @@ in Phase 2, but cross-presentation operations are the remaining piece.
   Aspose/Spire.
 - **`apply_template(potx_or_pptx)`.** Re-points slides at masters/layouts
   imported from a `.potx` or `.pptx`.
-- **Theme writer.** Now that we have read-only theme + composition
-  primitives, expose `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] =
-  RGBColor(...)` and `prs.theme.apply(other_theme)`.
+- [x] **Theme writer.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] =
+  RGBColor(...)` writes a fresh `<a:srgbClr>` into the requested
+  clrScheme slot (alias slots like `BACKGROUND_1` resolve to their
+  canonical `lt1`/`lt2`/`dk1`/`dk2` target).  `prs.theme.fonts.major =
+  "Inter"` and `prs.theme.fonts.minor = "Inter"` rewrite the
+  `<a:majorFont>/<a:minorFont>/<a:latin typeface=…/>` typeface, and
+  `prs.theme.apply(other_prs.theme)` bulk-copies the palette and font
+  pair from another theme.  Themes are now loaded as a typed
+  `ThemePart(XmlPart)` so writes round-trip on save.
 
 **Done when:** `Presentation.import_slide(prs2.slides[3])` produces a
 result indistinguishable from drag-and-drop in PowerPoint, and a brand

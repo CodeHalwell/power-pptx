@@ -100,3 +100,61 @@ class DescribeShapeIdAllocationRoundTrip:
         ids = [int(v) for v in slide.shapes._spTree.xpath("//@id") if v.isdigit()]
         assert len(ids) == len(set(ids)), "duplicate shape ids: %r" % ids
         assert_round_trip(prs)
+
+
+class DescribeAnimationsRoundTrip:
+    """Phase 5 animation extensions must survive a save→open→save cycle."""
+
+    def it_round_trips_a_motion_path_animation(self):
+        from pptx.animation import MotionPath
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        MotionPath.line(slide, shape, Inches(2), Inches(0))
+        MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.25 E")
+        assert_round_trip(prs)
+
+    def it_round_trips_a_sequenced_animation_chain(self):
+        from pptx.animation import Emphasis, Entrance
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+        c = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(1))
+        with slide.animations.sequence():
+            Entrance.fade(slide, a)
+            Entrance.fly_in(slide, b)
+            Emphasis.pulse(slide, c)
+        assert_round_trip(prs)
+
+    def it_round_trips_a_by_paragraph_entrance(self):
+        from pptx.animation import Entrance
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        tf = tb.text_frame
+        tf.text = "alpha"
+        tf.add_paragraph().text = "beta"
+        tf.add_paragraph().text = "gamma"
+        Entrance.fade(slide, tf, by_paragraph=True)
+        assert_round_trip(prs)
+
+
+class DescribeThemeWriterRoundTrip:
+    """Phase 7 writable theme: changes must persist across save/open/save."""
+
+    def it_round_trips_an_overridden_accent_color(self):
+        from pptx.enum.dml import MSO_THEME_COLOR
+
+        prs = Presentation()
+        prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x66, 0x00)
+        assert_round_trip(prs)
+
+    def it_round_trips_overridden_fonts(self):
+        prs = Presentation()
+        prs.theme.fonts.major = "Inter"
+        prs.theme.fonts.minor = "Inter"
+        assert_round_trip(prs)

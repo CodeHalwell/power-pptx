@@ -97,12 +97,25 @@ class NotesMasterPart(BaseSlidePart):
     @classmethod
     def _new_theme_part(cls, package):
         """Return new default theme-part suitable for use with a notes master."""
-        return XmlPart(
+        return ThemePart(
             package.next_partname("/ppt/theme/theme%d.xml"),
             CT.OFC_THEME,
             package,
             CT_OfficeStyleSheet.new_default(),
         )
+
+
+class ThemePart(XmlPart):
+    """Package part for an Office theme (``ppt/theme/themeN.xml``).
+
+    Themes were previously loaded as generic |Part| blobs which made
+    high-level write operations on |Theme| transient (every read parsed
+    a fresh element).  Promoting them to |XmlPart| keeps a single live
+    ``<a:theme>`` element on the part so that mutations from
+    :class:`pptx.theme.Theme` round-trip on save.
+    """
+
+    _element: CT_OfficeStyleSheet
 
 
 class NotesSlidePart(BaseSlidePart):
@@ -309,7 +322,12 @@ class SlideMasterPart(BaseSlidePart):
             theme_part = self.part_related_by(RT.THEME)
         except KeyError:
             return None
-        # Theme parts may be loaded as generic Part objects (no _element attr)
-        # when no typed class is registered; parse from blob in that case.
-        elm = getattr(theme_part, "_element", None) or parse_xml(theme_part.blob)
+        # Theme parts are typed as ThemePart (an XmlPart subclass) and
+        # always carry a live `_element`.  Older packages or generic
+        # Parts fall through to a fresh parse so the read still works
+        # (writes won't persist on a generic Part — but they do on
+        # any presentation loaded through the registered factory).
+        elm = getattr(theme_part, "_element", None)
+        if elm is None:
+            elm = parse_xml(theme_part.blob)
         return Theme(elm)
