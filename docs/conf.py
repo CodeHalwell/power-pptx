@@ -484,7 +484,7 @@ html_sidebars = {
 # html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "python-pptxdoc"
+htmlhelp_basename = "power-pptxdoc"
 
 
 # -- Options for LaTeX output -----------------------------------------------
@@ -504,8 +504,8 @@ latex_elements = {
 latex_documents = [
     (
         "index",
-        "python-pptx.tex",
-        u"python-pptx Documentation",
+        "power-pptx.tex",
+        u"power-pptx Documentation",
         u"Steve Canny",
         "manual",
     ),
@@ -537,7 +537,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ("index", "python-pptx", u"python-pptx Documentation", [u"Steve Canny"], 1)
+    ("index", "power-pptx", u"power-pptx Documentation", [u"Steve Canny"], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -552,10 +552,10 @@ man_pages = [
 texinfo_documents = [
     (
         "index",
-        "python-pptx",
-        u"python-pptx Documentation",
+        "power-pptx",
+        u"power-pptx Documentation",
         u"Steve Canny",
-        "python-pptx",
+        "power-pptx",
         "One line description of project.",
         "Miscellaneous",
     ),

@@ -37,11 +37,12 @@ requires-python = ">=3.9"
 
 [project.urls]
 Changelog = "https://github.com/codehalwell/python-pptx/blob/main/HISTORY.rst"
-Documentation = "https://python-pptx.readthedocs.io/en/latest/"
+Documentation = "https://github.com/codehalwell/python-pptx/blob/main/HISTORY.rst"
 Homepage = "https://github.com/codehalwell/python-pptx"
 Issues = "https://github.com/codehalwell/python-pptx/issues"
 Repository = "https://github.com/codehalwell/python-pptx"
 Upstream = "https://github.com/scanny/python-pptx"
+UpstreamDocumentation = "https://python-pptx.readthedocs.io/en/latest/"
 
 [tool.black]
 line-length = 100

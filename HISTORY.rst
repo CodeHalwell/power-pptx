@@ -22,7 +22,7 @@ to work and existing user code is unaffected.
 Project changes
 ~~~~~~~~~~~~~~~
 
-- Renamed the PyPI distribution from ``python-pptx`` to
+- Renamed the PyPI distribution from ``python-pptx-next`` to
   ``power-pptx``. The importable package remains ``pptx``.
 - Repository moved to ``codehalwell/python-pptx``.
 - Original ``LICENSE`` (MIT, Steve Canny, 2013) preserved verbatim;
