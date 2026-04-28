@@ -1088,6 +1088,12 @@ class MotionPath:
         MotionPath.custom(
             slide, badge, "M 0 0 C 0 -0.2 0.2 -0.2 0.2 0 E"
         )
+
+        # Built-in path presets:
+        MotionPath.arc(slide, badge, Inches(2), 0, height=0.5)
+        MotionPath.circle(slide, badge, Inches(1))
+        MotionPath.zigzag(slide, badge, Inches(3), 0, segments=4)
+        MotionPath.spiral(slide, badge, Inches(2), turns=2)
     """
 
     @classmethod
@@ -1140,6 +1146,189 @@ class MotionPath:
             raise ValueError(
                 "motion path must be a non-empty OOXML path string ending in 'E'"
             )
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def diagonal(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        dx: int,
+        dy: int,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* diagonally by ``(dx, dy)`` EMU.
+
+        Functionally equivalent to :meth:`line` — exposed as its own
+        preset because diagonal motion is a common authoring intent and
+        callers reading recipe code shouldn't have to puzzle out which
+        direction a "line" travels.
+        """
+        cls.line(
+            slide, shape, dx, dy,
+            trigger=trigger, delay=delay, duration=duration,
+        )
+
+    @classmethod
+    def circle(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        radius: int,
+        *,
+        clockwise: bool = True,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* in a closed circle of *radius* EMU.
+
+        The shape's starting position sits on the rim at the 9 o'clock
+        position; setting *clockwise=False* reverses the direction.  The
+        radius is normalized against the slide's smaller dimension so the
+        path stays circular on widescreen and 4:3 slides alike.
+        """
+        slide_w, slide_h = _slide_dimensions_emu(slide)
+        rx = float(radius) / slide_w
+        ry = float(radius) / slide_h
+        # Build a closed cubic-bezier circle approximation.  The 0.5523
+        # constant (4/3 * tan(pi/8)) is the standard control-handle
+        # length that yields a near-perfect circle from four cubics.
+        k = 0.5522847498
+        # Sign flip swaps direction without changing the start point.
+        s = 1 if clockwise else -1
+        path = (
+            f"M 0 0 "
+            f"C 0 {-s * k * ry:g} {rx - k * rx:g} {-s * ry:g} {rx:g} {-s * ry:g} "
+            f"C {rx + k * rx:g} {-s * ry:g} {2 * rx:g} {-s * (ry - k * ry):g} "
+            f"{2 * rx:g} 0 "
+            f"C {2 * rx:g} {s * (ry - k * ry):g} {rx + k * rx:g} {s * ry:g} "
+            f"{rx:g} {s * ry:g} "
+            f"C {rx - k * rx:g} {s * ry:g} 0 {s * (ry - k * ry):g} 0 0 E"
+        )
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def arc(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        dx: int,
+        dy: int,
+        *,
+        height: float = 0.5,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* along a parabolic arc to ``(dx, dy)``.
+
+        *height* controls the arc's peak as a fraction of the chord
+        length: ``0.5`` is a gentle hump, ``1.0`` a tall throw.  Negative
+        values flip the arc below the chord.
+        """
+        slide_w, slide_h = _slide_dimensions_emu(slide)
+        nx = float(dx) / slide_w
+        ny = float(dy) / slide_h
+        # Quadratic Bezier control point above the chord midpoint.
+        cx = nx / 2
+        cy = ny / 2 - abs(nx) * height
+        path = f"M 0 0 Q {cx:g} {cy:g} {nx:g} {ny:g} E"
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def zigzag(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        dx: int,
+        dy: int,
+        *,
+        segments: int = 4,
+        amplitude: float = 0.05,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2000,
+    ) -> None:
+        """Move *shape* along a zigzag from origin to ``(dx, dy)``.
+
+        *segments* is the number of zigzag legs (must be ≥ 1).
+        *amplitude* is the perpendicular swing as a fraction of the
+        slide's smaller dimension.
+        """
+        if segments < 1:
+            raise ValueError("segments must be >= 1")
+        slide_w, slide_h = _slide_dimensions_emu(slide)
+        nx = float(dx) / slide_w
+        ny = float(dy) / slide_h
+        length = (nx * nx + ny * ny) ** 0.5 or 1.0
+        # Perpendicular unit vector to (nx, ny).
+        px, py = -ny / length, nx / length
+        parts = ["M 0 0"]
+        for i in range(1, segments + 1):
+            t = i / segments
+            mid_x = nx * t
+            mid_y = ny * t
+            swing = amplitude if i % 2 == 1 else -amplitude
+            if i < segments:
+                mid_x += px * swing
+                mid_y += py * swing
+            parts.append(f"L {mid_x:g} {mid_y:g}")
+        parts.append("E")
+        path = " ".join(parts)
+        slide.animations.add_motion(
+            shape, path, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def spiral(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        radius: int,
+        *,
+        turns: float = 2.0,
+        clockwise: bool = True,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 2500,
+    ) -> None:
+        """Move *shape* along a spiral that ends *radius* EMU from start.
+
+        The spiral begins at the shape's starting position and unwinds
+        outward over *turns* rotations.  Use a negative *turns* value to
+        wind inward (the path is reversed; the shape still ends at the
+        outer radius).  *clockwise=False* reverses the rotation.
+        """
+        if turns == 0:
+            raise ValueError("turns must be non-zero")
+        import math
+
+        slide_w, slide_h = _slide_dimensions_emu(slide)
+        rx = float(radius) / slide_w
+        ry = float(radius) / slide_h
+        # Sample enough points for a smooth spiral.  16 per turn is
+        # visually indistinguishable from a true Archimedean spiral.
+        steps = max(16, int(abs(turns) * 16))
+        s = 1 if clockwise else -1
+        parts = ["M 0 0"]
+        for i in range(1, steps + 1):
+            t = i / steps
+            angle = 2 * math.pi * turns * t
+            x = rx * t * (1 - math.cos(angle))
+            y = s * ry * t * math.sin(angle)
+            parts.append(f"L {x:g} {y:g}")
+        parts.append("E")
+        path = " ".join(parts)
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
         )

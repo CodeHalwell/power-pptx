@@ -475,14 +475,27 @@ The piece that turns the low-level API into something where the
 *default* output looks good. Nothing here adds new XML — it's all on
 top of the foundations from earlier phases.
 
-- **`pptx.design.tokens.DesignTokens`.** Palette, typography, radii,
-  shadows, spacings. Sources:
-  - `DesignTokens.from_yaml('brand.yml')`
-  - `DesignTokens.from_pptx('template.pptx')` (extracts from `theme.xml`)
-  - hand-built dict.
-- **`shape.style`.** Token-resolving facade: `shape.style.fill =
-  tokens.palette['primary']`, `shape.style.shadow = tokens.shadows
-  ['card']`. Internally fans out to `fill`, `shadow`, etc.
+- [x] **`pptx.design.tokens.DesignTokens`.** Palette, typography, radii,
+  shadows, spacings.  Lives in `pptx/design/tokens.py` with
+  `TypographyToken` and `ShadowToken` value objects.  Sources:
+  - `DesignTokens.from_dict(...)` — the canonical form; coerces hex
+    strings, RGB 3-tuples, and bare floats (treated as points) into
+    `RGBColor` / `Length`.
+  - `DesignTokens.from_yaml('brand.yml')` — optional `pyyaml`
+    dependency, with a clear `ImportError` hint when missing.
+  - `DesignTokens.from_pptx('template.pptx')` (extracts the six accent
+    slots, `dk1`/`dk2`/`lt1`/`lt2`/hyperlink slots, and major/minor
+    fonts from `theme.xml`).
+  - `merge(other)` for layering brand-spec overrides on top of a
+    template-extracted base.
+- [x] **`shape.style`.** Token-resolving facade in
+  `pptx/design/style.py` (`ShapeStyle`).  Setters: `style.fill =
+  tokens.palette['primary']`, `style.line = ...`, `style.shadow =
+  tokens.shadows['card']`, `style.text_color = ...`, `style.font =
+  tokens.typography['body']`.  Internally fans assignments out to
+  `fill` / `line` / `shadow` / per-run font, leaving unset shadow
+  fields untouched so partial tokens are non-destructive.  Exposed via
+  `BaseShape.style`.
 - [x] **`pptx.design.layout`.** `Grid(slide, cols=12, rows=6, gutter=Pt(12),
   margin=...)` allocates `Box(left, top, width, height)` rectangles for any
   cell or span (`grid.cell(col, row, col_span, row_span)`); `grid.place(
@@ -510,7 +523,15 @@ Items that are valuable but not on the critical path:
 - Chart palette presets independent of `chart_style`.
 - Per-series chart fills (gradient/pattern) via `ChartFormat`.
 - Chart "quick layouts" (mirroring PowerPoint's gallery).
-- Additional motion-path presets.
+- [x] Additional motion-path presets.  `MotionPath` now exposes
+  `diagonal`, `circle` (closed cubic-bezier loop, with a `clockwise`
+  flag), `arc` (quadratic-bezier hop with configurable `height`),
+  `zigzag` (configurable `segments` and `amplitude`), and `spiral`
+  (configurable `turns` and direction) in addition to the existing
+  `line` / `custom` constructors.  All presets normalize their EMU
+  inputs against the slide's dimensions and route through the same
+  `slide.animations.add_motion` plumbing as `MotionPath.line`, so they
+  honor the Phase 5 trigger model and round-trip cleanly.
 - A slide-thumbnail renderer (likely shells out to LibreOffice headless;
   optional dependency).
 - Documentation site rebuild.

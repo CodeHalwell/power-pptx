@@ -218,6 +218,25 @@ class BaseShape(object):
         return SoftEdgeFormat(self._element.spPr)
 
     @lazyproperty
+    def style(self):
+        """Token-resolving design-system facade for this shape.
+
+        Returns a :class:`pptx.design.style.ShapeStyle` whose setters
+        accept :class:`pptx.design.tokens` values (palette colors,
+        shadow tokens, typography tokens) and fan them out into the
+        shape's underlying ``fill`` / ``line`` / ``shadow`` proxies.
+
+        Example::
+
+            shape.style.fill = tokens.palette["primary"]
+            shape.style.shadow = tokens.shadows["card"]
+            shape.style.font = tokens.typography["body"]
+        """
+        from pptx.design.style import ShapeStyle
+
+        return ShapeStyle(self)
+
+    @lazyproperty
     def three_d(self) -> ThreeDFormat:
         """|ThreeDFormat| object providing access to 3-D formatting for this shape.
 

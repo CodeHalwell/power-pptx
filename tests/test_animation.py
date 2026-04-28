@@ -77,6 +77,69 @@ class DescribeMotionPath:
         with pytest.raises(ValueError):
             MotionPath.custom(slide, shape, "no end marker")
 
+    def it_emits_a_diagonal_path(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.diagonal(slide, shape, Inches(2), Inches(1))
+        path = _animMotion_paths(slide)[0]
+        assert path.startswith("M 0 0 L")
+        assert path.endswith(" E")
+
+    def it_emits_a_closed_circle_path(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.circle(slide, shape, Inches(1))
+        paths = _animMotion_paths(slide)
+        assert len(paths) == 1
+        path = paths[0]
+        # Four cubic-bezier segments, closing back at origin.
+        assert path.count(" C ") == 4
+        assert path.startswith("M 0 0")
+        assert path.rstrip().endswith("0 0 E")
+
+    def it_reverses_circle_direction_when_counterclockwise(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.circle(slide, shape, Inches(1), clockwise=False)
+        path = _animMotion_paths(slide)[0]
+        # Counterclockwise circle's first control point sits below origin
+        # (positive y in OOXML's downward y-axis is *below*).  We just
+        # check the sign flipped vs. the clockwise default.
+        first_c = path.split("C", 1)[1].split("C", 1)[0].strip().split()
+        # First control point's y coordinate is the second token.
+        y0 = float(first_c[1])
+        assert y0 > 0  # below origin → counterclockwise
+
+    def it_emits_a_quadratic_arc(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.arc(slide, shape, Inches(3), 0, height=0.5)
+        path = _animMotion_paths(slide)[0]
+        assert path.startswith("M 0 0 Q")
+        assert path.endswith(" E")
+
+    def it_emits_a_zigzag_with_segment_count(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.zigzag(slide, shape, Inches(4), 0, segments=4)
+        path = _animMotion_paths(slide)[0]
+        # 4 segments → 4 L commands.
+        assert path.count(" L ") == 4
+
+    def it_rejects_zero_zigzag_segments(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        with pytest.raises(ValueError):
+            MotionPath.zigzag(slide, shape, Inches(2), 0, segments=0)
+
+    def it_emits_a_spiral_path(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.spiral(slide, shape, Inches(2), turns=2)
+        path = _animMotion_paths(slide)[0]
+        assert path.startswith("M 0 0")
+        assert path.endswith(" E")
+        # 16 samples per turn × 2 turns = 32 line segments.
+        assert path.count(" L ") == 32
+
+    def it_rejects_zero_spiral_turns(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        with pytest.raises(ValueError):
+            MotionPath.spiral(slide, shape, Inches(2), turns=0)
+
 
 class DescribeAnimationSequence:
     def it_chains_subsequent_effects_after_the_first(self):
