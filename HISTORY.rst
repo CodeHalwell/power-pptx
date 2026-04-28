@@ -73,6 +73,42 @@ Phase 10 — additional motion-path presets
   through ``slide.animations.add_motion``, so they honor the Phase 5
   trigger model and round-trip cleanly.
 
+Phase 10 — chart palette presets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``Chart.apply_palette(palette)`` recolors every series in a chart
+  from a named built-in preset or an iterable of color-likes,
+  independently of ``chart_style``.  Series are recolored in
+  declaration order; palettes wrap when the chart has more series
+  than colors.
+
+- New module ``pptx.chart.palettes`` exposes ``CHART_PALETTES`` (six
+  built-in palettes — ``modern``, ``classic``, ``editorial``,
+  ``vibrant``, ``monochrome_blue``, ``monochrome_warm``),
+  ``palette_names()``, and ``resolve_palette()`` for callers that want
+  to share the same color set with non-chart shapes.
+
+- Per-series gradient and pattern fills work out of the box through
+  ``chart.series[i].format.fill`` (a regular ``FillFormat``) — locked
+  in with regression tests covering the four gradient kinds and
+  ``MSO_PATTERN_TYPE`` patterns.
+
+Phase 6 — text-fit estimator on Linux / minimal runtimes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``TextFrame.fit_text()`` now works on Linux and on runtimes without
+  the requested font installed.  ``FontFiles._font_directories()``
+  enumerates ``/usr/share/fonts``, ``/usr/local/share/fonts``,
+  ``/usr/share/fonts/truetype``, ``~/.fonts``, and
+  ``~/.local/share/fonts``; unrecognised platforms now return an empty
+  directory list instead of raising ``OSError``.  When no matching
+  system font can be located, ``_best_fit_font_size`` falls back to
+  ``ImageFont.load_default(size=...)`` (Pillow ≥10.1, with a graceful
+  fallback to the unsized bitmap default on older Pillow), so a call
+  with no ``font_file=`` argument produces a usable estimate rather
+  than a ``KeyError``.  Malformed font files encountered during the
+  directory scan are skipped silently.
+
 
 1.8.0 (unreleased)
 +++++++++++++++++++

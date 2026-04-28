@@ -418,9 +418,18 @@ loss.
   setting an end attribute lazily creates `<a:ln>`/`<a:headEnd>` and
   clearing the last attribute drops the end element again so theme
   inheritance is preserved.
-- **Text fit estimator.** Pillow-driven measurement so
+- [x] **Text fit estimator.** Pillow-driven measurement so
   `TextFrame.fit_text` works without requiring a `font_file=` argument
-  in the common case.
+  in the common case.  `FontFiles._font_directories()` now also
+  enumerates Linux paths (`/usr/share/fonts`, `/usr/local/share/fonts`,
+  `~/.fonts`, `~/.local/share/fonts`) and returns `[]` on unrecognised
+  platforms instead of raising `OSError`.  When no matching system font
+  can be located, the estimator falls back to Pillow's bundled default
+  font (`ImageFont.load_default(size=...)` on Pillow ≥10.1, otherwise
+  the unsized bitmap default), so `fit_text()` produces a usable size
+  on bare runtimes (CI, serverless, minimal Docker images) instead of
+  raising `KeyError` / `OSError`.  Malformed font files are skipped
+  during the directory scan.
 
 **Done when:** a generated deck honors a brand color palette read from
 the theme, recolors photos to match it, and embeds vector logos at
@@ -532,8 +541,24 @@ a series-A pitch.
 
 Items that are valuable but not on the critical path:
 
-- Chart palette presets independent of `chart_style`.
-- Per-series chart fills (gradient/pattern) via `ChartFormat`.
+- [x] **Chart palette presets independent of `chart_style`.**
+  `Chart.apply_palette(palette)` recolors every series in a chart from a
+  named built-in preset (``modern``, ``classic``, ``editorial``,
+  ``vibrant``, ``monochrome_blue``, ``monochrome_warm``) or an iterable
+  of color-likes (`RGBColor`, hex strings with or without `#`, or
+  `(r, g, b)` triples).  Series are recolored in declaration order;
+  palettes wrap when the chart has more series than colors.  The
+  `chart_style` integer is left untouched, so the palette overrides only
+  the per-series fill without rewriting the rest of the style.  New
+  module: `pptx/chart/palettes.py` exposes `CHART_PALETTES`,
+  `palette_names()`, and `resolve_palette()` for callers that want to
+  share the same color set with non-chart shapes.
+- [x] **Per-series chart fills (gradient/pattern) via `ChartFormat`.**
+  `chart.series[i].format.fill` is a full `FillFormat`, so all gradient
+  kinds (`linear` / `radial` / `rectangular` / `shape`) and pattern
+  fills (`MSO_PATTERN_TYPE`) work per-series with no chart-specific
+  shim.  Locked in with regression tests in
+  `tests/chart/test_chart.py`.
 - Chart "quick layouts" (mirroring PowerPoint's gallery).
 - [x] Additional motion-path presets.  `MotionPath` now exposes
   `diagonal`, `circle` (closed cubic-bezier loop, with a `clockwise`

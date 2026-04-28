@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from struct import calcsize, unpack_from
+from struct import calcsize, error as struct_error, unpack_from
 
 from pptx.util import lazyproperty
 
@@ -41,13 +41,17 @@ class FontFiles(object):
     def _font_directories(cls):
         """
         Return a sequence of directory paths likely to contain fonts on the
-        current platform.
+        current platform. Returns an empty sequence on unrecognised platforms,
+        in which case `find()` will not match any installed font and callers
+        are expected to fall back to a default font.
         """
         if sys.platform.startswith("darwin"):
             return cls._os_x_font_directories()
         if sys.platform.startswith("win32"):
             return cls._windows_font_directories()
-        raise OSError("unsupported operating system")
+        if sys.platform.startswith("linux"):
+            return cls._linux_font_directories()
+        return []
 
     @classmethod
     def _iter_font_files_in(cls, directory):
@@ -55,16 +59,26 @@ class FontFiles(object):
         Generate the OpenType font files found in and under *directory*. Each
         item is a key/value pair. The key is a (family_name, is_bold,
         is_italic) 3-tuple, like ('Arial', True, False), and the value is the
-        absolute path to the font file.
+        absolute path to the font file. Directories that do not exist or are
+        not readable are skipped silently so a probe list of conventional
+        platform paths can be passed in without pre-filtering.
         """
+        if not os.path.isdir(directory):
+            return
         for root, dirs, files in os.walk(directory):
             for filename in files:
                 file_ext = os.path.splitext(filename)[1]
                 if file_ext.lower() not in (".otf", ".ttf"):
                     continue
                 path = os.path.abspath(os.path.join(root, filename))
-                with _Font.open(path) as f:
-                    yield ((f.family_name, f.is_bold, f.is_italic), path)
+                try:
+                    with _Font.open(path) as f:
+                        yield ((f.family_name, f.is_bold, f.is_italic), path)
+                except (OSError, KeyError, ValueError, struct_error):
+                    # Skip malformed or unreadable font files rather than
+                    # aborting the whole scan; one bad font on disk should
+                    # not break `fit_text` for everyone else.
+                    continue
 
     @classmethod
     def _os_x_font_directories(cls):
@@ -91,6 +105,27 @@ class FontFiles(object):
         likely to be located.
         """
         return [r"C:\Windows\Fonts"]
+
+    @classmethod
+    def _linux_font_directories(cls):
+        """
+        Return a sequence of directory paths on Linux in which fonts are
+        likely to be located.
+        """
+        linux_font_dirs = [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            "/usr/share/fonts/truetype",
+        ]
+        home = os.environ.get("HOME")
+        if home is not None:
+            linux_font_dirs.extend(
+                [
+                    os.path.join(home, ".fonts"),
+                    os.path.join(home, ".local", "share", "fonts"),
+                ]
+            )
+        return linux_font_dirs
 
 
 class _Font(object):

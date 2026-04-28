@@ -62,6 +62,36 @@ class DescribeFontFiles(object):
         font_dirs = FontFiles._windows_font_directories()
         assert font_dirs == expected_dirs
 
+    def it_knows_linux_font_dirs_to_help_find(self, request):
+        import os
+
+        os_ = var_mock(request, "pptx.text.fonts.os")
+        os_.path = os.path
+        os_.environ = {"HOME": "/home/fbar"}
+
+        font_dirs = FontFiles._linux_font_directories()
+
+        assert font_dirs == [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            "/usr/share/fonts/truetype",
+            "/home/fbar/.fonts",
+            "/home/fbar/.local/share/fonts",
+        ]
+
+    def it_uses_linux_dirs_on_linux(self, request, _linux_font_directories_):
+        sys_ = var_mock(request, "pptx.text.fonts.sys")
+        sys_.platform = "linux"
+        _linux_font_directories_.return_value = ["/x"]
+
+        assert FontFiles._font_directories() == ["/x"]
+
+    def it_returns_no_dirs_on_unknown_os(self, request):
+        sys_ = var_mock(request, "pptx.text.fonts.sys")
+        sys_.platform = "haiku"
+
+        assert FontFiles._font_directories() == []
+
     def it_iterates_over_fonts_in_dir_to_help_find(self, iter_fixture):
         directory, _Font_, expected_calls, expected_paths = iter_fixture
 
@@ -166,6 +196,10 @@ class DescribeFontFiles(object):
     @pytest.fixture
     def _os_x_font_directories_(self, request):
         return method_mock(request, FontFiles, "_os_x_font_directories", autospec=False)
+
+    @pytest.fixture
+    def _linux_font_directories_(self, request):
+        return method_mock(request, FontFiles, "_linux_font_directories", autospec=False)
 
     @pytest.fixture
     def _windows_font_directories_(self, request):

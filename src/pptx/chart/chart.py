@@ -65,6 +65,29 @@ class Chart(PartElementProxy):
             return
         self._chartSpace._add_style(val=value)
 
+    def apply_palette(self, palette):
+        """Recolor every series in this chart from a palette of solid colors.
+
+        `palette` is either the name of a built-in preset (see
+        :func:`pptx.chart.palettes.palette_names`) or an iterable of
+        color-likes — :class:`pptx.dml.color.RGBColor`, hex strings (with or
+        without leading ``'#'``), or 3-tuples of ints in ``0-255``. Colors are
+        applied in order; if the chart has more series than colors, the
+        palette wraps.
+
+        This is independent of :attr:`chart_style`: it sets the per-series
+        ``spPr`` solid-fill foreground color directly, so it overrides the
+        theme-derived colors that ``chart_style`` resolves to but leaves the
+        ``chart_style`` value itself untouched.
+        """
+        from pptx.chart.palettes import resolve_palette
+
+        colors = resolve_palette(palette)
+        for idx, series in enumerate(self.series):
+            fill = series.format.fill
+            fill.solid()
+            fill.fore_color.rgb = colors[idx % len(colors)]
+
     @property
     def chart_title(self):
         """A |ChartTitle| object providing access to title properties.

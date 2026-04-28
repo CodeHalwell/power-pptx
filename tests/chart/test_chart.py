@@ -27,6 +27,29 @@ from ..unitutil.mock import (
 )
 
 
+def _make_chart_with_series(series_names):
+    """Build a real `Chart` with N series for palette/integration tests."""
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
+    from pptx.util import Inches
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    data = CategoryChartData()
+    data.categories = ["A", "B", "C"]
+    for name in series_names:
+        data.add_series(name, (1, 2, 3))
+    gframe = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(1),
+        Inches(1),
+        Inches(6),
+        Inches(4),
+        data,
+    )
+    return gframe.chart
+
+
 class DescribeChart(object):
     """Unit-test suite for `pptx.chart.chart.Chart` objects."""
 
@@ -126,6 +149,82 @@ class DescribeChart(object):
         chart, new_value, expected_xml = style_set_fixture
         chart.chart_style = new_value
         assert chart._chartSpace.xml == expected_xml
+
+    def it_can_apply_a_named_palette(self):
+        chart = _make_chart_with_series(("S1", "S2", "S3"))
+
+        chart.apply_palette("modern")
+
+        # First three colors of the "modern" palette
+        from pptx.chart.palettes import CHART_PALETTES
+
+        expected = CHART_PALETTES["modern"][:3]
+        actual = [str(s.format.fill.fore_color.rgb) for s in chart.series]
+        assert actual == [c.lstrip("#").upper() for c in expected]
+
+    def it_wraps_palette_when_more_series_than_colors(self):
+        chart = _make_chart_with_series(("S1", "S2", "S3"))
+
+        chart.apply_palette(["#FF0000", "#00FF00"])
+
+        actual = [str(s.format.fill.fore_color.rgb) for s in chart.series]
+        assert actual == ["FF0000", "00FF00", "FF0000"]
+
+    def it_accepts_mixed_color_likes_in_a_palette(self):
+        from pptx.dml.color import RGBColor
+
+        chart = _make_chart_with_series(("S1", "S2", "S3"))
+
+        chart.apply_palette([RGBColor(0xAB, 0xCD, 0xEF), "BADA55", (0, 0, 255)])
+
+        actual = [str(s.format.fill.fore_color.rgb) for s in chart.series]
+        assert actual == ["ABCDEF", "BADA55", "0000FF"]
+
+    def it_raises_for_unknown_palette_name(self):
+        chart = _make_chart_with_series(("S1",))
+
+        with pytest.raises(ValueError, match="unknown palette"):
+            chart.apply_palette("not_a_real_palette")
+
+    def it_raises_for_empty_palette(self):
+        chart = _make_chart_with_series(("S1",))
+
+        with pytest.raises(ValueError, match="at least one color"):
+            chart.apply_palette([])
+
+    def it_leaves_chart_style_untouched_when_applying_a_palette(self):
+        chart = _make_chart_with_series(("S1", "S2"))
+        chart.chart_style = 13
+
+        chart.apply_palette("classic")
+
+        assert chart.chart_style == 13
+
+    def it_supports_gradient_fills_per_series_via_ChartFormat(self):
+        """Per-series gradient fills are exposed through `ChartFormat.fill`,
+        which is a regular `FillFormat` and so honors all gradient kinds."""
+        from pptx.enum.dml import MSO_FILL_TYPE
+
+        chart = _make_chart_with_series(("S1",))
+        fill = chart.series[0].format.fill
+
+        fill.gradient(kind="radial")
+
+        assert fill.type == MSO_FILL_TYPE.GRADIENT
+        assert fill.gradient_kind == "radial"
+        assert len(fill.gradient_stops) == 2
+
+    def it_supports_pattern_fills_per_series_via_ChartFormat(self):
+        from pptx.enum.dml import MSO_FILL_TYPE, MSO_PATTERN_TYPE
+
+        chart = _make_chart_with_series(("S1",))
+        fill = chart.series[0].format.fill
+
+        fill.patterned()
+        fill.pattern = MSO_PATTERN_TYPE.WIDE_DOWNWARD_DIAGONAL
+
+        assert fill.type == MSO_FILL_TYPE.PATTERNED
+        assert fill.pattern == MSO_PATTERN_TYPE.WIDE_DOWNWARD_DIAGONAL
 
     def it_can_replace_the_chart_data(self, replace_fixture):
         (
