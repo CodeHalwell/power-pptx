@@ -12,6 +12,48 @@ PyPI; the importable package name (``pptx``) is unchanged.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+1.9.0 (unreleased)
++++++++++++++++++++
+
+New API — Phase 9 (design-system layer, partial)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``pptx.design.tokens.DesignTokens``: source-agnostic container for
+  brand tokens — ``palette`` (str → ``RGBColor``), ``typography``
+  (``TypographyToken`` with ``family``/``size``/``bold``/``italic``/
+  ``color``), ``radii`` and ``spacings`` (str → ``Length``), and
+  ``shadows`` (``ShadowToken``).  Constructors: ``from_dict``,
+  ``from_yaml`` (optional ``pyyaml``), and ``from_pptx`` (extracts
+  accent palette + major/minor fonts from a deck's theme).
+  ``DesignTokens.merge(other)`` layers an override token set on top of
+  a base.
+
+- ``shape.style``: token-resolving ``ShapeStyle`` facade exposed on
+  every shape.  Setters fan out to the low-level proxies::
+
+      shape.style.fill   = tokens.palette["primary"]
+      shape.style.line   = tokens.palette["primary"]
+      shape.style.shadow = tokens.shadows["card"]
+      shape.style.font   = tokens.typography["body"]
+      shape.style.text_color = tokens.palette["neutral"]
+
+  ``ShadowToken`` assignment leaves unset fields untouched so partial
+  tokens are non-destructive; ``None`` clears the corresponding effect.
+
+Phase 10 — additional motion-path presets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``pptx.animation.MotionPath`` gains five new convenience constructors
+  alongside the existing ``line`` / ``custom``: ``diagonal``,
+  ``circle`` (closed cubic-bezier loop with a ``clockwise`` flag),
+  ``arc`` (quadratic-bezier hop with a configurable ``height``
+  fraction), ``zigzag`` (configurable ``segments`` / ``amplitude``),
+  and ``spiral`` (configurable ``turns`` and direction).  All
+  normalize EMU inputs against the slide's dimensions and route
+  through ``slide.animations.add_motion``, so they honor the Phase 5
+  trigger model and round-trip cleanly.
+
+
 1.8.0 (unreleased)
 +++++++++++++++++++
 
