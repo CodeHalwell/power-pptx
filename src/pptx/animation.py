@@ -1190,8 +1190,9 @@ class MotionPath:
 
         The shape's starting position sits on the rim at the 9 o'clock
         position; setting *clockwise=False* reverses the direction.  The
-        radius is normalized against the slide's smaller dimension so the
-        path stays circular on widescreen and 4:3 slides alike.
+        radius is normalized separately against the slide width and
+        height, which keeps the path physically circular on widescreen
+        and 4:3 slides alike.
         """
         slide_w, slide_h = _slide_dimensions_emu(slide)
         rx = float(radius) / slide_w
@@ -1232,14 +1233,22 @@ class MotionPath:
 
         *height* controls the arc's peak as a fraction of the chord
         length: ``0.5`` is a gentle hump, ``1.0`` a tall throw.  Negative
-        values flip the arc below the chord.
+        values flip the arc to the opposite side of the chord.
+
+        The peak is placed perpendicular to the chord, so the curve
+        keeps its shape for any chord direction including pure vertical
+        moves (``dx=0``).
         """
         slide_w, slide_h = _slide_dimensions_emu(slide)
         nx = float(dx) / slide_w
         ny = float(dy) / slide_h
-        # Quadratic Bezier control point above the chord midpoint.
-        cx = nx / 2
-        cy = ny / 2 - abs(nx) * height
+        # Control point offset perpendicular to the chord.  The (ny, -nx)
+        # vector has length equal to the chord, so multiplying it by
+        # `height` gives a perpendicular offset of `height * chord_length`
+        # — non-degenerate for any chord direction, including pure
+        # vertical (where the previous `abs(nx) * height` collapsed to 0).
+        cx = nx / 2 + height * ny
+        cy = ny / 2 - height * nx
         path = f"M 0 0 Q {cx:g} {cy:g} {nx:g} {ny:g} E"
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
@@ -1302,12 +1311,12 @@ class MotionPath:
         delay: int = 0,
         duration: int = 2500,
     ) -> None:
-        """Move *shape* along a spiral that ends *radius* EMU from start.
+        """Move *shape* along an Archimedean spiral.
 
         The spiral begins at the shape's starting position and unwinds
-        outward over *turns* rotations.  Use a negative *turns* value to
-        wind inward (the path is reversed; the shape still ends at the
-        outer radius).  *clockwise=False* reverses the rotation.
+        outward, ending *radius* EMU away (along the +x axis for an
+        integer *turns* count).  Use a negative *turns* value to wind
+        inward; *clockwise=False* reverses the rotation direction.
         """
         if turns == 0:
             raise ValueError("turns must be non-zero")
@@ -1324,7 +1333,10 @@ class MotionPath:
         for i in range(1, steps + 1):
             t = i / steps
             angle = 2 * math.pi * turns * t
-            x = rx * t * (1 - math.cos(angle))
+            # Archimedean spiral: radius grows linearly while the angle
+            # sweeps `turns` full revolutions.  At t=1 with integer
+            # turns this lands at (rx, 0) — one radius from the start.
+            x = rx * t * math.cos(angle)
             y = s * ry * t * math.sin(angle)
             parts.append(f"L {x:g} {y:g}")
         parts.append("E")

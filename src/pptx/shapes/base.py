@@ -17,6 +17,7 @@ from pptx.shared import ElementProxy
 from pptx.util import lazyproperty
 
 if TYPE_CHECKING:
+    from pptx.design.style import ShapeStyle
     from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER
     from pptx.oxml.shapes import ShapeElement
     from pptx.oxml.shapes.shared import CT_Placeholder
@@ -218,7 +219,7 @@ class BaseShape(object):
         return SoftEdgeFormat(self._element.spPr)
 
     @lazyproperty
-    def style(self):
+    def style(self) -> ShapeStyle:
         """Token-resolving design-system facade for this shape.
 
         Returns a :class:`pptx.design.style.ShapeStyle` whose setters

@@ -19,13 +19,18 @@ work and are the right tool when a caller needs fine-grained control.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from pptx.design.tokens import ShadowToken, TypographyToken
 from pptx.dml.color import RGBColor
 
 if TYPE_CHECKING:
     from pptx.shapes.base import BaseShape
+
+#: Anything :func:`pptx.design.tokens._coerce_color` can turn into an RGB
+#: triple — an :class:`RGBColor`, a 6-digit hex string (with or without
+#: a leading ``#``), or a 3-tuple of ints.
+ColorLike = Union[RGBColor, str, Tuple[int, int, int]]
 
 
 class ShapeStyle:
@@ -53,7 +58,7 @@ class ShapeStyle:
         )
 
     @fill.setter
-    def fill(self, value: Optional[RGBColor]) -> None:
+    def fill(self, value: Optional[ColorLike]) -> None:
         """Apply a solid fill in *value* to the shape.
 
         Accepts an :class:`RGBColor` (hex string / 3-tuple are coerced
@@ -81,7 +86,7 @@ class ShapeStyle:
         )
 
     @line.setter
-    def line(self, value: Optional[RGBColor]) -> None:
+    def line(self, value: Optional[ColorLike]) -> None:
         """Apply a solid line color.  ``None`` clears the line."""
         from pptx.design.tokens import _coerce_color  # noqa: PLC0415
 
@@ -127,14 +132,14 @@ class ShapeStyle:
         if value.color is not None:
             shadow.color.rgb = value.color
         if value.alpha is not None:
-            # alpha requires color to exist first; if the token didn't
-            # set an explicit color and none is present, leave alpha
-            # alone (PowerPoint inherits a black shadow color).
+            # Alpha requires an explicit color to attach to.  If the
+            # token didn't set one and the shape's shadow has no color
+            # yet, leave alpha alone (the shadow keeps inheriting its
+            # color, including its alpha, from the theme).
             try:
                 shadow.color.alpha = value.alpha
             except ValueError:
-                shadow.color.rgb = RGBColor(0, 0, 0)
-                shadow.color.alpha = value.alpha
+                pass
 
     # ------------------------------------------------------------------
     # Text color / font (for shapes with text frames)
@@ -147,7 +152,7 @@ class ShapeStyle:
         )
 
     @text_color.setter
-    def text_color(self, value: Optional[RGBColor]) -> None:
+    def text_color(self, value: Optional[ColorLike]) -> None:
         """Set every run's font color in this shape's text frame.
 
         Silently no-ops on shapes that don't have a text frame.

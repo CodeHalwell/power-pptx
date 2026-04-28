@@ -94,8 +94,8 @@ class TypographyToken:
                     "typography token requires a non-empty 'family' string"
                 )
             size = value.get("size")
-            if size is not None and not isinstance(size, Length):
-                size = Emu(int(size))
+            if size is not None:
+                size = _coerce_length(size)
             color = value.get("color")
             if color is not None:
                 color = _coerce_color(color)
@@ -130,11 +130,11 @@ class ShadowToken:
                 f"cannot build ShadowToken from {type(value).__name__}"
             )
         blur = value.get("blur_radius")
-        if blur is not None and not isinstance(blur, Length):
-            blur = Emu(int(blur))
+        if blur is not None:
+            blur = _coerce_length(blur)
         distance = value.get("distance")
-        if distance is not None and not isinstance(distance, Length):
-            distance = Emu(int(distance))
+        if distance is not None:
+            distance = _coerce_length(distance)
         direction = value.get("direction")
         if direction is not None:
             direction = float(direction)

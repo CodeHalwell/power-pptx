@@ -135,10 +135,40 @@ class DescribeMotionPath:
         # 16 samples per turn × 2 turns = 32 line segments.
         assert path.count(" L ") == 32
 
+    def it_ends_the_spiral_one_radius_from_start(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide_w = slide.part.package.presentation_part.presentation.slide_width
+        MotionPath.spiral(slide, shape, Inches(2), turns=2)
+        path = _animMotion_paths(slide)[0]
+        # Final L coordinate is the spiral endpoint.
+        last_l = path.rsplit(" L ", 1)[1].rsplit(" E", 1)[0].strip().split()
+        end_x, end_y = float(last_l[0]), float(last_l[1])
+        expected_x = float(Inches(2)) / float(slide_w)
+        # For an integer turns count the spiral lands on +x by one radius.
+        assert end_x == pytest.approx(expected_x, rel=1e-6)
+        assert end_y == pytest.approx(0.0, abs=1e-9)
+
     def it_rejects_zero_spiral_turns(self, slide_with_shape):
         slide, shape = slide_with_shape
         with pytest.raises(ValueError):
             MotionPath.spiral(slide, shape, Inches(2), turns=0)
+
+    def it_curves_a_pure_vertical_arc(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        MotionPath.arc(slide, shape, 0, Inches(3), height=0.5)
+        path = _animMotion_paths(slide)[0]
+        # Parse "M 0 0 Q cx cy nx ny E" for the control-point coordinates.
+        q_part = path.split("Q", 1)[1].rsplit("E", 1)[0].strip().split()
+        cx, cy = float(q_part[0]), float(q_part[1])
+        # Pure-vertical chord must still bend the path off the chord —
+        # otherwise the arc degenerates to a straight line, the bug Codex
+        # / Copilot flagged.  With `height=0.5` and chord direction +y,
+        # the perpendicular control point sits at non-zero x.
+        assert cx != 0
+        # cy is the chord midpoint.
+        assert cy == pytest.approx(float(Inches(3)) / 2 / float(
+            slide.part.package.presentation_part.presentation.slide_height
+        ))
 
 
 class DescribeAnimationSequence:
