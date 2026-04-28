@@ -13,13 +13,20 @@ from ..unitutil.cxml import element, xml
 class DescribeShadowFormat(object):
     def it_knows_whether_it_inherits(self, inherit_get_fixture):
         shadow, expected_value = inherit_get_fixture
-        inherit = shadow.inherit
+        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+            inherit = shadow.inherit
         assert inherit is expected_value
 
     def it_can_change_whether_it_inherits(self, inherit_set_fixture):
         shadow, value, expected_xml = inherit_set_fixture
-        shadow.inherit = value
+        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+            shadow.inherit = value
         assert shadow._element.xml == expected_xml
+
+    def it_emits_deprecation_warning_on_inherit_access(self):
+        shadow = ShadowFormat(element("p:spPr"))
+        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+            _ = shadow.inherit
 
     # fixtures -------------------------------------------------------
 

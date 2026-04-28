@@ -14,14 +14,21 @@ can be found here:
    MsoConnectorType
    MsoFillType
    MsoLanguageId
+   MsoLineCapStyle
+   MsoLineCompoundStyle
    MsoLineDashStyle
+   MsoLineEndSize
+   MsoLineEndType
+   MsoLineJoinStyle
    MsoPatternType
    MsoShapeType
    MsoTextUnderlineType
    MsoThemeColorIndex
+   MsoTransitionType
    MsoVerticalAnchor
 
    PpActionType
+   PpAnimTrigger
    PpMediaType
    PpParagraphAlignment
    PpPlaceholderType

@@ -31,11 +31,19 @@ various aspects of shapes.
    :undoc-members:
 
 
+|LineFormat| line ends
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: pptx.dml.line.LineEndFormat
+   :members:
+   :undoc-members:
+
+
 |ColorFormat| objects
 ---------------------
 
 .. autoclass:: pptx.dml.color.ColorFormat
-   :members: brightness, rgb, theme_color, type
+   :members: brightness, rgb, theme_color, type, alpha
    :undoc-members:
 
 
@@ -43,13 +51,44 @@ various aspects of shapes.
 ------------------
 
 .. autoclass:: pptx.dml.color.RGBColor
-   :members: from_string
+   :members: from_string, from_hex
    :undoc-members:
 
 
+Effect proxies
+--------------
+
 |ShadowFormat| objects
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: pptx.dml.effect.ShadowFormat
+   :members:
+   :undoc-members:
+
+
+.. autoclass:: pptx.dml.effect.GlowFormat
+   :members:
+   :undoc-members:
+
+
+.. autoclass:: pptx.dml.effect.SoftEdgeFormat
+   :members:
+   :undoc-members:
+
+
+.. autoclass:: pptx.dml.effect.BlurFormat
+   :members:
+   :undoc-members:
+
+
+.. autoclass:: pptx.dml.effect.ReflectionFormat
+   :members:
+   :undoc-members:
+
+
+Picture effects
+---------------
+
+.. autoclass:: pptx.dml.picture.PictureEffects
    :members:
    :undoc-members:
