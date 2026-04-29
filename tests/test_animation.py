@@ -40,6 +40,57 @@ def _animMotion_paths(slide):
     ]
 
 
+class DescribeAnimationsAdd:
+    """`SlideAnimations.add(kind, preset, shape)` polymorphic dispatcher."""
+
+    def it_dispatches_entrance(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide.animations.add("entrance", "fade", shape)
+        # Entrance presets emit a presetClass="entr" cTn somewhere in the tree.
+        classes = [
+            c.get("presetClass")
+            for c in slide._element.iter(qn("p:cTn"))
+            if c.get("presetClass") is not None
+        ]
+        assert "entr" in classes
+
+    def it_dispatches_exit(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide.animations.add("exit", "fade", shape)
+        classes = [
+            c.get("presetClass")
+            for c in slide._element.iter(qn("p:cTn"))
+            if c.get("presetClass") is not None
+        ]
+        assert "exit" in classes
+
+    def it_dispatches_emphasis(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide.animations.add("emphasis", "pulse", shape)
+        classes = [
+            c.get("presetClass")
+            for c in slide._element.iter(qn("p:cTn"))
+            if c.get("presetClass") is not None
+        ]
+        assert "emph" in classes
+
+    def it_dispatches_motion(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide.animations.add("motion", "M 0 0 L 0.5 0 E", shape, duration=1500)
+        paths = _animMotion_paths(slide)
+        assert paths == ["M 0 0 L 0.5 0 E"]
+
+    def it_rejects_unknown_kind(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        with pytest.raises(ValueError, match="Unknown animation kind"):
+            slide.animations.add("teleport", "fade", shape)
+
+    def it_rejects_motion_path_without_E_terminator(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        with pytest.raises(ValueError, match="ending in 'E'"):
+            slide.animations.add("motion", "M 0 0 L 0.5 0", shape)
+
+
 class DescribeMotionPath:
     def it_emits_a_path_class_effect_for_a_line(self, slide_with_shape):
         slide, shape = slide_with_shape

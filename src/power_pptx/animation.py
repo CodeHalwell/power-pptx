@@ -35,13 +35,19 @@ Typical usage::
 
     # Via the slide proxy
     slide.animations.add_entrance("fade", shape)
+
+    # Polymorphic dispatcher — useful when the kind is data-driven
+    # (e.g. from a YAML spec).
+    slide.animations.add("entrance", "fade", shape)
+    slide.animations.add("emphasis", "pulse", shape)
+    slide.animations.add("motion", "M 0 0 L 0.5 0 E", shape, duration=1500)
 """
 
 from __future__ import annotations
 
 import math
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from power_pptx.enum.animation import PP_ANIM_TRIGGER
 from power_pptx.oxml.ns import nsdecls, qn
@@ -338,6 +344,78 @@ class SlideAnimations:
         self._seq_delay_consumed: bool = False
 
     # -- public API ----------------------------------------------------------
+
+    def add(
+        self,
+        kind: str,
+        preset: str,
+        shape: "BaseShape | TextFrame",
+        **kwargs: Any,
+    ) -> None:
+        """Polymorphic dispatcher — add an animation of the given *kind*.
+
+        *kind* selects the animation family and routes to the matching
+        ``add_*`` method:
+
+        * ``"entrance"`` → :meth:`add_entrance`
+        * ``"exit"``     → :meth:`add_exit`
+        * ``"emphasis"`` → :meth:`add_emphasis`
+        * ``"motion"``   → :meth:`add_motion` (here *preset* is the
+          OOXML motion-path string, e.g. ``"M 0 0 L 0.5 0 E"``)
+
+        Convenient when the animation kind is data-driven (e.g. read
+        from a YAML spec) rather than known at call sites::
+
+            slide.animations.add("entrance", "fade", title)
+            slide.animations.add("emphasis", "pulse", badge)
+            slide.animations.add("motion", "M 0 0 L 0.5 0 E", logo,
+                                 duration=2000)
+
+        For literal authoring the static
+        ``Entrance.fade(slide, shape, ...)`` / ``Exit.fade(...)`` /
+        ``Emphasis.pulse(...)`` helpers remain idiomatic and a touch
+        more readable.
+        """
+        if kind == "entrance":
+            self.add_entrance(preset, shape, **kwargs)
+            return
+        if kind == "exit":
+            if not hasattr(shape, "shape_id"):
+                raise TypeError(
+                    f"add(kind='exit') requires a BaseShape; got "
+                    f"{type(shape).__name__!r}."
+                )
+            self.add_exit(preset, cast("BaseShape", shape), **kwargs)
+            return
+        if kind == "emphasis":
+            if not hasattr(shape, "shape_id"):
+                raise TypeError(
+                    f"add(kind='emphasis') requires a BaseShape; got "
+                    f"{type(shape).__name__!r}."
+                )
+            self.add_emphasis(preset, cast("BaseShape", shape), **kwargs)
+            return
+        if kind == "motion":
+            if not hasattr(shape, "shape_id"):
+                raise TypeError(
+                    f"add(kind='motion') requires a BaseShape; got "
+                    f"{type(shape).__name__!r}."
+                )
+            # For motion, *preset* carries the raw OOXML path string;
+            # validating ``E``-termination here keeps the error site
+            # close to the call site rather than deep in the XML
+            # builder.
+            if not preset or "E" not in preset:
+                raise ValueError(
+                    "motion path must be a non-empty OOXML path string "
+                    "ending in 'E' (e.g. 'M 0 0 L 0.5 0 E')"
+                )
+            self.add_motion(cast("BaseShape", shape), preset, **kwargs)
+            return
+        raise ValueError(
+            f"Unknown animation kind {kind!r}; choose from "
+            "'entrance', 'exit', 'emphasis', 'motion'."
+        )
 
     def add_entrance(
         self,
