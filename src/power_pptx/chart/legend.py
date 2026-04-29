@@ -76,4 +76,11 @@ class Legend(object):
 
     @position.setter
     def position(self, position):
-        self._element.get_or_add_legendPos().val = position
+        # Write the ``val`` attribute directly rather than going through
+        # ``CT_LegendPos.val``: the latter is an ``OptionalAttribute`` whose
+        # setter *strips* the attribute when the assigned value matches the
+        # OOXML default (``"r"``).  PowerPoint's strict parser rejects the
+        # resulting bare ``<c:legendPos/>`` element and "repairs" the chart
+        # by deleting it on open, so always emit the attribute explicitly.
+        legendPos = self._element.get_or_add_legendPos()
+        legendPos.set("val", XL_LEGEND_POSITION.to_xml(position))

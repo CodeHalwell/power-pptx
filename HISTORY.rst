@@ -17,11 +17,20 @@ installs the ``pptx`` import name) is also present in the environment.
 2.1.1 (2026-04-29)
 ++++++++++++++++++
 
-Bug fix.
+Bug fixes.  Both address the "PowerPoint found a problem with content.
+Repaired and removed it" prompt on open.
 
-- Fix "PowerPoint found a problem with content. Repaired and removed it"
-  prompt on decks that used ``shape.lint_group`` /
-  ``slide.lint_group()`` / ``slide.design_group()``.  The 2.1.0
+- ``chart.legend.position = XL_LEGEND_POSITION.RIGHT`` now writes
+  ``<c:legendPos val="r"/>`` explicitly.  ``CT_LegendPos.val`` is an
+  ``OptionalAttribute`` whose setter strips the attribute when the
+  assigned value matches the OOXML default ("r"), producing a bare
+  ``<c:legendPos/>`` element that PowerPoint's strict parser rejects.
+  PowerPoint then "repairs" the chart by deleting it.  The bug only
+  manifested for the default position — every other legend position
+  wrote correctly because they didn't trip the strip-on-default branch.
+
+- Fix the same "Repaired and removed it" prompt on decks that used
+  ``shape.lint_group`` /  The 2.1.0
   implementation stored the group name as a custom-namespaced *attribute*
   on each shape's ``p:cNvPr`` element.  ``CT_NonVisualDrawingProps`` has
   no ``xsd:anyAttribute`` in the OOXML schema, so PowerPoint's strict

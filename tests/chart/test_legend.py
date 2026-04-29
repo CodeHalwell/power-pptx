@@ -46,6 +46,14 @@ class DescribeLegend(object):
         legend.position = new_value
         assert legend._element.xml == expected_xml
 
+    def it_writes_val_explicitly_when_position_is_RIGHT(self):
+        # Regression: setting position to the OOXML default (RIGHT/"r") must
+        # still emit the val attribute. PowerPoint's strict parser rejects a
+        # bare <c:legendPos/> and "repairs" the chart by deleting it.
+        legend = Legend(element("c:legend"))
+        legend.position = XL_LEGEND_POSITION.RIGHT
+        assert 'val="r"' in legend._element.xml
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture(
@@ -163,7 +171,10 @@ class DescribeLegend(object):
     @pytest.fixture(
         params=[
             ("c:legend/c:legendPos{val=r}", "BOTTOM", "c:legend/c:legendPos{val=b}"),
-            ("c:legend/c:legendPos{val=b}", "RIGHT", "c:legend/c:legendPos"),
+            # Setting the position to RIGHT must still emit val="r" so the
+            # element doesn't degrade to a bare <c:legendPos/> that
+            # PowerPoint's strict parser repairs by deleting the chart.
+            ("c:legend/c:legendPos{val=b}", "RIGHT", "c:legend/c:legendPos{val=r}"),
             ("c:legend", "TOP", "c:legend/c:legendPos{val=t}"),
             ("c:legend/c:legendPos", "CORNER", "c:legend/c:legendPos{val=tr}"),
         ]
