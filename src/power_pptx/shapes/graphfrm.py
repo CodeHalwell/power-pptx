@@ -120,13 +120,18 @@ class GraphicFrame(BaseShape):
         raise NotImplementedError("reflection property on GraphicFrame not yet supported")
 
     @lazyproperty
-    def shadow(self) -> ShadowFormat:
-        """Unconditionally raises |NotImplementedError|.
+    def shadow(self) -> ShadowFormat | None:
+        """Returns ``None``: shadow access on a |GraphicFrame| is unsupported.
 
-        Access to the shadow effect for graphic-frame objects is content-specific (i.e. different
-        for charts, tables, etc.) and has not yet been implemented.
+        Charts and tables expose their effect tree at content-specific
+        locations (e.g. ``c:spPr/a:effectLst`` on a chart) and the unified
+        :class:`~power_pptx.dml.effect.ShadowFormat` facade doesn't apply.
+        Returning ``None`` keeps callers that probe ``shape.shadow`` across
+        every shape on a slide free from per-type ``try/except`` guards;
+        ``if shape.shadow is None`` is the supported "no facade available"
+        check.
         """
-        raise NotImplementedError("shadow property on GraphicFrame not yet supported")
+        return None
 
     @lazyproperty
     def soft_edges(self) -> SoftEdgeFormat:

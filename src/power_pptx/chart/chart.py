@@ -143,6 +143,62 @@ class Chart(PartElementProxy):
         return ChartTitle(self._element.get_or_add_title())
 
     @property
+    def text_color(self):
+        """Write-only facade — read is unsupported.
+
+        Charts inherit text colour from theme slot ``tx1`` (which defaults
+        to black on a light theme).  On a dark deck that means manually
+        threading the same colour through ``chart.font.color``,
+        ``chart.legend.font.color``, ``chart.chart_title.text_frame``
+        runs, and every plot's ``data_labels.font.color`` — the most
+        common copy-paste in dark-deck authoring.
+
+        Assigning ``chart.text_color = "#FFFFFF"`` (or an
+        :class:`~power_pptx.dml.color.RGBColor` / ``(r, g, b)`` tuple)
+        walks all four locations and pins them.  Read is unsupported (no
+        canonical "single" text colour); read individual fonts instead.
+        """
+        raise AttributeError(
+            "chart.text_color is write-only; read individual fonts "
+            "(chart.font.color, chart.legend.font.color, …) instead."
+        )
+
+    @text_color.setter
+    def text_color(self, value):
+        from power_pptx.dml.color import RGBColor
+
+        if isinstance(value, str):
+            rgb = RGBColor.from_string(value.lstrip("#"))
+        elif isinstance(value, tuple) and len(value) == 3:
+            rgb = RGBColor(*value)
+        elif isinstance(value, RGBColor):
+            rgb = value
+        else:
+            raise TypeError(
+                "text_color must be RGBColor, '#RRGGBB' string, or (r, g, b) "
+                f"tuple; got {type(value).__name__}"
+            )
+
+        # 1. Chart-wide default text properties (c:chartSpace/c:txPr).
+        self.font.color.rgb = rgb
+
+        # 2. Legend font — only when one is present, so the read doesn't
+        # silently materialise a legend element.
+        if self.has_legend:
+            self.legend.font.color.rgb = rgb
+
+        # 3. Chart title — only when one is present.
+        if self.has_title:
+            for paragraph in self.chart_title.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    run.font.color.rgb = rgb
+
+        # 4. Per-plot data labels — only on plots that already have them.
+        for plot in self.plots:
+            if plot.has_data_labels:
+                plot.data_labels.font.color.rgb = rgb
+
+    @property
     def chart_type(self):
         """Member of :ref:`XlChartType` enumeration specifying type of this chart.
 

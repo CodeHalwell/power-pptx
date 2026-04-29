@@ -98,6 +98,11 @@ class ShapeCollision(LintIssue):
 
     intersection_area: int = 0
     intersection_pct: float = 0.0
+    #: ``(group_a, group_b)`` — the ``lint_group`` tag of each shape (or
+    #: ``None`` if untagged).  Lets callers triage "intentional overlap I
+    #: forgot to tag" (one or both ``None``) vs. "genuine layout bug"
+    #: (different non-``None`` tags) at a glance in ``report.summary()``.
+    groups: tuple[str | None, str | None] = (None, None)
 
     def __init__(
         self,
@@ -105,18 +110,24 @@ class ShapeCollision(LintIssue):
         shape_b: BaseShape,
         intersection_area: int,
         intersection_pct: float,
+        groups: tuple[str | None, str | None] = (None, None),
     ):
+        group_suffix = ""
+        if groups != (None, None):
+            group_suffix = f" [groups: {groups[0]!r} vs {groups[1]!r}]"
         super().__init__(
             severity=LintSeverity.WARNING,
             code="ShapeCollision",
             message=(
                 f"Shapes '{shape_a.name}' and '{shape_b.name}' overlap "
                 f"({intersection_pct:.0%} of the smaller shape's area)."
+                + group_suffix
             ),
             shapes=(shape_a, shape_b),
         )
         self.intersection_area = intersection_area
         self.intersection_pct = intersection_pct
+        self.groups = groups
 
 
 @dataclass
@@ -257,7 +268,10 @@ class SlideLintReport:
         """Apply automatic fixes for issues that can be resolved without designer judgment.
 
         Returns a list of human-readable descriptions of the fixes applied (or
-        that *would* be applied if *dry_run* is True).
+        that *would* be applied if *dry_run* is True).  After a non-dry-run
+        call, :attr:`issues` is refreshed to reflect the post-fix state — so
+        the residual punch list is just ``report.issues`` rather than a
+        second ``slide.lint()`` call.
 
         Currently auto-fixable:
 
@@ -321,6 +335,12 @@ class SlideLintReport:
                     fixes.append(desc)
                     if not dry_run:
                         shape.top = Emu(new)
+
+        # Refresh ``issues`` so the residual punch list is just
+        # ``report.issues`` (no extra ``slide.lint()`` call needed).
+        # Skipped on dry_run because nothing changed on the slide.
+        if not dry_run and fixes:
+            self._issues = self._slide.lint().issues
 
         return fixes
 
@@ -453,6 +473,7 @@ _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _A_EXTLST = "{%s}extLst" % _A_NS
 _A_EXT = "{%s}ext" % _A_NS
 _PP_LINTGROUP = "{%s}lintGroup" % _LINT_NS
+_PP_LINTSKIP = "{%s}lintSkip" % _LINT_NS
 
 # Pre-2.1.1 layout stored the value as a custom-namespaced attribute
 # directly on ``cNvPr``. Read-only fallback so decks saved with the old
@@ -541,6 +562,60 @@ def _shape_lint_group(shape: BaseShape) -> str | None:
     return _read_lint_group(cNvPr)
 
 
+def _read_lint_skip(cNvPr) -> frozenset[str]:
+    """Return the set of lint check codes silenced on *cNvPr*."""
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        return frozenset()
+    node = ext.find(_PP_LINTSKIP)
+    if node is None:
+        return frozenset()
+    raw = node.get("codes") or ""
+    return frozenset(code for code in raw.split(",") if code)
+
+
+def _write_lint_skip(cNvPr, codes) -> None:
+    """Store ``lint_skip = codes`` on *cNvPr* using ``a:extLst/a:ext``."""
+    from lxml import etree
+
+    extLst = cNvPr.find(_A_EXTLST)
+    if extLst is None:
+        extLst = etree.SubElement(cNvPr, _A_EXTLST)
+
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        ext = etree.SubElement(extLst, _A_EXT)
+        ext.set("uri", _LINT_EXT_URI)
+
+    node = ext.find(_PP_LINTSKIP)
+    if not codes:
+        # Empty assignment clears the node entirely.
+        if node is not None:
+            ext.remove(node)
+        # Drop the ext / extLst if nothing else lives in them, so the
+        # XML stays minimal.
+        if len(ext) == 0:
+            extLst.remove(ext)
+        if len(extLst) == 0:
+            cNvPr.remove(extLst)
+        return
+
+    if node is None:
+        node = etree.SubElement(ext, _PP_LINTSKIP)
+    # Sort for stable round-trip diffs; comma-joined is the simplest legal
+    # serialisation for a small string set on a single attribute.
+    node.set("codes", ",".join(sorted(codes)))
+
+
+def _shape_lint_skip(shape: BaseShape) -> frozenset[str]:
+    """Return the set of lint check codes suppressed on *shape*."""
+    try:
+        cNvPr = shape._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+    except AttributeError:
+        return frozenset()
+    return _read_lint_skip(cNvPr)
+
+
 def _check_collisions(
     shapes: Sequence[BaseShape],
 ) -> list[LintIssue]:
@@ -584,6 +659,7 @@ def _check_collisions(
                         shapes[j],
                         intersection_area=area,
                         intersection_pct=pct,
+                        groups=(gi, gj),
                     )
                 )
 
@@ -947,6 +1023,26 @@ def lint_slide(slide: Slide) -> SlideLintReport:
     issues.extend(_check_off_grid_drift(shapes))
     issues.extend(_check_z_order_anomalies(shapes))
     issues.extend(_check_master_placeholder_collision(slide, shapes))
+
+    # Per-shape opt-out: drop issues whose code is silenced on *every*
+    # target shape via ``shape.lint_skip``.  Cross-shape issues
+    # (ShapeCollision, ZOrderAnomaly) are only suppressed when *both*
+    # shapes opt out — a one-sided opt-out keeps the warning, since the
+    # other shape might still want to know.
+    skip_cache: dict[int, frozenset[str]] = {}
+
+    def _skipped(issue: LintIssue) -> bool:
+        if not issue.shapes:
+            return False
+        for shape in issue.shapes:
+            key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
+            if key not in skip_cache:
+                skip_cache[key] = _shape_lint_skip(shape)
+            if issue.code not in skip_cache[key]:
+                return False
+        return True
+
+    issues = [i for i in issues if not _skipped(i)]
 
     # Sort: errors → warnings → info
     _order = {LintSeverity.ERROR: 0, LintSeverity.WARNING: 1, LintSeverity.INFO: 2}

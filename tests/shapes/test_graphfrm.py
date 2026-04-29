@@ -106,10 +106,11 @@ class DescribeGraphicFrame(object):
             graphic_frame.ole_format
         assert str(e.value) == "not an OLE-object shape"
 
-    def it_raises_on_shadow(self):
-        graphic_frame = GraphicFrame(None, None)
-        with pytest.raises(NotImplementedError):
-            graphic_frame.shadow
+    def it_returns_None_for_shadow(self):
+        # Shadow access on a GraphicFrame is unsupported; return ``None``
+        # so callers that probe ``shape.shadow`` across every shape on a
+        # slide don't have to wrap each access in ``try/except``.
+        assert GraphicFrame(None, None).shadow is None
 
     @pytest.mark.parametrize(
         "uri, oleObj_child, expected_value",

@@ -200,6 +200,51 @@ class DescribeChart(object):
 
         assert chart.chart_style == 13
 
+    def it_pins_chart_text_color_across_chart_legend_title_and_data_labels(self):
+        # `text_color` is a write-only facade that walks every text-bearing
+        # location on the chart so a dark deck doesn't have to thread the
+        # same colour through chart.font, legend.font, title runs, and each
+        # plot's data_labels.font by hand.
+        from power_pptx.dml.color import RGBColor
+
+        chart = _make_chart_with_series(("S1",))
+        chart.has_title = True
+        chart.chart_title.text_frame.text = "Q4"
+        chart.has_legend = True
+        chart.plots[0].has_data_labels = True
+
+        chart.text_color = "#FFAA00"
+
+        assert chart.font.color.rgb == RGBColor(0xFF, 0xAA, 0x00)
+        assert chart.legend.font.color.rgb == RGBColor(0xFF, 0xAA, 0x00)
+        assert chart.plots[0].data_labels.font.color.rgb == RGBColor(0xFF, 0xAA, 0x00)
+        title_run_rgbs = [
+            run.font.color.rgb
+            for p in chart.chart_title.text_frame.paragraphs
+            for run in p.runs
+        ]
+        assert all(rgb == RGBColor(0xFF, 0xAA, 0x00) for rgb in title_run_rgbs)
+
+    def it_accepts_text_color_as_rgb_tuple_or_RGBColor(self):
+        from power_pptx.dml.color import RGBColor
+
+        chart = _make_chart_with_series(("S1",))
+        chart.text_color = (10, 20, 30)
+        assert chart.font.color.rgb == RGBColor(10, 20, 30)
+
+        chart.text_color = RGBColor(0, 128, 255)
+        assert chart.font.color.rgb == RGBColor(0, 128, 255)
+
+    def it_rejects_invalid_text_color_types(self):
+        chart = _make_chart_with_series(("S1",))
+        with pytest.raises(TypeError):
+            chart.text_color = 123  # type: ignore[assignment]
+
+    def it_raises_on_text_color_read(self):
+        chart = _make_chart_with_series(("S1",))
+        with pytest.raises(AttributeError):
+            chart.text_color  # noqa: B018
+
     def it_supports_gradient_fills_per_series_via_ChartFormat(self):
         """Per-series gradient fills are exposed through `ChartFormat.fill`,
         which is a regular `FillFormat` and so honors all gradient kinds."""

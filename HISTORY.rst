@@ -17,7 +17,12 @@ installs the ``pptx`` import name) is also present in the environment.
 2.1.1 (2026-04-29)
 ++++++++++++++++++
 
-Bug fixes.  Both address the "PowerPoint found a problem with content.
+Bug fixes and ergonomic improvements.
+
+OOXML correctness
+~~~~~~~~~~~~~~~~~
+
+Both items below address the "PowerPoint found a problem with content.
 Repaired and removed it" prompt on open.
 
 - ``chart.legend.position = XL_LEGEND_POSITION.RIGHT`` now writes
@@ -42,6 +47,39 @@ Repaired and removed it" prompt on open.
   verbatim.  Decks saved with 2.1.0 are read transparently — the legacy
   attribute is migrated to the new layout the next time the value is
   written.
+
+Ergonomic improvements
+~~~~~~~~~~~~~~~~~~~~~~
+
+- ``GraphicFrame.shadow`` now returns ``None`` (previously raised
+  ``NotImplementedError``).  Probing every shape on a slide for shadow
+  info no longer needs a ``try/except`` wrapper; ``if shape.shadow is
+  None`` is the supported "no facade available" check.
+
+- ``SlideLintReport.auto_fix()`` now refreshes ``report.issues`` after
+  applying fixes, so the residual punch list is just ``report.issues``
+  rather than a second ``slide.lint()`` call.  Skipped on
+  ``dry_run=True`` (nothing changed on the slide).
+
+- ``Chart.text_color = "#FFFFFF"`` (or ``RGBColor`` / ``(r, g, b)``
+  tuple) now pins the colour across ``chart.font``,
+  ``chart.legend.font`` (when present), ``chart.chart_title`` runs
+  (when present), and every plot's ``data_labels.font`` (when
+  enabled) — the most common copy-paste in dark-deck authoring.
+  Write-only; read individual fonts directly.
+
+- ``ShapeCollision.groups`` exposes the ``lint_group`` tag of each
+  colliding shape as a ``(group_a, group_b)`` tuple.  Lets callers
+  triage "intentional overlap I forgot to tag" (one or both ``None``)
+  vs. "genuine layout bug" (different non-``None`` tags) at a glance
+  in ``report.summary()``.
+
+- ``shape.lint_skip = {"MinFontSize", …}`` opts an individual shape
+  out of named lint checks — the natural counterpart to ``lint_group``
+  for "I know this one's fine; stop warning."  Cross-shape issues
+  (``ShapeCollision``, ``ZOrderAnomaly``) are only suppressed when
+  *both* shapes opt out.  Persists alongside ``lint_group`` in the
+  ``cNvPr/extLst/ext`` extension block.
 
 
 2.1.0 (2026-04-29)

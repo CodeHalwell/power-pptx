@@ -303,6 +303,46 @@ class BaseShape(object):
             raise ValueError("lint_group must be a non-empty string or None")
         _write_lint_group(cNvPr, value)
 
+    @property
+    def lint_skip(self) -> frozenset[str]:
+        """Lint check codes silenced on this shape.
+
+        Per-shape opt-out for the linter: any :class:`LintIssue` whose
+        ``code`` is in this set is dropped from the report when ``slide.lint()``
+        is called.  Cross-shape issues (e.g. ``ShapeCollision``,
+        ``ZOrderAnomaly``) are only suppressed when *both* shapes opt out —
+        a one-sided opt-out keeps the warning, since the other shape may
+        still want it surfaced.
+
+        Example — silence intentional 8pt chrome::
+
+            footer_label.lint_skip = {"MinFontSize"}
+            rag_pill.lint_skip = {"MinFontSize"}
+
+        Stored alongside ``lint_group`` in the same ``cNvPr/extLst/ext``
+        block so it round-trips through save/load.  Assign ``set()`` /
+        ``frozenset()`` to clear.
+        """
+        from power_pptx.lint import _read_lint_skip
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return _read_lint_skip(cNvPr)
+
+    @lint_skip.setter
+    def lint_skip(self, value) -> None:
+        from power_pptx.lint import _write_lint_skip
+
+        if value is None:
+            value = frozenset()
+        if not isinstance(value, (set, frozenset, list, tuple)):
+            raise TypeError(
+                "lint_skip must be a set/frozenset/list/tuple of issue "
+                f"codes; got {type(value).__name__}"
+            )
+        codes = frozenset(str(c) for c in value)
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        _write_lint_skip(cNvPr, codes)
+
     def delete(self) -> None:
         """Remove this shape from its slide and clean up dependent state.
 

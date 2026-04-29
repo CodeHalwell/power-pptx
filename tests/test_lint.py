@@ -240,6 +240,84 @@ class DescribeCollisionGroupSuppression:
             slide.shapes.add_shape(1, Inches(1.5), Inches(1.5), Inches(2), Inches(2))
         assert _collisions(slide) == []
 
+    def it_exposes_each_shapes_lint_group_on_the_collision(self):
+        # Triage hint: a ShapeCollision between two differently-grouped
+        # shapes is "genuine layout bug"; one between an untagged and a
+        # tagged shape is "I forgot to tag this".  Surface the groups so
+        # callers can tell at a glance from report.summary().
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        slide.lint_group("card-A", a)
+        slide.lint_group("card-B", b)
+        c = _collisions(slide)
+        assert len(c) == 1
+        assert c[0].groups == ("card-A", "card-B")
+
+    def it_reports_None_for_an_untagged_shape_in_the_groups_pair(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        slide.lint_group("card-A", a)
+        c = _collisions(slide)
+        assert len(c) == 1
+        assert c[0].groups == ("card-A", None)
+
+
+class DescribeShapeLintSkip:
+    """Per-shape ``lint_skip`` opt-out for individual checks."""
+
+    def it_defaults_to_an_empty_set(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        assert s.lint_skip == frozenset()
+
+    def it_round_trips_a_set_of_codes(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.lint_skip = {"MinFontSize", "TextOverflow"}
+        assert s.lint_skip == frozenset({"MinFontSize", "TextOverflow"})
+
+    def it_persists_through_save_and_load(self):
+        prs, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.lint_skip = {"MinFontSize"}
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        prs2 = Presentation(buf)
+        s2 = list(prs2.slides[0].shapes)[0]
+        assert s2.lint_skip == frozenset({"MinFontSize"})
+
+    def it_clears_when_set_to_an_empty_set(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.lint_skip = {"MinFontSize"}
+        s.lint_skip = set()
+        assert s.lint_skip == frozenset()
+
+    def it_suppresses_a_per_shape_min_font_size_warning(self):
+        _, slide = _new_blank_slide()
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        tb.text_frame.paragraphs[0].text = "tiny"
+        tb.text_frame.paragraphs[0].runs[0].font.size = Pt(7)
+        # Baseline: warning fires.
+        assert any(
+            i.code == "MinFontSize" for i in slide.lint().issues
+        )
+        # Opt-out silences it.
+        tb.lint_skip = {"MinFontSize"}
+        assert not any(
+            i.code == "MinFontSize" for i in slide.lint().issues
+        )
+
+    def it_keeps_collisions_when_only_one_shape_opts_out(self):
+        # Cross-shape issues only drop when *both* shapes opt out.
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_skip = {"ShapeCollision"}
+        assert len(_collisions(slide)) == 1
+        b.lint_skip = {"ShapeCollision"}
+        assert _collisions(slide) == []
+
 
 class DescribeMinFontSize:
     def it_flags_a_run_below_threshold(self):
@@ -306,6 +384,22 @@ class DescribeOffGridDrift:
             i for i in slide.lint().issues if isinstance(i, OffGridDrift)
         ] == []
         assert before != int(drift.left)
+
+    def it_refreshes_report_issues_after_auto_fix(self):
+        # ``report.auto_fix(); report.issues`` should reflect the post-fix
+        # state — no second ``slide.lint()`` pass required.
+        slide, drift = self._column_with_drift()
+        report = slide.lint()
+        assert any(isinstance(i, OffGridDrift) for i in report.issues)
+        report.auto_fix()
+        assert [i for i in report.issues if isinstance(i, OffGridDrift)] == []
+
+    def it_does_not_refresh_report_issues_on_dry_run(self):
+        slide, _ = self._column_with_drift()
+        report = slide.lint()
+        before = list(report.issues)
+        report.auto_fix(dry_run=True)
+        assert report.issues == before
 
 
 class DescribeLowContrast:
