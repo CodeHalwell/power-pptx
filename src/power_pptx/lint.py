@@ -314,9 +314,20 @@ class SlideLintReport:
     mutator for the fixable subset.
     """
 
-    def __init__(self, slide: Slide, issues: list[LintIssue]):
+    def __init__(
+        self,
+        slide: Slide,
+        issues: list[LintIssue],
+        *,
+        include_effect_bleed: bool = False,
+    ):
         self._slide = slide
         self._issues = issues
+        # Remember the mode the report was generated under so
+        # ``auto_fix()``'s post-fix refresh stays consistent — refreshing
+        # under default kwargs would otherwise drop bleed-only issues
+        # from a bleed-enabled report.
+        self._include_effect_bleed = include_effect_bleed
 
     @property
     def issues(self) -> list[LintIssue]:
@@ -412,8 +423,13 @@ class SlideLintReport:
         # Refresh ``issues`` so the residual punch list is just
         # ``report.issues`` (no extra ``slide.lint()`` call needed).
         # Skipped on dry_run because nothing changed on the slide.
+        # Re-uses the same ``include_effect_bleed`` mode the original
+        # report was built under, so a bleed-enabled report's residual
+        # punch list still includes bleed-only issues.
         if not dry_run and fixes:
-            self._issues = self._slide.lint().issues
+            self._issues = self._slide.lint(
+                include_effect_bleed=self._include_effect_bleed
+            ).issues
 
         return fixes
 
@@ -759,10 +775,34 @@ def _shape_lint_skip(shape: BaseShape) -> frozenset[str]:
     return _read_lint_skip(cNvPr)
 
 
+def _bbox_overlap(
+    bbox_a: tuple[int, int, int, int],
+    bbox_b: tuple[int, int, int, int],
+) -> tuple[int, float]:
+    """Return ``(intersection_area, overlap_pct)`` for two bboxes.
+
+    ``overlap_pct`` is the intersection area as a fraction of the
+    smaller shape's area — the same metric the collision detector
+    thresholds against.  Returns ``(0, 0.0)`` when the bboxes do not
+    intersect.
+    """
+    al, at, ar, ab = bbox_a
+    bl, bt, br, bb = bbox_b
+    ix_l = max(al, bl)
+    ix_t = max(at, bt)
+    ix_r = min(ar, br)
+    ix_b = min(ab, bb)
+    if ix_r <= ix_l or ix_b <= ix_t:
+        return 0, 0.0
+    area = (ix_r - ix_l) * (ix_b - ix_t)
+    area_a = max(1, (ar - al) * (ab - at))
+    area_b = max(1, (br - bl) * (bb - bt))
+    return area, area / min(area_a, area_b)
+
+
 def _classify_collision(
     bbox_a: tuple[int, int, int, int],
     bbox_b: tuple[int, int, int, int],
-    intersection_area: int,
     overlap_pct: float,
 ) -> tuple[str, float]:
     """Score and tier a collision into ``(kind, score)``.
@@ -775,6 +815,9 @@ def _classify_collision(
 
     * **Containment** (the smaller shape is fully inside the larger)
       pulls the score *down* — this is the card-on-panel pattern.
+      ``overlap_pct`` doubles as the containment ratio: it's the
+      intersection area divided by the smaller shape's area, which
+      reaches 1.0 exactly when the smaller shape is fully contained.
     * **Size ratio** (smaller_area / larger_area) close to 1.0 pulls
       the score *up* — same-size pairs are more likely duplicates.
     * **Overlap percentage** of the smaller shape pulls the score *up*.
@@ -783,14 +826,7 @@ def _classify_collision(
     bl, bt, br, bb = bbox_b
     area_a = max(1, (ar - al) * (ab - at))
     area_b = max(1, (br - bl) * (bb - bt))
-
-    smaller_area = min(area_a, area_b)
-    larger_area = max(area_a, area_b)
-    size_ratio = smaller_area / larger_area  # in (0, 1]
-
-    # Containment: how fully is the smaller shape inside the larger.
-    # 1.0 means fully contained, 0.0 means barely touching.
-    containment_ratio = intersection_area / smaller_area
+    size_ratio = min(area_a, area_b) / max(area_a, area_b)  # in (0, 1]
 
     # Tolerance in EMU for "near-identical bbox" (5% on each axis).
     tol_w = max(1, int(0.05 * max(ar - al, br - bl)))
@@ -802,8 +838,8 @@ def _classify_collision(
         and abs(ab - bb) <= tol_h
     )
 
-    # "matched": near-identical bbox AND heavy overlap. Almost certainly
-    # a duplicate / copy-paste bug.
+    # "matched": near-identical bbox AND heavy overlap.  Almost
+    # certainly a duplicate / copy-paste bug.
     if bboxes_match and overlap_pct > 0.80:
         return "matched", min(1.0, 0.85 + 0.15 * overlap_pct)
 
@@ -813,12 +849,12 @@ def _classify_collision(
         _bbox_contains(bbox_a, bbox_b) or _bbox_contains(bbox_b, bbox_a)
     )
     if fully_contained and size_ratio < 0.9:
-        # Containment 1.0 + small size_ratio → very low score.
-        score = 0.5 * size_ratio + 0.1 * (1.0 - containment_ratio)
+        # Full containment + small size_ratio → very low score.
+        score = 0.5 * size_ratio + 0.1 * (1.0 - overlap_pct)
         return "incidental", max(0.0, min(1.0, score))
 
     # "partial": neither contains the other, scored on size_ratio and
-    # overlap_pct. Two similarly-sized shapes overlapping a lot is
+    # overlap_pct.  Two similarly-sized shapes overlapping a lot is
     # suspicious; two very-different sizes barely touching is not.
     score = 0.4 * size_ratio + 0.6 * min(1.0, overlap_pct)
     return "partial", max(0.0, min(1.0, score))
@@ -846,9 +882,11 @@ def _check_collisions(
     issues: list[LintIssue] = []
     bbox_fn = bbox_fn or _shape_bbox
     bboxes = [bbox_fn(s) for s in shapes]
-    raw_bboxes = (
-        bboxes if bbox_fn is _shape_bbox else [_shape_bbox(s) for s in shapes]
-    )
+    # Only compute raw bboxes when bleed is enabled — otherwise the
+    # raw and effective bboxes are the same and there's nothing to
+    # compare against.
+    using_bleed = bbox_fn is not _shape_bbox
+    raw_bboxes = [_shape_bbox(s) for s in shapes] if using_bleed else None
     groups = [_shape_lint_group(s) for s in shapes]
 
     for i in range(len(shapes)):
@@ -859,46 +897,19 @@ def _check_collisions(
             if gi is not None and gi == gj:
                 continue
 
-            al, at, ar, ab = bboxes[i]
-            bl, bt, br, bb = bboxes[j]
-
-            ix_l = max(al, bl)
-            ix_t = max(at, bt)
-            ix_r = min(ar, br)
-            ix_b = min(ab, bb)
-
-            if ix_r <= ix_l or ix_b <= ix_t:
-                continue
-
-            area = (ix_r - ix_l) * (ix_b - ix_t)
-            area_a = max(1, (ar - al) * (ab - at))
-            area_b = max(1, (br - bl) * (bb - bt))
-            pct = area / min(area_a, area_b)
-
+            area, pct = _bbox_overlap(bboxes[i], bboxes[j])
             if pct < _COLLISION_THRESHOLD:
                 continue
 
-            kind, score = _classify_collision(
-                bboxes[i], bboxes[j], area, pct
-            )
+            kind, score = _classify_collision(bboxes[i], bboxes[j], pct)
 
             # Decide whether the inflated bbox is what triggered the
             # collision: if the raw bboxes don't intersect by at least
             # the threshold, this is bleed-only.
             cls: type[ShapeCollision] = ShapeCollision
-            if bbox_fn is not _shape_bbox:
-                rl, rt, rr, rb = raw_bboxes[i]
-                rl2, rt2, rr2, rb2 = raw_bboxes[j]
-                rix_l = max(rl, rl2)
-                rix_t = max(rt, rt2)
-                rix_r = min(rr, rr2)
-                rix_b = min(rb, rb2)
-                raw_pct = 0.0
-                if rix_r > rix_l and rix_b > rix_t:
-                    raw_area = (rix_r - rix_l) * (rix_b - rix_t)
-                    raw_a = max(1, (rr - rl) * (rb - rt))
-                    raw_b = max(1, (rr2 - rl2) * (rb2 - rt2))
-                    raw_pct = raw_area / min(raw_a, raw_b)
+            if using_bleed:
+                assert raw_bboxes is not None  # narrows type for mypy
+                _, raw_pct = _bbox_overlap(raw_bboxes[i], raw_bboxes[j])
                 if raw_pct < _COLLISION_THRESHOLD:
                     cls = ShapeCollisionShadow
 
@@ -1311,4 +1322,6 @@ def lint_slide(
     _order = {LintSeverity.ERROR: 0, LintSeverity.WARNING: 1, LintSeverity.INFO: 2}
     issues.sort(key=lambda x: _order[x.severity])
 
-    return SlideLintReport(slide, issues)
+    return SlideLintReport(
+        slide, issues, include_effect_bleed=include_effect_bleed
+    )

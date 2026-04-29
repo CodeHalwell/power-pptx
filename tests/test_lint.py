@@ -706,6 +706,35 @@ class DescribeEffectBleedGeometry:
         # And it must not blow up when threaded through lint().
         _ = BaseShape  # silence unused-import lint
 
+    def it_preserves_include_effect_bleed_through_auto_fix_refresh(self):
+        # Regression: ``auto_fix()`` refreshes ``report.issues`` by
+        # calling ``slide.lint()``.  If the original report was built
+        # under ``include_effect_bleed=True`` the refresh must use the
+        # same mode — otherwise bleed-only issues silently disappear
+        # from the residual punch list as soon as any other fix runs.
+        _, slide = _new_blank_slide()
+        slide_w, _slide_h = self._slide_dims(slide)
+        # Bleed-only OffSlide on shape A.
+        a = slide.shapes.add_shape(
+            1, slide_w - Inches(2), Inches(0.5), Inches(2), Inches(2)
+        )
+        a.shadow.blur_radius = Emu(914400)
+        # Off-grid drift offender (auto-fixable) so a fix actually fires
+        # and triggers the refresh.
+        for i in range(4):
+            slide.shapes.add_shape(
+                1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
+            )
+        slide.shapes.add_shape(
+            1, Inches(6) + 30000, Inches(5), Inches(1), Inches(0.5)
+        )
+
+        report = slide.lint(include_effect_bleed=True)
+        assert any(isinstance(i, OffSlideShadow) for i in report.issues)
+        report.auto_fix()  # snaps the drift offender; triggers refresh
+        # Bleed-only OffSlideShadow must survive the refresh.
+        assert any(isinstance(i, OffSlideShadow) for i in report.issues)
+
     def it_silences_OffSlideShadow_via_lint_skip_without_silencing_real_OffSlide(self):
         _, slide = _new_blank_slide()
         slide_w, slide_h = self._slide_dims(slide)
