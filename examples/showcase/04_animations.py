@@ -19,7 +19,8 @@ from pptx.animation import Emphasis, Entrance, MotionPath, Trigger
 from pptx.design.recipes import bullet_slide, kpi_slide, title_slide
 from pptx.dml.color import RGBColor
 from pptx.enum.presentation import MSO_TRANSITION_TYPE
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 from _lint import lint_or_die
@@ -70,12 +71,14 @@ def build(out_path: Path) -> Presentation:
         ],
         tokens=BRAND,
     )
-    # Pulse each KPI card on its own click. Recipe shapes are added in
-    # tuples of (card, label_box, value_box, delta_box) — pulsing the
-    # cards is enough to demonstrate the effect.
+    # Pulse each KPI card on its own click. ``shape_type`` reports
+    # ``AUTO_SHAPE`` for every auto-shape; the actual subtype lives on
+    # ``auto_shape_type`` (which raises on non-auto-shapes, so the
+    # ``shape_type`` test has to come first).
     with s3.animations.sequence():
         for shape in s3.shapes:
-            if shape.shape_type == MSO_SHAPE.ROUNDED_RECTANGLE:
+            if (shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+                    and shape.auto_shape_type == MSO_SHAPE.ROUNDED_RECTANGLE):
                 Emphasis.pulse(s3, shape)
 
     # 4. Motion path
@@ -96,10 +99,11 @@ def build(out_path: Path) -> Presentation:
     badge.line.fill.background()
     badge.text_frame.text = "Go"
     p = badge.text_frame.paragraphs[0]
-    p.alignment = 2  # center
-    p.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-    p.font.bold = True
-    p.font.size = Pt(28)
+    p.alignment = PP_ALIGN.CENTER
+    run = p.runs[0]
+    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    run.font.bold = True
+    run.font.size = Pt(28)
 
     Entrance.fade(s4, badge)
     MotionPath.arc(

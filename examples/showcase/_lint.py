@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pptx.exc import LintError
+from pptx.lint import LintSeverity
 from pptx.presentation import Presentation
 
 
@@ -14,7 +15,7 @@ def lint_or_die(prs: Presentation) -> None:
     errors: list[str] = []
     for i, slide in enumerate(prs.slides):
         for issue in slide.lint().issues:
-            if issue.severity.value == "error":
+            if issue.severity is LintSeverity.ERROR:
                 errors.append(f"slide {i + 1}: {issue}")
 
     if errors:

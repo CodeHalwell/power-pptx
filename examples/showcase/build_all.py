@@ -46,11 +46,28 @@ SCRIPTS = [
 def _load(name: str):
     path = HERE / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"could not build an import spec for {path}; ensure the file exists "
+            f"and is a valid Python module."
+        )
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+SOFFICE_TIMEOUT = 120
+PDFTOPPM_TIMEOUT = 60
+
+
+def _fail(label: str, res: subprocess.CompletedProcess) -> int:
+    """Print a one-line failure with a stderr/stdout excerpt."""
+    err = (res.stderr or b"").decode("utf-8", "replace").strip()
+    out = (res.stdout or b"").decode("utf-8", "replace").strip()
+    excerpt = (err or out or "<no output>")[:300]
+    print(f"  ({label} failed [exit {res.returncode}]: {excerpt})")
+    return 0
 
 
 def _render_thumbs(deck: Path, sub: Path) -> int:
@@ -58,31 +75,44 @@ def _render_thumbs(deck: Path, sub: Path) -> int:
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     pdftoppm = shutil.which("pdftoppm")
     if not soffice or not pdftoppm:
-        print(f"  (thumbnails skipped — needs soffice + pdftoppm on PATH)")
+        print("  (thumbnails skipped — needs soffice + pdftoppm on PATH)")
         return 0
 
     sub.mkdir(parents=True, exist_ok=True)
+    # Stale renders from a prior build can outnumber the current deck's
+    # slide count and corrupt the reported count. Clear them first.
+    for stale in sub.glob("slide-*.png"):
+        stale.unlink()
+
     # 1) deck.pptx → deck.pdf in `sub`
-    res = subprocess.run(
-        [soffice, "--headless", "--norestore", "--nologo",
-         "--nofirststartwizard", "--convert-to", "pdf",
-         "--outdir", str(sub), str(deck)],
-        capture_output=True,
-    )
-    pdf = sub / (deck.stem + ".pdf")
-    if res.returncode != 0 or not pdf.exists():
-        print(f"  (pdf conversion failed: {res.stderr.decode('utf-8', 'replace')[:200]})")
+    try:
+        res = subprocess.run(
+            [soffice, "--headless", "--norestore", "--nologo",
+             "--nofirststartwizard", "--convert-to", "pdf",
+             "--outdir", str(sub), str(deck)],
+            capture_output=True,
+            timeout=SOFFICE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"  (soffice timed out after {SOFFICE_TIMEOUT}s — check for "
+              f"a stale LibreOffice profile lock under ~/.config/libreoffice)")
         return 0
 
+    pdf = sub / (deck.stem + ".pdf")
+    if res.returncode != 0 or not pdf.exists():
+        return _fail("pdf conversion", res)
+
     # 2) deck.pdf → slide-<n>.png at 150 dpi
-    res = subprocess.run(
-        [pdftoppm, "-r", "150", "-png", str(pdf), str(sub / "slide")],
-        capture_output=True,
-    )
-    pdf.unlink(missing_ok=True)
+    try:
+        res = subprocess.run(
+            [pdftoppm, "-r", "150", "-png", str(pdf), str(sub / "slide")],
+            capture_output=True,
+            timeout=PDFTOPPM_TIMEOUT,
+        )
+    finally:
+        pdf.unlink(missing_ok=True)
     if res.returncode != 0:
-        print(f"  (pdftoppm failed: {res.stderr.decode('utf-8', 'replace')[:200]})")
-        return 0
+        return _fail("pdftoppm", res)
 
     pngs = sorted(sub.glob("slide-*.png"))
     print(f"  rendered {len(pngs)} slide thumbnail(s)")

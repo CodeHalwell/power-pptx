@@ -19,8 +19,6 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.util import Inches, Pt
 
-from _tokens import BRAND  # noqa: F401  (kept for parity)
-
 HERE = Path(__file__).parent
 
 NEUTRAL = RGBColor(0x0F, 0x17, 0x2A)
@@ -181,20 +179,25 @@ def _lint_demo(prs: Presentation):
     rogue.text_frame.paragraphs[0].font.bold = True
     rogue.text_frame.paragraphs[0].font.size = Pt(18)
 
-    # Overflowing text frame
+    # Overflowing text frame.
     overflow = slide.shapes.add_textbox(
         Inches(0.8), Inches(5.0), Inches(11.5), Inches(1.2),
     )
     _stamp_card(overflow, fill=SURFACE, line=DANGER)
     otf = overflow.text_frame
     otf.word_wrap = True
+    # Pin auto_size so the box doesn't silently grow to fit. Style on
+    # the run because paragraph-level font properties don't apply to
+    # already-authored runs.
+    otf.auto_size = MSO_AUTO_SIZE.NONE
     otf.text = (
-        "This text is set at 28pt without word-wrapping a long enough string "
-        "to overflow the height — fit_text would prevent this, but we're "
-        "skipping it on purpose to show the lint output."
+        "This text is set at 28pt with word-wrap on — the string is long "
+        "enough to overflow the box's height. fit_text would prevent this, "
+        "but we're skipping it on purpose to show the lint output."
     )
-    otf.paragraphs[0].font.size = Pt(28)
-    otf.paragraphs[0].font.color.rgb = NEUTRAL
+    run = otf.paragraphs[0].runs[0]
+    run.font.size = Pt(28)
+    run.font.color.rgb = NEUTRAL
 
     # Run the linter and snapshot the issues *before* auto_fix.
     issues = list(slide.lint().issues)
