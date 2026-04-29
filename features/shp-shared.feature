@@ -163,9 +163,9 @@ Feature: Common shape properties
       | Connector    |
 
 
-  Scenario: GraphicFrame.shadow (not-implemented)
+  Scenario: GraphicFrame.shadow returns None
     Given a GraphicFrame object as shape
-     Then shape.shadow raises NotImplementedError
+     Then shape.shadow is None
 
 
   Scenario Outline: Get shape.shape_id

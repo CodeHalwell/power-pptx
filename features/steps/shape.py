@@ -626,15 +626,10 @@ def then_shape_shadow_is_a_ShadowFormat_object(context):
     assert cls_name == "ShadowFormat", "shape.shadow is a '%s' object" % cls_name
 
 
-@then("shape.shadow raises NotImplementedError")
-def then_shape_shadow_raises_NotImplementedError(context):
-    try:
-        context.shape.shadow
-    except NotImplementedError:
-        return
-    except Exception as e:
-        raise AssertionError("shape.shadow raises %s" % type(e).__name__)
-    raise AssertionError("shape.shadow did not raise")
+@then("shape.shadow is None")
+def then_shape_shadow_is_None(context):
+    actual = context.shape.shadow
+    assert actual is None, "shape.shadow is %r, not None" % (actual,)
 
 
 @then("shape.shape_id == {value_str}")
