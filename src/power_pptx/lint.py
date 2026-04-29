@@ -297,16 +297,42 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
 # touching shapes)
 _COLLISION_THRESHOLD = 0.05
 
+# Custom namespace for shape metadata that the linter consults but PowerPoint
+# ignores. Stored as an attribute on the shape's ``p:cNvPr`` element; lxml
+# round-trips unknown namespaces through save/load.
+_LINT_NS = "https://power-pptx.io/lint/2024"
+_LINT_GROUP_ATTR = "{%s}group" % _LINT_NS
+
+
+def _shape_lint_group(shape: BaseShape) -> str | None:
+    """Return the ``lint_group`` tag for *shape*, or ``None`` if untagged."""
+    try:
+        cNvPr = shape._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+    except AttributeError:
+        return None
+    return cNvPr.get(_LINT_GROUP_ATTR)
+
 
 def _check_collisions(
     shapes: Sequence[BaseShape],
 ) -> list[LintIssue]:
-    """Return ShapeCollision issues for pairs of overlapping shapes."""
+    """Return ShapeCollision issues for pairs of overlapping shapes.
+
+    Shapes sharing a non-empty ``lint_group`` are treated as intentionally
+    layered and never produce a collision warning. Shapes with no group, or
+    shapes in different groups, continue to warn on overlap.
+    """
     issues: list[LintIssue] = []
     bboxes = [_shape_bbox(s) for s in shapes]
+    groups = [_shape_lint_group(s) for s in shapes]
 
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
+            # Suppress collisions inside a designer-tagged group.
+            gi, gj = groups[i], groups[j]
+            if gi is not None and gi == gj:
+                continue
+
             al, at, ar, ab = bboxes[i]
             bl, bt, br, bb = bboxes[j]
 

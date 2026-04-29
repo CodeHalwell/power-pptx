@@ -265,6 +265,45 @@ class BaseShape(object):
         return self._element.shape_id
 
     @property
+    def lint_group(self) -> str | None:
+        """Group tag consulted by the layout linter to suppress same-group collisions.
+
+        Shapes that share a non-empty ``lint_group`` may overlap without
+        producing a :class:`~power_pptx.lint.ShapeCollision` warning. Shapes
+        with ``lint_group is None`` (the default) and shapes belonging to
+        different groups continue to warn on overlap.
+
+        The value is stored as a custom-namespaced attribute on the shape's
+        ``p:cNvPr`` element so it round-trips through ``power-pptx`` save/load.
+        PowerPoint ignores the unknown namespace.
+
+        Example::
+
+            card.lint_group = "kpi-card-1"
+            accent_bar.lint_group = "kpi-card-1"
+            # card and accent_bar may overlap without a lint warning.
+
+        Assigning ``None`` clears the tag.
+        """
+        from power_pptx.lint import _LINT_GROUP_ATTR
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return cNvPr.get(_LINT_GROUP_ATTR)
+
+    @lint_group.setter
+    def lint_group(self, value: str | None) -> None:
+        from power_pptx.lint import _LINT_GROUP_ATTR
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        if value is None:
+            if _LINT_GROUP_ATTR in cNvPr.attrib:
+                del cNvPr.attrib[_LINT_GROUP_ATTR]
+            return
+        if not isinstance(value, str) or not value:
+            raise ValueError("lint_group must be a non-empty string or None")
+        cNvPr.set(_LINT_GROUP_ATTR, value)
+
+    @property
     def shape_type(self) -> MSO_SHAPE_TYPE:
         """A member of MSO_SHAPE_TYPE classifying this shape by type.
 

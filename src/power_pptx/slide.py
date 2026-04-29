@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Iterator, cast
 
 from power_pptx.dml.fill import FillFormat
@@ -377,6 +378,64 @@ class Slide(_BaseSlide):
         from power_pptx.render import render_slide_thumbnail
 
         return render_slide_thumbnail(self, **kwargs)
+
+    def lint_group(self, name: str, *shapes) -> None:
+        """Tag every shape in *shapes* with ``lint_group = name``.
+
+        Convenience batch form of ``shape.lint_group = name``. Shapes that
+        share a non-empty ``lint_group`` are allowed to overlap without
+        producing :class:`~power_pptx.lint.ShapeCollision` warnings.
+
+        Example::
+
+            slide.lint_group("kpi-card-1", card, accent_bar, label_box, value_box)
+
+        Passing ``name=None`` clears the tag on each supplied shape.
+        """
+        for shape in shapes:
+            shape.lint_group = name
+
+    @contextmanager
+    def design_group(self, name: str):
+        """Context manager that auto-tags shapes added inside the block.
+
+        Any shape appended to this slide's shape tree while the block is
+        active receives ``lint_group = name`` (provided it doesn't already
+        have a non-empty group, so nested ``design_group`` calls behave
+        intuitively — the innermost label wins).
+
+        Example::
+
+            with slide.design_group("kpi-card-1"):
+                slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ...)   # card
+                slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ...)   # accent
+                slide.shapes.add_textbox(...)                       # label
+                slide.shapes.add_textbox(...)                       # value
+            # All four now share ``lint_group = "kpi-card-1"``.
+        """
+        if not isinstance(name, str) or not name:
+            raise ValueError("design_group name must be a non-empty string")
+
+        sp_tree = self._element.spTree
+        before = {id(elm) for elm in sp_tree.iter_shape_elms()}
+        try:
+            yield
+        finally:
+            from power_pptx.lint import _LINT_GROUP_ATTR
+
+            for elm in sp_tree.iter_shape_elms():
+                if id(elm) in before:
+                    continue
+                try:
+                    cNvPr = elm._nvXxPr.cNvPr
+                except AttributeError:
+                    continue
+                # Don't overwrite an explicit group set by the caller or by
+                # an inner ``design_group`` block that already tagged this
+                # shape.
+                if cNvPr.get(_LINT_GROUP_ATTR):
+                    continue
+                cNvPr.set(_LINT_GROUP_ATTR, name)
 
     def lint(self) -> SlideLintReport:
         """Inspect this slide for geometric and typographic issues.
