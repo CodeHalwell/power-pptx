@@ -94,7 +94,13 @@ class OffSlide(LintIssue):
 
 @dataclass
 class ShapeCollision(LintIssue):
-    """Two shapes' bounding boxes overlap."""
+    """Two shapes' bounding boxes overlap.
+
+    The detector tiers each collision into a *kind* and a numeric *score*
+    so callers can distinguish layered card-on-panel patterns
+    ("incidental", INFO) from genuine duplicate-rectangle bugs
+    ("matched", ERROR).  See :func:`_check_collisions` for the heuristic.
+    """
 
     intersection_area: int = 0
     intersection_pct: float = 0.0
@@ -103,6 +109,13 @@ class ShapeCollision(LintIssue):
     #: forgot to tag" (one or both ``None``) vs. "genuine layout bug"
     #: (different non-``None`` tags) at a glance in ``report.summary()``.
     groups: tuple[str | None, str | None] = (None, None)
+    #: Likelihood this overlap is a layout bug, in [0.0, 1.0].  Higher is
+    #: more suspicious; ``"incidental"`` collisions tend to score low.
+    score: float = 0.0
+    #: One of ``"incidental"`` (small inside large), ``"partial"``
+    #: (similarly-sized partial overlap), or ``"matched"`` (near-identical
+    #: bbox — almost certainly a duplicate).
+    kind: str = "partial"
 
     def __init__(
         self,
@@ -111,16 +124,21 @@ class ShapeCollision(LintIssue):
         intersection_area: int,
         intersection_pct: float,
         groups: tuple[str | None, str | None] = (None, None),
+        score: float = 0.0,
+        kind: str = "partial",
+        code: str = "ShapeCollision",
     ):
+        severity = _SEVERITY_BY_KIND.get(kind, LintSeverity.WARNING)
         group_suffix = ""
         if groups != (None, None):
             group_suffix = f" [groups: {groups[0]!r} vs {groups[1]!r}]"
         super().__init__(
-            severity=LintSeverity.WARNING,
-            code="ShapeCollision",
+            severity=severity,
+            code=code,
             message=(
                 f"Shapes '{shape_a.name}' and '{shape_b.name}' overlap "
-                f"({intersection_pct:.0%} of the smaller shape's area)."
+                f"({intersection_pct:.0%} of the smaller shape's area) "
+                f"[kind={kind}, score={score:.2f}]"
                 + group_suffix
             ),
             shapes=(shape_a, shape_b),
@@ -128,6 +146,15 @@ class ShapeCollision(LintIssue):
         self.intersection_area = intersection_area
         self.intersection_pct = intersection_pct
         self.groups = groups
+        self.score = score
+        self.kind = kind
+
+
+_SEVERITY_BY_KIND: dict[str, LintSeverity] = {
+    "incidental": LintSeverity.INFO,
+    "partial": LintSeverity.WARNING,
+    "matched": LintSeverity.ERROR,
+}
 
 
 @dataclass
@@ -634,14 +661,81 @@ def _shape_lint_skip(shape: BaseShape) -> frozenset[str]:
     return _read_lint_skip(cNvPr)
 
 
+def _classify_collision(
+    bbox_a: tuple[int, int, int, int],
+    bbox_b: tuple[int, int, int, int],
+    intersection_area: int,
+    overlap_pct: float,
+) -> tuple[str, float]:
+    """Score and tier a collision into ``(kind, score)``.
+
+    ``score`` is the likelihood the overlap is a layout bug, in
+    ``[0.0, 1.0]``.  Higher = more suspicious.  ``kind`` is one of
+    ``"incidental"``, ``"partial"``, ``"matched"``.
+
+    Heuristic intent:
+
+    * **Containment** (the smaller shape is fully inside the larger)
+      pulls the score *down* — this is the card-on-panel pattern.
+    * **Size ratio** (smaller_area / larger_area) close to 1.0 pulls
+      the score *up* — same-size pairs are more likely duplicates.
+    * **Overlap percentage** of the smaller shape pulls the score *up*.
+    """
+    al, at, ar, ab = bbox_a
+    bl, bt, br, bb = bbox_b
+    area_a = max(1, (ar - al) * (ab - at))
+    area_b = max(1, (br - bl) * (bb - bt))
+
+    smaller_area = min(area_a, area_b)
+    larger_area = max(area_a, area_b)
+    size_ratio = smaller_area / larger_area  # in (0, 1]
+
+    # Containment: how fully is the smaller shape inside the larger.
+    # 1.0 means fully contained, 0.0 means barely touching.
+    containment_ratio = intersection_area / smaller_area
+
+    # Tolerance in EMU for "near-identical bbox" (5% on each axis).
+    tol_w = max(1, int(0.05 * max(ar - al, br - bl)))
+    tol_h = max(1, int(0.05 * max(ab - at, bb - bt)))
+    bboxes_match = (
+        abs(al - bl) <= tol_w
+        and abs(at - bt) <= tol_h
+        and abs(ar - br) <= tol_w
+        and abs(ab - bb) <= tol_h
+    )
+
+    # "matched": near-identical bbox AND heavy overlap.  Almost
+    # certainly a duplicate / copy-paste bug.
+    if bboxes_match and overlap_pct > 0.80:
+        return "matched", min(1.0, 0.85 + 0.15 * overlap_pct)
+
+    # "incidental": one shape fully contains the other and they aren't
+    # the same size — the card-on-panel pattern.
+    fully_contained = (
+        _bbox_contains(bbox_a, bbox_b) or _bbox_contains(bbox_b, bbox_a)
+    )
+    if fully_contained and size_ratio < 0.9:
+        # Containment 1.0 + small size_ratio → very low score.
+        score = 0.5 * size_ratio + 0.1 * (1.0 - containment_ratio)
+        return "incidental", max(0.0, min(1.0, score))
+
+    # "partial": neither contains the other, scored on size_ratio and
+    # overlap_pct.  Two similarly-sized shapes overlapping a lot is
+    # suspicious; two very-different sizes barely touching is not.
+    score = 0.4 * size_ratio + 0.6 * min(1.0, overlap_pct)
+    return "partial", max(0.0, min(1.0, score))
+
+
 def _check_collisions(
     shapes: Sequence[BaseShape],
 ) -> list[LintIssue]:
     """Return ShapeCollision issues for pairs of overlapping shapes.
 
     Shapes sharing a non-empty ``lint_group`` are treated as intentionally
-    layered and never produce a collision warning. Shapes with no group, or
-    shapes in different groups, continue to warn on overlap.
+    layered and never produce a collision warning — group suppression
+    runs *before* scoring, since a tagged group is "intentional" by
+    definition.  Shapes with no group, or shapes in different groups,
+    continue through to scoring + classification.
     """
     issues: list[LintIssue] = []
     bboxes = [_shape_bbox(s) for s in shapes]
@@ -649,7 +743,8 @@ def _check_collisions(
 
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
-            # Suppress collisions inside a designer-tagged group.
+            # Suppress collisions inside a designer-tagged group *before*
+            # scoring — a tagged group is "intentional" by definition.
             gi, gj = groups[i], groups[j]
             if gi is not None and gi == gj:
                 continue
@@ -670,16 +765,23 @@ def _check_collisions(
             area_b = max(1, (br - bl) * (bb - bt))
             pct = area / min(area_a, area_b)
 
-            if pct >= _COLLISION_THRESHOLD:
-                issues.append(
-                    ShapeCollision(
-                        shapes[i],
-                        shapes[j],
-                        intersection_area=area,
-                        intersection_pct=pct,
-                        groups=(gi, gj),
-                    )
+            if pct < _COLLISION_THRESHOLD:
+                continue
+
+            kind, score = _classify_collision(
+                bboxes[i], bboxes[j], area, pct
+            )
+            issues.append(
+                ShapeCollision(
+                    shapes[i],
+                    shapes[j],
+                    intersection_area=area,
+                    intersection_pct=pct,
+                    groups=(gi, gj),
+                    score=score,
+                    kind=kind,
                 )
+            )
 
     return issues
 

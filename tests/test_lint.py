@@ -9,6 +9,7 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.lint import (
+    LintSeverity,
     LowContrast,
     MasterPlaceholderCollision,
     MinFontSize,
@@ -571,3 +572,57 @@ class DescribeReportSummary:
         _, slide = _new_blank_slide()
         slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1), Inches(1))
         assert slide.lint().summary() == "No issues found."
+
+
+class DescribeShapeCollisionScoring:
+    """Structural-vs-incidental scoring on ``ShapeCollision``."""
+
+    def it_classifies_a_card_on_panel_as_incidental_INFO(self):
+        # Big panel, small card fully inside it.
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(5), Inches(5))
+        slide.shapes.add_shape(1, Inches(2), Inches(2), Inches(1), Inches(1))
+        cs = _collisions(slide)
+        assert len(cs) == 1
+        assert cs[0].kind == "incidental"
+        assert cs[0].severity == LintSeverity.INFO
+        assert 0.0 <= cs[0].score <= 0.5
+
+    def it_classifies_two_partially_overlapping_peers_as_partial_WARNING(self):
+        # Two same-size rectangles partially overlapping, neither contains
+        # the other.
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        slide.shapes.add_shape(1, Inches(1.5), Inches(1.5), Inches(2), Inches(2))
+        cs = _collisions(slide)
+        assert len(cs) == 1
+        assert cs[0].kind == "partial"
+        assert cs[0].severity == LintSeverity.WARNING
+
+    def it_classifies_near_identical_bboxes_as_matched_ERROR(self):
+        # Two rectangles at the same place — duplicate / copy-paste bug.
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        cs = _collisions(slide)
+        assert len(cs) == 1
+        assert cs[0].kind == "matched"
+        assert cs[0].severity == LintSeverity.ERROR
+        assert cs[0].score >= 0.85
+
+    def it_runs_group_suppression_before_scoring(self):
+        # A grouped pair must never be scored — the ``score`` /
+        # ``kind`` fields are meaningless for an intentional layered
+        # group, so the issue is dropped entirely.
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        slide.lint_group("kpi-card-1", a, b)
+        assert _collisions(slide) == []
+
+    def it_includes_kind_and_score_in_summary_output(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        slide.shapes.add_shape(1, Inches(1.5), Inches(1.5), Inches(2), Inches(2))
+        summary = slide.lint().summary()
+        assert "kind=" in summary
+        assert "score=" in summary
