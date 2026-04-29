@@ -14,6 +14,156 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.1.0 (2026-04-29)
+++++++++++++++++++
+
+Feature release.  No breaking changes; everything from 2.0.0 continues
+to work unchanged.  Headline additions span the linter, tables, charts,
+animations, and the theme.
+
+Lint
+~~~~
+
+- ``shape.lint_group`` / ``slide.lint_group(name, *shapes)`` /
+  ``slide.design_group(name)`` context manager — the cheapest fix for
+  the noisiest part of the linter.  Shapes that share a non-empty
+  ``lint_group`` are allowed to overlap without producing a
+  :class:`~power_pptx.lint.ShapeCollision` warning, so intentional
+  layering (KPI cards, accent bars, overlaid labels) no longer drowns
+  out real signal.  The tag is stored as a custom-namespaced attribute
+  on ``p:cNvPr`` and round-trips through power-pptx save/load.
+
+- Five new lint checks:
+
+  * :class:`~power_pptx.lint.MinFontSize` — flags any text run below the
+    legibility threshold (default 9pt).
+  * :class:`~power_pptx.lint.OffGridDrift` — detects shapes whose left
+    or top edge is slightly off a column/row grid that several other
+    shapes hit cleanly.
+  * :class:`~power_pptx.lint.LowContrast` — computes the WCAG contrast
+    ratio between text and resolved-background fill, warns below 4.5:1.
+    Resolves only solid RGB fills (theme colors and gradients are
+    skipped silently, so the check is noise-free by construction).
+  * :class:`~power_pptx.lint.ZOrderAnomaly` — finds filled shapes drawn
+    above shapes they visually contain (the inner shape would be
+    hidden at render time).
+  * :class:`~power_pptx.lint.MasterPlaceholderCollision` — flags a
+    non-placeholder shape sitting at exactly the position of a layout
+    placeholder it should likely have inherited from instead.
+
+- ``SlideLintReport.auto_fix()`` now also snaps ``OffGridDrift``
+  offenders onto the dominant grid line — the Tier-3 auto-fix from the
+  hierarchy.
+
+Tables
+~~~~~~
+
+- ``row.borders`` / ``col.borders`` shorthand — apply ``left`` /
+  ``right`` / ``top`` / ``bottom`` / ``outer`` borders to every cell in
+  a row or column with a single call.  Mirrors the existing per-cell
+  ``cell.borders``.
+
+- ``Table.banded_rows`` / ``Table.banded_cols`` — friendlier aliases
+  for ``horz_banding`` / ``vert_banding`` that match PowerPoint's UI
+  vocabulary.
+
+- ``Table.fit_to_box(...)`` — for runtime-driven tables: walks every
+  populated cell, computes the per-cell best-fit font size against the
+  cell's own width and row height (margins respected), and applies the
+  smallest of those uniformly so the grid reads as one coherent size.
+
+- ``cell.text_frame.fit_text`` now measures against the cell's own
+  ``width`` / ``height`` (it was measuring against the whole table
+  before, giving meaningless results).  ``_Cell.width`` / ``height``
+  properties are exposed for the same reason.
+
+Charts
+~~~~~~
+
+- ``apply_quick_layout`` accepts keyword overrides on top of named
+  presets::
+
+      chart.apply_quick_layout("title_legend_right", title_text="Q4 ARR")
+      chart.apply_quick_layout(
+          "title_axes_legend_bottom",
+          value_axis_title_text="Revenue (£m)",
+          has_major_gridlines=False,
+      )
+
+- ``Chart.color_by_category(palette)`` recolors each *data point*
+  instead of each series — the helper for stacked-bar / stacked-column
+  charts where you want each category segment to read as a discrete
+  color.
+
+- ``GraphicFrame.render_to_png(...)`` renders the parent slide via
+  headless LibreOffice and crops to the frame's bbox, so a chart or
+  table can be exported as a standalone PNG without taking the whole
+  slide.  Reuses the existing :func:`~power_pptx.render.render_slide_thumbnail`
+  infrastructure; requires Pillow (already a dependency) and
+  ``soffice`` on PATH.
+
+Animations
+~~~~~~~~~~
+
+- ``slide.animations.typewriter([s1, s2, s3], delay_between_ms=200)``
+  one-line replacement for the manual ``with sequence(): for s ...``
+  loop.  Defaults to the ``"wipe"`` preset; any entrance preset can be
+  passed.
+
+- Easing curves on :meth:`SlideAnimations.add_entrance` (and friends):
+  pass ``easing="ease_in"`` / ``"ease_out"`` / ``"ease_in_out"`` /
+  ``"linear"`` for a preset, or ``easing=(accel, decel)`` for an
+  explicit ``<p:cTn>``-level acceleration / deceleration pair.
+
+- ``BaseShape.delete()`` — removes the shape *and* purges any orphan
+  animation entries that targeted it.  Equivalent to the manual
+  ``shape._element.getparent().remove(shape._element)`` idiom but with
+  the cleanup pass that the manual idiom misses.
+  ``slide.animations.purge_orphans()`` is exposed publicly for callers
+  that delete shapes by other means.
+
+Theme
+~~~~~
+
+- ``Theme.apply(other, rebind_shape_colors=True, presentation=prs)`` —
+  re-skinning a deck no longer leaves orphan literal colors.  Every
+  shape whose hardcoded RGB matches a slot in the *old* (pre-swap)
+  palette is rewritten to point at that theme slot.  Returns the
+  number of color references rebound.
+
+- ``Theme.embed_font(presentation, path, typeface=..., weight=...)`` —
+  bundles a TTF/OTF into the deck under ``/ppt/fonts/`` and registers
+  it in ``<p:embeddedFontLst>`` so the deck travels with its font and
+  doesn't fall back to Calibri on the customer's machine.  The font is
+  embedded unobfuscated (content type ``application/x-fontdata``);
+  PowerPoint 2007+ accepts this form.  The fully-obfuscated form per
+  ECMA-376 §15.2.13 is on the roadmap.
+
+- ``Slide.color_variant`` — per-slide light / dark variant via
+  ``<p:clrMapOvr>``.  ``slide.color_variant = "dark"`` swaps
+  ``bg`` / ``tx`` mappings without changing the deck theme;
+  ``"light"`` (the default) restores master inheritance.
+  ``Slide.set_clr_map_override(...)`` for arbitrary attribute remappings.
+
+Bug fixes
+~~~~~~~~~
+
+- ``power_pptx.text.layout.TextFitter`` no longer raises when text
+  genuinely cannot fit at any point size; the predicate now treats
+  unfittable input as "doesn't fit" so :meth:`best_fit_font_size`
+  returns ``None`` cleanly.  Surfaces with ``cell.text_frame.fit_text``
+  on tiny cells with very long text.
+
+- ``tests/text/test_fonts.py`` resets the ``FontFiles`` class-level
+  cache in its ``find_fixture`` so the suite is order-independent.
+
+Tests
+~~~~~
+
+3,140 passing (up from 3,087 in 2.0.0): 53 new tests across lint,
+tables, charts, animations, and theme.
+
+
 2.0.0 (2026-04-29)
 ++++++++++++++++++
 
