@@ -1,4 +1,4 @@
-"""Unit-test suite for :mod:`pptx.design.recipes`."""
+"""Unit-test suite for :mod:`power_pptx.design.recipes`."""
 
 from __future__ import annotations
 
@@ -6,19 +6,19 @@ import os
 
 import pytest
 
-from pptx import Presentation
-from pptx.design.recipes import (
+from power_pptx import Presentation
+from power_pptx.design.recipes import (
     bullet_slide,
     image_hero_slide,
     kpi_slide,
     quote_slide,
     title_slide,
 )
-from pptx.design.tokens import DesignTokens
-from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pptx.enum.text import PP_ALIGN
-from pptx.util import Pt
+from power_pptx.design.tokens import DesignTokens
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.shapes import MSO_SHAPE_TYPE
+from power_pptx.enum.text import PP_ALIGN
+from power_pptx.util import Pt
 
 
 _TEST_IMAGE = os.path.join(
@@ -116,7 +116,7 @@ class DescribeTitleSlide:
         assert title_para.alignment == PP_ALIGN.CENTER
 
     def it_applies_an_optional_transition(self, prs):
-        from pptx.enum.presentation import MSO_TRANSITION_TYPE
+        from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 
         slide = title_slide(prs, title="Hi", transition="morph")
         assert slide.transition.kind == MSO_TRANSITION_TYPE.MORPH

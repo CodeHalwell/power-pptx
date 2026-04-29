@@ -7,9 +7,32 @@ This project was forked from `scanny/python-pptx`_ at version 1.0.2.
 Releases prior to 1.1.0 are upstream history, preserved here verbatim and
 attributed to Steve Canny and the original contributors. Releases from
 1.1.0 onward are made under the ``power-pptx`` distribution name on
-PyPI; the importable package name (``pptx``) is unchanged.
+PyPI. Starting with 2.0.0 the importable package name is ``power_pptx``
+to avoid a top-level namespace collision when ``python-pptx`` (which
+installs the ``pptx`` import name) is also present in the environment.
 
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
+
+
+2.0.0 (2026-04-29)
+++++++++++++++++++
+
+Breaking change: the importable package was renamed from ``pptx`` to
+``power_pptx`` so that ``power-pptx`` and ``python-pptx`` can be
+installed side-by-side without colliding on the top-level ``pptx``
+module.  Update imports accordingly::
+
+    # before (1.x)
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    # after (2.0+)
+    from power_pptx import Presentation
+    from power_pptx.util import Inches
+
+No public API behavior changed in this release; everything that used to
+live under ``pptx.*`` now lives under ``power_pptx.*`` with identical
+signatures.  The PyPI distribution name (``power-pptx``) is unchanged.
 
 
 1.1.0 (2026-04-28)
@@ -17,7 +40,7 @@ PyPI; the importable package name (``pptx``) is unchanged.
 
 This is the inaugural release under the ``power-pptx`` distribution name
 on PyPI.  It is a drop-in replacement for ``python-pptx`` 1.0.2:
-``import pptx`` continues to work and existing user code is unaffected.
+``import power_pptx`` continues to work and existing user code is unaffected.
 It bundles every feature from Phases 1 through 10 of the fork's roadmap —
 visual effects, animations, transitions, theme reader/writer, JSON
 authoring, the layout linter, design tokens and slide recipes, chart
@@ -34,7 +57,7 @@ collected near the end under "Project changes".
 Phase 9 — design-system layer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``pptx.design.tokens.DesignTokens``: source-agnostic container for
+- ``power_pptx.design.tokens.DesignTokens``: source-agnostic container for
   brand tokens — ``palette`` (str → ``RGBColor``), ``typography``
   (``TypographyToken`` with ``family``/``size``/``bold``/``italic``/
   ``color``), ``radii`` and ``spacings`` (str → ``Length``), and
@@ -56,7 +79,7 @@ Phase 9 — design-system layer
   ``ShadowToken`` assignment leaves unset fields untouched so partial
   tokens are non-destructive; ``None`` clears the corresponding effect.
 
-- ``pptx.design.recipes``: opinionated parameterized slide
+- ``power_pptx.design.recipes``: opinionated parameterized slide
   constructors.  Five recipes are included — ``title_slide``,
   ``bullet_slide``, ``kpi_slide``, ``quote_slide``, and
   ``image_hero_slide`` — each taking the host ``Presentation``, the
@@ -79,7 +102,7 @@ Phase 9 — design-system layer
 Phase 10 — additional motion-path presets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``pptx.animation.MotionPath`` gains five new convenience constructors
+- ``power_pptx.animation.MotionPath`` gains five new convenience constructors
   alongside the existing ``line`` / ``custom``: ``diagonal``,
   ``circle`` (closed cubic-bezier loop with a ``clockwise`` flag),
   ``arc`` (quadratic-bezier hop with a configurable ``height``
@@ -98,7 +121,7 @@ Phase 10 — chart palette presets
   declaration order; palettes wrap when the chart has more series
   than colors.
 
-- New module ``pptx.chart.palettes`` exposes ``CHART_PALETTES`` (six
+- New module ``power_pptx.chart.palettes`` exposes ``CHART_PALETTES`` (six
   built-in palettes — ``modern``, ``classic``, ``editorial``,
   ``vibrant``, ``monochrome_blue``, ``monochrome_warm``),
   ``palette_names()``, and ``resolve_palette()`` for callers that want
@@ -112,7 +135,7 @@ Phase 10 — chart palette presets
 Phase 6 — theme-aware color inheritance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- New ``pptx.inherit.resolve_color(color_format, theme=...)`` returns
+- New ``power_pptx.inherit.resolve_color(color_format, theme=...)`` returns
   the effective ``RGBColor`` for any ``ColorFormat`` (including the
   ``_LazyColorFormat`` proxy returned by ``Font.color`` /
   ``LineFormat.color``).  Explicit RGB colors are returned as-is,
@@ -133,17 +156,17 @@ Phase 6 — native SVG in ``add_picture``
   supply their own fallback.  ``image/svg+xml`` is registered as a
   first-class image content type so SVG parts round-trip cleanly.
 
-Phase 7 — ``pptx.compose`` package
+Phase 7 — ``power_pptx.compose`` package
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``pptx.compose`` is now a real package re-exporting ``from_spec``,
+- ``power_pptx.compose`` is now a real package re-exporting ``from_spec``,
   ``import_slide``, and ``apply_template`` from a single import path::
 
-      from pptx.compose import from_spec, import_slide, apply_template
+      from power_pptx.compose import from_spec, import_slide, apply_template
 
   The implementations live in private submodules
-  (``pptx.compose.from_spec``, ``pptx._slide_importer``,
-  ``pptx._template_applier``).  Existing imports (``from pptx.compose
+  (``power_pptx.compose.from_spec``, ``power_pptx._slide_importer``,
+  ``power_pptx._template_applier``).  Existing imports (``from power_pptx.compose
   import from_spec``) are unchanged.
 
 Phase 10 — chart quick layouts
@@ -151,7 +174,7 @@ Phase 10 — chart quick layouts
 
 - ``Chart.apply_quick_layout(layout)`` toggles title / legend /
   axis-title / gridline visibility in opinionated combinations.  Ten
-  built-in presets ship in ``pptx.chart.quick_layouts``
+  built-in presets ship in ``power_pptx.chart.quick_layouts``
   (``title_legend_right``, ``title_legend_bottom``,
   ``title_legend_top``, ``title_legend_left``, ``title_no_legend``,
   ``no_title_no_legend``, ``title_axes_legend_right``,
@@ -161,7 +184,7 @@ Phase 10 — chart quick layouts
 Phase 10 — slide-thumbnail renderer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- New ``pptx.render`` module with
+- New ``power_pptx.render`` module with
   ``render_slide_thumbnails(prs, ...)`` and
   ``render_slide_thumbnail(slide, ...)``, plus convenience methods
   ``Presentation.render_thumbnails()`` and ``Slide.render_thumbnail()``.
@@ -199,8 +222,8 @@ Phase 8 — 3D primitives and SmartArt text substitution
   ``width``, ``height``), ``extrusion_height``, ``extrusion_color``,
   ``contour_width``, ``contour_color``, and ``preset_material``.
   Backed by ``CT_Shape3D`` and ``CT_Scene3D`` element classes in
-  ``pptx.oxml.dml.three_d``.  ``BevelPreset`` and ``PresetMaterial``
-  enumerations added to ``pptx.enum.dml``.
+  ``power_pptx.oxml.dml.three_d``.  ``BevelPreset`` and ``PresetMaterial``
+  enumerations added to ``power_pptx.enum.dml``.
 
 - ``slide.smart_art``: ``SmartArtCollection`` providing indexed and
   iterable access to SmartArt graphics on a slide.  Each item is a
@@ -259,10 +282,10 @@ Documentation
   transitions, layout linter, JSON authoring + cross-presentation
   composition, themes, design-system layer, advanced charts (palettes
   / quick layouts / per-series fills), and slide thumbnails.
-- New API reference pages: ``pptx.animation``, ``pptx.lint``,
-  ``pptx.compose``, ``pptx.theme`` (plus ``pptx.inherit.resolve_color``),
-  ``pptx.design`` (tokens, style, layout, recipes), ``pptx.render``,
-  ``pptx.smart_art``, plus enum pages for ``MSO_LINE_CAP_STYLE``,
+- New API reference pages: ``power_pptx.animation``, ``power_pptx.lint``,
+  ``power_pptx.compose``, ``power_pptx.theme`` (plus ``power_pptx.inherit.resolve_color``),
+  ``power_pptx.design`` (tokens, style, layout, recipes), ``power_pptx.render``,
+  ``power_pptx.smart_art``, plus enum pages for ``MSO_LINE_CAP_STYLE``,
   ``MSO_LINE_COMPOUND_STYLE``, ``MSO_LINE_JOIN_STYLE``,
   ``MSO_LINE_END_TYPE``, ``MSO_LINE_END_SIZE``, ``MSO_TRANSITION_TYPE``,
   and ``PP_ANIM_TRIGGER``.
@@ -297,7 +320,7 @@ New API
   2-stop minimum is enforced).  ``color`` accepts ``RGBColor``, hex strings
   (with or without leading ``#``), 3-tuples, or ``None`` (placeholder
   ``schemeClr accent1`` color).
-- ``pptx.design.layout`` (Phase 9): build-time geometry helpers that compute
+- ``power_pptx.design.layout`` (Phase 9): build-time geometry helpers that compute
   ``Box(left, top, width, height)`` rectangles so callers don't eyeball EMUs.
   ``Grid(slide, cols=12, rows=6, gutter=Pt(12), margin=Inches(0.5))`` allocates
   rectangles via ``grid.cell(col=, row=, col_span=, row_span=)`` or applies
@@ -516,7 +539,7 @@ New API
 - Add _Cell.span_width
 - Add _Cell.text getter
 - Add Table.iter_cells()
-- Move pptx.shapes.table module to pptx.table
+- Move power_pptx.shapes.table module to power_pptx.table
 - Add user documentation 'Working with tables'
 
 
@@ -838,14 +861,14 @@ an exception.
 The following enumerations were moved/renamed during the rationalization of
 enumerations:
 
-- ``pptx.enum.MSO_COLOR_TYPE`` --> ``pptx.enum.dml.MSO_COLOR_TYPE``
-- ``pptx.enum.MSO_FILL`` --> ``pptx.enum.dml.MSO_FILL``
-- ``pptx.enum.MSO_THEME_COLOR`` --> ``pptx.enum.dml.MSO_THEME_COLOR``
-- ``pptx.constants.MSO.ANCHOR_*`` --> ``pptx.enum.text.MSO_ANCHOR.*``
-- ``pptx.constants.MSO_SHAPE`` --> ``pptx.enum.shapes.MSO_SHAPE``
-- ``pptx.constants.PP.ALIGN_*`` --> ``pptx.enum.text.PP_ALIGN.*``
-- ``pptx.constants.MSO.{SHAPE_TYPES}`` -->
-  ``pptx.enum.shapes.MSO_SHAPE_TYPE.*``
+- ``power_pptx.enum.MSO_COLOR_TYPE`` --> ``power_pptx.enum.dml.MSO_COLOR_TYPE``
+- ``power_pptx.enum.MSO_FILL`` --> ``power_pptx.enum.dml.MSO_FILL``
+- ``power_pptx.enum.MSO_THEME_COLOR`` --> ``power_pptx.enum.dml.MSO_THEME_COLOR``
+- ``power_pptx.constants.MSO.ANCHOR_*`` --> ``power_pptx.enum.text.MSO_ANCHOR.*``
+- ``power_pptx.constants.MSO_SHAPE`` --> ``power_pptx.enum.shapes.MSO_SHAPE``
+- ``power_pptx.constants.PP.ALIGN_*`` --> ``power_pptx.enum.text.PP_ALIGN.*``
+- ``power_pptx.constants.MSO.{SHAPE_TYPES}`` -->
+  ``power_pptx.enum.shapes.MSO_SHAPE_TYPE.*``
 
 Documentation for all enumerations is available in the Enumerations section
 of the User Guide.

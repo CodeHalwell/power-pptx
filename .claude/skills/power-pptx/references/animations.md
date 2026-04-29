@@ -1,17 +1,17 @@
 # Animations (Phase 5)
 
-`pptx.animation` ships a preset-only API that maps directly onto
+`power_pptx.animation` ships a preset-only API that maps directly onto
 PowerPoint's built-in animation library. All generated XML is valid
 OOXML and round-trips through PowerPoint without loss.
 
 ## Imports
 
 ```python
-from pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
-from pptx.util import Inches, Pt
+from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
+from power_pptx.util import Inches, Pt
 ```
 
-`Trigger` is an alias for `pptx.enum.animation.PP_ANIM_TRIGGER`.
+`Trigger` is an alias for `power_pptx.enum.animation.PP_ANIM_TRIGGER`.
 
 ## Triggers and delay
 
@@ -122,9 +122,9 @@ prs.save("with-extra-fade.pptx")
 ## End-to-end example
 
 ```python
-from pptx import Presentation
-from pptx.animation import Entrance, Emphasis, MotionPath, Trigger
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.animation import Entrance, Emphasis, MotionPath, Trigger
+from power_pptx.util import Inches
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[5])

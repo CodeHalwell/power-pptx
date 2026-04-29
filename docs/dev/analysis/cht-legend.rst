@@ -21,10 +21,10 @@ Candidate protocol
     True
     >>> legend = chart.legend
     >>> legend
-    <pptx.chart.chart.Legend object at 0xdeadbeef1>
+    <power_pptx.chart.chart.Legend object at 0xdeadbeef1>
 
     >>> legend.font
-    <pptx.text.Font object at 0xdeadbeef2>
+    <power_pptx.text.Font object at 0xdeadbeef2>
 
     >>> legend.horz_offset
     0.0

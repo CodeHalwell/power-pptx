@@ -1,19 +1,19 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.table` module."""
+"""Unit-test suite for `power_pptx.table` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.color import RGBColor
-from pptx.dml.fill import FillFormat
-from pptx.dml.line import LineFormat
-from pptx.enum.text import MSO_ANCHOR
-from pptx.oxml.ns import qn
-from pptx.oxml.table import CT_Table, CT_TableCell, TcRange
-from pptx.shapes.graphfrm import GraphicFrame
-from pptx.table import (
+from power_pptx.dml.color import RGBColor
+from power_pptx.dml.fill import FillFormat
+from power_pptx.dml.line import LineFormat
+from power_pptx.enum.text import MSO_ANCHOR
+from power_pptx.oxml.ns import qn
+from power_pptx.oxml.table import CT_Table, CT_TableCell, TcRange
+from power_pptx.shapes.graphfrm import GraphicFrame
+from power_pptx.table import (
     Table,
     _BorderEdge,
     _Borders,
@@ -24,15 +24,15 @@ from pptx.table import (
     _Row,
     _RowCollection,
 )
-from pptx.text.text import TextFrame
-from pptx.util import Inches, Length, Pt
+from power_pptx.text.text import TextFrame
+from power_pptx.util import Inches, Length, Pt
 
 from .unitutil.cxml import element, xml
 from .unitutil.mock import call, class_mock, instance_mock, property_mock
 
 
 class DescribeTable(object):
-    """Unit-test suite for `pptx.table.Table` objects."""
+    """Unit-test suite for `power_pptx.table.Table` objects."""
 
     def it_provides_access_to_its_cells(self, tbl_, tc_, _Cell_, cell_):
         row_idx, col_idx = 4, 2
@@ -49,7 +49,7 @@ class DescribeTable(object):
     def it_provides_access_to_its_columns(self, request):
         columns_ = instance_mock(request, _ColumnCollection)
         _ColumnCollection_ = class_mock(
-            request, "pptx.table._ColumnCollection", return_value=columns_
+            request, "power_pptx.table._ColumnCollection", return_value=columns_
         )
         tbl = element("a:tbl")
         table = Table(tbl, None)
@@ -74,7 +74,7 @@ class DescribeTable(object):
 
     def it_provides_access_to_its_rows(self, request):
         rows_ = instance_mock(request, _RowCollection)
-        _RowCollection_ = class_mock(request, "pptx.table._RowCollection", return_value=rows_)
+        _RowCollection_ = class_mock(request, "power_pptx.table._RowCollection", return_value=rows_)
         tbl = element("a:tbl")
         table = Table(tbl, None)
 
@@ -113,7 +113,7 @@ class DescribeTable(object):
 
     @pytest.fixture
     def _Cell_(self, request):
-        return class_mock(request, "pptx.table._Cell")
+        return class_mock(request, "power_pptx.table._Cell")
 
     @pytest.fixture
     def cell_(self, request):
@@ -199,7 +199,7 @@ class DescribeTableBooleanProperties(object):
 
 
 class Describe_Cell(object):
-    """Unit-test suite for `pptx.table._Cell` object."""
+    """Unit-test suite for `power_pptx.table._Cell` object."""
 
     def it_is_equal_to_other_instance_having_same_tc(self):
         tc = element("a:tc")
@@ -511,7 +511,7 @@ class Describe_Cell(object):
 
     @pytest.fixture
     def TcRange_(self, request):
-        return class_mock(request, "pptx.table.TcRange")
+        return class_mock(request, "power_pptx.table.TcRange")
 
     @pytest.fixture
     def tc_range_(self, request):
@@ -584,7 +584,7 @@ class Describe_CellCollection(object):
 
     @pytest.fixture
     def _Cell_(self, request):
-        return class_mock(request, "pptx.table._Cell")
+        return class_mock(request, "power_pptx.table._Cell")
 
     @pytest.fixture
     def cell_(self, request):
@@ -750,7 +750,7 @@ class Describe_Row(object):
 
     @pytest.fixture
     def _CellCollection_(self, request, cells_):
-        return class_mock(request, "pptx.table._CellCollection", return_value=cells_)
+        return class_mock(request, "power_pptx.table._CellCollection", return_value=cells_)
 
     @pytest.fixture
     def cells_(self, request):
@@ -815,7 +815,7 @@ class Describe_RowCollection(object):
 
 
 class Describe_Borders(object):
-    """Unit-test suite for `pptx.table._Borders` object."""
+    """Unit-test suite for `power_pptx.table._Borders` object."""
 
     @pytest.mark.parametrize(
         ("attr", "expected_edge"),
@@ -942,7 +942,7 @@ class Describe_Borders(object):
 
 
 class Describe_BorderEdge(object):
-    """Unit-test suite for `pptx.table._BorderEdge` object."""
+    """Unit-test suite for `power_pptx.table._BorderEdge` object."""
 
     def it_returns_None_for_ln_when_no_tcPr(self):
         tc = element("a:tc")

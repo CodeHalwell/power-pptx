@@ -3,7 +3,7 @@
 Composition
 ===========
 
-.. currentmodule:: pptx.compose
+.. currentmodule:: power_pptx.compose
 
 
 .. autofunction:: from_spec

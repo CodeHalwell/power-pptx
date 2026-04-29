@@ -1,4 +1,4 @@
-"""Unit-test suite for `pptx.enum.base`."""
+"""Unit-test suite for `power_pptx.enum.base`."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import warnings
 
 import pytest
 
-from pptx.enum.action import PP_ACTION, PP_ACTION_TYPE
-from pptx.enum.dml import MSO_LINE_DASH_STYLE, MSO_PATTERN_TYPE
+from power_pptx.enum.action import PP_ACTION, PP_ACTION_TYPE
+from power_pptx.enum.dml import MSO_LINE_DASH_STYLE, MSO_PATTERN_TYPE
 
 
 class DescribeBaseEnum:
-    """Unit-test suite for `pptx.enum.base.BaseEnum`."""
+    """Unit-test suite for `power_pptx.enum.base.BaseEnum`."""
 
     def it_produces_members_each_equivalent_to_an_integer_value(self):
         assert PP_ACTION_TYPE.END_SHOW == 6
@@ -46,7 +46,7 @@ class DescribeBaseEnum:
 
 
 class DescribeBaseXmlEnum:
-    """Unit-test suite for `pptx.enum.base.BaseXmlEnum`."""
+    """Unit-test suite for `power_pptx.enum.base.BaseXmlEnum`."""
 
     def it_can_look_up_a_member_by_its_corresponding_XML_attribute_value(self):
         assert MSO_LINE_DASH_STYLE.from_xml("dash") == MSO_LINE_DASH_STYLE.DASH

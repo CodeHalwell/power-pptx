@@ -1,13 +1,13 @@
-"""Unit-test suite for `pptx.oxml.autoshape` module."""
+"""Unit-test suite for `power_pptx.oxml.autoshape` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.enum.shapes import PP_PLACEHOLDER
-from pptx.oxml.ns import nsdecls
-from pptx.oxml.shapes.autoshape import CT_Shape
-from pptx.oxml.shapes.shared import ST_Direction, ST_PlaceholderSize
+from power_pptx.enum.shapes import PP_PLACEHOLDER
+from power_pptx.oxml.ns import nsdecls
+from power_pptx.oxml.shapes.autoshape import CT_Shape
+from power_pptx.oxml.shapes.shared import ST_Direction, ST_PlaceholderSize
 
 from ...unitutil.cxml import element
 from ..unitdata.shape import a_gd, a_prstGeom, an_avLst

@@ -6,9 +6,9 @@ import datetime
 
 from behave import given, then, when
 
-from pptx.chart.data import BubbleChartData, Category, CategoryChartData, XyChartData
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.util import Inches
+from power_pptx.chart.data import BubbleChartData, Category, CategoryChartData, XyChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.util import Inches
 
 # given ===================================================
 

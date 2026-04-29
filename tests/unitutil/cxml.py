@@ -24,11 +24,11 @@ from pyparsing import (
     stringEnd,
 )
 
-from pptx.oxml import parse_xml
-from pptx.oxml.ns import _nsmap as nsmap
+from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import _nsmap as nsmap
 
 if TYPE_CHECKING:
-    from pptx.oxml.xmlchemy import BaseOxmlElement
+    from power_pptx.oxml.xmlchemy import BaseOxmlElement
 
 # ====================================================================
 # api functions

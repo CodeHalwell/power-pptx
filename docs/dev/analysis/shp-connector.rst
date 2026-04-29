@@ -88,7 +88,7 @@ Properties::
     >>> connector.end_y
     914400
     >>> connector.adjustments
-    <pptx.shapes.shared.Adjustments instance at 0x123456789>
+    <power_pptx.shapes.shared.Adjustments instance at 0x123456789>
 
 Creation protocol::
 

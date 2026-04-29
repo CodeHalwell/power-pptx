@@ -1,26 +1,26 @@
-"""Unit-test suite for `pptx.parts.slide` module."""
+"""Unit-test suite for `power_pptx.parts.slide` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.data import ChartData
-from pptx.enum.chart import XL_CHART_TYPE as XCT
-from pptx.enum.shapes import PROG_ID
-from pptx.media import Video
-from pptx.opc.constants import CONTENT_TYPE as CT
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.package import Part
-from pptx.opc.packuri import PackURI
-from pptx.oxml.slide import CT_NotesMaster, CT_NotesSlide, CT_Slide
-from pptx.oxml.theme import CT_OfficeStyleSheet
-from pptx.package import Package
-from pptx.parts.chart import ChartPart
-from pptx.parts.embeddedpackage import EmbeddedPackagePart
-from pptx.parts.image import Image, ImagePart
-from pptx.parts.media import MediaPart
-from pptx.parts.presentation import PresentationPart
-from pptx.parts.slide import (
+from power_pptx.chart.data import ChartData
+from power_pptx.enum.chart import XL_CHART_TYPE as XCT
+from power_pptx.enum.shapes import PROG_ID
+from power_pptx.media import Video
+from power_pptx.opc.constants import CONTENT_TYPE as CT
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import Part
+from power_pptx.opc.packuri import PackURI
+from power_pptx.oxml.slide import CT_NotesMaster, CT_NotesSlide, CT_Slide
+from power_pptx.oxml.theme import CT_OfficeStyleSheet
+from power_pptx.package import Package
+from power_pptx.parts.chart import ChartPart
+from power_pptx.parts.embeddedpackage import EmbeddedPackagePart
+from power_pptx.parts.image import Image, ImagePart
+from power_pptx.parts.media import MediaPart
+from power_pptx.parts.presentation import PresentationPart
+from power_pptx.parts.slide import (
     BaseSlidePart,
     NotesMasterPart,
     NotesSlidePart,
@@ -28,7 +28,7 @@ from pptx.parts.slide import (
     SlideMasterPart,
     SlidePart,
 )
-from pptx.slide import NotesMaster, NotesSlide, Slide, SlideLayout, SlideMaster
+from power_pptx.slide import NotesMaster, NotesSlide, Slide, SlideLayout, SlideMaster
 
 from ..unitutil.cxml import element
 from ..unitutil.file import absjoin, test_file_dir
@@ -42,7 +42,7 @@ from ..unitutil.mock import (
 
 
 class DescribeBaseSlidePart(object):
-    """Unit-test suite for `pptx.parts.slide.BaseSlidePart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.BaseSlidePart` objects."""
 
     def it_knows_its_name(self):
         slide_part = BaseSlidePart(None, None, None, element("p:sld/p:cSld{name=Foobar}"))
@@ -82,7 +82,7 @@ class DescribeBaseSlidePart(object):
 
 
 class DescribeNotesMasterPart(object):
-    """Unit-test suite for `pptx.parts.slide.NotesMasterPart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.NotesMasterPart` objects."""
 
     def it_can_create_a_notes_master_part(self, request, package_, notes_master_part_, theme_part_):
         method_mock(
@@ -109,7 +109,7 @@ class DescribeNotesMasterPart(object):
     def it_provides_access_to_its_notes_master(self, request):
         notes_master_ = instance_mock(request, NotesMaster)
         NotesMaster_ = class_mock(
-            request, "pptx.parts.slide.NotesMaster", return_value=notes_master_
+            request, "power_pptx.parts.slide.NotesMaster", return_value=notes_master_
         )
         notesMaster = element("p:notesMaster")
         notes_master_part = NotesMasterPart(None, None, None, notesMaster)
@@ -121,7 +121,7 @@ class DescribeNotesMasterPart(object):
 
     def it_creates_a_new_notes_master_part_to_help(self, request, package_, notes_master_part_):
         NotesMasterPart_ = class_mock(
-            request, "pptx.parts.slide.NotesMasterPart", return_value=notes_master_part_
+            request, "power_pptx.parts.slide.NotesMasterPart", return_value=notes_master_part_
         )
         notesMaster = element("p:notesMaster")
         method_mock(
@@ -145,7 +145,7 @@ class DescribeNotesMasterPart(object):
 
     def it_creates_a_new_theme_part_to_help(self, request, package_, theme_part_):
         ThemePart_ = class_mock(
-            request, "pptx.parts.slide.ThemePart", return_value=theme_part_
+            request, "power_pptx.parts.slide.ThemePart", return_value=theme_part_
         )
         theme_elm = element("p:theme")
         method_mock(
@@ -182,7 +182,7 @@ class DescribeNotesMasterPart(object):
 
 
 class DescribeNotesSlidePart(object):
-    """Unit-test suite for `pptx.parts.slide.NotesSlidePart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.NotesSlidePart` objects."""
 
     def it_can_create_a_notes_slide_part(
         self,
@@ -226,7 +226,7 @@ class DescribeNotesSlidePart(object):
         assert notes_master is notes_master_
 
     def it_provides_access_to_its_notes_slide(self, request, notes_slide_):
-        NotesSlide_ = class_mock(request, "pptx.parts.slide.NotesSlide", return_value=notes_slide_)
+        NotesSlide_ = class_mock(request, "power_pptx.parts.slide.NotesSlide", return_value=notes_slide_)
         notes = element("p:notes")
         notes_slide_part = NotesSlidePart(None, None, None, notes)
 
@@ -239,7 +239,7 @@ class DescribeNotesSlidePart(object):
         self, request, package_, slide_part_, notes_master_part_, notes_slide_part_
     ):
         NotesSlidePart_ = class_mock(
-            request, "pptx.parts.slide.NotesSlidePart", return_value=notes_slide_part_
+            request, "power_pptx.parts.slide.NotesSlidePart", return_value=notes_slide_part_
         )
         notes = element("p:notes")
         new_ = method_mock(request, CT_NotesSlide, "new", autospec=False, return_value=notes)
@@ -291,7 +291,7 @@ class DescribeNotesSlidePart(object):
 
 
 class DescribeSlidePart(object):
-    """Unit-test suite for `pptx.parts.slide.SlidePart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.SlidePart` objects."""
 
     def it_knows_its_slide_id(self, slide_id_fixture):
         slide_part, presentation_part_, slide_id = slide_id_fixture
@@ -308,7 +308,7 @@ class DescribeSlidePart(object):
     def it_can_add_a_chart_part(self, request, package_, relate_to_):
         chart_data_ = instance_mock(request, ChartData)
         chart_part_ = instance_mock(request, ChartPart)
-        ChartPart_ = class_mock(request, "pptx.parts.slide.ChartPart")
+        ChartPart_ = class_mock(request, "power_pptx.parts.slide.ChartPart")
         ChartPart_.new.return_value = chart_part_
         relate_to_.return_value = "rId42"
         slide_part = SlidePart(None, None, package_, None)
@@ -335,7 +335,7 @@ class DescribeSlidePart(object):
             request, SlidePart, "_blob_from_file", return_value=b"012345"
         )
         embedded_package_part_ = instance_mock(request, EmbeddedPackagePart)
-        EmbeddedPackagePart_ = class_mock(request, "pptx.parts.slide.EmbeddedPackagePart")
+        EmbeddedPackagePart_ = class_mock(request, "power_pptx.parts.slide.EmbeddedPackagePart")
         EmbeddedPackagePart_.factory.return_value = embedded_package_part_
         relate_to_.return_value = "rId9"
         slide_part = SlidePart(None, None, package_, None)
@@ -366,7 +366,7 @@ class DescribeSlidePart(object):
         partname = PackURI("/foobar.xml")
         _init_ = initializer_mock(request, SlidePart)
         slide_layout_part_ = instance_mock(request, SlideLayoutPart)
-        CT_Slide_ = class_mock(request, "pptx.parts.slide.CT_Slide")
+        CT_Slide_ = class_mock(request, "power_pptx.parts.slide.CT_Slide")
         CT_Slide_.new.return_value = sld = element("c:sld")
 
         slide_part = SlidePart.new(partname, package_, slide_layout_part_)
@@ -489,7 +489,7 @@ class DescribeSlidePart(object):
     @pytest.fixture
     def NotesSlidePart_(self, request, notes_slide_part_):
         return class_mock(
-            request, "pptx.parts.slide.NotesSlidePart", return_value=notes_slide_part_
+            request, "power_pptx.parts.slide.NotesSlidePart", return_value=notes_slide_part_
         )
 
     @pytest.fixture
@@ -514,7 +514,7 @@ class DescribeSlidePart(object):
 
     @pytest.fixture
     def Slide_(self, request, slide_):
-        return class_mock(request, "pptx.parts.slide.Slide", return_value=slide_)
+        return class_mock(request, "power_pptx.parts.slide.Slide", return_value=slide_)
 
     @pytest.fixture
     def slide_(self, request):
@@ -530,7 +530,7 @@ class DescribeSlidePart(object):
 
 
 class DescribeSlideLayoutPart(object):
-    """Unit-test suite for `pptx.parts.slide.SlideLayoutPart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.SlideLayoutPart` objects."""
 
     def it_provides_access_to_its_slide_master(self, request):
         slide_master_ = instance_mock(request, SlideMaster)
@@ -548,7 +548,7 @@ class DescribeSlideLayoutPart(object):
     def it_provides_access_to_its_slide_layout(self, request):
         slide_layout_ = instance_mock(request, SlideLayout)
         SlideLayout_ = class_mock(
-            request, "pptx.parts.slide.SlideLayout", return_value=slide_layout_
+            request, "power_pptx.parts.slide.SlideLayout", return_value=slide_layout_
         )
         sldLayout = element("p:sldLayout")
         slide_layout_part = SlideLayoutPart(None, None, None, sldLayout)
@@ -560,12 +560,12 @@ class DescribeSlideLayoutPart(object):
 
 
 class DescribeSlideMasterPart(object):
-    """Unit-test suite for `pptx.parts.slide.SlideMasterPart` objects."""
+    """Unit-test suite for `power_pptx.parts.slide.SlideMasterPart` objects."""
 
     def it_provides_access_to_its_slide_master(self, request):
         slide_master_ = instance_mock(request, SlideMaster)
         SlideMaster_ = class_mock(
-            request, "pptx.parts.slide.SlideMaster", return_value=slide_master_
+            request, "power_pptx.parts.slide.SlideMaster", return_value=slide_master_
         )
         sldMaster = element("p:sldMaster")
         slide_master_part = SlideMasterPart(None, None, None, sldMaster)

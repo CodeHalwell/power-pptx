@@ -6,9 +6,9 @@ Pictures gain a dedicated `effects` accessor that wraps the OOXML
 ## Picture filters
 
 ```python
-from pptx import Presentation
-from pptx.util import Inches
-from pptx.dml.color import RGBColor
+from power_pptx import Presentation
+from power_pptx.util import Inches
+from power_pptx.dml.color import RGBColor
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
@@ -71,7 +71,7 @@ slide.shapes.add_svg_picture(
 ```
 
 If `cairosvg` isn't installed and you don't pass `png_fallback`, the
-call raises `pptx._svg.CairoSvgUnavailable` with a clear install hint.
+call raises `power_pptx._svg.CairoSvgUnavailable` with a clear install hint.
 
 The `image/svg+xml` content type is registered with the package so
 SVG parts authored elsewhere round-trip through PowerPoint untouched.
@@ -79,10 +79,10 @@ SVG parts authored elsewhere round-trip through PowerPoint untouched.
 ## End-to-end: tinted photo with overlay text
 
 ```python
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
+from power_pptx import Presentation
+from power_pptx.util import Inches, Pt
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.shapes import MSO_SHAPE
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])

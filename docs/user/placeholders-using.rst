@@ -45,7 +45,7 @@ pick out the one you want::
 ... then, having the known index in hand, to access it directly::
 
     >>> slide.placeholders[1]
-    <pptx.parts.slide.PicturePlaceholder object at 0x10d094590>
+    <power_pptx.parts.slide.PicturePlaceholder object at 0x10d094590>
     >>> slide.placeholders[2].name
     'Text Placeholder 3'
 
@@ -189,8 +189,8 @@ placeholder, so this example assumes a starting presentation named
 ``having-chart-placeholder.pptx`` having a chart placeholder with idx 10 on
 its second slide layout::
 
-    >>> from pptx.chart.data import ChartData
-    >>> from pptx.enum.chart import XL_CHART_TYPE
+    >>> from power_pptx.chart.data import ChartData
+    >>> from power_pptx.enum.chart import XL_CHART_TYPE
 
     >>> prs = Presentation('having-chart-placeholder.pptx')
     >>> slide = prs.slides.add_slide(prs.slide_layouts[1])

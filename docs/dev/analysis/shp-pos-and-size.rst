@@ -19,7 +19,7 @@ Protocol
 
 ::
 
-    >>> assert isinstance(shape, pptx.shapes.autoshape.Shape)
+    >>> assert isinstance(shape, power_pptx.shapes.autoshape.Shape)
     >>> shape.left
     914400
     >>> shape.left = Inches(0.5)

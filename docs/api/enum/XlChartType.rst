@@ -7,7 +7,7 @@ Specifies the type of a chart.
 
 Example::
 
-    from pptx.enum.chart import XL_CHART_TYPE
+    from power_pptx.enum.chart import XL_CHART_TYPE
 
     assert chart.chart_type == XL_CHART_TYPE.BAR_STACKED
 

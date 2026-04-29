@@ -16,7 +16,7 @@ Protocol
 
 ::
 
-    >>> assert isinstance(prs, pptx.parts.presentation.PresentationPart)
+    >>> assert isinstance(prs, power_pptx.parts.presentation.PresentationPart)
     >>> prs.slide_width
     9144000
     >>> prs.slide_height

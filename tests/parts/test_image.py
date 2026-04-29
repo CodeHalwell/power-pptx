@@ -1,4 +1,4 @@
-"""Unit-test suite for `pptx.parts.image` module."""
+"""Unit-test suite for `power_pptx.parts.image` module."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import io
 
 import pytest
 
-from pptx.package import Package
-from pptx.parts.image import Image, ImagePart
-from pptx.util import Emu
+from power_pptx.package import Package
+from power_pptx.parts.image import Image, ImagePart
+from power_pptx.util import Emu
 
 from ..unitutil.file import absjoin, test_file_dir
 from ..unitutil.mock import (
@@ -27,7 +27,7 @@ new_image_path = absjoin(test_file_dir, "monty-truth.png")
 
 
 class DescribeImagePart(object):
-    """Unit-test suite for `pptx.parts.image.ImagePart` objects."""
+    """Unit-test suite for `power_pptx.parts.image.ImagePart` objects."""
 
     def it_can_construct_from_an_image_object(self, request, image_):
         package_ = instance_mock(request, Package)
@@ -48,7 +48,7 @@ class DescribeImagePart(object):
         assert isinstance(image_part, ImagePart)
 
     def it_provides_access_to_its_image(self, request, image_):
-        Image_ = class_mock(request, "pptx.parts.image.Image")
+        Image_ = class_mock(request, "power_pptx.parts.image.Image")
         Image_.return_value = image_
         property_mock(request, ImagePart, "desc", return_value="foobar.png")
         image_part = ImagePart(None, None, None, b"blob", None)
@@ -89,7 +89,7 @@ class DescribeImagePart(object):
 
 
 class DescribeImage(object):
-    """Unit-test suite for `pptx.parts.image.Image` objects."""
+    """Unit-test suite for `power_pptx.parts.image.Image` objects."""
 
     def it_can_construct_from_a_path(self, from_blob_, image_):
         with open(test_image_path, "rb") as f:

@@ -1,26 +1,26 @@
-"""Unit-test suite for `pptx.parts.chart` module."""
+"""Unit-test suite for `power_pptx.parts.chart` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.chart import Chart
-from pptx.chart.data import ChartData
-from pptx.enum.chart import XL_CHART_TYPE as XCT
-from pptx.opc.constants import CONTENT_TYPE as CT
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.package import OpcPackage
-from pptx.opc.packuri import PackURI
-from pptx.oxml.chart.chart import CT_ChartSpace
-from pptx.parts.chart import ChartPart, ChartWorkbook
-from pptx.parts.embeddedpackage import EmbeddedXlsxPart
+from power_pptx.chart.chart import Chart
+from power_pptx.chart.data import ChartData
+from power_pptx.enum.chart import XL_CHART_TYPE as XCT
+from power_pptx.opc.constants import CONTENT_TYPE as CT
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import OpcPackage
+from power_pptx.opc.packuri import PackURI
+from power_pptx.oxml.chart.chart import CT_ChartSpace
+from power_pptx.parts.chart import ChartPart, ChartWorkbook
+from power_pptx.parts.embeddedpackage import EmbeddedXlsxPart
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock, method_mock, property_mock
 
 
 class DescribeChartPart(object):
-    """Unit-test suite for `pptx.parts.chart.ChartPart` objects."""
+    """Unit-test suite for `power_pptx.parts.chart.ChartPart` objects."""
 
     def it_can_construct_from_chart_type_and_data(self, request):
         chart_data_ = instance_mock(request, ChartData, xlsx_blob=b"xlsx-blob")
@@ -43,7 +43,7 @@ class DescribeChartPart(object):
 
     def it_provides_access_to_the_chart_object(self, request, chartSpace_):
         chart_ = instance_mock(request, Chart)
-        Chart_ = class_mock(request, "pptx.parts.chart.Chart", return_value=chart_)
+        Chart_ = class_mock(request, "power_pptx.parts.chart.Chart", return_value=chart_)
         chart_part = ChartPart(None, None, None, chartSpace_)
 
         chart = chart_part.chart
@@ -54,7 +54,7 @@ class DescribeChartPart(object):
     def it_provides_access_to_the_chart_workbook(self, request, chartSpace_):
         chart_workbook_ = instance_mock(request, ChartWorkbook)
         ChartWorkbook_ = class_mock(
-            request, "pptx.parts.chart.ChartWorkbook", return_value=chart_workbook_
+            request, "power_pptx.parts.chart.ChartWorkbook", return_value=chart_workbook_
         )
         chart_part = ChartPart(None, None, None, chartSpace_)
 
@@ -71,7 +71,7 @@ class DescribeChartPart(object):
 
 
 class DescribeChartWorkbook(object):
-    """Unit-test suite for `pptx.parts.chart.ChartWorkbook` objects."""
+    """Unit-test suite for `power_pptx.parts.chart.ChartWorkbook` objects."""
 
     def it_can_get_the_chart_xlsx_part(self, chart_part_, xlsx_part_):
         chart_part_.related_part.return_value = xlsx_part_
@@ -115,7 +115,7 @@ class DescribeChartWorkbook(object):
     def it_adds_an_xlsx_part_on_update_if_needed(
         self, request, chart_part_, package_, xlsx_part_, xlsx_part_prop_
     ):
-        EmbeddedXlsxPart_ = class_mock(request, "pptx.parts.chart.EmbeddedXlsxPart")
+        EmbeddedXlsxPart_ = class_mock(request, "power_pptx.parts.chart.EmbeddedXlsxPart")
         EmbeddedXlsxPart_.new.return_value = xlsx_part_
         chart_part_.package = package_
         xlsx_part_prop_.return_value = None

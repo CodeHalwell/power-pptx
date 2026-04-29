@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx import Presentation
-from pptx.design.layout import Grid
-from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.design.layout import Grid
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
 
 from _lint import lint_or_die
 from _tokens import BRAND

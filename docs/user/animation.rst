@@ -13,7 +13,7 @@ Triggers
 
 Every preset accepts an optional ``trigger`` and ``delay``::
 
-    from pptx.animation import Entrance, Trigger
+    from power_pptx.animation import Entrance, Trigger
 
     Entrance.fade(slide, shape)                                # ON_CLICK
     Entrance.fly_in(slide, shape, trigger=Trigger.WITH_PREVIOUS)
@@ -70,8 +70,8 @@ Motion paths
 
 ::
 
-    from pptx.animation import MotionPath
-    from pptx.util import Inches
+    from power_pptx.animation import MotionPath
+    from power_pptx.util import Inches
 
     MotionPath.line(slide, shape, Inches(2), Inches(1))
     MotionPath.diagonal(slide, shape, Inches(3), Inches(2))

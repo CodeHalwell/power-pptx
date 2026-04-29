@@ -1,14 +1,14 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.chart.plot` module."""
+"""Unit-test suite for `power_pptx.chart.plot` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.category import Categories
-from pptx.chart.chart import Chart
-from pptx.chart.plot import (
+from power_pptx.chart.category import Categories
+from power_pptx.chart.chart import Chart
+from power_pptx.chart.plot import (
     Area3DPlot,
     AreaPlot,
     BarPlot,
@@ -23,8 +23,8 @@ from pptx.chart.plot import (
     XyPlot,
     _BasePlot,
 )
-from pptx.chart.series import SeriesCollection
-from pptx.enum.chart import XL_CHART_TYPE as XL
+from power_pptx.chart.series import SeriesCollection
+from power_pptx.enum.chart import XL_CHART_TYPE as XL
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock
@@ -170,7 +170,7 @@ class Describe_BasePlot(object):
 
     @pytest.fixture
     def Categories_(self, request, categories_):
-        return class_mock(request, "pptx.chart.plot.Categories", return_value=categories_)
+        return class_mock(request, "power_pptx.chart.plot.Categories", return_value=categories_)
 
     @pytest.fixture
     def categories_(self, request):
@@ -182,7 +182,7 @@ class Describe_BasePlot(object):
 
     @pytest.fixture
     def DataLabels_(self, request, data_labels_):
-        return class_mock(request, "pptx.chart.plot.DataLabels", return_value=data_labels_)
+        return class_mock(request, "power_pptx.chart.plot.DataLabels", return_value=data_labels_)
 
     @pytest.fixture
     def data_labels_(self, request):
@@ -191,7 +191,7 @@ class Describe_BasePlot(object):
     @pytest.fixture
     def SeriesCollection_(self, request, series_collection_):
         return class_mock(
-            request, "pptx.chart.plot.SeriesCollection", return_value=series_collection_
+            request, "power_pptx.chart.plot.SeriesCollection", return_value=series_collection_
         )
 
     @pytest.fixture
@@ -350,7 +350,7 @@ class DescribePlotFactory(object):
     def call_fixture(self, request, chart_):
         xChart_cxml, PlotCls = request.param
         plot_ = instance_mock(request, PlotCls, name="plot_")
-        class_spec = "pptx.chart.plot.%s" % PlotCls.__name__
+        class_spec = "power_pptx.chart.plot.%s" % PlotCls.__name__
         PlotClass_ = class_mock(request, class_spec, return_value=plot_)
         xChart = element(xChart_cxml)
         return xChart, chart_, PlotClass_, plot_

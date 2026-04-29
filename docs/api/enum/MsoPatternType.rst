@@ -9,7 +9,7 @@ Specifies the fill pattern used in a shape.
 
     Example::
 
-        from pptx.enum.dml import MSO_PATTERN
+        from power_pptx.enum.dml import MSO_PATTERN
 
         fill = shape.fill
         fill.patterned()

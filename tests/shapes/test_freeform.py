@@ -1,21 +1,21 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.shapes.freeform` module"""
+"""Unit-test suite for `power_pptx.shapes.freeform` module"""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.shapes.autoshape import Shape
-from pptx.shapes.freeform import (
+from power_pptx.shapes.autoshape import Shape
+from power_pptx.shapes.freeform import (
     FreeformBuilder,
     _BaseDrawingOperation,
     _Close,
     _LineSegment,
     _MoveTo,
 )
-from pptx.shapes.shapetree import SlideShapes
-from pptx.util import Emu, Mm
+from power_pptx.shapes.shapetree import SlideShapes
+from power_pptx.util import Emu, Mm
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.file import snippet_seq
@@ -31,7 +31,7 @@ from ..unitutil.mock import (
 
 
 class DescribeFreeformBuilder(object):
-    """Unit-test suite for `pptx.shapes.freeform.FreeformBuilder` objects."""
+    """Unit-test suite for `power_pptx.shapes.freeform.FreeformBuilder` objects."""
 
     def it_provides_a_constructor(self, shapes_: Mock, _init_: Mock):
         start_x, start_y, x_scale, y_scale = 99.56, 200.49, 4.2, 2.4
@@ -403,7 +403,7 @@ class DescribeFreeformBuilder(object):
 
 
 class Describe_BaseDrawingOperation(object):
-    """Unit-test suite for `pptx.shapes.freeform.BaseDrawingOperation` objects."""
+    """Unit-test suite for `power_pptx.shapes.freeform.BaseDrawingOperation` objects."""
 
     def it_knows_its_x_coordinate(self, x_fixture):
         drawing_operation, expected_value = x_fixture
@@ -433,7 +433,7 @@ class Describe_BaseDrawingOperation(object):
 
 
 class Describe_Close(object):
-    """Unit-test suite for `pptx.shapes.freeform._Close` objects."""
+    """Unit-test suite for `power_pptx.shapes.freeform._Close` objects."""
 
     def it_provides_a_constructor(self, new_fixture):
         _init_ = new_fixture
@@ -472,7 +472,7 @@ class Describe_Close(object):
 
 
 class Describe_LineSegment(object):
-    """Unit-test suite for `pptx.shapes.freeform._LineSegment` objects."""
+    """Unit-test suite for `power_pptx.shapes.freeform._LineSegment` objects."""
 
     def it_provides_a_constructor(self, new_fixture):
         builder_, x, y, _init_, x_int, y_int = new_fixture
@@ -519,7 +519,7 @@ class Describe_LineSegment(object):
 
 
 class Describe_MoveTo(object):
-    """Unit-test suite for `pptx.shapes.freeform._MoveTo` objects."""
+    """Unit-test suite for `power_pptx.shapes.freeform._MoveTo` objects."""
 
     def it_provides_a_constructor(self, new_fixture):
         builder_, x, y, _init_, x_int, y_int = new_fixture

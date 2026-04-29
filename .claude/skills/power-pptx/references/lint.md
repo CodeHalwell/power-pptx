@@ -29,7 +29,7 @@ for slide in prs.slides:
 ## Issue types
 
 ```python
-from pptx.lint import TextOverflow, OffSlide, ShapeCollision
+from power_pptx.lint import TextOverflow, OffSlide, ShapeCollision
 
 for issue in report.issues:
     if isinstance(issue, TextOverflow):
@@ -68,11 +68,11 @@ What's currently fixable:
 
 ## Save-time hooks (via `from_spec`)
 
-If you build the deck through `pptx.compose.from_spec`, the spec dict
+If you build the deck through `power_pptx.compose.from_spec`, the spec dict
 accepts a top-level ``"lint"`` field:
 
 ```python
-from pptx.compose import from_spec
+from power_pptx.compose import from_spec
 
 prs = from_spec({
     "slides": [...],
@@ -81,12 +81,12 @@ prs = from_spec({
 ```
 
 `"warn"` logs every issue through stdlib `logging`; `"raise"` raises
-`pptx.exc.LintError` if any error-severity issue is found.
+`power_pptx.exc.LintError` if any error-severity issue is found.
 
 ## Recommended pattern for generators
 
 ```python
-from pptx.exc import LintError
+from power_pptx.exc import LintError
 
 prs = build_deck_from_user_input(...)
 

@@ -1,11 +1,11 @@
-"""Unit-test suite for `pptx.text` module."""
+"""Unit-test suite for `power_pptx.text` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.color import ColorFormat, RGBColor
-from pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
+from power_pptx.dml.color import ColorFormat, RGBColor
+from power_pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
 
 from ..oxml.unitdata.dml import (
     a_lumMod,
@@ -318,20 +318,20 @@ class DescribeRGBColor(object):
 
 
 class Describe_LazyColorFormat:
-    """Unit-test suite for `pptx.dml.color._LazyColorFormat`.
+    """Unit-test suite for `power_pptx.dml.color._LazyColorFormat`.
 
     The lazy proxy is what `Font.color` and `LineFormat.color` return; it preserves
     theme inheritance by not creating an `<a:solidFill>` on read.
     """
 
     def it_is_a_ColorFormat_so_isinstance_checks_keep_working(self):
-        from pptx.dml.color import _LazyColorFormat
+        from power_pptx.dml.color import _LazyColorFormat
 
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         assert isinstance(proxy, ColorFormat)
 
     def it_returns_None_for_type_when_no_solid_fill_is_present(self):
-        from pptx.dml.color import _LazyColorFormat
+        from power_pptx.dml.color import _LazyColorFormat
 
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         assert proxy.type is None
@@ -340,20 +340,20 @@ class Describe_LazyColorFormat:
         assert proxy.brightness == 0
 
     def it_raises_when_setting_brightness_without_a_color(self):
-        from pptx.dml.color import _LazyColorFormat
+        from power_pptx.dml.color import _LazyColorFormat
 
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         with pytest.raises(ValueError, match="can't set brightness when color.type is None"):
             proxy.brightness = 0.5
 
     def it_returns_one_for_alpha_when_no_solid_fill_is_present(self):
-        from pptx.dml.color import _LazyColorFormat
+        from power_pptx.dml.color import _LazyColorFormat
 
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         assert proxy.alpha == 1.0
 
     def it_raises_when_setting_alpha_without_a_color(self):
-        from pptx.dml.color import _LazyColorFormat
+        from power_pptx.dml.color import _LazyColorFormat
 
         proxy = _LazyColorFormat(peek_fill=lambda: None, ensure_fill=lambda: None)
         with pytest.raises(ValueError, match="can't set alpha when color.type is None"):

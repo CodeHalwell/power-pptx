@@ -7,7 +7,7 @@ Specifies the position of the legend on a chart.
 
 Example::
 
-    from pptx.enum.chart import XL_LEGEND_POSITION
+    from power_pptx.enum.chart import XL_LEGEND_POSITION
 
     chart.has_legend = True
     chart.legend.position = XL_LEGEND_POSITION.BOTTOM

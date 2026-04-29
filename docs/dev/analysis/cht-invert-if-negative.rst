@@ -12,10 +12,10 @@ Protocol
 
 ::
 
-    >>> assert isinstance(plot, pptx.chart.plot.BarPlot)
+    >>> assert isinstance(plot, power_pptx.chart.plot.BarPlot)
     >>> series = plot.series[0]
     >>> series
-    <pptx.chart.series.BarSeries instance at 0x1deadbeef>
+    <power_pptx.chart.series.BarSeries instance at 0x1deadbeef>
     >>> series.invert_if_negative
     True
     >>> series.invert_if_negative = False

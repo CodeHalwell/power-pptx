@@ -17,12 +17,12 @@ The |Chart| object is the root of a generally hierarchical graph of component
 objects that together provide access to the properties and methods required
 to specify and format a chart.
 
-.. autoclass:: pptx.chart.chart.Chart
+.. autoclass:: power_pptx.chart.chart.Chart
    :members:
    :member-order: bysource
    :undoc-members:
 
-.. autoclass:: pptx.chart.chart.ChartTitle()
+.. autoclass:: power_pptx.chart.chart.ChartTitle()
    :members:
    :member-order: bysource
 
@@ -36,7 +36,7 @@ name. A legend is optional, but there can be at most one. Most aspects of
 a legend are determined automatically, but aspects of its position may be
 specified via the API.
 
-.. autoclass:: pptx.chart.chart.Legend()
+.. autoclass:: power_pptx.chart.chart.Legend()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -64,19 +64,19 @@ necessarily a |DateAxis| object.
 A Chart may have zero to four axes. A pie chart, for example, has neither
 a category nor a value axis.
 
-.. autoclass:: pptx.chart.axis._BaseAxis()
+.. autoclass:: power_pptx.chart.axis._BaseAxis()
    :members:
    :member-order: bysource
 
-.. autoclass:: pptx.chart.axis.CategoryAxis()
+.. autoclass:: power_pptx.chart.axis.CategoryAxis()
    :members:
    :member-order: bysource
 
-.. autoclass:: pptx.chart.axis.DateAxis()
+.. autoclass:: power_pptx.chart.axis.DateAxis()
    :members:
    :member-order: bysource
 
-.. autoclass:: pptx.chart.axis.AxisTitle()
+.. autoclass:: power_pptx.chart.axis.AxisTitle()
    :members:
    :member-order: bysource
 
@@ -87,7 +87,7 @@ Value Axes
 Some axis properties are only relevant to value axes, in particular, those
 related to numeric values rather than text category labels.
 
-.. autoclass:: pptx.chart.axis.ValueAxis()
+.. autoclass:: power_pptx.chart.axis.ValueAxis()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -100,7 +100,7 @@ Gridlines are the vertical and horizontal lines that extend major tick marks
 of an axis across the chart to ease comparison of a data point with the axis
 divisions.
 
-.. autoclass:: pptx.chart.axis.MajorGridlines()
+.. autoclass:: power_pptx.chart.axis.MajorGridlines()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -113,7 +113,7 @@ Tick labels are the numbers appearing on a value axis or the category names
 appearing on a category axis. Certain formatting options are available for
 changing how these labels are displayed.
 
-.. autoclass:: pptx.chart.axis.TickLabels()
+.. autoclass:: power_pptx.chart.axis.TickLabels()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -133,7 +133,7 @@ Certain properties must be set at the plot level. Some of those properties
 are not present on plots of all chart types. For example, :attr:`gap_width`
 is only present on a bar or column plot.
 
-.. autoclass:: pptx.chart.plot._BasePlot()
+.. autoclass:: power_pptx.chart.plot._BasePlot()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -145,7 +145,7 @@ is only present on a bar or column plot.
 The following properties are only present on bar-type plots, which includes
 both bar and column charts.
 
-.. autoclass:: pptx.chart.plot.BarPlot()
+.. autoclass:: power_pptx.chart.plot.BarPlot()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -156,7 +156,7 @@ both bar and column charts.
 
 The following properties are only present on bubble-type plots.
 
-.. autoclass:: pptx.chart.plot.BubblePlot()
+.. autoclass:: power_pptx.chart.plot.BubblePlot()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -168,7 +168,7 @@ The following properties are only present on bubble-type plots.
 Category plots provide access to a |category.Categories| object with their
 `.categories` property.
 
-.. autoclass:: pptx.chart.category.Categories()
+.. autoclass:: power_pptx.chart.category.Categories()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -177,7 +177,7 @@ Category plots provide access to a |category.Categories| object with their
 |category.Category| objects
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: pptx.chart.category.Category()
+.. autoclass:: power_pptx.chart.category.Category()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -186,7 +186,7 @@ Category plots provide access to a |category.Categories| object with their
 |CategoryLevel| objects
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: pptx.chart.category.CategoryLevel()
+.. autoclass:: power_pptx.chart.category.CategoryLevel()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -203,12 +203,12 @@ A |DataLabels| object is not a collection, such as a sequence, and it does
 not provide access to individual data points. Rather, it provides properties
 that allow all the data labels in its scope to be formatted at once.
 
-.. autoclass:: pptx.chart.datalabel.DataLabels()
+.. autoclass:: power_pptx.chart.datalabel.DataLabels()
    :members:
    :member-order: bysource
    :undoc-members:
 
-.. autoclass:: pptx.chart.datalabel.DataLabel()
+.. autoclass:: power_pptx.chart.datalabel.DataLabel()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -226,7 +226,7 @@ coheres around the first quarter time period.
 In general, the type (class) of a series object depends upon the chart type.
 The following properties are available on series objects of all types.
 
-.. autoclass:: pptx.chart.series._BaseSeries()
+.. autoclass:: power_pptx.chart.series._BaseSeries()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -238,7 +238,7 @@ The following properties are available on series objects of all types.
 These properties are available on a series belonging to an area-type plot
 such as AREA_STACKED.
 
-.. autoclass:: pptx.chart.series.AreaSeries()
+.. autoclass:: power_pptx.chart.series.AreaSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -250,7 +250,7 @@ such as AREA_STACKED.
 These properties are available on a series belonging to a bar-type plot. Note
 that column charts are also bar-type charts.
 
-.. autoclass:: pptx.chart.series.BarSeries()
+.. autoclass:: power_pptx.chart.series.BarSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -261,7 +261,7 @@ that column charts are also bar-type charts.
 
 These properties are available on series belonging to a bubble chart.
 
-.. autoclass:: pptx.chart.series.BubbleSeries()
+.. autoclass:: power_pptx.chart.series.BubbleSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -272,7 +272,7 @@ These properties are available on series belonging to a bubble chart.
 
 These properties are available on a series belonging to a line-type plot.
 
-.. autoclass:: pptx.chart.series.LineSeries()
+.. autoclass:: power_pptx.chart.series.LineSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -284,7 +284,7 @@ These properties are available on a series belonging to a line-type plot.
 A marker is the small shape (e.g. diamond or circle) that "marks" each
 individual data point connected by a series line in a line-type plot.
 
-.. autoclass:: pptx.chart.marker.Marker()
+.. autoclass:: power_pptx.chart.marker.Marker()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -295,7 +295,7 @@ individual data point connected by a series line in a line-type plot.
 
 These properties are available on a series belonging to a pie chart.
 
-.. autoclass:: pptx.chart.series.PieSeries()
+.. autoclass:: power_pptx.chart.series.PieSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -306,7 +306,7 @@ These properties are available on a series belonging to a pie chart.
 
 These properties are available on a series belonging to a radar chart.
 
-.. autoclass:: pptx.chart.series.RadarSeries()
+.. autoclass:: power_pptx.chart.series.RadarSeries()
    :inherited-members:
    :members:
    :member-order: bysource
@@ -317,7 +317,7 @@ These properties are available on a series belonging to a radar chart.
 
 These properties are available on series belonging to an XY plot.
 
-.. autoclass:: pptx.chart.series.XySeries()
+.. autoclass:: power_pptx.chart.series.XySeries()
    :members:
    :member-order: bysource
    :inherited-members:
@@ -331,22 +331,22 @@ An XY or bubble chart has a :attr:`points` attribute providing access to a
 sequence of |Point| objects. That sequence supports iteration, indexed
 access, and ``len()``.
 
-.. autoclass:: pptx.chart.point.CategoryPoints()
+.. autoclass:: power_pptx.chart.point.CategoryPoints()
    :members:
    :member-order: bysource
    :undoc-members:
 
-.. autoclass:: pptx.chart.point.BubblePoints()
+.. autoclass:: power_pptx.chart.point.BubblePoints()
    :members:
    :member-order: bysource
    :undoc-members:
 
-.. autoclass:: pptx.chart.point.XyPoints()
+.. autoclass:: power_pptx.chart.point.XyPoints()
    :members:
    :member-order: bysource
    :undoc-members:
 
-.. autoclass:: pptx.chart.point.Point()
+.. autoclass:: power_pptx.chart.point.Point()
    :members:
    :member-order: bysource
    :undoc-members:

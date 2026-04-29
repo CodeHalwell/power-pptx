@@ -1,10 +1,10 @@
-"""Test suite for pptx.oxml.ns.py module."""
+"""Test suite for power_pptx.oxml.ns.py module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.oxml.ns import NamespacePrefixedTag, namespaces, nsdecls, nsuri, qn
+from power_pptx.oxml.ns import NamespacePrefixedTag, namespaces, nsdecls, nsuri, qn
 
 
 class DescribeNamespacePrefixedTag(object):

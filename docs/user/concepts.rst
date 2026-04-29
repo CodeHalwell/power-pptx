@@ -10,7 +10,7 @@ surprising at first.
 A presentation is loaded by constructing a new |Presentation| instance,
 passing in the path to a presentation to be loaded::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     path = 'slide-deck-foo.pptx'
     prs = Presentation(path)

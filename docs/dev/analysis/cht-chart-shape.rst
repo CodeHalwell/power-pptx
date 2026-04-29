@@ -20,11 +20,11 @@ Protocol
     AttributeError: 'Shape' object has no attribute 'chart'
     >>> shape = shapes.add_chart(style, type, x, y, cx, cy)
     >>> type(shape)
-    <class 'pptx.shapes.graphfrm.GraphicFrame'>
+    <class 'power_pptx.shapes.graphfrm.GraphicFrame'>
     >>> shape.has_chart
     True
     >>> shape.chart
-    <pptx.parts.chart.ChartPart object at 0x108c0e290>
+    <power_pptx.parts.chart.ChartPart object at 0x108c0e290>
 
 
 Acceptance tests

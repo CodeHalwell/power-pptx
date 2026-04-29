@@ -6,7 +6,7 @@ It's here so you don't have to leave the skill for boring boilerplate.
 ## Open / create / save
 
 ```python
-from pptx import Presentation
+from power_pptx import Presentation
 
 prs = Presentation()                     # blank deck, default 16:9
 prs = Presentation("template.pptx")      # open existing
@@ -27,7 +27,7 @@ return buf.getvalue()
 ## Slide size
 
 ```python
-from pptx.util import Inches
+from power_pptx.util import Inches
 
 prs.slide_width  = Inches(13.333)        # 16:9 widescreen
 prs.slide_height = Inches(7.5)
@@ -51,8 +51,8 @@ to discover what the template ships.
 ## Text boxes
 
 ```python
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
+from power_pptx.util import Inches, Pt
+from power_pptx.dml.color import RGBColor
 
 box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
 tf = box.text_frame
@@ -73,7 +73,7 @@ p2.font.size = Pt(18)
 ## Auto shapes
 
 ```python
-from pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.shapes import MSO_SHAPE
 
 card = slide.shapes.add_shape(
     MSO_SHAPE.ROUNDED_RECTANGLE,
@@ -126,8 +126,8 @@ for row, (k, v, d) in enumerate([("ARR", "$182M", "+27%"),
 ## Charts
 
 ```python
-from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
 
 data = CategoryChartData()
 data.categories = ["Q1", "Q2", "Q3", "Q4"]
@@ -160,7 +160,7 @@ for slide in prs.slides:
 ## Common units
 
 ```python
-from pptx.util import Inches, Pt, Cm, Emu, Mm
+from power_pptx.util import Inches, Pt, Cm, Emu, Mm
 
 Inches(1)   # 914400 EMU
 Pt(12)      # 152400 EMU

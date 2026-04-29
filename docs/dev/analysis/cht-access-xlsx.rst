@@ -24,7 +24,7 @@ Proposed protocol
     >>> chart = graphic_frame.chart
     >>> chart_data = chart.chart_data
     >>> chart_data
-    <pptx.chart.chart.ChartData instance at 0xdeadbeef1>
+    <power_pptx.chart.chart.ChartData instance at 0xdeadbeef1>
     >>> chart_data.update_from_xlsx_stream(xlsx_stream)
 
 

@@ -10,14 +10,14 @@ Candidate protocol
 
     >>> slide_layout = prs.slide_layouts[0]
     >>> slide_layout
-    <pptx.parts.slidelayout.SlideLayout object at 0x10a5d42d0>
+    <power_pptx.parts.slidelayout.SlideLayout object at 0x10a5d42d0>
     >>> slide_layout.shapes
-    <pptx.shapes.shapetree.LayoutShapes object at 0x104e60000>
+    <power_pptx.shapes.shapetree.LayoutShapes object at 0x104e60000>
     >>> slide_layout.shapes[0]
-    <pptx.shapes.placeholder.LayoutPlaceholder object at 0x104e60020>
+    <power_pptx.shapes.placeholder.LayoutPlaceholder object at 0x104e60020>
     >>> layout_placeholders = slide_layout.placeholders
     >>> layout_placeholders
-    <pptx.shapes.shapetree.LayoutPlaceholders object at 0x104e60040>
+    <power_pptx.shapes.shapetree.LayoutPlaceholders object at 0x104e60040>
     >>> len(layout_placeholders)
     5
     >>> layout_placeholders[1].type
@@ -25,7 +25,7 @@ Candidate protocol
     >>> layout_placeholders[2].idx
     10
     >>> layout_placeholders.get(idx=0)
-    <pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60020>
+    <power_pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60020>
     >>> layout_placeholders.get(idx=666)
     None
     >>> layout_placeholders[1]._sp.spPr.xfrm

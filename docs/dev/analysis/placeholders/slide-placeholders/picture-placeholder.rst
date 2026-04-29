@@ -17,7 +17,7 @@ Placeholder access::
 
   >>> picture_placeholder = slide.placeholders[1]  # keyed by idx, not offset
   >>> picture_placeholder
-  <pptx.shapes.placeholder.PicturePlaceholder object at 0x100830510>
+  <power_pptx.shapes.placeholder.PicturePlaceholder object at 0x100830510>
   >>> picture_placeholder.shape_type
   MSO_SHAPE_TYPE.PLACEHOLDER (14)
 
@@ -25,7 +25,7 @@ PicturePlaceholder.insert_picture()::
 
   >>> placeholder_picture = picture_placeholder.insert_picture('image.png')
   >>> placeholder_picture
-  <pptx.shapes.placeholder.PlaceholderPicture object at 0x10083087a>
+  <power_pptx.shapes.placeholder.PlaceholderPicture object at 0x10083087a>
   >>> placeholder_picture.shape_type
   MSO_SHAPE_TYPE.PLACEHOLDER (14)
 

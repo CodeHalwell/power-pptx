@@ -76,16 +76,16 @@ inherited::
     >>> shape = prs.slides[0].shapes[0]
     >>> shadow = shape.shadow
     >>> shadow
-    <pptx.dml.effect.ShadowFormat object at 0x108080490>
+    <power_pptx.dml.effect.ShadowFormat object at 0x108080490>
 
 The `.shadow` property is idempotent, meaning the same `ShadowFormat` object
 (verified by comparing ID) is returned on every call, for the lifetime of the
 shape object::
 
     >>> shape.shadow
-    <pptx.dml.effect.ShadowFormat object at 0x108080490>
+    <power_pptx.dml.effect.ShadowFormat object at 0x108080490>
     >>> shape.shadow
-    <pptx.dml.effect.ShadowFormat object at 0x108080490>
+    <power_pptx.dml.effect.ShadowFormat object at 0x108080490>
 
 The `ShadowFormat.inherit` property indicates whether the shape inherits its
 shadow effect or overrides it with an explicitly defined setting. The default

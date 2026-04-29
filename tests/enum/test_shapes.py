@@ -1,14 +1,14 @@
-"""Unit-test suite for `pptx.enum.shapes`."""
+"""Unit-test suite for `power_pptx.enum.shapes`."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.enum.shapes import PROG_ID
+from power_pptx.enum.shapes import PROG_ID
 
 
 class DescribeProgId:
-    """Unit-test suite for `pptx.enum.shapes.ProgId`."""
+    """Unit-test suite for `power_pptx.enum.shapes.ProgId`."""
 
     def it_has_members_for_the_OLE_embeddings_known_to_work_on_Windows(self):
         assert PROG_ID.DOCX

@@ -1,22 +1,22 @@
-"""Unit-test suite for `pptx.action` module."""
+"""Unit-test suite for `power_pptx.action` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.action import ActionSetting, Hyperlink
-from pptx.enum.action import PP_ACTION
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.package import XmlPart
-from pptx.parts.slide import SlidePart
-from pptx.slide import Slide
+from power_pptx.action import ActionSetting, Hyperlink
+from power_pptx.enum.action import PP_ACTION
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import XmlPart
+from power_pptx.parts.slide import SlidePart
+from power_pptx.slide import Slide
 
 from .unitutil.cxml import element, xml
 from .unitutil.mock import call, class_mock, instance_mock, method_mock, property_mock
 
 
 class DescribeActionSetting(object):
-    """Unit-test suite for `pptx.action.ActionSetting` objects."""
+    """Unit-test suite for `power_pptx.action.ActionSetting` objects."""
 
     def it_knows_its_action_type(self, action_fixture):
         action_setting, expected_action = action_fixture
@@ -227,7 +227,7 @@ class DescribeActionSetting(object):
 
     @pytest.fixture
     def Hyperlink_(self, request, hyperlink_):
-        return class_mock(request, "pptx.action.Hyperlink", return_value=hyperlink_)
+        return class_mock(request, "power_pptx.action.Hyperlink", return_value=hyperlink_)
 
     @pytest.fixture
     def hyperlink_(self, request):
@@ -251,7 +251,7 @@ class DescribeActionSetting(object):
 
 
 class DescribeHyperlink(object):
-    """Unit-test suite for `pptx.action.Hyperlink` objects."""
+    """Unit-test suite for `power_pptx.action.Hyperlink` objects."""
 
     def it_knows_the_target_url_of_the_hyperlink(self, address_fixture):
         hyperlink, rId, expected_address = address_fixture

@@ -9,13 +9,13 @@ chart. Most charts are created using a |CategoryChartData| object, however
 the data for XY and bubble chart types is different enough that those each
 require a distinct chart data object.
 
-.. autoclass:: pptx.chart.data.ChartData
+.. autoclass:: power_pptx.chart.data.ChartData
    :members:
    :member-order: bysource
    :undoc-members:
 
 
-.. autoclass:: pptx.chart.data.CategoryChartData
+.. autoclass:: power_pptx.chart.data.CategoryChartData
    :members:
    :member-order: bysource
    :inherited-members:
@@ -24,21 +24,21 @@ require a distinct chart data object.
        series_name_ref, x_values_ref, xlsx_blob, xml_bytes, y_values_ref
    :undoc-members:
 
-.. autoclass:: pptx.chart.data.Categories
+.. autoclass:: power_pptx.chart.data.Categories
    :members:
    :member-order: bysource
    :inherited-members:
    :exclude-members: count
    :undoc-members:
 
-.. autoclass:: pptx.chart.data.Category
+.. autoclass:: power_pptx.chart.data.Category
    :members:
    :member-order: bysource
    :inherited-members:
    :exclude-members: depth, idx, index, leaf_count
    :undoc-members:
 
-.. autoclass:: pptx.chart.data.XyChartData
+.. autoclass:: power_pptx.chart.data.XyChartData
    :members:
    :member-order: bysource
    :inherited-members:
@@ -46,7 +46,7 @@ require a distinct chart data object.
        count, data_point_offset, index, series_index, series_name_ref,
        x_values_ref, xlsx_blob, xml_bytes, y_values_ref
 
-.. autoclass:: pptx.chart.data.BubbleChartData
+.. autoclass:: power_pptx.chart.data.BubbleChartData
    :members:
    :member-order: bysource
    :inherited-members:
@@ -54,14 +54,14 @@ require a distinct chart data object.
        count, bubble_sizes_ref, data_point_offset, index, series_index,
        series_name_ref, x_values_ref, xlsx_blob, xml_bytes, y_values_ref
 
-.. autoclass:: pptx.chart.data.XySeriesData
+.. autoclass:: power_pptx.chart.data.XySeriesData
    :members:
    :member-order: bysource
    :inherited-members:
    :exclude-members:
        count, data_point_offset, name_ref, x_values_ref, y_values_ref
 
-.. autoclass:: pptx.chart.data.BubbleSeriesData
+.. autoclass:: power_pptx.chart.data.BubbleSeriesData
    :members:
    :member-order: bysource
    :inherited-members:

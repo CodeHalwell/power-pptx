@@ -57,7 +57,7 @@ instance is returned on each call::
 
     >>> notes_slide = slide.notes_slide
     >>> notes_slide
-    <pptx.notes.NotesSlide object at 0x10698c1e0>
+    <power_pptx.notes.NotesSlide object at 0x10698c1e0>
     >>> slide.has_notes_slide
     True
 
@@ -65,9 +65,9 @@ Like any slide (slide, slide layout, slide master, etc.), a notes slide has
 shapes and placeholders, as well as other standard properties::
 
     >>> notes_slide.shapes
-    <pptx.shapes.shapetree.NotesSlideShapes object at 0x10698c1e0>
+    <power_pptx.shapes.shapetree.NotesSlideShapes object at 0x10698c1e0>
     >>> notes_slide.placeholders
-    <pptx.shapes.shapetree.NotesSlidePlaceholders object at 0x10698f622>
+    <power_pptx.shapes.shapetree.NotesSlidePlaceholders object at 0x10698f622>
 
 The distinctive characteristic of a notes slide is the notes it contains.
 These notes are contained in the text frame of the notes placeholder and are

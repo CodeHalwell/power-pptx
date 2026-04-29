@@ -31,6 +31,6 @@ jobs:
           pip install .
           pip install -r requirements-test.txt
       - name: Test with pytest
-        run: pytest --cov=pptx --cov-report term-missing tests
+        run: pytest --cov=power_pptx --cov-report term-missing tests
       - name: Acceptance tests with behave
         run: behave --stop

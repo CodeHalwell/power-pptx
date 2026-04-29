@@ -6,8 +6,8 @@ post-fork addition is `Cell.borders` — see the bottom of this file.
 ## Adding a table
 
 ```python
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
+from power_pptx.util import Inches, Pt
+from power_pptx.dml.color import RGBColor
 
 shape = slide.shapes.add_table(
     rows=4, cols=3,
@@ -61,7 +61,7 @@ cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 ## Vertical anchor
 
 ```python
-from pptx.enum.text import MSO_VERTICAL_ANCHOR
+from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 
 cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
 ```

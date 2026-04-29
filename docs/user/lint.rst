@@ -24,26 +24,26 @@ For a whole deck, iterate the slides yourself::
     for slide in prs.slides:
         all_issues.extend(slide.lint().issues)
 
-The :func:`pptx.compose.from_spec` entry point also accepts a
+The :func:`power_pptx.compose.from_spec` entry point also accepts a
 deck-level ``"lint": "warn" | "raise"`` field that walks every slide
 and surfaces issues for you.
 
 Issue types
 -----------
 
-* :class:`pptx.lint.TextOverflow` — estimated text extent exceeds the
+* :class:`power_pptx.lint.TextOverflow` — estimated text extent exceeds the
   text-frame extent.  The current 1.1 implementation uses a fast
   character/line-count heuristic (default character width of
   ``0.55 × pt``, line height of ``1.2 × pt``) and respects text-frame
   margins; shapes with ``auto_size`` set to ``TEXT_TO_FIT_SHAPE`` or
   ``SHAPE_TO_FIT_TEXT`` are skipped because they cannot overflow by
   definition.  A Pillow-driven measurement pass is on the roadmap.
-* :class:`pptx.lint.OffSlide` — a shape is wholly or partly outside the
+* :class:`power_pptx.lint.OffSlide` — a shape is wholly or partly outside the
   slide bounds.
-* :class:`pptx.lint.ShapeCollision` — two shapes' bounding boxes overlap
+* :class:`power_pptx.lint.ShapeCollision` — two shapes' bounding boxes overlap
   significantly.
 
-Each issue carries a ``severity`` (:class:`~pptx.lint.LintSeverity`),
+Each issue carries a ``severity`` (:class:`~power_pptx.lint.LintSeverity`),
 a ``code`` string, a human-readable ``message``, and a ``shapes``
 tuple of the shapes it implicates.
 
@@ -75,7 +75,7 @@ Recommended pattern for generators
 
 ::
 
-    from pptx.exc import LintError
+    from power_pptx.exc import LintError
 
     prs = build_deck_from_user_input(...)
 
@@ -95,6 +95,6 @@ Recommended pattern for generators
 
     prs.save("out.pptx")
 
-When building through :func:`pptx.compose.from_spec`, the
+When building through :func:`power_pptx.compose.from_spec`, the
 ``"lint": "raise"`` field on the spec dict does the same thing in
 fewer lines.

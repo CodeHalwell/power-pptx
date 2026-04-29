@@ -1,12 +1,12 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.chart.axis` module."""
+"""Unit-test suite for `power_pptx.chart.axis` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.axis import (
+from power_pptx.chart.axis import (
     AxisTitle,
     CategoryAxis,
     DateAxis,
@@ -15,23 +15,23 @@ from pptx.chart.axis import (
     ValueAxis,
     _BaseAxis,
 )
-from pptx.dml.chtfmt import ChartFormat
-from pptx.enum.chart import (
+from power_pptx.dml.chtfmt import ChartFormat
+from power_pptx.enum.chart import (
     XL_AXIS_CROSSES,
     XL_CATEGORY_TYPE,
     XL_TICK_MARK,
 )
-from pptx.enum.chart import (
+from power_pptx.enum.chart import (
     XL_TICK_LABEL_POSITION as XL_TICK_LBL_POS,
 )
-from pptx.text.text import Font
+from power_pptx.text.text import Font
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock
 
 
 class Describe_BaseAxis(object):
-    """Unit-test suite for `pptx.chart.axis._BaseAxis` objects."""
+    """Unit-test suite for `power_pptx.chart.axis._BaseAxis` objects."""
 
     def it_provides_access_to_its_title(self, title_fixture):
         axis, AxisTitle_, axis_title_ = title_fixture
@@ -657,7 +657,7 @@ class Describe_BaseAxis(object):
 
     @pytest.fixture
     def AxisTitle_(self, request, axis_title_):
-        return class_mock(request, "pptx.chart.axis.AxisTitle", return_value=axis_title_)
+        return class_mock(request, "power_pptx.chart.axis.AxisTitle", return_value=axis_title_)
 
     @pytest.fixture
     def axis_title_(self, request):
@@ -665,7 +665,7 @@ class Describe_BaseAxis(object):
 
     @pytest.fixture
     def ChartFormat_(self, request, format_):
-        return class_mock(request, "pptx.chart.axis.ChartFormat", return_value=format_)
+        return class_mock(request, "power_pptx.chart.axis.ChartFormat", return_value=format_)
 
     @pytest.fixture
     def format_(self, request):
@@ -673,7 +673,7 @@ class Describe_BaseAxis(object):
 
     @pytest.fixture
     def MajorGridlines_(self, request, major_gridlines_):
-        return class_mock(request, "pptx.chart.axis.MajorGridlines", return_value=major_gridlines_)
+        return class_mock(request, "power_pptx.chart.axis.MajorGridlines", return_value=major_gridlines_)
 
     @pytest.fixture
     def major_gridlines_(self, request):
@@ -681,7 +681,7 @@ class Describe_BaseAxis(object):
 
     @pytest.fixture
     def TickLabels_(self, request, tick_labels_):
-        return class_mock(request, "pptx.chart.axis.TickLabels", return_value=tick_labels_)
+        return class_mock(request, "power_pptx.chart.axis.TickLabels", return_value=tick_labels_)
 
     @pytest.fixture
     def tick_labels_(self, request):
@@ -771,7 +771,7 @@ class DescribeAxisTitle(object):
 
     @pytest.fixture
     def ChartFormat_(self, request, format_):
-        return class_mock(request, "pptx.chart.axis.ChartFormat", return_value=format_)
+        return class_mock(request, "power_pptx.chart.axis.ChartFormat", return_value=format_)
 
     @pytest.fixture
     def format_(self, request):
@@ -779,7 +779,7 @@ class DescribeAxisTitle(object):
 
     @pytest.fixture
     def TextFrame_(self, request):
-        return class_mock(request, "pptx.chart.axis.TextFrame")
+        return class_mock(request, "power_pptx.chart.axis.TextFrame")
 
 
 class DescribeCategoryAxis(object):
@@ -836,7 +836,7 @@ class DescribeMajorGridlines(object):
 
     @pytest.fixture
     def ChartFormat_(self, request, format_):
-        return class_mock(request, "pptx.chart.axis.ChartFormat", return_value=format_)
+        return class_mock(request, "power_pptx.chart.axis.ChartFormat", return_value=format_)
 
     @pytest.fixture
     def format_(self, request):
@@ -1009,7 +1009,7 @@ class DescribeTickLabels(object):
 
     @pytest.fixture
     def Font_(self, request, font_):
-        return class_mock(request, "pptx.chart.axis.Font", return_value=font_)
+        return class_mock(request, "power_pptx.chart.axis.Font", return_value=font_)
 
     @pytest.fixture
     def font_(self, request):

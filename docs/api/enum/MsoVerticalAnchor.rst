@@ -15,7 +15,7 @@ Alias: ``MSO_ANCHOR``
 
 Example::
 
-    from pptx.enum.text import MSO_ANCHOR
+    from power_pptx.enum.text import MSO_ANCHOR
 
     cell = table.cell(row_idx=2, col_idx=3)
     cell.vertical_anchor = MSO_ANCHOR.BOTTOM

@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.shapes.base` module."""
+"""Unit-test suite for `power_pptx.shapes.base` module."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from pptx.action import ActionSetting
-from pptx.dml.effect import ShadowFormat
-from pptx.enum.shapes import PP_PLACEHOLDER
-from pptx.oxml.shapes.shared import BaseShapeElement
-from pptx.oxml.text import CT_TextBody
-from pptx.shapes import Subshape
-from pptx.shapes.autoshape import Shape
-from pptx.shapes.base import BaseShape, _PlaceholderFormat
-from pptx.shapes.graphfrm import GraphicFrame
-from pptx.shapes.picture import Picture
-from pptx.shapes.shapetree import BaseShapeFactory, SlideShapes
+from power_pptx.action import ActionSetting
+from power_pptx.dml.effect import ShadowFormat
+from power_pptx.enum.shapes import PP_PLACEHOLDER
+from power_pptx.oxml.shapes.shared import BaseShapeElement
+from power_pptx.oxml.text import CT_TextBody
+from power_pptx.shapes import Subshape
+from power_pptx.shapes.autoshape import Shape
+from power_pptx.shapes.base import BaseShape, _PlaceholderFormat
+from power_pptx.shapes.graphfrm import GraphicFrame
+from power_pptx.shapes.picture import Picture
+from power_pptx.shapes.shapetree import BaseShapeFactory, SlideShapes
 
 from ..oxml.unitdata.shape import (
     a_cNvPr,
@@ -39,13 +39,13 @@ from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock, loose_mock
 
 if TYPE_CHECKING:
-    from pptx.opc.package import XmlPart
-    from pptx.oxml.shapes import ShapeElement
-    from pptx.types import ProvidesPart
+    from power_pptx.opc.package import XmlPart
+    from power_pptx.oxml.shapes import ShapeElement
+    from power_pptx.types import ProvidesPart
 
 
 class DescribeBaseShape(object):
-    """Unit-test suite for `pptx.shapes.base.BaseShape` objects."""
+    """Unit-test suite for `power_pptx.shapes.base.BaseShape` objects."""
 
     def it_provides_access_to_its_click_action(self, click_action_fixture):
         shape, ActionSetting_, cNvPr, click_action_ = click_action_fixture
@@ -387,7 +387,7 @@ class DescribeBaseShape(object):
 
     @pytest.fixture
     def ActionSetting_(self, request, action_setting_):
-        return class_mock(request, "pptx.shapes.base.ActionSetting", return_value=action_setting_)
+        return class_mock(request, "power_pptx.shapes.base.ActionSetting", return_value=action_setting_)
 
     @pytest.fixture
     def action_setting_(self, request):
@@ -500,7 +500,7 @@ class DescribeBaseShape(object):
     def _PlaceholderFormat_(self, request, placeholder_format_):
         return class_mock(
             request,
-            "pptx.shapes.base._PlaceholderFormat",
+            "power_pptx.shapes.base._PlaceholderFormat",
             return_value=placeholder_format_,
         )
 
@@ -514,7 +514,7 @@ class DescribeBaseShape(object):
 
     @pytest.fixture
     def ShadowFormat_(self, request):
-        return class_mock(request, "pptx.shapes.base.ShadowFormat")
+        return class_mock(request, "power_pptx.shapes.base.ShadowFormat")
 
     @pytest.fixture
     def shape_elm_(self, request, shape_id, shape_name, txBody_):

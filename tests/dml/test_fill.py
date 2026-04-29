@@ -1,13 +1,13 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.dml.fill` module."""
+"""Unit-test suite for `power_pptx.dml.fill` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.color import ColorFormat
-from pptx.dml.fill import (
+from power_pptx.dml.color import ColorFormat
+from power_pptx.dml.fill import (
     FillFormat,
     _BlipFill,
     _Fill,
@@ -20,8 +20,8 @@ from pptx.dml.fill import (
     _PattFill,
     _SolidFill,
 )
-from pptx.enum.dml import MSO_FILL, MSO_PATTERN
-from pptx.oxml.dml.fill import CT_GradientStopList
+from power_pptx.enum.dml import MSO_FILL, MSO_PATTERN
+from power_pptx.oxml.dml.fill import CT_GradientStopList
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock, method_mock, property_mock
@@ -203,7 +203,7 @@ class DescribeFillFormat(object):
         fill = FillFormat.from_fill_parent(element(cxml))
         # --mock must be after FillFormat call to avoid poss. contructor call
         _NoFill_ = class_mock(
-            request, "pptx.dml.fill._NoFill", return_value=no_fill_, autospec=True
+            request, "power_pptx.dml.fill._NoFill", return_value=no_fill_, autospec=True
         )
         expected_xml = xml(expected_cxml)
         return fill, _NoFill_, expected_xml, no_fill_
@@ -237,7 +237,7 @@ class DescribeFillFormat(object):
         fill = FillFormat.from_fill_parent(element(cxml))
         # --mock must be after FillFormat call to avoid poss. contructor call
         _GradFill_ = class_mock(
-            request, "pptx.dml.fill._GradFill", return_value=grad_fill_, autospec=True
+            request, "power_pptx.dml.fill._GradFill", return_value=grad_fill_, autospec=True
         )
         expected_xml = xml(
             expected_cxml + "{rotWithShape=1}/(a:gsLst/(a:gs{pos=0}/a:scheme"
@@ -277,7 +277,7 @@ class DescribeFillFormat(object):
         fill = FillFormat.from_fill_parent(element(cxml))
         # --mock must be after FillFormat call to avoid poss. contructor call
         _PattFill_ = class_mock(
-            request, "pptx.dml.fill._PattFill", return_value=patt_fill_, autospec=True
+            request, "power_pptx.dml.fill._PattFill", return_value=patt_fill_, autospec=True
         )
         expected_xml = xml(expected_cxml)
         return fill, _PattFill_, expected_xml, patt_fill_
@@ -299,7 +299,7 @@ class DescribeFillFormat(object):
         fill = FillFormat.from_fill_parent(element(cxml))
         # --mock must be after FillFormat call to avoid poss. contructor call
         _SolidFill_ = class_mock(
-            request, "pptx.dml.fill._SolidFill", return_value=solid_fill_, autospec=True
+            request, "power_pptx.dml.fill._SolidFill", return_value=solid_fill_, autospec=True
         )
         expected_xml = xml(expected_cxml)
         return fill, _SolidFill_, expected_xml, solid_fill_
@@ -502,7 +502,7 @@ class Describe_GradFill(object):
 
     @pytest.fixture
     def _GradientStops_(self, request):
-        return class_mock(request, "pptx.dml.fill._GradientStops")
+        return class_mock(request, "power_pptx.dml.fill._GradientStops")
 
     @pytest.fixture
     def gradient_stops_(self, request):
@@ -557,7 +557,7 @@ class Describe_NoneFill(object):
 
 
 class Describe_PattFill(object):
-    """Unit-test suite for `pptx.dml.fill._PattFill` objects."""
+    """Unit-test suite for `power_pptx.dml.fill._PattFill` objects."""
 
     def it_knows_its_fill_type(self, fill_type_fixture):
         patt_fill, expected_value = fill_type_fixture
@@ -743,7 +743,7 @@ class Describe_GradientStops(object):
             assert isinstance(stop, _GradientStop)
 
     def it_can_append_a_stop_with_an_RGBColor(self):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
@@ -755,7 +755,7 @@ class Describe_GradientStops(object):
         assert new_stop.color.rgb == RGBColor(0xFF, 0x00, 0x00)
 
     def it_can_append_a_stop_with_a_hex_string(self):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
@@ -764,7 +764,7 @@ class Describe_GradientStops(object):
         assert new_stop.color.rgb == RGBColor(0x3C, 0x2F, 0x80)
 
     def it_can_append_a_stop_with_a_3_tuple(self):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
@@ -773,7 +773,7 @@ class Describe_GradientStops(object):
         assert new_stop.color.rgb == RGBColor(0, 128, 255)
 
     def it_can_append_a_stop_without_an_explicit_color(self):
-        from pptx.enum.dml import MSO_THEME_COLOR
+        from power_pptx.enum.dml import MSO_THEME_COLOR
 
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
@@ -807,7 +807,7 @@ class Describe_GradientStops(object):
             del stops[0]
 
     def it_can_replace_all_stops(self):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         stops = _GradientStops(CT_GradientStopList.new_gsLst())
 
@@ -849,7 +849,7 @@ class Describe_GradientStops(object):
 class Describe_GradientStop(object):
     def it_provides_access_to_its_color(self, request):
         gs = element("a:gs")
-        ColorFormat_ = class_mock(request, "pptx.dml.fill.ColorFormat")
+        ColorFormat_ = class_mock(request, "power_pptx.dml.fill.ColorFormat")
         color_ = instance_mock(request, ColorFormat)
         ColorFormat_.from_colorchoice_parent.return_value = color_
         stop = _GradientStop(gs)

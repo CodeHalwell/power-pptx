@@ -1,4 +1,4 @@
-"""Unit test suite for `pptx.media` module."""
+"""Unit test suite for `power_pptx.media` module."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import io
 
 import pytest
 
-from pptx.media import Video
+from power_pptx.media import Video
 
 from .unitutil.file import absjoin, test_file_dir
 from .unitutil.mock import initializer_mock, instance_mock, method_mock, property_mock
@@ -15,7 +15,7 @@ TEST_VIDEO_PATH = absjoin(test_file_dir, "dummy.mp4")
 
 
 class DescribeVideo(object):
-    """Unit-test suite for `pptx.media.Video` objects."""
+    """Unit-test suite for `power_pptx.media.Video` objects."""
 
     def it_can_construct_from_a_path(self, video_, from_blob_):
         with open(TEST_VIDEO_PATH, "rb") as f:

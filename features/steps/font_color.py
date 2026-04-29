@@ -5,9 +5,9 @@ from __future__ import annotations
 from behave import given, then, when
 from helpers import test_pptx
 
-from pptx import Presentation
-from pptx.dml.color import RGBColor
-from pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
+from power_pptx import Presentation
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
 
 font_color_pptx_path = test_pptx("font-color")
 

@@ -10,13 +10,13 @@ Candidate protocol
 
     >>> slide_master = prs.slide_master
     >>> slide_master.shapes
-    <pptx.shapes.slidemaster.MasterShapes object at 0x10a4df150>
+    <power_pptx.shapes.slidemaster.MasterShapes object at 0x10a4df150>
 
     >>> slide_master.shapes[0]
-    <pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60290>
+    <power_pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60290>
     >>> master_placeholders = slide_master.placeholders
     >>> master_placeholders
-    <pptx.shapes.shapetree.MasterPlaceholders object at 0x104371290>
+    <power_pptx.shapes.shapetree.MasterPlaceholders object at 0x104371290>
     >>> len(master_placeholders)
     5
     >>> master_placeholders[0].type
@@ -24,7 +24,7 @@ Candidate protocol
     >>> master_placeholders[0].idx
     0
     >>> master_placeholders.get(type='body')
-    <pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60290>
+    <power_pptx.shapes.placeholder.MasterPlaceholder object at 0x104e60290>
     >>> master_placeholders.get(idx=666)
     None
 

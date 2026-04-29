@@ -16,7 +16,7 @@ complex and varied behaviors.
 |MasterPlaceholder| objects
 ---------------------------
 
-.. autoclass:: pptx.shapes.placeholder.MasterPlaceholder()
+.. autoclass:: power_pptx.shapes.placeholder.MasterPlaceholder()
    :members:
    :exclude-members:
       adjustments, get_or_add_ln, has_chart, has_table, idx, ln, orient,
@@ -28,7 +28,7 @@ complex and varied behaviors.
 |LayoutPlaceholder| objects
 ---------------------------
 
-.. autoclass:: pptx.shapes.placeholder.LayoutPlaceholder()
+.. autoclass:: power_pptx.shapes.placeholder.LayoutPlaceholder()
    :members:
    :undoc-members:
 
@@ -36,7 +36,7 @@ complex and varied behaviors.
 ChartPlaceholder objects
 ------------------------
 
-.. autoclass:: pptx.shapes.placeholder.ChartPlaceholder()
+.. autoclass:: power_pptx.shapes.placeholder.ChartPlaceholder()
    :members:
    :exclude-members:
       has_chart, has_table, has_text_frame, part
@@ -47,7 +47,7 @@ ChartPlaceholder objects
 PicturePlaceholder objects
 --------------------------
 
-.. autoclass:: pptx.shapes.placeholder.PicturePlaceholder()
+.. autoclass:: power_pptx.shapes.placeholder.PicturePlaceholder()
    :members:
    :exclude-members:
       has_chart, has_table, has_text_frame, part
@@ -58,7 +58,7 @@ PicturePlaceholder objects
 TablePlaceholder objects
 ------------------------
 
-.. autoclass:: pptx.shapes.placeholder.TablePlaceholder()
+.. autoclass:: power_pptx.shapes.placeholder.TablePlaceholder()
    :members:
    :inherited-members:
    :exclude-members:
@@ -70,7 +70,7 @@ TablePlaceholder objects
 PlaceholderGraphicFrame objects
 -------------------------------
 
-.. autoclass:: pptx.shapes.placeholder.PlaceholderGraphicFrame()
+.. autoclass:: power_pptx.shapes.placeholder.PlaceholderGraphicFrame()
    :members:
    :inherited-members:
    :exclude-members:
@@ -81,7 +81,7 @@ PlaceholderGraphicFrame objects
 PlaceholderPicture objects
 --------------------------
 
-.. autoclass:: pptx.shapes.placeholder.PlaceholderPicture()
+.. autoclass:: power_pptx.shapes.placeholder.PlaceholderPicture()
    :members:
    :inherited-members:
    :exclude-members:
@@ -93,7 +93,7 @@ PlaceholderPicture objects
 _PlaceholderFormat objects
 --------------------------
 
-.. autoclass:: pptx.shapes.base._PlaceholderFormat()
+.. autoclass:: power_pptx.shapes.base._PlaceholderFormat()
    :members:
    :inherited-members:
    :undoc-members:

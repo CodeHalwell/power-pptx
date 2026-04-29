@@ -3,17 +3,17 @@
 Design system layer
 ===================
 
-The :mod:`pptx.design` package turns the low-level API into something
+The :mod:`power_pptx.design` package turns the low-level API into something
 where the *default* output looks good. Nothing here adds new XML — it's
 all built on top of the foundations from earlier phases.
 
 Design tokens
 -------------
 
-:class:`pptx.design.tokens.DesignTokens` is a source-agnostic container
+:class:`power_pptx.design.tokens.DesignTokens` is a source-agnostic container
 for brand tokens — palette, typography, radii, shadows, and spacings::
 
-    from pptx.design.tokens import DesignTokens
+    from power_pptx.design.tokens import DesignTokens
 
     tokens = DesignTokens.from_dict({
         "palette": {
@@ -34,9 +34,9 @@ for brand tokens — palette, typography, radii, shadows, and spacings::
 
 Other constructors:
 
-* :py:meth:`DesignTokens.from_yaml('brand.yml') <pptx.design.tokens.DesignTokens.from_yaml>`
+* :py:meth:`DesignTokens.from_yaml('brand.yml') <power_pptx.design.tokens.DesignTokens.from_yaml>`
   — optional ``pyyaml`` dependency.
-* :py:meth:`DesignTokens.from_pptx('template.pptx') <pptx.design.tokens.DesignTokens.from_pptx>`
+* :py:meth:`DesignTokens.from_pptx('template.pptx') <power_pptx.design.tokens.DesignTokens.from_pptx>`
   — extracts the six accent slots, ``dk1`` / ``dk2`` / ``lt1`` / ``lt2``,
   the hyperlink slots, and major/minor fonts.
 * ``tokens.merge(other_tokens)`` layers an override set on top of a base.
@@ -60,11 +60,11 @@ effect.
 Layout primitives
 -----------------
 
-``pptx.design.layout`` provides build-time geometry helpers — no XML is
+``power_pptx.design.layout`` provides build-time geometry helpers — no XML is
 read or mutated until you call ``place()``::
 
-    from pptx.design.layout import Grid, Stack
-    from pptx.util import Pt
+    from power_pptx.design.layout import Grid, Stack
+    from power_pptx.util import Pt
 
     grid = Grid(slide, cols=12, rows=6, gutter=Pt(12))
     grid.place(card1, col=0, row=0, col_span=6, row_span=4)
@@ -78,12 +78,12 @@ read or mutated until you call ``place()``::
 Slide recipes
 -------------
 
-``pptx.design.recipes`` ships opinionated parameterized slide
+``power_pptx.design.recipes`` ships opinionated parameterized slide
 constructors.  Each takes the host |Presentation|, the recipe-specific
 content kwargs, an optional |DesignTokens|, and an optional
 ``transition=`` name::
 
-    from pptx.design.recipes import (
+    from power_pptx.design.recipes import (
         title_slide, bullet_slide, kpi_slide,
         quote_slide, image_hero_slide,
     )

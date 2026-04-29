@@ -54,7 +54,7 @@ exclude = [
     "**/.*"
 ]
 include = [
-    "src/pptx",
+    "src/power_pptx",
     "tests/"
 ]
 ignore =  []
@@ -144,7 +144,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["pptx"]
+known-first-party = ["power_pptx"]
 
 [tool.setuptools.dynamic]
-version = {attr = "pptx.__version__"}
+version = {attr = "power_pptx.__version__"}

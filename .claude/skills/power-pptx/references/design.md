@@ -1,6 +1,6 @@
 # Design system layer (Phase 9)
 
-The `pptx.design` package turns the low-level API into something where
+The `power_pptx.design` package turns the low-level API into something where
 the *default* output looks good. Nothing here adds new XML — it's all
 built on top of the foundations from earlier phases.
 
@@ -10,7 +10,7 @@ built on top of the foundations from earlier phases.
 palette, typography, radii, shadows, spacings.
 
 ```python
-from pptx.design.tokens import DesignTokens
+from power_pptx.design.tokens import DesignTokens
 
 tokens = DesignTokens.from_dict({
     "palette": {
@@ -81,8 +81,8 @@ Pure build-time geometry — no XML is read or mutated until `place()`.
 ### Grid
 
 ```python
-from pptx.design.layout import Grid
-from pptx.util import Pt
+from power_pptx.design.layout import Grid
+from power_pptx.util import Pt
 
 grid = Grid(slide, cols=12, rows=6, gutter=Pt(12), margin=Pt(48))
 
@@ -97,7 +97,7 @@ box = grid.cell(col=0, row=4, col_span=12, row_span=2)
 ### Stack
 
 ```python
-from pptx.design.layout import Stack
+from power_pptx.design.layout import Stack
 
 stack = Stack(direction="vertical", gap=Pt(8),
               left=Pt(48), top=Pt(48), width=Pt(600))
@@ -118,7 +118,7 @@ Opinionated parameterized slide constructors. Each takes the host
 and an optional `transition=` name:
 
 ```python
-from pptx.design.recipes import (
+from power_pptx.design.recipes import (
     title_slide, bullet_slide, kpi_slide,
     quote_slide, image_hero_slide,
 )
@@ -198,9 +198,9 @@ preview deck per set into `examples/starter_pack/_out/`.
 ## End-to-end branded deck
 
 ```python
-from pptx import Presentation
-from pptx.design.tokens import DesignTokens
-from pptx.design.recipes import (
+from power_pptx import Presentation
+from power_pptx.design.tokens import DesignTokens
+from power_pptx.design.recipes import (
     title_slide, bullet_slide, kpi_slide, quote_slide,
 )
 

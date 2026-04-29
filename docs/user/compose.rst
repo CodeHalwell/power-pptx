@@ -3,7 +3,7 @@
 Composition: from_spec, import_slide, apply_template
 =====================================================
 
-The :mod:`pptx.compose` package collects entry points for higher-level
+The :mod:`power_pptx.compose` package collects entry points for higher-level
 authoring and cross-presentation operations.
 
 JSON authoring
@@ -13,7 +13,7 @@ JSON authoring
 otherwise).  The spec dict is validated for known keys and value
 shapes before construction (no JSON Schema is involved)::
 
-    from pptx.compose import from_spec
+    from power_pptx.compose import from_spec
 
     prs = from_spec({
         "theme": {"palette": "modern_blue", "fonts": "inter"},
@@ -42,8 +42,8 @@ Cross-presentation operations
 
 ::
 
-    from pptx import Presentation
-    from pptx.compose import import_slide, apply_template
+    from power_pptx import Presentation
+    from power_pptx.compose import import_slide, apply_template
 
     src = Presentation("source.pptx")
     dst = Presentation("destination.pptx")

@@ -18,7 +18,7 @@ wrap when the chart has more series than colors::
     chart.apply_palette("modern")
     chart.apply_palette(["#4F9DFF", "#7FCFA1", "#F7B500"])
 
-Six built-ins ship in ``pptx.chart.palettes``:
+Six built-ins ship in ``power_pptx.chart.palettes``:
 ``modern``, ``classic``, ``editorial``, ``vibrant``,
 ``monochrome_blue``, and ``monochrome_warm``.  ``palette_names()`` and
 ``resolve_palette()`` are also exported for callers that want to share
@@ -32,7 +32,7 @@ Quick layouts
 
 ``Chart.apply_quick_layout(layout)`` toggles title / legend / axis-title
 / gridline visibility in opinionated combinations.  Ten built-in
-presets ship in ``pptx.chart.quick_layouts``::
+presets ship in ``power_pptx.chart.quick_layouts``::
 
     chart.apply_quick_layout("title_legend_right")
     chart.apply_quick_layout("title_legend_bottom")

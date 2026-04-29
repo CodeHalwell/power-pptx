@@ -21,7 +21,7 @@ public API up to meet it, then layer a thin "design system" on top so the
 
 ## Guiding principles
 
-1. **Drop-in compatibility within 1.x.** `import pptx` keeps working.
+1. **Drop-in compatibility within 1.x.** `import power_pptx` keeps working.
    Existing scripts produce byte-identical or visually-identical output.
    Breaking changes are batched and held for a clearly-flagged 2.0.
 2. **OOXML faithful by default.** Every new feature maps to a real
@@ -198,8 +198,8 @@ Off by default to preserve drop-in compatibility with 1.0.2 user code.
 A single entry point for generator scripts (LLM or otherwise):
 
 ```python
-from pptx import Presentation
-from pptx.compose import from_spec
+from power_pptx import Presentation
+from power_pptx.compose import from_spec
 
 prs = from_spec({
     "theme": {"palette": "modern_blue", "fonts": "inter"},
@@ -239,7 +239,7 @@ master.
 ### What's deliberately *not* in this phase
 
 - Theme palette resolution (Phase 5).
-- The full `pptx.design.recipes` library (Phase 8). 1.2.0 ships with
+- The full `power_pptx.design.recipes` library (Phase 8). 1.2.0 ships with
   ~5 hand-rolled layouts so `from_spec` is useful immediately.
 - Live re-layout on edit. The linter inspects; it does not maintain a
   constraint graph.
@@ -340,13 +340,13 @@ roadmap. We ship the **preset subset only** — the full timing tree is
 expressive enough to break PowerPoint, and 90% of users want one of a
 dozen entrance presets.
 
-- [x] **`pptx.animation` module.** New top-level public module with
+- [x] **`power_pptx.animation` module.** New top-level public module with
   `Entrance`, `Exit`, `Emphasis`, and `SlideAnimations` classes.
   Accessible via `slide.animations`.
 - [x] **Trigger model.** `Trigger.ON_CLICK` /
   `Trigger.WITH_PREVIOUS` / `Trigger.AFTER_PREVIOUS`, with `delay`.
-  Implemented in `pptx/enum/animation.py` as `PP_ANIM_TRIGGER`;
-  `Trigger` alias exported from `pptx.animation`.
+  Implemented in `power_pptx/enum/animation.py` as `PP_ANIM_TRIGGER`;
+  `Trigger` alias exported from `power_pptx.animation`.
 - [x] **Entrance presets.** 8 presets: Appear, Fade, Fly In (4
   directions), Float In, Wipe, Zoom, Wheel, Random Bars. Each maps
   to a known `presetID` in the `<p:par>/<p:cTn>` tree.
@@ -385,11 +385,11 @@ loss.
 
 - [x] **Read-only theme API.** `prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]`
   resolves to `RGBColor`; `prs.theme.fonts.major` / `.minor` return font
-  names. New `pptx/theme.py` module (`Theme`, `ThemeColors`, `ThemeFonts`)
+  names. New `power_pptx/theme.py` module (`Theme`, `ThemeColors`, `ThemeFonts`)
   on top of the expanded `oxml/theme.py`. Wired into `Presentation.theme`
   and `SlideMasterPart.theme`.
 - [x] **Theme-aware inheritance** for effect/color getters from Phase 2.
-  New `pptx.inherit.resolve_color(color_format, theme=prs.theme)` helper
+  New `power_pptx.inherit.resolve_color(color_format, theme=prs.theme)` helper
   returns the effective `RGBColor` for any `ColorFormat` (including the
   `_LazyColorFormat` proxy on `Font.color` / `LineFormat.color`):
   explicit RGB colors are returned as-is, scheme colors resolve through
@@ -403,7 +403,7 @@ loss.
   `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
   `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,
   `<a:grayscl>` inside `<a:blip>`.  Exposed via `picture.effects`
-  (`PictureEffects` proxy in `pptx/dml/picture.py`).  `set_duotone()`
+  (`PictureEffects` proxy in `power_pptx/dml/picture.py`).  `set_duotone()`
   accepts `RGBColor`, hex strings, or RGB 3-tuples.
 - [x] **Native SVG in `add_picture`.** New
   `slide.shapes.add_svg_picture(svg_file, left, top, width=None,
@@ -415,7 +415,7 @@ loss.
   clear `CairoSvgUnavailable` error guiding callers to install it
   or supply their own fallback.  New `image/svg+xml` content type is
   registered with the package so SVG parts round-trip through
-  PowerPoint untouched.  Helper module: `pptx/_svg.py`
+  PowerPoint untouched.  Helper module: `power_pptx/_svg.py`
   (`looks_like_svg`, `rasterize_svg`, `add_svg_image_part`,
   `add_svg_blip_extension`).
 - [x] **Radial / rectangular / path-shape gradients.** `FillFormat.gradient`
@@ -457,13 +457,13 @@ print resolution.
 Solves "I want to merge decks" — the JSON entry point already shipped
 in Phase 2, but cross-presentation operations are the remaining piece.
 
-- [x] **`pptx.compose` package** (extending the module introduced in
-  Phase 2 for `from_spec`).  Now a real package: `pptx.compose`
+- [x] **`power_pptx.compose` package** (extending the module introduced in
+  Phase 2 for `from_spec`).  Now a real package: `power_pptx.compose`
   re-exports `from_spec`, `import_slide`, and `apply_template` from a
-  single import path so callers can do `from pptx.compose import
+  single import path so callers can do `from power_pptx.compose import
   from_spec, import_slide, apply_template`.  The implementations
-  remain in private submodules (`pptx.compose.from_spec`,
-  `pptx._slide_importer`, `pptx._template_applier`) so the public
+  remain in private submodules (`power_pptx.compose.from_spec`,
+  `power_pptx._slide_importer`, `power_pptx._template_applier`) so the public
   surface stays small.
 - [x] **`import_slide(other_slide, *, merge_master='dedupe' | 'clone')`.**
   Clones a slide from another presentation, including its layout
@@ -507,8 +507,8 @@ The piece that turns the low-level API into something where the
 *default* output looks good. Nothing here adds new XML — it's all on
 top of the foundations from earlier phases.
 
-- [x] **`pptx.design.tokens.DesignTokens`.** Palette, typography, radii,
-  shadows, spacings.  Lives in `pptx/design/tokens.py` with
+- [x] **`power_pptx.design.tokens.DesignTokens`.** Palette, typography, radii,
+  shadows, spacings.  Lives in `power_pptx/design/tokens.py` with
   `TypographyToken` and `ShadowToken` value objects.  Sources:
   - `DesignTokens.from_dict(...)` — the canonical form; coerces hex
     strings, RGB 3-tuples, and bare floats (treated as points) into
@@ -521,14 +521,14 @@ top of the foundations from earlier phases.
   - `merge(other)` for layering brand-spec overrides on top of a
     template-extracted base.
 - [x] **`shape.style`.** Token-resolving facade in
-  `pptx/design/style.py` (`ShapeStyle`).  Setters: `style.fill =
+  `power_pptx/design/style.py` (`ShapeStyle`).  Setters: `style.fill =
   tokens.palette['primary']`, `style.line = ...`, `style.shadow =
   tokens.shadows['card']`, `style.text_color = ...`, `style.font =
   tokens.typography['body']`.  Internally fans assignments out to
   `fill` / `line` / `shadow` / per-run font, leaving unset shadow
   fields untouched so partial tokens are non-destructive.  Exposed via
   `BaseShape.style`.
-- [x] **`pptx.design.layout`.** `Grid(slide, cols=12, rows=6, gutter=Pt(12),
+- [x] **`power_pptx.design.layout`.** `Grid(slide, cols=12, rows=6, gutter=Pt(12),
   margin=...)` allocates `Box(left, top, width, height)` rectangles for any
   cell or span (`grid.cell(col, row, col_span, row_span)`); `grid.place(
   shape, ...)` writes them onto a shape.  `Stack(direction="vertical" |
@@ -536,8 +536,8 @@ top of the foundations from earlier phases.
   exposes a running cursor via `stack.next(width=..., height=...)` /
   `stack.place(shape, ...)`, with `stack.reset()` to rewind.  Pure
   build-time geometry — no XML is read or mutated until a `place()` call.
-- [x] **`pptx.design.recipes`.** Opinionated parameterized slide
-  constructors shipped as plain functions in `pptx/design/recipes.py`:
+- [x] **`power_pptx.design.recipes`.** Opinionated parameterized slide
+  constructors shipped as plain functions in `power_pptx/design/recipes.py`:
   `title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, and
   `image_hero_slide`.  Each consumes a `DesignTokens` (palette +
   typography + optional `card` shadow), places shapes through the
@@ -573,7 +573,7 @@ Items that are valuable but not on the critical path:
   palettes wrap when the chart has more series than colors.  The
   `chart_style` integer is left untouched, so the palette overrides only
   the per-series fill without rewriting the rest of the style.  New
-  module: `pptx/chart/palettes.py` exposes `CHART_PALETTES`,
+  module: `power_pptx/chart/palettes.py` exposes `CHART_PALETTES`,
   `palette_names()`, and `resolve_palette()` for callers that want to
   share the same color set with non-chart shapes.
 - [x] **Per-series chart fills (gradient/pattern) via `ChartFormat`.**
@@ -585,7 +585,7 @@ Items that are valuable but not on the critical path:
 - [x] **Chart "quick layouts" (mirroring PowerPoint's gallery).**
   `Chart.apply_quick_layout(layout)` toggles title / legend / axis-title /
   gridline visibility in opinionated combinations.  Ten built-in
-  presets ship in `pptx.chart.quick_layouts` (`title_legend_right`,
+  presets ship in `power_pptx.chart.quick_layouts` (`title_legend_right`,
   `title_legend_bottom`, `title_legend_top`, `title_legend_left`,
   `title_no_legend`, `no_title_no_legend`, `title_axes_legend_right`,
   `title_axes_legend_bottom`, `minimal`, `dense`); custom layouts can be
@@ -602,7 +602,7 @@ Items that are valuable but not on the critical path:
   `slide.animations.add_motion` plumbing as `MotionPath.line`, so they
   honor the Phase 5 trigger model and round-trip cleanly.
 - [x] **Slide-thumbnail renderer (LibreOffice shell-out).** New
-  `pptx.render` module with `render_slide_thumbnails(prs, ...)` and
+  `power_pptx.render` module with `render_slide_thumbnails(prs, ...)` and
   `render_slide_thumbnail(slide, ...)`, plus convenience methods
   `Presentation.render_thumbnails()` and `Slide.render_thumbnail()`.
   Drives `soffice --headless --convert-to png` to rasterise slides;
@@ -618,10 +618,10 @@ Items that are valuable but not on the critical path:
   set; ``docs/index.rst`` reorganised; new user-guide chapters added
   for visual effects, animations, transitions, the layout linter,
   composition, themes, the design-system layer, advanced charts, and
-  slide thumbnails; new API-reference pages added for ``pptx.animation``,
-  ``pptx.lint``, ``pptx.compose``, ``pptx.theme`` (plus
-  ``pptx.inherit.resolve_color``), ``pptx.design`` (tokens, style,
-  layout, recipes), ``pptx.render``, and ``pptx.smart_art``; the
+  slide thumbnails; new API-reference pages added for ``power_pptx.animation``,
+  ``power_pptx.lint``, ``power_pptx.compose``, ``power_pptx.theme`` (plus
+  ``power_pptx.inherit.resolve_color``), ``power_pptx.design`` (tokens, style,
+  layout, recipes), ``power_pptx.render``, and ``power_pptx.smart_art``; the
   ``DrawingML`` reference page now covers the full Phase 3/6 effect
   family; new enum pages cover ``MSO_LINE_CAP_STYLE``,
   ``MSO_LINE_COMPOUND_STYLE``, ``MSO_LINE_JOIN_STYLE``,

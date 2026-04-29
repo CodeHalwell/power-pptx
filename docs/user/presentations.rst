@@ -20,7 +20,7 @@ Opening a presentation
 The simplest way to get started is to open a new presentation without
 specifying a file to open::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     prs = Presentation()
     prs.save('test.pptx')

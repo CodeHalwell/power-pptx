@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Test suite for `pptx.chart.data` module."""
+"""Test suite for `power_pptx.chart.data` module."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import date, datetime
 
 import pytest
 
-from pptx.chart.data import (
+from power_pptx.chart.data import (
     BubbleChartData,
     BubbleDataPoint,
     BubbleSeriesData,
@@ -25,8 +25,8 @@ from pptx.chart.data import (
     _BaseDataPoint,
     _BaseSeriesData,
 )
-from pptx.chart.xlsx import CategoryWorkbookWriter
-from pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.chart.xlsx import CategoryWorkbookWriter
+from power_pptx.enum.chart import XL_CHART_TYPE
 
 from ..unitutil.mock import Mock, call, class_mock, instance_mock, property_mock
 
@@ -37,7 +37,7 @@ class DescribeChartData(object):
 
 
 class Describe_BaseChartData(object):
-    """Unit-test suite for `pptx.chart.data._BaseChartData`."""
+    """Unit-test suite for `power_pptx.chart.data._BaseChartData`."""
 
     def it_can_generate_chart_part_XML_for_its_data(self, ChartXmlWriter_: Mock):
         ChartXmlWriter_.return_value.xml = "ƒøØßår"
@@ -65,7 +65,7 @@ class Describe_BaseChartData(object):
 
     @pytest.fixture
     def ChartXmlWriter_(self, request):
-        ChartXmlWriter_ = class_mock(request, "pptx.chart.data.ChartXmlWriter")
+        ChartXmlWriter_ = class_mock(request, "power_pptx.chart.data.ChartXmlWriter")
         ChartXmlWriter_.return_value.xml = "ƒøØßår"
         return ChartXmlWriter_
 
@@ -221,11 +221,11 @@ class DescribeCategoryChartData(object):
 
     @pytest.fixture
     def Categories_(self, request, categories_):
-        return class_mock(request, "pptx.chart.data.Categories", return_value=categories_)
+        return class_mock(request, "power_pptx.chart.data.Categories", return_value=categories_)
 
     @pytest.fixture
     def CategorySeriesData_(self, request, series_):
-        return class_mock(request, "pptx.chart.data.CategorySeriesData", return_value=series_)
+        return class_mock(request, "power_pptx.chart.data.CategorySeriesData", return_value=series_)
 
     @pytest.fixture
     def categories_(self, request):
@@ -440,7 +440,7 @@ class DescribeCategories(object):
 
     @pytest.fixture
     def Category_(self, request, category_):
-        return class_mock(request, "pptx.chart.data.Category", return_value=category_)
+        return class_mock(request, "power_pptx.chart.data.Category", return_value=category_)
 
     @pytest.fixture
     def category_(self, request):
@@ -507,7 +507,7 @@ class DescribeCategory(object):
     def add_sub_fixture(self, request, category_):
         category = Category(None, None)
         name = "foobar"
-        Category_ = class_mock(request, "pptx.chart.data.Category", return_value=category_)
+        Category_ = class_mock(request, "power_pptx.chart.data.Category", return_value=category_)
         return category, name, Category_, category_
 
     @pytest.fixture(params=[((), 1), ((1,), 2), ((1, 1, 1), 2), ((2, 2, 2), 3)])
@@ -671,7 +671,7 @@ class DescribeCategorySeriesData(object):
 
     @pytest.fixture
     def CategoryDataPoint_(self, request, data_point_):
-        return class_mock(request, "pptx.chart.data.CategoryDataPoint", return_value=data_point_)
+        return class_mock(request, "power_pptx.chart.data.CategoryDataPoint", return_value=data_point_)
 
     @pytest.fixture
     def categories_(self, request):
@@ -706,7 +706,7 @@ class DescribeBubbleChartData(object):
 
     @pytest.fixture
     def BubbleSeriesData_(self, request, series_data_):
-        return class_mock(request, "pptx.chart.data.BubbleSeriesData", return_value=series_data_)
+        return class_mock(request, "power_pptx.chart.data.BubbleSeriesData", return_value=series_data_)
 
     @pytest.fixture
     def series_data_(self, request):
@@ -736,7 +736,7 @@ class DescribeXyChartData(object):
 
     @pytest.fixture
     def XySeriesData_(self, request, series_data_):
-        return class_mock(request, "pptx.chart.data.XySeriesData", return_value=series_data_)
+        return class_mock(request, "power_pptx.chart.data.XySeriesData", return_value=series_data_)
 
     @pytest.fixture
     def series_data_(self, request):
@@ -763,7 +763,7 @@ class DescribeBubbleSeriesData(object):
 
     @pytest.fixture
     def BubbleDataPoint_(self, request, data_point_):
-        return class_mock(request, "pptx.chart.data.BubbleDataPoint", return_value=data_point_)
+        return class_mock(request, "power_pptx.chart.data.BubbleDataPoint", return_value=data_point_)
 
     @pytest.fixture
     def data_point_(self, request):
@@ -806,7 +806,7 @@ class DescribeXySeriesData(object):
 
     @pytest.fixture
     def XyDataPoint_(self, request, data_point_):
-        return class_mock(request, "pptx.chart.data.XyDataPoint", return_value=data_point_)
+        return class_mock(request, "power_pptx.chart.data.XyDataPoint", return_value=data_point_)
 
 
 class DescribeCategoryDataPoint(object):

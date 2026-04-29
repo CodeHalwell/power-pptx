@@ -18,7 +18,7 @@ workflow this would unblock.
 Show what the ideal calling code would look like:
 
 ```python
-from pptx import Presentation
+from power_pptx import Presentation
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])

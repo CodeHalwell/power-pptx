@@ -7,7 +7,7 @@ keeping theme inheritance intact.
 ## Per-slide
 
 ```python
-from pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 
 slide.transition.kind             = MSO_TRANSITION_TYPE.MORPH
 slide.transition.duration         = 1500          # milliseconds
@@ -65,9 +65,9 @@ prs.set_transition(kind=None)
 ## End-to-end example
 
 ```python
-from pptx import Presentation
-from pptx.enum.presentation import MSO_TRANSITION_TYPE
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.util import Inches
 
 prs = Presentation()
 

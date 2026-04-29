@@ -1,11 +1,11 @@
-"""Unit-test suite for `pptx.dml.effect` module."""
+"""Unit-test suite for `power_pptx.dml.effect` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.effect import BlurFormat, ReflectionFormat, ShadowFormat
-from pptx.util import Emu
+from power_pptx.dml.effect import BlurFormat, ReflectionFormat, ShadowFormat
+from power_pptx.util import Emu
 
 from ..unitutil.cxml import element, xml
 

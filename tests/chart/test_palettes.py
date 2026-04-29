@@ -1,16 +1,16 @@
-"""Unit-test suite for `pptx.chart.palettes`."""
+"""Unit-test suite for `power_pptx.chart.palettes`."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.palettes import (
+from power_pptx.chart.palettes import (
     CHART_PALETTES,
     _to_rgb,
     palette_names,
     resolve_palette,
 )
-from pptx.dml.color import RGBColor
+from power_pptx.dml.color import RGBColor
 
 
 class DescribeResolvePalette:

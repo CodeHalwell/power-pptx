@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.chart.xlsx` module."""
+"""Unit-test suite for `power_pptx.chart.xlsx` module."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ import pytest
 from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
 
-from pptx.chart.data import (
+from power_pptx.chart.data import (
     BubbleChartData,
     Categories,
     CategoryChartData,
     CategorySeriesData,
     XyChartData,
 )
-from pptx.chart.xlsx import (
+from power_pptx.chart.xlsx import (
     BubbleWorkbookWriter,
     CategoryWorkbookWriter,
     XyWorkbookWriter,
@@ -28,7 +28,7 @@ from ..unitutil.mock import ANY, call, class_mock, instance_mock, method_mock
 
 
 class Describe_BaseWorkbookWriter(object):
-    """Unit-test suite for `pptx.chart.xlsx._BaseWorkbookWriter` objects."""
+    """Unit-test suite for `power_pptx.chart.xlsx._BaseWorkbookWriter` objects."""
 
     def it_can_generate_a_chart_data_Excel_blob(
         self, request, xlsx_file_, workbook_, worksheet_, BytesIO_
@@ -79,11 +79,11 @@ class Describe_BaseWorkbookWriter(object):
 
     @pytest.fixture
     def BytesIO_(self, request):
-        return class_mock(request, "pptx.chart.xlsx.io.BytesIO")
+        return class_mock(request, "power_pptx.chart.xlsx.io.BytesIO")
 
     @pytest.fixture
     def Workbook_(self, request, workbook_):
-        return class_mock(request, "pptx.chart.xlsx.Workbook", return_value=workbook_)
+        return class_mock(request, "power_pptx.chart.xlsx.Workbook", return_value=workbook_)
 
     @pytest.fixture
     def workbook_(self, request):
@@ -99,7 +99,7 @@ class Describe_BaseWorkbookWriter(object):
 
 
 class DescribeCategoryWorkbookWriter(object):
-    """Unit-test suite for `pptx.chart.xlsx.CategoryWorkbookWriter` objects."""
+    """Unit-test suite for `power_pptx.chart.xlsx.CategoryWorkbookWriter` objects."""
 
     def it_knows_the_categories_range_ref(self, categories_ref_fixture):
         workbook_writer, expected_value = categories_ref_fixture
@@ -336,7 +336,7 @@ class DescribeCategoryWorkbookWriter(object):
 
 
 class DescribeBubbleWorkbookWriter(object):
-    """Unit-test suite for `pptx.chart.xlsx.BubbleWorkbookWriter` objects."""
+    """Unit-test suite for `power_pptx.chart.xlsx.BubbleWorkbookWriter` objects."""
 
     def it_can_populate_a_worksheet_with_chart_data(self, populate_fixture):
         workbook_writer, workbook_, worksheet_, expected_calls = populate_fixture
@@ -383,7 +383,7 @@ class DescribeBubbleWorkbookWriter(object):
 
 
 class DescribeXyWorkbookWriter(object):
-    """Unit-test suite for `pptx.chart.xlsx.XyWorkbookWriter` objects."""
+    """Unit-test suite for `power_pptx.chart.xlsx.XyWorkbookWriter` objects."""
 
     def it_can_populate_a_worksheet_with_chart_data(self, populate_fixture):
         workbook_writer, workbook_, worksheet_, expected_calls = populate_fixture

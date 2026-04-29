@@ -5,9 +5,9 @@ from __future__ import annotations
 from behave import given, then, when
 from helpers import test_file
 
-from pptx import Presentation
-from pptx.action import Hyperlink
-from pptx.enum.action import PP_ACTION
+from power_pptx import Presentation
+from power_pptx.action import Hyperlink
+from power_pptx.enum.action import PP_ACTION
 
 # given ===================================================
 

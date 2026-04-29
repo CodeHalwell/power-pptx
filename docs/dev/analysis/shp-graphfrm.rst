@@ -28,23 +28,23 @@ Protocol
 
     >>> shape = shapes.add_chart(style, type, x, y, cx, cy)
     >>> type(shape)
-    <class 'pptx.shapes.graphfrm.GraphicFrame'>
+    <class 'power_pptx.shapes.graphfrm.GraphicFrame'>
     >>> shape.has_chart
     True
     >>> shape.has_table
     False
     >>> shape.chart
-    <pptx.parts.chart.ChartPart object at 0x108c0e290>
+    <power_pptx.parts.chart.ChartPart object at 0x108c0e290>
 
     >>> shape = shapes.add_table(rows=2, cols=2, x, y, cx, cy)
     >>> type(shape)
-    <class 'pptx.shapes.graphfrm.GraphicFrame'>
+    <class 'power_pptx.shapes.graphfrm.GraphicFrame'>
     >>> shape.has_chart
     False
     >>> shape.has_table
     True
     >>> shape.table
-    <pptx.shapes.table.Table object at 0x108c0e310>
+    <power_pptx.shapes.table.Table object at 0x108c0e310>
 
 
 Specimen XML
