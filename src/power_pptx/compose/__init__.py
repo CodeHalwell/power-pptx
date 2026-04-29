@@ -23,6 +23,6 @@ from __future__ import annotations
 
 from power_pptx._slide_importer import import_slide
 from power_pptx._template_applier import apply_template
-from power_pptx.compose.from_spec import from_spec
+from power_pptx.compose.from_spec import from_spec, from_yaml
 
-__all__ = ["apply_template", "from_spec", "import_slide"]
+__all__ = ["apply_template", "from_spec", "from_yaml", "import_slide"]
