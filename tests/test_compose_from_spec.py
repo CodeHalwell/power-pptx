@@ -164,6 +164,29 @@ class DescribeFromYaml:
         )
 
 
+class DescribeFigureLayoutDispatch:
+    """`{"layout": "figure", "figure": <path>}` routes to figure_slide."""
+
+    def it_routes_a_raster_image_path(self, tmp_path):
+        # 1×1 PNG so add_picture's image-format detection succeeds.
+        png_path = tmp_path / "thumb.png"
+        png_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08"
+            b"\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9c"
+            b"c\xfc\xff\xff?\x03\x00\x07\x06\x02\xff\xa3\x9d\x9a\xed"
+            b"\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        prs = from_spec({
+            "slides": [{
+                "layout": "figure",
+                "title": "From file",
+                "figure": str(png_path),
+            }],
+        })
+        assert len(prs.slides) == 1
+
+
 class DescribeTokenSpecResolution:
     def it_loads_a_preset_via_tokens_dict(self):
         prs = from_spec({

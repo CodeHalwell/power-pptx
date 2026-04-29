@@ -52,6 +52,7 @@ Example::
 
 from __future__ import annotations
 
+import os
 from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
@@ -76,6 +77,7 @@ __all__ = (
     "code_slide",
     "timeline_slide",
     "comparison_slide",
+    "figure_slide",
 )
 
 
@@ -1245,6 +1247,171 @@ def comparison_slide(
 
     _apply_transition(slide, transition)
     return slide
+
+
+# ---------------------------------------------------------------------------
+# figure_slide — embed Plotly / Matplotlib / SVG / HTML / image figures.
+# ---------------------------------------------------------------------------
+
+
+def figure_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    figure: Any,
+    caption: Optional[str] = None,
+    figure_format: str = "auto",
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a title + embedded-figure slide and return it.
+
+    *figure* is dispatched by type:
+
+    * a Plotly ``Figure`` (or anything with ``.to_image``) → rendered
+      via :func:`power_pptx.design.figures.add_plotly_figure`.
+    * a Matplotlib ``Figure`` (or anything with ``.savefig``) →
+      :func:`add_matplotlib_figure`.
+    * a string starting with ``"<svg"`` (after lstrip) or ``bytes``
+      whose head matches the SVG sniff → :func:`add_svg_figure`.
+    * a string starting with ``"<"`` (any other tag) → treated as an
+      HTML snippet and rendered via :func:`add_html_figure` (needs
+      Playwright).
+    * a path to a file → routed to ``add_picture`` for raster types
+      (.png/.jpg/.jpeg/.bmp/.tif/.gif) or ``add_svg_picture`` for
+      ``.svg``.
+
+    *figure_format* (``"auto"`` / ``"svg"`` / ``"png"``) is forwarded
+    to the Plotly / Matplotlib adapter; ignored for SVG / HTML / image
+    inputs.
+
+    *caption* is rendered in the bottom-right corner if supplied.
+
+    Tokens consumed:
+
+    * **palette** — title from ``primary`` (fallback ``neutral``);
+      caption from ``muted`` (fallback ``neutral``).
+    * **typography** — ``heading`` for the title; ``body`` for the
+      caption.
+    """
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    fig_top = Length(title_top + title_h + Inches(0.2))
+    cap_h = Inches(0.4) if caption else Length(0)
+    fig_h = Length(slide_h - fig_top - Inches(0.5) - cap_h)
+    fig_w = Length(slide_w - 2 * margin)
+
+    _embed_figure(slide, figure, margin, fig_top, fig_w, fig_h, figure_format)
+
+    if caption:
+        cap_top = Length(slide_h - Inches(0.5) - cap_h)
+        cap_box = slide.shapes.add_textbox(
+            margin, cap_top, fig_w, cap_h
+        )
+        _fill_text_frame(
+            cap_box.text_frame,
+            caption,
+            token=_typography(tokens, "body", default_size=Pt(12), default_italic=True),
+            color=_palette(tokens, ("muted", "neutral")),
+            align=PP_ALIGN.RIGHT,
+            anchor=MSO_ANCHOR.TOP,
+        )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+_RASTER_EXTS = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"})
+
+
+def _embed_figure(
+    slide: "Slide",
+    figure: Any,
+    left: Length,
+    top: Length,
+    width: Length,
+    height: Length,
+    figure_format: str,
+) -> None:
+    """Dispatch *figure* by type to the matching figures-module adapter."""
+    from power_pptx.design import figures as _figures
+
+    # Plotly figure: detected by duck-typed .to_image().
+    if hasattr(figure, "to_image") and callable(figure.to_image):
+        _figures.add_plotly_figure(
+            slide, figure, left, top, width, height, format=figure_format
+        )
+        return
+
+    # Matplotlib figure: detected by duck-typed .savefig().
+    if hasattr(figure, "savefig") and callable(figure.savefig):
+        _figures.add_matplotlib_figure(
+            slide, figure, left, top, width, height, format=figure_format
+        )
+        return
+
+    # File path: dispatch by extension.
+    if isinstance(figure, (str, os.PathLike)) and not _is_markup_string(figure):
+        ext = os.path.splitext(str(figure))[1].lower()
+        if ext == ".svg":
+            _figures.add_svg_figure(slide, figure, left, top, width, height)
+            return
+        if ext in _RASTER_EXTS:
+            slide.shapes.add_picture(str(figure), left, top, width, height)
+            return
+        # Unknown extension — best-effort raster.
+        slide.shapes.add_picture(str(figure), left, top, width, height)
+        return
+
+    # Bytes / strings: SVG sniff vs HTML.
+    if isinstance(figure, (bytes, bytearray, str)):
+        head = figure if isinstance(figure, (bytes, bytearray)) else figure.encode("utf-8", "replace")
+        head = bytes(head[:512]).lstrip()
+        if head.startswith(b"<?xml") or b"<svg" in head[:200]:
+            _figures.add_svg_figure(slide, figure, left, top, width, height)
+            return
+        if head.startswith(b"<"):
+            _figures.add_html_figure(slide, figure, left, top, width, height)
+            return
+
+    raise TypeError(
+        f"figure_slide can't dispatch a figure of type {type(figure).__name__!r}; "
+        "pass a Plotly Figure, a Matplotlib Figure, an SVG / HTML "
+        "string, an image path, or raw bytes."
+    )
+
+
+def _is_markup_string(value: Any) -> bool:
+    """Return True when *value* looks like inline SVG / HTML rather than a path.
+
+    Filesystem paths can technically start with ``<`` on some systems
+    (e.g. Windows), so we also rule out anything containing a path
+    separator or ending in a known image extension before deciding.
+    """
+    if not isinstance(value, str):
+        return False
+    s = value.lstrip()
+    if not s.startswith("<"):
+        return False
+    if os.sep in value or "/" in value:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

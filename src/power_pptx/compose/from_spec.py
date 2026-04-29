@@ -233,6 +233,7 @@ _RECIPE_LAYOUTS: dict[str, tuple[str, frozenset[str]]] = {
     "code":             ("code_slide",       frozenset({"title", "code"})),
     "timeline":         ("timeline_slide",   frozenset({"title", "milestones"})),
     "comparison":       ("comparison_slide", frozenset({"title", "left_heading", "right_heading", "rows"})),
+    "figure":           ("figure_slide",     frozenset({"title", "figure"})),
 }
 
 
