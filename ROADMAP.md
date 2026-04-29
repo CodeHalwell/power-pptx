@@ -672,6 +672,84 @@ mechanical when the time comes:
 
 ---
 
+## Lint follow-ups (post-2.1.1)
+
+Deferred from the 2.1.1 user-feedback batch.  These are design changes
+to the lint detector model rather than localised fixes — they need
+explicit scoping before implementation.  The orange/yellow items from
+the same review shipped in 2.1.1 (`shape.lint_skip`,
+`ShapeCollision.groups`, `chart.text_color`, residual `auto_fix`,
+`GraphicFrame.shadow → None`).
+
+### 1. `ShapeCollision` — structural-vs-incidental scoring
+
+Reported symptom: 154 `ShapeCollision` warnings per render of a
+production deck, all filed as informational.  `lint_group` /
+`lint_skip` cover the explicit-tagging side, but the underlying
+detector still treats every overlap-above-threshold the same.  With
+layered card-on-panel-on-row designs most overlaps are by intent, so
+the cheap "bounding rects intersect by ≥5%" check has poor
+signal-to-noise.
+
+Proposal — add a structural-vs-incidental score:
+
+- **Likely incidental (low score):** small shape sitting fully inside
+  a larger shape (the card-on-panel pattern).  Drop to `INFO` or below
+  the default report threshold.
+- **Likely a bug (high score):** two similarly-sized shapes with
+  partial overlap, neither containing the other.  Keep at `WARNING`.
+- **Container-aware:** when one shape's bbox fully contains the other
+  and the contained shape sits on top in z-order, treat as a layered
+  pair, not a collision.
+
+Open questions:
+
+- Expose the score on `ShapeCollision`
+  (e.g. `score: float`, `kind: "incidental" | "partial" | "matched"`)
+  so callers can re-thresh without re-running the detector?
+- Should the existing 5% overlap threshold become severity-tiered
+  (info ≥5%, warning ≥40% of the smaller shape, error ≥80%)?
+- Interaction with `lint_group` — does scoring run before or after
+  group suppression?  (Probably before, so the score is still useful
+  when groups aren't applied.)
+
+### 2. Drop-shadow / glow geometry in `OffSlide` and `ShapeCollision`
+
+Reported symptom: a panel whose bbox ends at 6.9″ but whose shadow
+blur extends another 0.19″ visually bleeds into shapes below — the
+linter only sees the bbox and misses the bleed.
+
+Today both detectors use `shape.left/top/width/height`.  Proposal —
+add an "effect bleed" concept that widens a shape's effective bbox by
+its shadow's blur radius (and possibly distance, projected by
+direction), and use the inflated bbox in the geometry detectors.
+
+Open questions:
+
+- On by default, or opt-in via
+  `slide.lint(include_shadow_geometry=True)`?  Default-on changes
+  warnings for every existing deck; opt-in is more conservative.
+- Inflation formula — naive `blur_radius / 2` on every side is the
+  cheapest model; a directional projection that respects
+  `distance × direction` is more correct but pulls in trig and edge
+  cases (slide rotation, theme-inherited shadows without explicit
+  values, etc.).
+- Glow / soft-edges / reflection are the same class of effect.  Worth
+  a single `_effective_bbox(shape)` helper used by both detectors.
+- New issue codes (`OffSlideShadow`, `ShapeCollisionShadow`) so
+  callers can opt these out specifically via `lint_skip`?
+
+### Suggested order
+
+1. Land (1) first — cuts the noise floor on existing decks and exposes
+   a cleaner mental model that (2) can plug into.
+2. Land (2) opt-in, with the directional formula behind a flag and the
+   simple model as default.
+
+Both are enhancements, not blockers for 2.1.x.
+
+---
+
 ## How to follow / contribute
 
 - **Issues**: GitHub issue tracker on the fork repository.
