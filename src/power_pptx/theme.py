@@ -212,8 +212,6 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     creating the list if needed.
     """
     pres_elm = presentation._element  # type: ignore[attr-defined]
-    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
-    a_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
     r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
     embedded_lst = pres_elm.find(qn("p:embeddedFontLst"))

@@ -657,9 +657,15 @@ def _slide_background_rgb(slide: Slide):
         bg = slide._element.bg  # pyright: ignore[reportPrivateUsage]
         if bg is None:
             return None
+        # Read the existing ``<p:bgPr>`` non-destructively. ``get_or_add_bgPr``
+        # would mutate the slide (drop a ``<p:bgRef>`` style reference and
+        # synthesize a noFill ``<p:bgPr>``), and ``slide.lint()`` must never
+        # mutate slide XML.
+        bgPr = bg.bgPr
+        if bgPr is None:
+            return None
         from power_pptx.dml.fill import FillFormat
 
-        bgPr = slide._element.cSld.get_or_add_bgPr()  # pyright: ignore[reportPrivateUsage]
         return _resolve_solid_rgb(FillFormat.from_fill_parent(bgPr))
     except Exception:
         return None

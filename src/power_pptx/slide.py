@@ -379,7 +379,7 @@ class Slide(_BaseSlide):
 
         return render_slide_thumbnail(self, **kwargs)
 
-    def lint_group(self, name: str, *shapes) -> None:
+    def lint_group(self, name: str | None, *shapes) -> None:
         """Tag every shape in *shapes* with ``lint_group = name``.
 
         Convenience batch form of ``shape.lint_group = name``. Shapes that

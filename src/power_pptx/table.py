@@ -237,6 +237,12 @@ class Table(object):
                         cell.text, (Emu(cx), Emu(cy)), max_font_pt, font_file
                     )
                 except Exception:
+                    # If measurement fails for a populated cell, treat it as
+                    # the worst case so the final uniform size remains safe
+                    # for every populated cell. Skipping the cell would let
+                    # ``target = min(...)`` stay artificially high and other
+                    # cells could end up still overflowing.
+                    per_cell_sizes.append(int(min_font_pt))
                     continue
                 if size is None:
                     # Text genuinely does not fit at any size in this cell;

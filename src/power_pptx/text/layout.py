@@ -19,7 +19,7 @@ class TextFitter(tuple):
 
     @classmethod
     def best_fit_font_size(
-        cls, text: str, extents: tuple[Length, Length], max_size: int, font_file: str
+        cls, text: str, extents: tuple[Length, Length], max_size: int, font_file: str | None
     ) -> int:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
@@ -81,15 +81,13 @@ class TextFitter(tuple):
             Fit means text can be broken into lines that fit entirely within `extents`
             when rendered at `point_size` using the font defined in `font_file`.
             """
-            try:
-                text_lines = self._wrap_lines(self._line_source, point_size)
-            except TypeError:
-                # No whole word fits in the available width at this size;
-                # treat as "doesn't fit" so the search continues to smaller
-                # point sizes rather than raising. The underlying cause is
-                # ``_break_line`` returning ``None`` when its predicate is
-                # never satisfied; whole-line breakage is the correct
-                # answer here.
+            text_lines = self._wrap_lines(self._line_source, point_size)
+            if text_lines is None:
+                # No whole word fits in the available width at this point
+                # size; treat as "doesn't fit" so the search continues to
+                # smaller sizes rather than crashing.  Returning ``None``
+                # is the explicit no-fit signal from ``_wrap_lines`` /
+                # ``_break_line``.
                 return False
             cy = _rendered_size("Ty", point_size, self._font_file)[1]
             return (cy * len(text_lines)) <= self._height
@@ -117,11 +115,21 @@ class TextFitter(tuple):
         Return a sequence of str values representing the text in
         *line_source* wrapped within this fitter when rendered at
         *point_size*.
+
+        Returns ``None`` when no whole word from *line_source* fits in
+        the available width at *point_size* (``_break_line`` returns
+        ``None``), signalling "no-fit" to callers without raising.
         """
-        text, remainder = self._break_line(line_source, point_size)
+        result = self._break_line(line_source, point_size)
+        if result is None:
+            return None
+        text, remainder = result
         lines = [text]
         if remainder:
-            lines.extend(self._wrap_lines(remainder, point_size))
+            sub = self._wrap_lines(remainder, point_size)
+            if sub is None:
+                return None
+            lines.extend(sub)
         return lines
 
 
