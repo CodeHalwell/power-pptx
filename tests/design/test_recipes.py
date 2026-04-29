@@ -9,9 +9,15 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.design.recipes import (
     bullet_slide,
+    chart_slide,
+    code_slide,
+    comparison_slide,
     image_hero_slide,
     kpi_slide,
     quote_slide,
+    section_divider,
+    table_slide,
+    timeline_slide,
     title_slide,
 )
 from power_pptx.design.tokens import DesignTokens
@@ -309,3 +315,167 @@ class DescribeImageHeroSlide:
         ]
         assert bands
         assert bands[0].fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
+
+
+class DescribeSectionDivider:
+    def it_appends_a_divider_slide(self, prs):
+        before = len(prs.slides)
+        section_divider(prs, title="Part Two")
+        assert len(prs.slides) == before + 1
+
+    def it_renders_eyebrow_when_provided(self, prs):
+        slide = section_divider(prs, title="X", eyebrow="PART TWO")
+        assert any("PART TWO" in t for t in _paragraph_texts(slide))
+
+    def it_renders_progress_dots(self, prs):
+        slide = section_divider(prs, title="X", progress=(3, 7))
+        # 1 backdrop rectangle + 7 dots = 8 auto-shapes
+        autoshapes = [
+            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+        ]
+        assert len(autoshapes) == 1 + 7
+
+    def it_rejects_invalid_progress(self, prs):
+        with pytest.raises(ValueError, match="progress must be"):
+            section_divider(prs, title="X", progress=(8, 7))
+
+
+class DescribeChartSlide:
+    def it_appends_a_slide_with_a_chart(self, prs):
+        slide = chart_slide(
+            prs, title="Revenue", chart_type="line",
+            categories=["Q1", "Q2", "Q3"],
+            series=[{"name": "Rev", "values": [10, 20, 30]}],
+        )
+        graphic_frames = [
+            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART
+        ]
+        assert len(graphic_frames) == 1
+
+    def it_supports_known_chart_types(self, prs):
+        for kind in ("line", "bar", "column", "pie", "area"):
+            slide = chart_slide(
+                prs, title="x", chart_type=kind,
+                categories=["A", "B"],
+                series=[{"name": "S", "values": [1, 2]}],
+            )
+            assert any(
+                s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes
+            )
+
+    def it_rejects_unknown_chart_types(self, prs):
+        with pytest.raises(ValueError, match="Unknown chart_type"):
+            chart_slide(
+                prs, title="x", chart_type="radar",
+                categories=["A"],
+                series=[{"name": "S", "values": [1]}],
+            )
+
+
+class DescribeTableSlide:
+    def it_appends_a_slide_with_a_table(self, prs):
+        slide = table_slide(
+            prs, title="T",
+            columns=["A", "B"],
+            rows=[["1", "2"], ["3", "4"]],
+        )
+        tables = [
+            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
+        ]
+        assert len(tables) == 1
+        # 2 data rows + 1 header = 3 rows
+        assert len(tables[0].table.rows) == 3
+        assert len(tables[0].table.columns) == 2
+
+    def it_uses_token_palette_for_header(self, prs, tokens):
+        slide = table_slide(
+            prs, title="T",
+            columns=["A"], rows=[["1"]],
+            tokens=tokens,
+        )
+        table = next(
+            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
+        ).table
+        header_cell = table.cell(0, 0)
+        assert header_cell.fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
+
+    def it_rejects_zero_columns(self, prs):
+        with pytest.raises(ValueError, match="at least one column"):
+            table_slide(prs, title="T", columns=[], rows=[])
+
+
+class DescribeCodeSlide:
+    def it_appends_a_panel_with_code_text(self, prs):
+        slide = code_slide(prs, title="C", code="x = 1\ny = 2")
+        texts = " ".join(_paragraph_texts(slide))
+        assert "x = 1" in texts
+        assert "y = 2" in texts
+
+    def it_uses_a_monospace_font(self, prs):
+        slide = code_slide(prs, title="C", code="x = 1")
+        # Find the code run (not the title) and verify the font name
+        # is a monospace family.
+        code_runs = []
+        for sh in slide.shapes:
+            if not sh.has_text_frame:
+                continue
+            for p in sh.text_frame.paragraphs:
+                for r in p.runs:
+                    if r.text == "x = 1":
+                        code_runs.append(r)
+        assert code_runs
+        assert "Consolas" in (code_runs[0].font.name or "") \
+            or "Cascadia" in (code_runs[0].font.name or "") \
+            or "monospace" in (code_runs[0].font.name or "")
+
+
+class DescribeTimelineSlide:
+    def it_renders_one_marker_per_milestone(self, prs):
+        slide = timeline_slide(
+            prs, title="T",
+            milestones=[
+                {"date": "Q1", "label": "Spec", "done": True},
+                {"date": "Q2", "label": "Build"},
+                {"date": "Q3", "label": "Ship"},
+            ],
+        )
+        # 1 rail + 3 dots = 4 auto-shapes
+        autoshapes = [
+            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+        ]
+        assert len(autoshapes) == 4
+
+    def it_tints_done_milestones_with_positive_color(self, prs, tokens):
+        slide = timeline_slide(
+            prs, title="T",
+            milestones=[{"date": "Q1", "label": "Spec", "done": True}],
+            tokens=tokens,
+        )
+        # Find the milestone dot (small oval).
+        ovals = [
+            s for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.height < 914400
+        ]
+        assert any(
+            o.fill.fore_color.rgb == RGBColor(0x00, 0x85, 0x3E)
+            for o in ovals
+        )
+
+    def it_rejects_empty_milestones(self, prs):
+        with pytest.raises(ValueError, match="at least one"):
+            timeline_slide(prs, title="T", milestones=[])
+
+
+class DescribeComparisonSlide:
+    def it_renders_left_and_right_columns_with_matched_rows(self, prs):
+        slide = comparison_slide(
+            prs, title="X",
+            left_heading="Old", right_heading="New",
+            rows=[
+                {"left": "L1", "right": "R1"},
+                {"left": "L2", "right": "R2"},
+            ],
+        )
+        texts = " ".join(_paragraph_texts(slide))
+        for needle in ("Old", "New", "L1", "R1", "L2", "R2"):
+            assert needle in texts

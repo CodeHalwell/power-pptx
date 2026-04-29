@@ -70,6 +70,12 @@ __all__ = (
     "kpi_slide",
     "quote_slide",
     "image_hero_slide",
+    "section_divider",
+    "chart_slide",
+    "table_slide",
+    "code_slide",
+    "timeline_slide",
+    "comparison_slide",
 )
 
 
@@ -475,6 +481,681 @@ def image_hero_slide(
 
 
 # ---------------------------------------------------------------------------
+# section_divider
+# ---------------------------------------------------------------------------
+
+
+def section_divider(
+    prs: "Presentation",
+    *,
+    title: str,
+    eyebrow: Optional[str] = None,
+    progress: Optional[tuple[int, int]] = None,
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a full-bleed section-divider slide and return it.
+
+    The slide is a coloured backdrop with a left-aligned section title,
+    an optional small eyebrow line above the title (e.g. ``"PART TWO"``),
+    and an optional progress dot pair like *3 of 7* drawn as a small row
+    of dots in the bottom-right corner — useful for orienting the
+    audience between deck sections.
+
+    *progress* is a ``(current, total)`` tuple; ``current`` is 1-indexed
+    so ``progress=(3, 7)`` highlights the third dot in a row of seven.
+
+    Tokens consumed:
+
+    * **palette** — backdrop fill from ``primary`` (fallback ``neutral``);
+      title and eyebrow text from ``on_primary`` (fallback white);
+      inactive progress dots from ``muted`` (fallback ``lt2``); active
+      progress dot from ``on_primary``.
+    * **typography** — ``heading`` for the title; ``body`` for the
+      eyebrow.
+    """
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    # Solid backdrop.
+    bg_color = _palette(tokens, ("primary", "neutral")) or RGBColor(0x22, 0x22, 0x33)
+    bg = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Emu(0), Emu(0), slide_w, slide_h
+    )
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = bg_color
+    bg.line.fill.background()
+    bg.text_frame.text = ""
+
+    margin = Inches(0.8)
+    title_color = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
+
+    # Eyebrow above the title (small uppercase-ish caption).
+    if eyebrow:
+        eb_box = slide.shapes.add_textbox(
+            margin,
+            Length(slide_h // 2 - Inches(1.0)),
+            Length(slide_w - 2 * margin),
+            Inches(0.4),
+        )
+        _fill_text_frame(
+            eb_box.text_frame,
+            eyebrow,
+            token=_typography(tokens, "body", default_size=Pt(14), default_bold=True),
+            color=title_color,
+            align=PP_ALIGN.LEFT,
+            anchor=MSO_ANCHOR.TOP,
+        )
+
+    title_top = Length(slide_h // 2 - Inches(0.5))
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), Inches(2.0)
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(48), default_bold=True),
+        color=title_color,
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+    # Progress dots: row of `total` dots, the `current`-th highlighted.
+    if progress is not None:
+        current, total = int(progress[0]), int(progress[1])
+        if total < 1 or current < 1 or current > total:
+            raise ValueError(
+                f"progress must be (1≤current≤total, total≥1); got {progress!r}"
+            )
+        dot_d = Inches(0.18)
+        dot_gap = Inches(0.10)
+        row_w = total * dot_d + (total - 1) * dot_gap
+        row_left = Length(slide_w - margin - row_w)
+        row_top = Length(slide_h - margin - dot_d)
+        active_color = title_color
+        inactive_color = _palette(tokens, ("muted", "lt2")) or RGBColor(0x99, 0x99, 0xAA)
+        for i in range(total):
+            dot_left = Length(row_left + i * (dot_d + dot_gap))
+            dot = slide.shapes.add_shape(
+                MSO_SHAPE.OVAL, dot_left, row_top, dot_d, dot_d
+            )
+            dot.fill.solid()
+            dot.fill.fore_color.rgb = (
+                active_color if (i + 1) == current else inactive_color
+            )
+            dot.line.fill.background()
+            dot.text_frame.text = ""
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
+# chart_slide
+# ---------------------------------------------------------------------------
+
+
+def chart_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    chart_type: str = "line",
+    categories: Sequence[str],
+    series: Sequence[Mapping[str, Any]],
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a title + chart slide and return it.
+
+    *chart_type* is one of ``"line"``, ``"bar"`` (clustered horizontal
+    bars), ``"column"`` (clustered vertical columns), ``"pie"``,
+    or ``"area"``.
+
+    *categories* is the list of x-axis labels (or pie-slice labels).
+    Each *series* mapping is ``{"name": str, "values": Sequence[float]}``;
+    pass a single-series list for pie charts.
+
+    Tokens consumed:
+
+    * **palette** — title from ``primary`` (fallback ``neutral``).
+      Chart series colors are *not* re-skinned by this recipe; pair
+      with :class:`~power_pptx.chart.palette.ChartPalette` if you need
+      token-driven series colors.
+    * **typography** — ``heading`` for the title.
+    """
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+
+    chart_map = {
+        "line": XL_CHART_TYPE.LINE,
+        "bar": XL_CHART_TYPE.BAR_CLUSTERED,
+        "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
+        "pie": XL_CHART_TYPE.PIE,
+        "area": XL_CHART_TYPE.AREA,
+    }
+    if chart_type not in chart_map:
+        raise ValueError(
+            f"Unknown chart_type {chart_type!r}; "
+            f"choose from {sorted(chart_map)}"
+        )
+
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    chart_data = CategoryChartData()
+    chart_data.categories = list(categories)
+    for s in series:
+        chart_data.add_series(str(s.get("name", "")), [float(v) for v in s.get("values", ())])
+
+    chart_top = Length(title_top + title_h + Inches(0.2))
+    chart_h = Length(slide_h - chart_top - Inches(0.5))
+    slide.shapes.add_chart(
+        chart_map[chart_type],
+        margin,
+        chart_top,
+        Length(slide_w - 2 * margin),
+        chart_h,
+        chart_data,
+    )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
+# table_slide
+# ---------------------------------------------------------------------------
+
+
+def table_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    columns: Sequence[str],
+    rows: Sequence[Sequence[Any]],
+    banded: bool = True,
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a title + data-table slide and return it.
+
+    *columns* are header strings; each entry of *rows* is a sequence
+    with one value per column.  Values are coerced to ``str`` for
+    display.
+
+    *banded* (default ``True``) tints alternating data rows with the
+    palette's ``surface`` slot to improve scanning.
+
+    Tokens consumed:
+
+    * **palette** — title and header text from ``primary`` (fallback
+      ``neutral``); header band fill from ``primary``; banded rows from
+      ``surface`` (fallback ``lt2``); body text from ``neutral``.
+    * **typography** — ``heading`` for the title; ``body`` for the
+      header (bold) and cell text.
+    """
+    if not columns:
+        raise ValueError("table_slide requires at least one column")
+
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    n_rows = len(rows) + 1  # +1 for header
+    n_cols = len(columns)
+    table_top = Length(title_top + title_h + Inches(0.2))
+    table_h = Length(slide_h - table_top - Inches(0.5))
+    table_w = Length(slide_w - 2 * margin)
+
+    gframe = slide.shapes.add_table(
+        n_rows, n_cols, margin, table_top, table_w, table_h
+    )
+    table = gframe.table
+
+    header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
+    cell_token = _typography(tokens, "body", default_size=Pt(13))
+    header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
+    header_text = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
+    band_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
+    body_text = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
+
+    # Header
+    for c, name in enumerate(columns):
+        cell = table.cell(0, c)
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = header_fill
+        _fill_text_frame(
+            cell.text_frame,
+            str(name),
+            token=header_token,
+            color=header_text,
+            align=PP_ALIGN.LEFT,
+            anchor=MSO_ANCHOR.MIDDLE,
+        )
+
+    # Body
+    for r, row in enumerate(rows):
+        for c in range(n_cols):
+            cell = table.cell(r + 1, c)
+            if banded and (r % 2 == 0):
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = band_fill
+            else:
+                cell.fill.background()
+            value = row[c] if c < len(row) else ""
+            _fill_text_frame(
+                cell.text_frame,
+                str(value),
+                token=cell_token,
+                color=body_text,
+                align=PP_ALIGN.LEFT,
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
+# code_slide
+# ---------------------------------------------------------------------------
+
+
+def code_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    code: str,
+    language: Optional[str] = None,
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a title + monospace code-block slide and return it.
+
+    When *language* is supplied **and** Pygments is installed, the code
+    block is syntax-highlighted using Pygments' ``terminal`` lexer
+    output (translated to per-token RGB runs).  Without Pygments — or
+    without a *language* — the code is rendered as a plain monospace
+    block on the surface fill.
+
+    Tokens consumed:
+
+    * **palette** — title from ``primary`` (fallback ``neutral``); code
+      panel fill from ``surface`` (fallback ``lt2``); plain code text
+      from ``neutral``; panel border from ``muted`` (fallback ``lt1``).
+    * **typography** — ``heading`` for the title; ``body`` is **not**
+      used for the code text (which is locked to a monospace family —
+      Cascadia Code → Consolas → Menlo → monospace).
+    """
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    panel_top = Length(title_top + title_h + Inches(0.2))
+    panel_h = Length(slide_h - panel_top - Inches(0.5))
+    panel_w = Length(slide_w - 2 * margin)
+    panel = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, margin, panel_top, panel_w, panel_h
+    )
+    panel.fill.solid()
+    panel.fill.fore_color.rgb = (
+        _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
+    )
+    border = _palette(tokens, ("muted", "lt1"))
+    if border is not None:
+        panel.line.color.rgb = border
+        panel.line.width = Pt(0.75)
+    else:
+        panel.line.fill.background()
+    panel.text_frame.text = ""
+
+    pad = Inches(0.25)
+    code_box = slide.shapes.add_textbox(
+        Length(margin + pad),
+        Length(panel_top + pad),
+        Length(panel_w - 2 * pad),
+        Length(panel_h - 2 * pad),
+    )
+    tf = code_box.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_ANCHOR.TOP
+
+    fallback_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
+    mono_size = Pt(14)
+    mono_family = "Cascadia Code, Consolas, Menlo, monospace"
+
+    # Try to highlight via Pygments; on any failure (missing dep,
+    # unknown lexer) fall back to plain monospace text — the slide
+    # renders correctly either way.
+    highlighted = _pygments_highlight(code, language) if language else None
+
+    para = tf.paragraphs[0]
+    para.text = ""
+    para.alignment = PP_ALIGN.LEFT
+    if highlighted is None:
+        for line_idx, line in enumerate(code.splitlines() or [""]):
+            p = para if line_idx == 0 else tf.add_paragraph()
+            p.alignment = PP_ALIGN.LEFT
+            run = p.add_run()
+            run.text = line
+            run.font.name = mono_family
+            run.font.size = mono_size
+            run.font.color.rgb = fallback_color
+    else:
+        for line_idx, line_tokens in enumerate(highlighted):
+            p = para if line_idx == 0 else tf.add_paragraph()
+            p.alignment = PP_ALIGN.LEFT
+            for text, rgb in line_tokens:
+                if not text:
+                    continue
+                run = p.add_run()
+                run.text = text
+                run.font.name = mono_family
+                run.font.size = mono_size
+                run.font.color.rgb = rgb if rgb is not None else fallback_color
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
+# timeline_slide
+# ---------------------------------------------------------------------------
+
+
+def timeline_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    milestones: Sequence[Mapping[str, Any]],
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a horizontal-timeline slide with evenly-spaced milestones.
+
+    Each milestone dict accepts ``date``, ``label``, and an optional
+    ``done`` flag (default ``False``).  Completed milestones get the
+    ``positive`` palette tint; pending ones use ``muted``.
+
+    Tokens consumed:
+
+    * **palette** — title from ``primary`` (fallback ``neutral``);
+      timeline rail from ``muted`` (fallback ``lt1``); pending markers
+      from ``muted``; completed markers from ``positive`` (fallback
+      ``success``); date / label text from ``neutral``.
+    * **typography** — ``heading`` for the title; ``body`` for dates
+      and labels.
+    """
+    if not milestones:
+        raise ValueError("timeline_slide requires at least one milestone")
+
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    # Rail across the middle.
+    rail_y = Length(slide_h // 2)
+    rail_h = Pt(2)
+    rail_left = Length(margin + Inches(0.5))
+    rail_right = Length(slide_w - margin - Inches(0.5))
+    rail = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, rail_left, Length(rail_y - rail_h // 2),
+        Length(rail_right - rail_left), rail_h,
+    )
+    rail_color = _palette(tokens, ("muted", "lt1")) or RGBColor(0xBB, 0xBB, 0xBB)
+    rail.fill.solid()
+    rail.fill.fore_color.rgb = rail_color
+    rail.line.fill.background()
+    rail.text_frame.text = ""
+
+    n = len(milestones)
+    span = rail_right - rail_left
+    # Equally space milestones along the rail; n=1 sits dead center.
+    if n == 1:
+        positions = [Length(rail_left + span // 2)]
+    else:
+        positions = [
+            Length(rail_left + int(i * span / (n - 1))) for i in range(n)
+        ]
+
+    dot_d = Inches(0.28)
+    label_w = Inches(2.4)
+    body_token = _typography(tokens, "body", default_size=Pt(12))
+    date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
+    body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
+    pending_color = rail_color
+    done_color = (
+        _palette(tokens, ("positive", "success"))
+        or RGBColor(0x00, 0x8A, 0x3C)
+    )
+
+    for i, ms in enumerate(milestones):
+        cx = positions[i]
+        # Milestone dot.
+        dot = slide.shapes.add_shape(
+            MSO_SHAPE.OVAL,
+            Length(cx - dot_d // 2),
+            Length(rail_y - dot_d // 2),
+            dot_d,
+            dot_d,
+        )
+        dot.fill.solid()
+        dot.fill.fore_color.rgb = (
+            done_color if ms.get("done") else pending_color
+        )
+        dot.line.fill.background()
+        dot.text_frame.text = ""
+
+        date_text = str(ms.get("date", ""))
+        label_text = str(ms.get("label", ""))
+        # Alternate above / below the rail so labels don't fight for the
+        # same vertical space when milestones are close together.
+        above = (i % 2 == 0)
+        if above:
+            date_top = Length(rail_y - dot_d // 2 - Inches(0.6))
+            label_top = Length(date_top + Inches(0.25))
+        else:
+            date_top = Length(rail_y + dot_d // 2 + Inches(0.15))
+            label_top = Length(date_top + Inches(0.3))
+
+        if date_text:
+            db = slide.shapes.add_textbox(
+                Length(cx - label_w // 2), date_top, label_w, Inches(0.3)
+            )
+            _fill_text_frame(
+                db.text_frame, date_text,
+                token=date_token, color=body_color,
+                align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+            )
+        if label_text:
+            lb = slide.shapes.add_textbox(
+                Length(cx - label_w // 2), label_top, label_w, Inches(0.7)
+            )
+            _fill_text_frame(
+                lb.text_frame, label_text,
+                token=body_token, color=body_color,
+                align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+            )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
+# comparison_slide
+# ---------------------------------------------------------------------------
+
+
+def comparison_slide(
+    prs: "Presentation",
+    *,
+    title: str,
+    left_heading: str,
+    right_heading: str,
+    rows: Sequence[Mapping[str, Any]],
+    tokens: Optional[DesignTokens] = None,
+    transition: Optional[str] = None,
+) -> "Slide":
+    """Append a two-column comparison slide with matched left/right rows.
+
+    Each *rows* mapping is ``{"left": str, "right": str}`` (a label
+    column is *not* drawn — the comparison is intended for prose
+    bullets).  Rows are evenly spaced down the slide so the left and
+    right entries always line up.
+
+    Tokens consumed:
+
+    * **palette** — title from ``primary`` (fallback ``neutral``);
+      column heading band from ``primary``; heading text from
+      ``on_primary``; row text from ``neutral``; even-row tint from
+      ``surface`` (fallback ``lt2``).
+    * **typography** — ``heading`` for the title and column headings;
+      ``body`` for the row text.
+    """
+    slide = _add_blank(prs)
+    slide_w, slide_h = _slide_dims(prs)
+
+    margin = Inches(0.6)
+    title_top = Inches(0.5)
+    title_h = Inches(0.9)
+    title_box = slide.shapes.add_textbox(
+        margin, title_top, Length(slide_w - 2 * margin), title_h
+    )
+    _fill_text_frame(
+        title_box.text_frame,
+        title,
+        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+        color=_palette(tokens, ("primary", "neutral")),
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+    )
+
+    gap = Inches(0.3)
+    col_w = Length((slide_w - 2 * margin - gap) // 2)
+    col_top = Length(title_top + title_h + Inches(0.2))
+    col_h = Length(slide_h - col_top - Inches(0.5))
+
+    head_h = Inches(0.6)
+    head_color = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
+    head_text_color = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
+    row_text_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
+    band_color = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
+    head_token = _typography(tokens, "heading", default_size=Pt(18), default_bold=True)
+    row_token = _typography(tokens, "body", default_size=Pt(14))
+
+    columns = [
+        (margin, left_heading, "left"),
+        (Length(margin + col_w + gap), right_heading, "right"),
+    ]
+
+    n_rows = max(1, len(rows))
+    row_h = Length((col_h - head_h) // n_rows)
+
+    for col_left, heading, key in columns:
+        # Heading band.
+        band = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, col_left, col_top, col_w, head_h
+        )
+        band.fill.solid()
+        band.fill.fore_color.rgb = head_color
+        band.line.fill.background()
+        _fill_text_frame(
+            band.text_frame,
+            heading,
+            token=head_token,
+            color=head_text_color,
+            align=PP_ALIGN.LEFT,
+            anchor=MSO_ANCHOR.MIDDLE,
+        )
+        # Rows.
+        for i, row in enumerate(rows):
+            r_top = Length(col_top + head_h + i * row_h)
+            if i % 2 == 0:
+                tile = slide.shapes.add_shape(
+                    MSO_SHAPE.RECTANGLE, col_left, r_top, col_w, row_h
+                )
+                tile.fill.solid()
+                tile.fill.fore_color.rgb = band_color
+                tile.line.fill.background()
+                tile.text_frame.text = ""
+            text = str(row.get(key, ""))
+            tb = slide.shapes.add_textbox(
+                Length(col_left + Inches(0.2)),
+                Length(r_top + Inches(0.05)),
+                Length(col_w - Inches(0.4)),
+                Length(row_h - Inches(0.1)),
+            )
+            _fill_text_frame(
+                tb.text_frame,
+                text,
+                token=row_token,
+                color=row_text_color,
+                align=PP_ALIGN.LEFT,
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -637,6 +1318,86 @@ def _resolve_delta(kpi: Mapping[str, Any]) -> tuple[Optional[str], int]:
     else:
         text = f"{sign_glyph}{abs(d_val):.1f}"
     return text, sign
+
+
+def _pygments_highlight(
+    code: str, language: Optional[str]
+) -> Optional[list[list[tuple[str, Optional[RGBColor]]]]]:
+    """Return per-line lists of ``(text, RGBColor)`` runs, or ``None``.
+
+    ``None`` covers every soft-failure path: Pygments missing, lexer
+    unknown, formatter error.  Callers fall back to plain text in that
+    case so the slide still renders.
+    """
+    if not language:
+        return None
+    try:
+        from pygments import lex  # type: ignore[import-not-found]
+        from pygments.lexers import get_lexer_by_name  # type: ignore[import-not-found]
+        from pygments.token import Token  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    try:
+        lexer = get_lexer_by_name(language)
+    except Exception:
+        return None
+
+    # A small token-class → hex map.  Pygments has built-in styles but
+    # they're tuned for HTML output; using a hand-picked map keeps the
+    # slide colors in a single, reviewable place.
+    color_map: dict[Any, str] = {
+        Token.Keyword: "#C586C0",
+        Token.Keyword.Constant: "#569CD6",
+        Token.Keyword.Namespace: "#C586C0",
+        Token.Name.Function: "#DCDCAA",
+        Token.Name.Class: "#4EC9B0",
+        Token.Name.Builtin: "#4EC9B0",
+        Token.Name.Decorator: "#DCDCAA",
+        Token.String: "#CE9178",
+        Token.String.Doc: "#608B4E",
+        Token.Number: "#B5CEA8",
+        Token.Comment: "#6A9955",
+        Token.Comment.Single: "#6A9955",
+        Token.Comment.Multiline: "#6A9955",
+        Token.Operator: "#D4D4D4",
+        Token.Punctuation: "#D4D4D4",
+        Token.Text: "#D4D4D4",
+    }
+
+    def _color_for(tok_type: Any) -> Optional[RGBColor]:
+        # Pygments token types are hierarchical: walk up to the nearest
+        # mapped ancestor so e.g. ``Token.String.Single`` reuses the
+        # ``Token.String`` color.
+        t = tok_type
+        while t is not None:
+            if t in color_map:
+                hex_str = color_map[t].lstrip("#")
+                return RGBColor(
+                    int(hex_str[0:2], 16),
+                    int(hex_str[2:4], 16),
+                    int(hex_str[4:6], 16),
+                )
+            t = getattr(t, "parent", None)
+        return None
+
+    try:
+        tokens = list(lex(code, lexer))
+    except Exception:
+        return None
+
+    lines: list[list[tuple[str, Optional[RGBColor]]]] = [[]]
+    for tok_type, value in tokens:
+        rgb = _color_for(tok_type)
+        # Pygments emits newlines as their own runs / inside strings;
+        # split here so we honour them as paragraph breaks rather than
+        # rendering literal newline characters in a single-line run.
+        chunks = value.split("\n")
+        for j, chunk in enumerate(chunks):
+            if chunk:
+                lines[-1].append((chunk, rgb))
+            if j < len(chunks) - 1:
+                lines.append([])
+    return lines
 
 
 def _strip_attribution_dash(attribution: str) -> str:
