@@ -7,7 +7,7 @@ Specifies the type of the category axis.
 
 Example::
 
-    from pptx.enum.chart import XL_CATEGORY_TYPE
+    from power_pptx.enum.chart import XL_CATEGORY_TYPE
 
     date_axis = chart.category_axis
     assert date_axis.category_type == XL_CATEGORY_TYPE.TIME_SCALE

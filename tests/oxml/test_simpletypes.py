@@ -1,4 +1,4 @@
-"""Unit-test suite for `pptx.oxml.simpletypes` module.
+"""Unit-test suite for `power_pptx.oxml.simpletypes` module.
 
 The `simpletypes` module contains classes that each define a scalar-type that appears as an XML
 attribute.
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from pptx.oxml.simpletypes import (
+from power_pptx.oxml.simpletypes import (
     BaseIntType,
     BaseSimpleType,
     ST_Coordinate,
@@ -29,7 +29,7 @@ from ..unitutil.mock import instance_mock, method_mock
 
 
 class DescribeBaseSimpleType(object):
-    """Unit-test suite for `pptx.oxml.simpletypes.BaseSimpleType` objects."""
+    """Unit-test suite for `power_pptx.oxml.simpletypes.BaseSimpleType` objects."""
 
     def it_can_convert_an_XML_attribute_value_to_a_python_type(
         self, str_value_, py_value_, convert_from_xml_

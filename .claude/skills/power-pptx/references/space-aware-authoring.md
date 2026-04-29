@@ -24,7 +24,7 @@ to be installed.
 the largest whole-point font size that fits the box:
 
 ```python
-from pptx.util import Inches, Pt
+from power_pptx.util import Inches, Pt
 
 box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(1.5))
 tf = box.text_frame
@@ -43,7 +43,7 @@ For finer control (e.g. you want to size text *for* a known box but
 leave styling to a recipe), use the underlying fitter directly:
 
 ```python
-from pptx.text.layout import TextFitter
+from power_pptx.text.layout import TextFitter
 
 best_pt = TextFitter.best_fit_font_size(
     text="Q4 2026 Customer Outcomes Review",
@@ -63,7 +63,7 @@ PowerPoint to adapt as the user edits the deck), set
 `text_frame.auto_size`:
 
 ```python
-from pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.enum.text import MSO_AUTO_SIZE
 
 # Shrink the text to fit
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
@@ -93,8 +93,8 @@ real dimensions so off-slide shapes are caught regardless of slide
 size:
 
 ```python
-from pptx.lint import OffSlide, TextOverflow, ShapeCollision
-from pptx.exc import LintError
+from power_pptx.lint import OffSlide, TextOverflow, ShapeCollision
+from power_pptx.exc import LintError
 
 errors = []
 for slide in prs.slides:
@@ -114,7 +114,7 @@ if errors:
 prs.save("out.pptx")
 ```
 
-For decks built through `pptx.compose.from_spec(...)`, fold the linter
+For decks built through `power_pptx.compose.from_spec(...)`, fold the linter
 into the spec itself:
 
 ```python
@@ -127,9 +127,9 @@ prs = from_spec({
 ## Putting it together: a robust headline
 
 ```python
-from pptx import Presentation
-from pptx.enum.text import MSO_AUTO_SIZE
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.util import Inches
 
 def add_headline(prs, slide, text):
     box = slide.shapes.add_textbox(
@@ -163,8 +163,8 @@ positioning. Use the design layer's `Grid` and `Stack` instead of
 adding `Inches(...)`s by hand:
 
 ```python
-from pptx.design.layout import Grid, Stack
-from pptx.util import Pt
+from power_pptx.design.layout import Grid, Stack
+from power_pptx.util import Pt
 
 # 12-column grid with a uniform gutter and outer margin
 grid = Grid(slide, cols=12, rows=6, gutter=Pt(12), margin=Pt(48))

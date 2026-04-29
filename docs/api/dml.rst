@@ -10,14 +10,14 @@ various aspects of shapes.
 |ChartFormat| objects
 ---------------------
 
-.. autoclass:: pptx.dml.chtfmt.ChartFormat
+.. autoclass:: power_pptx.dml.chtfmt.ChartFormat
    :members:
 
 
 |FillFormat| objects
 --------------------
 
-.. autoclass:: pptx.dml.fill.FillFormat
+.. autoclass:: power_pptx.dml.fill.FillFormat
    :members:
    :exclude-members: from_fill_parent
    :undoc-members:
@@ -26,7 +26,7 @@ various aspects of shapes.
 |LineFormat| objects
 --------------------
 
-.. autoclass:: pptx.dml.line.LineFormat
+.. autoclass:: power_pptx.dml.line.LineFormat
    :members:
    :undoc-members:
 
@@ -34,7 +34,7 @@ various aspects of shapes.
 |LineFormat| line ends
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: pptx.dml.line.LineEndFormat
+.. autoclass:: power_pptx.dml.line.LineEndFormat
    :members:
    :undoc-members:
 
@@ -42,7 +42,7 @@ various aspects of shapes.
 |ColorFormat| objects
 ---------------------
 
-.. autoclass:: pptx.dml.color.ColorFormat
+.. autoclass:: power_pptx.dml.color.ColorFormat
    :members: brightness, rgb, theme_color, type, alpha
    :undoc-members:
 
@@ -50,7 +50,7 @@ various aspects of shapes.
 |RGBColor| objects
 ------------------
 
-.. autoclass:: pptx.dml.color.RGBColor
+.. autoclass:: power_pptx.dml.color.RGBColor
    :members: from_string, from_hex
    :undoc-members:
 
@@ -61,27 +61,27 @@ Effect proxies
 |ShadowFormat| objects
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: pptx.dml.effect.ShadowFormat
+.. autoclass:: power_pptx.dml.effect.ShadowFormat
    :members:
    :undoc-members:
 
 
-.. autoclass:: pptx.dml.effect.GlowFormat
+.. autoclass:: power_pptx.dml.effect.GlowFormat
    :members:
    :undoc-members:
 
 
-.. autoclass:: pptx.dml.effect.SoftEdgeFormat
+.. autoclass:: power_pptx.dml.effect.SoftEdgeFormat
    :members:
    :undoc-members:
 
 
-.. autoclass:: pptx.dml.effect.BlurFormat
+.. autoclass:: power_pptx.dml.effect.BlurFormat
    :members:
    :undoc-members:
 
 
-.. autoclass:: pptx.dml.effect.ReflectionFormat
+.. autoclass:: power_pptx.dml.effect.ReflectionFormat
    :members:
    :undoc-members:
 
@@ -89,6 +89,6 @@ Effect proxies
 Picture effects
 ---------------
 
-.. autoclass:: pptx.dml.picture.PictureEffects
+.. autoclass:: power_pptx.dml.picture.PictureEffects
    :members:
    :undoc-members:

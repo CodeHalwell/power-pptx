@@ -12,7 +12,7 @@ A clear and concise description of what the bug is.
 
 ```python
 # paste the smallest snippet that triggers the bug
-from pptx import Presentation
+from power_pptx import Presentation
 
 prs = Presentation()
 # ...

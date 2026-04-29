@@ -3,7 +3,7 @@
 :mod:`util` Module
 ------------------
 
-.. automodule:: pptx.util
+.. automodule:: power_pptx.util
    :members:
    :exclude-members: Collection, lazyproperty, to_unicode
    :member-order: bysource

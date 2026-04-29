@@ -7,12 +7,12 @@ import io
 from behave import given, then, when
 from helpers import saved_pptx_path, test_file, test_image, test_pptx
 
-from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE, PP_PLACEHOLDER, PROG_ID
-from pptx.shapes.base import BaseShape
-from pptx.util import Emu, Inches
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE, PP_PLACEHOLDER, PROG_ID
+from power_pptx.shapes.base import BaseShape
+from power_pptx.util import Emu, Inches
 
 # given ===================================================
 

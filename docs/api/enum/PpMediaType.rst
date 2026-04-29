@@ -7,7 +7,7 @@ Indicates the OLE media type.
 
 Example::
 
-    from pptx.enum.shapes import PP_MEDIA_TYPE
+    from power_pptx.enum.shapes import PP_MEDIA_TYPE
 
     movie = slide.shapes[0]
     assert movie.media_type == PP_MEDIA_TYPE.MOVIE

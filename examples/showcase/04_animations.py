@@ -14,14 +14,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx import Presentation
-from pptx.animation import Emphasis, Entrance, MotionPath, Trigger
-from pptx.design.recipes import bullet_slide, kpi_slide, title_slide
-from pptx.dml.color import RGBColor
-from pptx.enum.presentation import MSO_TRANSITION_TYPE
-from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
-from pptx.enum.text import PP_ALIGN
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.animation import Emphasis, Entrance, MotionPath, Trigger
+from power_pptx.design.recipes import bullet_slide, kpi_slide, title_slide
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from power_pptx.enum.text import PP_ALIGN
+from power_pptx.util import Inches, Pt
 
 from _lint import lint_or_die
 from _tokens import BRAND

@@ -1,15 +1,15 @@
-"""Unit-test suite for `pptx.presentation` module."""
+"""Unit-test suite for `power_pptx.presentation` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.enum.presentation import MSO_TRANSITION_TYPE
-from pptx.parts.coreprops import CorePropertiesPart
-from pptx.parts.presentation import PresentationPart
-from pptx.parts.slide import NotesMasterPart
-from pptx.presentation import Presentation
-from pptx.slide import SlideLayouts, SlideMaster, SlideMasters, Slides
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.parts.coreprops import CorePropertiesPart
+from power_pptx.parts.presentation import PresentationPart
+from power_pptx.parts.slide import NotesMasterPart
+from power_pptx.presentation import Presentation
+from power_pptx.slide import SlideLayouts, SlideMaster, SlideMasters, Slides
 
 from .unitutil.cxml import element, xml
 from .unitutil.mock import class_mock, instance_mock, property_mock
@@ -107,7 +107,7 @@ class DescribePresentation(object):
 
     @pytest.fixture
     def set_transition_fixture(self):
-        from pptx import Presentation as _Presentation
+        from power_pptx import Presentation as _Presentation
 
         prs = _Presentation()
         # add three blank slides
@@ -249,7 +249,7 @@ class DescribePresentation(object):
 
     @pytest.fixture
     def SlideMasters_(self, request, slide_masters_):
-        return class_mock(request, "pptx.presentation.SlideMasters", return_value=slide_masters_)
+        return class_mock(request, "power_pptx.presentation.SlideMasters", return_value=slide_masters_)
 
     @pytest.fixture
     def slide_master_(self, request):
@@ -261,7 +261,7 @@ class DescribePresentation(object):
 
     @pytest.fixture
     def Slides_(self, request, slides_):
-        return class_mock(request, "pptx.presentation.Slides", return_value=slides_)
+        return class_mock(request, "power_pptx.presentation.Slides", return_value=slides_)
 
     @pytest.fixture
     def slides_(self, request):

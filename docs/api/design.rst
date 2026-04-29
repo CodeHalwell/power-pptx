@@ -7,7 +7,7 @@ Design system
 Tokens
 ------
 
-.. currentmodule:: pptx.design.tokens
+.. currentmodule:: power_pptx.design.tokens
 
 .. autoclass:: DesignTokens
    :members:
@@ -27,7 +27,7 @@ Tokens
 Style facade
 ------------
 
-.. currentmodule:: pptx.design.style
+.. currentmodule:: power_pptx.design.style
 
 .. autoclass:: ShapeStyle
    :members:
@@ -37,7 +37,7 @@ Style facade
 Layout primitives
 -----------------
 
-.. currentmodule:: pptx.design.layout
+.. currentmodule:: power_pptx.design.layout
 
 .. autoclass:: Box
    :members:
@@ -57,7 +57,7 @@ Layout primitives
 Recipes
 -------
 
-.. currentmodule:: pptx.design.recipes
+.. currentmodule:: power_pptx.design.recipes
 
 .. autofunction:: title_slide
 .. autofunction:: bullet_slide

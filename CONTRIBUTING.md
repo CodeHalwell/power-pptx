@@ -49,7 +49,7 @@ pip install -r requirements-test.txt
 The test suite has three layers:
 
 1. **Unit tests** under `tests/`, organized by source module
-   (`tests/dml/test_color.py` covers `pptx/dml/color.py`, etc.).
+   (`tests/dml/test_color.py` covers `power_pptx/dml/color.py`, etc.).
 2. **Integration tests** under `tests/integration/` — including the
    round-trip diff harness used by every later roadmap phase to assert
    that `save → open → save` is byte-clean.
@@ -59,7 +59,7 @@ The test suite has three layers:
 Running everything:
 
 ```bash
-pytest --cov=pptx tests
+pytest --cov=power_pptx tests
 behave --stop
 ```
 

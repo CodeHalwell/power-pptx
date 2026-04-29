@@ -6,8 +6,8 @@ import io
 
 import pytest
 
-from pptx import Presentation
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.util import Inches
 
 
 # ---------------------------------------------------------------------------

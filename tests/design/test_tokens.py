@@ -1,13 +1,13 @@
-"""Unit-test suite for :mod:`pptx.design.tokens`."""
+"""Unit-test suite for :mod:`power_pptx.design.tokens`."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.design.tokens import DesignTokens, ShadowToken, TypographyToken
-from pptx.dml.color import RGBColor
-from pptx.util import Emu, Pt
+from power_pptx import Presentation
+from power_pptx.design.tokens import DesignTokens, ShadowToken, TypographyToken
+from power_pptx.dml.color import RGBColor
+from power_pptx.util import Emu, Pt
 
 
 class DescribeTypographyToken:

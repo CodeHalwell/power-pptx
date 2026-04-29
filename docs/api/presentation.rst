@@ -3,9 +3,9 @@ Presentations
 =============
 
 A presentation is opened using the :func:`Presentation` function, provided
-directly by the :mod:`pptx` package::
+directly by the :mod:`power_pptx` package::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
 
 This function returns a :class:`.Presentation` object which is the root of
@@ -35,13 +35,13 @@ presentation files. Typical use interacts with many other classes, but there
 is no need to construct them as they are accessed using a property or method
 of their containing object.
 
-.. autofunction:: pptx.Presentation
+.. autofunction:: power_pptx.Presentation
 
 
 |Presentation| objects
 -----------------------
 
-.. autoclass:: pptx.presentation.Presentation()
+.. autoclass:: power_pptx.presentation.Presentation()
    :members:
    :member-order: bysource
    :exclude-members: part
@@ -71,7 +71,7 @@ the title, last_modified_by, revision, and modified properties. Client code
 should change properties like revision and last_modified_by explicitly if that
 behavior is desired.
 
-.. class:: pptx.opc.coreprops.CoreProperties
+.. class:: power_pptx.opc.coreprops.CoreProperties
 
    .. attribute:: author
 

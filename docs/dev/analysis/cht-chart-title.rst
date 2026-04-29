@@ -72,7 +72,7 @@ behavior when required::
     >>> chart.has_title
     False
     >>> chart.chart_title
-    <pptx.chart.ChartTitle object at 0x65432fd>
+    <power_pptx.chart.ChartTitle object at 0x65432fd>
     >>> chart.has_title
     True
 
@@ -110,7 +110,7 @@ always provides a |TextFrame| object; one is added if not present and any
     >>> chart.has_text_frame
     False
     >>> chart_title.text_frame
-    <pptx.text.text.TextFrame object at 0x65432fe>
+    <power_pptx.text.text.TextFrame object at 0x65432fe>
     >>> chart.has_text_frame
     True
 

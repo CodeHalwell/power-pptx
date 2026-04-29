@@ -1,12 +1,12 @@
-"""Unit-test suite for `pptx.dml.chtfmt` module."""
+"""Unit-test suite for `power_pptx.dml.chtfmt` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.chtfmt import ChartFormat
-from pptx.dml.fill import FillFormat
-from pptx.dml.line import LineFormat
+from power_pptx.dml.chtfmt import ChartFormat
+from power_pptx.dml.fill import FillFormat
+from power_pptx.dml.line import LineFormat
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock
@@ -72,7 +72,7 @@ class DescribeChartFormat(object):
 
     @pytest.fixture
     def FillFormat_(self, request):
-        return class_mock(request, "pptx.dml.chtfmt.FillFormat")
+        return class_mock(request, "power_pptx.dml.chtfmt.FillFormat")
 
     @pytest.fixture
     def fill_(self, request):
@@ -80,7 +80,7 @@ class DescribeChartFormat(object):
 
     @pytest.fixture
     def LineFormat_(self, request, line_):
-        return class_mock(request, "pptx.dml.chtfmt.LineFormat", return_value=line_)
+        return class_mock(request, "power_pptx.dml.chtfmt.LineFormat", return_value=line_)
 
     @pytest.fixture
     def line_(self, request):

@@ -15,7 +15,7 @@ refs #
   (required if the change emits or reads new XML).
 - [ ] `HISTORY.rst` entry under the unreleased section.
 - [ ] Doc updates if the change is user-visible.
-- [ ] `pytest --cov=pptx tests` passes locally.
+- [ ] `pytest --cov=power_pptx tests` passes locally.
 - [ ] `behave --stop` passes locally.
 - [ ] No new `pyright` errors.
 

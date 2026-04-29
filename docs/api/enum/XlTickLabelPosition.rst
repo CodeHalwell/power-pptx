@@ -7,7 +7,7 @@ Specifies the position of tick-mark labels on a chart axis.
 
 Example::
 
-    from pptx.enum.chart import XL_TICK_LABEL_POSITION
+    from power_pptx.enum.chart import XL_TICK_LABEL_POSITION
 
     category_axis = chart.category_axis
     category_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW

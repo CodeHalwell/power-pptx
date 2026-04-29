@@ -20,7 +20,7 @@ does not imply an explicitly applied slide background::
 
     >>> background = slide.background
     >>> background
-    <pptx.shared.Background object at 0x0...>
+    <power_pptx.shared.Background object at 0x0...>
 
 **Detect explicitly-applied slide background.** A slide inherits its
 background unless an explicitly-defined background has been applied to the
@@ -58,7 +58,7 @@ shouldn't normally be a problem as there would be little reason to access the
 property without intention to change it::
 
     >>> background.fill
-    <pptx.dml.fill.FillFormat object at 0x0...>
+    <power_pptx.dml.fill.FillFormat object at 0x0...>
 
 **Apply solid color background.** A background color is specified in the same
 way as fill is specified for a shape. Note that the `FillFormat` object also

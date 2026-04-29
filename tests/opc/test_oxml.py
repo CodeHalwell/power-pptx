@@ -1,4 +1,4 @@
-"""Unit-test suite for `pptx.opc.oxml` module."""
+"""Unit-test suite for `power_pptx.opc.oxml` module."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from typing import cast
 
 import pytest
 
-from pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
-from pptx.opc.oxml import (
+from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
+from power_pptx.opc.oxml import (
     CT_Default,
     CT_Override,
     CT_Relationship,
@@ -17,15 +17,15 @@ from pptx.opc.oxml import (
     oxml_tostring,
     serialize_part_xml,
 )
-from pptx.opc.packuri import PackURI
-from pptx.oxml import parse_xml
-from pptx.oxml.xmlchemy import BaseOxmlElement
+from power_pptx.opc.packuri import PackURI
+from power_pptx.oxml import parse_xml
+from power_pptx.oxml.xmlchemy import BaseOxmlElement
 
 from ..unitutil.cxml import element
 
 
 class DescribeCT_Default:
-    """Unit-test suite for `pptx.opc.oxml.CT_Default` objects."""
+    """Unit-test suite for `power_pptx.opc.oxml.CT_Default` objects."""
 
     def it_provides_read_access_to_xml_values(self):
         default = cast(CT_Default, element("ct:Default{Extension=xml,ContentType=application/xml}"))
@@ -34,7 +34,7 @@ class DescribeCT_Default:
 
 
 class DescribeCT_Override:
-    """Unit-test suite for `pptx.opc.oxml.CT_Override` objects."""
+    """Unit-test suite for `power_pptx.opc.oxml.CT_Override` objects."""
 
     def it_provides_read_access_to_xml_values(self):
         override = cast(
@@ -45,7 +45,7 @@ class DescribeCT_Override:
 
 
 class DescribeCT_Relationship:
-    """Unit-test suite for `pptx.opc.oxml.CT_Relationship` objects."""
+    """Unit-test suite for `power_pptx.opc.oxml.CT_Relationship` objects."""
 
     def it_provides_read_access_to_xml_values(self):
         rel = cast(
@@ -93,7 +93,7 @@ class DescribeCT_Relationship:
 
 
 class DescribeCT_Relationships:
-    """Unit-test suite for `pptx.opc.oxml.CT_Relationships` objects."""
+    """Unit-test suite for `power_pptx.opc.oxml.CT_Relationships` objects."""
 
     def it_can_construct_a_new_relationships_element(self):
         rels = CT_Relationships.new()
@@ -126,7 +126,7 @@ class DescribeCT_Relationships:
 
 
 class DescribeCT_Types:
-    """Unit-test suite for `pptx.opc.oxml.CT_Types` objects."""
+    """Unit-test suite for `power_pptx.opc.oxml.CT_Types` objects."""
 
     def it_provides_access_to_default_child_elements(self, types: CT_Types):
         assert len(types.default_lst) == 2
@@ -183,7 +183,7 @@ class DescribeCT_Types:
 
 
 class Describe_serialize_part_xml:
-    """Unit-test suite for `pptx.opc.oxml.serialize_part_xml` function."""
+    """Unit-test suite for `power_pptx.opc.oxml.serialize_part_xml` function."""
 
     def it_produces_properly_formatted_xml_for_an_opc_part(self):
         """

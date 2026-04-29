@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.chart.xmlwriter` module."""
+"""Unit-test suite for `power_pptx.chart.xmlwriter` module."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from itertools import islice
 
 import pytest
 
-from pptx.chart.data import (
+from power_pptx.chart.data import (
     BubbleChartData,
     CategoryChartData,
     CategorySeriesData,
@@ -17,7 +17,7 @@ from pptx.chart.data import (
     _BaseChartData,
     _BaseSeriesData,
 )
-from pptx.chart.xmlwriter import (
+from power_pptx.chart.xmlwriter import (
     ChartXmlWriter,
     SeriesXmlRewriterFactory,
     _AreaChartXmlWriter,
@@ -36,8 +36,8 @@ from pptx.chart.xmlwriter import (
     _XySeriesXmlRewriter,
     _XySeriesXmlWriter,
 )
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.oxml import parse_xml
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.oxml import parse_xml
 
 from ..unitutil import count
 from ..unitutil.cxml import element, xml
@@ -90,7 +90,7 @@ class DescribeChartXmlWriter(object):
     def call_fixture(self, request, series_seq_):
         chart_type_member, XmlWriterClass = request.param
         xml_writer_ = instance_mock(request, XmlWriterClass)
-        class_spec = "pptx.chart.xmlwriter.%s" % XmlWriterClass.__name__
+        class_spec = "power_pptx.chart.xmlwriter.%s" % XmlWriterClass.__name__
         XmlWriterClass_ = class_mock(request, class_spec, return_value=xml_writer_)
         chart_type = getattr(XL_CHART_TYPE, chart_type_member)
         return chart_type, series_seq_, XmlWriterClass_, xml_writer_
@@ -131,7 +131,7 @@ class DescribeSeriesXmlRewriterFactory(object):
         xml_rewriter_ = instance_mock(request, rewriter_cls)
         XmlRewriterClass_ = class_mock(
             request,
-            "pptx.chart.xmlwriter.%s" % rewriter_cls.__name__,
+            "power_pptx.chart.xmlwriter.%s" % rewriter_cls.__name__,
             return_value=xml_rewriter_,
         )
         return chart_type, chart_data_, XmlRewriterClass_, xml_rewriter_
@@ -169,7 +169,7 @@ class Describe_AreaChartXmlWriter(object):
 
 
 class Describe_BarChartXmlWriter(object):
-    """Unit-test suite for `pptx.chart.xmlwriter._BarChartXmlWriter`."""
+    """Unit-test suite for `power_pptx.chart.xmlwriter._BarChartXmlWriter`."""
 
     @pytest.mark.parametrize(
         "member, cat_count, ser_count, cat_type, snippet_name",
@@ -281,7 +281,7 @@ class Describe_LineChartXmlWriter(object):
 
 
 class Describe_PieChartXmlWriter(object):
-    """Unit-test suite for `pptx.chart.xmlwriter._PieChartXmlWriter`."""
+    """Unit-test suite for `power_pptx.chart.xmlwriter._PieChartXmlWriter`."""
 
     @pytest.mark.parametrize(
         "enum_member, cat_count, ser_count, snippet_name",
@@ -299,7 +299,7 @@ class Describe_PieChartXmlWriter(object):
 
 
 class Describe_RadarChartXmlWriter(object):
-    """Unit-test suite for `pptx.chart.xmlwriter._RadarChartXmlWriter`."""
+    """Unit-test suite for `power_pptx.chart.xmlwriter._RadarChartXmlWriter`."""
 
     def it_can_generate_xml_for_a_radar_chart(self):
         series_data_seq = make_category_chart_data(cat_count=5, cat_type=str, ser_count=2)

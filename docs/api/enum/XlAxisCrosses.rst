@@ -7,7 +7,7 @@ Specifies the point on the specified axis where the other axis crosses.
 
 Example::
 
-    from pptx.enum.chart import XL_AXIS_CROSSES
+    from power_pptx.enum.chart import XL_AXIS_CROSSES
 
     value_axis.crosses = XL_AXIS_CROSSES.MAXIMUM
 

@@ -7,10 +7,10 @@ just make common operations one line each.
 ## A baseline chart
 
 ```python
-from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.util import Inches
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[5])
@@ -40,7 +40,7 @@ chart.apply_palette("modern")          # built-in
 chart.apply_palette(["#4F9DFF", "#7FCFA1", "#F7B500"])
 
 # Mix and match — any color-like works
-from pptx.dml.color import RGBColor
+from power_pptx.dml.color import RGBColor
 chart.apply_palette([
     RGBColor(0x4F, 0x9D, 0xFF),
     "#7FCFA1",
@@ -48,7 +48,7 @@ chart.apply_palette([
 ])
 ```
 
-Six built-ins ship in `pptx.chart.palettes`:
+Six built-ins ship in `power_pptx.chart.palettes`:
 
 - `modern`
 - `classic`
@@ -58,7 +58,7 @@ Six built-ins ship in `pptx.chart.palettes`:
 - `monochrome_warm`
 
 ```python
-from pptx.chart.palettes import (
+from power_pptx.chart.palettes import (
     CHART_PALETTES,
     palette_names,
     resolve_palette,
@@ -78,7 +78,7 @@ only the per-series fill without rewriting the rest of the style.
 
 `Chart.apply_quick_layout(layout)` toggles title / legend / axis-title
 / gridline visibility in opinionated combinations. Ten built-in
-presets ship in `pptx.chart.quick_layouts`:
+presets ship in `power_pptx.chart.quick_layouts`:
 
 ```python
 chart.apply_quick_layout("title_legend_right")
@@ -126,7 +126,7 @@ fill.gradient_stops.replace([
 ])
 
 # Patterned fill on the second series
-from pptx.enum.dml import MSO_PATTERN_TYPE
+from power_pptx.enum.dml import MSO_PATTERN_TYPE
 pat = chart.series[1].format.fill
 pat.patterned()
 pat.pattern   = MSO_PATTERN_TYPE.WIDE_DOWNWARD_DIAGONAL

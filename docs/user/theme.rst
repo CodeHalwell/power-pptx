@@ -6,11 +6,11 @@ Themes
 Reading
 -------
 
-``Presentation.theme`` returns a :class:`pptx.theme.Theme` proxy.  The
+``Presentation.theme`` returns a :class:`power_pptx.theme.Theme` proxy.  The
 six accent slots (and the dk1/dk2/lt1/lt2 background and hyperlink
 slots) are addressable by ``MSO_THEME_COLOR``::
 
-    from pptx.enum.dml import MSO_THEME_COLOR
+    from power_pptx.enum.dml import MSO_THEME_COLOR
 
     accent1 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]    # → RGBColor
     major   = prs.theme.fonts.major                          # → str
@@ -19,13 +19,13 @@ slots) are addressable by ``MSO_THEME_COLOR``::
 Theme-aware color resolution
 ----------------------------
 
-``pptx.inherit.resolve_color`` returns the effective |RGBColor| for any
+``power_pptx.inherit.resolve_color`` returns the effective |RGBColor| for any
 ``ColorFormat`` (or the lazy proxy on ``Font.color`` /
 ``LineFormat.color``).  Explicit RGB values are returned as-is, scheme
 colors resolve through the theme, and unset colors return |None| without
 mutating XML::
 
-    from pptx.inherit import resolve_color
+    from power_pptx.inherit import resolve_color
 
     rgb = resolve_color(run.font.color, theme=prs.theme)
 

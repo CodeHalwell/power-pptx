@@ -6,10 +6,19 @@ power-pptx
 1.0.2 release left off. It is a Python library for creating, reading, and
 updating PowerPoint (.pptx) files.
 
-The import path is unchanged (``import pptx``) so it is a drop-in
-replacement; only the distribution name on PyPI differs::
+Install from PyPI and import as ``power_pptx``::
 
     pip install power-pptx
+
+    # then in Python
+    from power_pptx import Presentation
+
+The 2.0 release renamed the importable package from ``pptx`` to
+``power_pptx`` so that ``power-pptx`` and the upstream ``python-pptx``
+distribution can be installed side-by-side without colliding on the
+top-level ``pptx`` module. To migrate code from ``power-pptx`` 1.x or
+``python-pptx`` 1.0.2, replace ``pptx`` with ``power_pptx`` in your
+imports.
 
 A typical use is generating a PowerPoint presentation from dynamic content
 such as a database query, analytics output, or a JSON payload — perhaps in
@@ -41,7 +50,7 @@ working — and every new feature ships with a round-trip regression test.
 * **Layout linter** — ``slide.lint()`` reports text overflow, off-slide
   shapes, and undeclared collisions, with optional ``auto_fix()`` and
   save-time hooks.
-* **JSON authoring** — ``pptx.compose.from_spec(...)`` builds a deck from
+* **JSON authoring** — ``power_pptx.compose.from_spec(...)`` builds a deck from
   a JSON-shaped spec; ``import_slide`` and ``apply_template`` cover
   cross-presentation operations.
 * **Theme reader and writer** — read theme colors and fonts; write fresh

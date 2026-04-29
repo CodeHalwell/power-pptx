@@ -1,6 +1,6 @@
 # Composition: from_spec, import_slide, apply_template (Phase 2 + 7)
 
-The `pptx.compose` package collects entry points for higher-level
+The `power_pptx.compose` package collects entry points for higher-level
 authoring and cross-presentation operations.
 
 ## JSON authoring with `from_spec`
@@ -10,7 +10,7 @@ spec dict is validated for known keys and value shapes before
 construction (no JSON Schema is involved):
 
 ```python
-from pptx.compose import from_spec
+from power_pptx.compose import from_spec
 
 prs = from_spec({
     "theme": {"palette": "modern_blue", "fonts": "inter"},
@@ -52,7 +52,7 @@ The `lint` field accepts `"off"`, `"warn"`, or `"raise"`:
 
 - ``"off"`` (default) — no lint pass.
 - ``"warn"`` — log every issue through the stdlib ``logging`` module.
-- ``"raise"`` — raise ``pptx.exc.LintError`` if any error-severity
+- ``"raise"`` — raise ``power_pptx.exc.LintError`` if any error-severity
   issue is found.
 
 `from_spec` runs the lint pass internally; outside of `from_spec`,
@@ -61,8 +61,8 @@ iterate the slides yourself (see `lint.md`).
 ## Cross-presentation operations
 
 ```python
-from pptx import Presentation
-from pptx.compose import import_slide, apply_template
+from power_pptx import Presentation
+from power_pptx.compose import import_slide, apply_template
 ```
 
 ### Importing a slide
@@ -100,8 +100,8 @@ A typical "we have a master deck and need to bolt on N report slides"
 script:
 
 ```python
-from pptx import Presentation
-from pptx.compose import import_slide, apply_template, from_spec
+from power_pptx import Presentation
+from power_pptx.compose import import_slide, apply_template, from_spec
 
 # 1. Generate the body slides from data
 body = from_spec({
@@ -120,7 +120,7 @@ for slide in body.slides:
 apply_template(deck, "brand-2026.potx")
 
 # 4. Lint and save (no Presentation-level lint hook in 1.1; iterate)
-from pptx.exc import LintError
+from power_pptx.exc import LintError
 
 errors = []
 for slide in deck.slides:
@@ -137,7 +137,7 @@ deck.save("final.pptx")
 ## When NOT to use `from_spec`
 
 `from_spec` is intentionally bounded — small built-in layouts plus the
-recipes from `pptx.design.recipes`. If you need something the recipe
+recipes from `power_pptx.design.recipes`. If you need something the recipe
 library doesn't ship, drop down to direct shape construction (or write
 a recipe and contribute it back). Don't try to express arbitrary
 geometry through the spec dict.

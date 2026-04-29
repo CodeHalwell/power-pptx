@@ -1,4 +1,4 @@
-"""Unit-test suite for high-level `pptx.animation` extensions.
+"""Unit-test suite for high-level `power_pptx.animation` extensions.
 
 Covers Phase 5 motion paths, the `sequence()` context manager, and
 by-paragraph entrance animations.  The lower-level entrance/exit/
@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.animation import Emphasis, Entrance, MotionPath, Trigger
-from pptx.oxml.ns import qn
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.animation import Emphasis, Entrance, MotionPath, Trigger
+from power_pptx.oxml.ns import qn
+from power_pptx.util import Inches
 
 
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"

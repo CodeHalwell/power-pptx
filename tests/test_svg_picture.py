@@ -12,14 +12,14 @@ from unittest.mock import patch
 import pytest
 from lxml import etree
 
-from pptx import Presentation
-from pptx._svg import (
+from power_pptx import Presentation
+from power_pptx._svg import (
     CairoSvgUnavailable,
     add_svg_blip_extension,
     looks_like_svg,
     rasterize_svg,
 )
-from pptx.util import Inches
+from power_pptx.util import Inches
 
 
 SVG_DOC = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -128,7 +128,7 @@ class DescribeAddSvgPicture:
     def it_uses_cairosvg_when_no_fallback_is_provided(self):
         prs, slide = _new_slide()
 
-        with patch("pptx._svg.rasterize_svg", return_value=TINY_PNG) as raster_:
+        with patch("power_pptx._svg.rasterize_svg", return_value=TINY_PNG) as raster_:
             slide.shapes.add_svg_picture(
                 io.BytesIO(SVG_DOC),
                 Inches(1),
@@ -152,7 +152,7 @@ class DescribeRasterizeSvg:
 
 class DescribeAddSvgBlipExtension:
     def it_adds_the_extension_to_an_existing_blip(self):
-        from pptx.oxml.ns import qn
+        from power_pptx.oxml.ns import qn
 
         # Build a minimal pic element with an <a:blip> child
         pic = etree.fromstring(

@@ -56,7 +56,7 @@ parts are handled as typed `XmlPart` subclasses. Reads never mutate.
 ## End-to-end: refresh a quarterly org chart
 
 ```python
-from pptx import Presentation
+from power_pptx import Presentation
 
 prs = Presentation("org-chart-template.pptx")
 slide = prs.slides[0]

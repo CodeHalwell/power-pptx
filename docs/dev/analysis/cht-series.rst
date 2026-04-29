@@ -26,13 +26,13 @@ Series are perhaps most naturally accessed from a plot, to which they
 belong::
 
     >>> plot.series
-    <pptx.chart.series.SeriesCollection instance at x11091e750>
+    <power_pptx.chart.series.SeriesCollection instance at x11091e750>
 
 However, there is also a property on |Chart| which allows access to all
 the series in the chart::
 
     >>> chart.series
-    <pptx.chart.series.SeriesCollection instance at x11091f970>
+    <power_pptx.chart.series.SeriesCollection instance at x11091f970>
 
 Each series in a chart has an explicit sequence indicator, the value of its
 required `c:order` child element. The series for a plot appear in order of
@@ -82,16 +82,16 @@ Protocol
 
 ::
 
-    >>> assert isinstance(chart, pptx.chart.chart.Chart)
+    >>> assert isinstance(chart, power_pptx.chart.chart.Chart)
     >>> plot = chart.plots[0]
     >>> plot
-    <pptx.chart.plot.BarChart instance at 0x1deadbeef>
+    <power_pptx.chart.plot.BarChart instance at 0x1deadbeef>
     >>> series = plot.series[0]
     >>> series
-    <pptx.chart.series.BarSeries instance at 0x...>
+    <power_pptx.chart.series.BarSeries instance at 0x...>
     >>> fill = series.format.fill
     >>> fill
-    <pptx.dml.fill.FillFormat instance at 0x...>
+    <power_pptx.dml.fill.FillFormat instance at 0x...>
     >>> fill.type
     None
     >>> fill.solid()

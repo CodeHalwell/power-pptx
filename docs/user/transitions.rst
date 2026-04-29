@@ -12,7 +12,7 @@ Per-slide
 
 ::
 
-    from pptx.enum.presentation import MSO_TRANSITION_TYPE
+    from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 
     slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
     slide.transition.duration = 1500          # milliseconds

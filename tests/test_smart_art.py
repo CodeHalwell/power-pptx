@@ -1,4 +1,4 @@
-"""Unit-test suite for `pptx.smart_art` module."""
+"""Unit-test suite for `power_pptx.smart_art` module."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "test_files", "smart_art_
 
 def _make_prs():
     """Return a fresh Presentation loaded from the SmartArt fixture."""
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     return Presentation(FIXTURE_PATH)
 
@@ -33,7 +33,7 @@ class DescribeSmartArtCollection:
         assert len(prs.slides[0].smart_art) == 1
 
     def it_is_empty_on_a_blank_slide(self):
-        from pptx import Presentation
+        from power_pptx import Presentation
 
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -86,7 +86,7 @@ class DescribeSmartArtShape_set_text:
         assert sa.texts == ["Alice", "Bob", "Carol"]
 
     def it_round_trips_through_save_and_reopen(self):
-        from pptx import Presentation
+        from power_pptx import Presentation
 
         prs = _make_prs()
         prs.slides[0].smart_art[0].set_text(["Alice", "Bob", "Carol"])
@@ -123,7 +123,7 @@ class DescribeSmartArtShape_set_text:
 
     def it_leaves_layout_colors_and_style_parts_unchanged(self):
         """The three non-data parts should be byte-for-byte identical after set_text."""
-        from pptx import Presentation
+        from power_pptx import Presentation
 
         prs = _make_prs()
 

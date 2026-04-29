@@ -12,7 +12,7 @@ Release procedure
 
 * complete release updates
 
-  + update version number in `pptx/__init__.py`
+  + update version number in `power_pptx/__init__.py`
   + update setup.py (shouldn't usually be any changes)
   + update README.py, in particular, the release history
   + update doc/index.rst

@@ -1,12 +1,12 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.text.layout` module."""
+"""Unit-test suite for `power_pptx.text.layout` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.text.layout import TextFitter, _BinarySearchTree, _Fonts, _Line, _LineSource
+from power_pptx.text.layout import TextFitter, _BinarySearchTree, _Fonts, _Line, _LineSource
 
 from ..unitutil.mock import (
     ANY,
@@ -21,11 +21,11 @@ from ..unitutil.mock import (
 
 
 class DescribeTextFitter(object):
-    """Unit-test suite for `pptx.text.layout.TextFitter` object."""
+    """Unit-test suite for `power_pptx.text.layout.TextFitter` object."""
 
     def it_can_determine_the_best_fit_font_size(self, request, line_source_):
         _LineSource_ = class_mock(
-            request, "pptx.text.layout._LineSource", return_value=line_source_
+            request, "power_pptx.text.layout._LineSource", return_value=line_source_
         )
         _init_ = initializer_mock(request, TextFitter)
         _best_fit_font_size_ = method_mock(
@@ -151,7 +151,7 @@ class DescribeTextFitter(object):
 
     @pytest.fixture
     def _BinarySearchTree_(self, request):
-        return class_mock(request, "pptx.text.layout._BinarySearchTree")
+        return class_mock(request, "power_pptx.text.layout._BinarySearchTree")
 
     @pytest.fixture
     def _fits_inside_predicate_(self, request):
@@ -163,11 +163,11 @@ class DescribeTextFitter(object):
 
     @pytest.fixture
     def _rendered_size_(self, request):
-        return function_mock(request, "pptx.text.layout._rendered_size")
+        return function_mock(request, "power_pptx.text.layout._rendered_size")
 
 
 class Describe_BinarySearchTree(object):
-    """Unit-test suite for `pptx.text.layout._BinarySearchTree` object."""
+    """Unit-test suite for `power_pptx.text.layout._BinarySearchTree` object."""
 
     def it_can_construct_from_an_ordered_sequence(self):
         bst = _BinarySearchTree.from_ordered_sequence(range(10))
@@ -210,7 +210,7 @@ class Describe_BinarySearchTree(object):
 
 
 class Describe_LineSource(object):
-    """Unit-test suite for `pptx.text.layout._LineSource` object."""
+    """Unit-test suite for `power_pptx.text.layout._LineSource` object."""
 
     def it_generates_text_remainder_pairs(self):
         line_source = _LineSource("foo bar baz")
@@ -223,7 +223,7 @@ class Describe_LineSource(object):
 
 
 class Describe_Fonts(object):
-    """Unit-test suite for `pptx.text.layout._Fonts` object."""
+    """Unit-test suite for `power_pptx.text.layout._Fonts` object."""
 
     def it_uses_pillows_default_font_when_no_path_is_given(self, request):
         """Pillow's bundled default lets `fit_text` work on platforms without
@@ -233,10 +233,10 @@ class Describe_Fonts(object):
         from PIL import ImageFont
 
         load_default_ = function_mock(
-            request, "pptx.text.layout.ImageFont.load_default", autospec=False
+            request, "power_pptx.text.layout.ImageFont.load_default", autospec=False
         )
         truetype_ = function_mock(
-            request, "pptx.text.layout.ImageFont.truetype", autospec=False
+            request, "power_pptx.text.layout.ImageFont.truetype", autospec=False
         )
         load_default_.return_value = "default-font"
 
@@ -253,7 +253,7 @@ class Describe_Fonts(object):
     def it_falls_back_to_unsized_default_on_old_pillow(self, request):
         _Fonts.fonts = {}
         load_default_ = function_mock(
-            request, "pptx.text.layout.ImageFont.load_default", autospec=False
+            request, "power_pptx.text.layout.ImageFont.load_default", autospec=False
         )
         load_default_.side_effect = [TypeError("no size kwarg"), "old-default"]
 
@@ -266,7 +266,7 @@ class Describe_Fonts(object):
 
 # produces different results on Linux, fails Travis-CI
 
-# from pptx.text.layout import _rendered_size
+# from power_pptx.text.layout import _rendered_size
 # from ..unitutil.file import testfile
 # class Describe_rendered_size(object):
 

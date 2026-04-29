@@ -10,11 +10,11 @@ Adding a new chart - steps and tests
 
 2. feature/sld-add-chart .. add new chart types, steps/chart.py
 
-3. pptx/chart/xmlwriter.py add new type to ChartXmlWriter
+3. power_pptx/chart/xmlwriter.py add new type to ChartXmlWriter
 
-4. pptx/chart/xmlwriter.py add _AreaChartXmlWriter, one per new element type
+4. power_pptx/chart/xmlwriter.py add _AreaChartXmlWriter, one per new element type
 
-5. pptx/chart/series.py add AreaSeries, one per new element type
+5. power_pptx/chart/series.py add AreaSeries, one per new element type
 
 
 There are 73 different possible chart types, but only 16 distinct XML

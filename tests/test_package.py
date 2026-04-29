@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.package` module."""
+"""Unit-test suite for `power_pptx.package` module."""
 
 from __future__ import annotations
 
@@ -8,25 +8,25 @@ import os
 
 import pytest
 
-import pptx
-from pptx.media import Video
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.package import Part, _Relationship
-from pptx.opc.packuri import PackURI
-from pptx.package import Package, _ImageParts, _MediaParts
-from pptx.parts.coreprops import CorePropertiesPart
-from pptx.parts.image import Image, ImagePart
-from pptx.parts.media import MediaPart
+import power_pptx
+from power_pptx.media import Video
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import Part, _Relationship
+from power_pptx.opc.packuri import PackURI
+from power_pptx.package import Package, _ImageParts, _MediaParts
+from power_pptx.parts.coreprops import CorePropertiesPart
+from power_pptx.parts.image import Image, ImagePart
+from power_pptx.parts.media import MediaPart
 
 from .unitutil.mock import call, class_mock, instance_mock, method_mock, property_mock
 
 
 class DescribePackage(object):
-    """Unit-test suite for `pptx.package.Package` objects."""
+    """Unit-test suite for `power_pptx.package.Package` objects."""
 
     def it_provides_access_to_its_core_properties_part(self):
         default_pptx = os.path.abspath(
-            os.path.join(os.path.split(pptx.__file__)[0], "templates", "default.pptx")
+            os.path.join(os.path.split(power_pptx.__file__)[0], "templates", "default.pptx")
         )
         pkg = Package.open(default_pptx)
         assert isinstance(pkg.core_properties, CorePropertiesPart)
@@ -142,7 +142,7 @@ class DescribePackage(object):
 
     @pytest.fixture
     def _MediaParts_(self, request):
-        return class_mock(request, "pptx.package._MediaParts")
+        return class_mock(request, "power_pptx.package._MediaParts")
 
     @pytest.fixture
     def media_parts_(self, request):
@@ -154,7 +154,7 @@ class DescribePackage(object):
 
 
 class Describe_ImageParts(object):
-    """Unit-test suite for `pptx.package._ImageParts` objects."""
+    """Unit-test suite for `power_pptx.package._ImageParts` objects."""
 
     def it_can_iterate_over_the_package_image_parts(self, iter_fixture):
         image_parts, expected_parts = iter_fixture
@@ -246,7 +246,7 @@ class Describe_ImageParts(object):
 
     @pytest.fixture
     def Image_(self, request):
-        return class_mock(request, "pptx.package.Image")
+        return class_mock(request, "power_pptx.package.Image")
 
     @pytest.fixture
     def image_(self, request):
@@ -254,7 +254,7 @@ class Describe_ImageParts(object):
 
     @pytest.fixture
     def ImagePart_(self, request):
-        return class_mock(request, "pptx.package.ImagePart")
+        return class_mock(request, "power_pptx.package.ImagePart")
 
     @pytest.fixture
     def image_part_(self, request):
@@ -270,7 +270,7 @@ class Describe_ImageParts(object):
 
 
 class Describe_MediaParts(object):
-    """Unit-test suite for `pptx.package._MediaParts` objects."""
+    """Unit-test suite for `power_pptx.package._MediaParts` objects."""
 
     def it_can_iterate_the_media_parts_in_the_package(self, iter_fixture):
         media_parts, expected_parts = iter_fixture
@@ -366,7 +366,7 @@ class Describe_MediaParts(object):
 
     @pytest.fixture
     def MediaPart_(self, request):
-        return class_mock(request, "pptx.package.MediaPart")
+        return class_mock(request, "power_pptx.package.MediaPart")
 
     @pytest.fixture
     def media_part_(self, request):

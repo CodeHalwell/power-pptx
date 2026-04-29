@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.dml.color import RGBColor
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.dml.color import RGBColor
+from power_pptx.util import Inches, Pt
 
 from .round_trip import assert_round_trip, round_trip_diff
 
@@ -106,7 +106,7 @@ class DescribeAnimationsRoundTrip:
     """Phase 5 animation extensions must survive a save→open→save cycle."""
 
     def it_round_trips_a_motion_path_animation(self):
-        from pptx.animation import MotionPath
+        from power_pptx.animation import MotionPath
 
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -116,7 +116,7 @@ class DescribeAnimationsRoundTrip:
         assert_round_trip(prs)
 
     def it_round_trips_a_sequenced_animation_chain(self):
-        from pptx.animation import Emphasis, Entrance
+        from power_pptx.animation import Emphasis, Entrance
 
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -130,7 +130,7 @@ class DescribeAnimationsRoundTrip:
         assert_round_trip(prs)
 
     def it_round_trips_a_by_paragraph_entrance(self):
-        from pptx.animation import Entrance
+        from power_pptx.animation import Entrance
 
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -147,7 +147,7 @@ class DescribeThemeWriterRoundTrip:
     """Phase 7 writable theme: changes must persist across save/open/save."""
 
     def it_round_trips_an_overridden_accent_color(self):
-        from pptx.enum.dml import MSO_THEME_COLOR
+        from power_pptx.enum.dml import MSO_THEME_COLOR
 
         prs = Presentation()
         prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x66, 0x00)

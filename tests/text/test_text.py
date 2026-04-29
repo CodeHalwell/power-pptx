@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.text.text` module."""
+"""Unit-test suite for `power_pptx.text.text` module."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from pptx.dml.color import ColorFormat
-from pptx.dml.fill import FillFormat
-from pptx.enum.lang import MSO_LANGUAGE_ID
-from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, MSO_UNDERLINE, PP_ALIGN
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.package import XmlPart
-from pptx.shapes.autoshape import Shape
-from pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
-from pptx.util import Inches, Pt
+from power_pptx.dml.color import ColorFormat
+from power_pptx.dml.fill import FillFormat
+from power_pptx.enum.lang import MSO_LANGUAGE_ID
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, MSO_UNDERLINE, PP_ALIGN
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import XmlPart
+from power_pptx.shapes.autoshape import Shape
+from power_pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
+from power_pptx.util import Inches, Pt
 
 from ..oxml.unitdata.text import a_p, a_t, an_hlinkClick, an_r, an_rPr
 from ..unitutil.cxml import element, xml
@@ -29,11 +29,11 @@ from ..unitutil.mock import (
 )
 
 if TYPE_CHECKING:
-    from pptx.oxml.text import CT_TextBody, CT_TextParagraph
+    from power_pptx.oxml.text import CT_TextBody, CT_TextParagraph
 
 
 class DescribeTextFrame(object):
-    """Unit-test suite for `pptx.text.text.TextFrame` object."""
+    """Unit-test suite for `power_pptx.text.text.TextFrame` object."""
 
     def it_can_add_a_paragraph_to_itself(self, add_paragraph_fixture):
         text_frame, expected_xml = add_paragraph_fixture
@@ -447,7 +447,7 @@ class DescribeTextFrame(object):
 
     @pytest.fixture
     def FontFiles_(self, request):
-        return class_mock(request, "pptx.text.text.FontFiles")
+        return class_mock(request, "power_pptx.text.text.FontFiles")
 
     @pytest.fixture
     def paragraphs_prop_(self, request):
@@ -455,7 +455,7 @@ class DescribeTextFrame(object):
 
     @pytest.fixture
     def TextFitter_(self, request):
-        return class_mock(request, "pptx.text.text.TextFitter")
+        return class_mock(request, "power_pptx.text.text.TextFitter")
 
     @pytest.fixture
     def text_frame_with_parent_(self, request):
@@ -469,7 +469,7 @@ class DescribeTextFrame(object):
 
 
 class DescribeFont(object):
-    """Unit-test suite for `pptx.text.text.Font` object."""
+    """Unit-test suite for `power_pptx.text.text.Font` object."""
 
     def it_knows_its_bold_setting(self, bold_get_fixture):
         font, expected_value = bold_get_fixture
@@ -672,7 +672,7 @@ class DescribeFont(object):
 
 
 class Describe_Hyperlink(object):
-    """Unit-test suite for `pptx.text.text._Hyperlink` object."""
+    """Unit-test suite for `power_pptx.text.text._Hyperlink` object."""
 
     def it_knows_the_target_url_of_the_hyperlink(self, hlink_with_url_):
         hlink, rId, url = hlink_with_url_
@@ -833,7 +833,7 @@ class Describe_Hyperlink(object):
 
 
 class Describe_Paragraph(object):
-    """Unit test suite for pptx.text.text._Paragraph object."""
+    """Unit test suite for power_pptx.text.text._Paragraph object."""
 
     def it_can_add_a_line_break(self, line_break_fixture):
         paragraph, expected_xml = line_break_fixture
@@ -1170,7 +1170,7 @@ class Describe_Paragraph(object):
 
     @pytest.fixture
     def Font_(self, request):
-        return class_mock(request, "pptx.text.text.Font")
+        return class_mock(request, "power_pptx.text.text.Font")
 
     @pytest.fixture
     def p_bldr(self):
@@ -1187,7 +1187,7 @@ class Describe_Paragraph(object):
 
 
 class Describe_Run(object):
-    """Unit-test suite for `pptx.text.text._Run` object."""
+    """Unit-test suite for `power_pptx.text.text._Run` object."""
 
     def it_provides_access_to_its_font(self, font_fixture):
         run, rPr, Font_, font_ = font_fixture
@@ -1246,7 +1246,7 @@ class Describe_Run(object):
 
     @pytest.fixture
     def Font_(self, request, font_):
-        return class_mock(request, "pptx.text.text.Font", return_value=font_)
+        return class_mock(request, "power_pptx.text.text.Font", return_value=font_)
 
     @pytest.fixture
     def font_(self, request):
@@ -1254,7 +1254,7 @@ class Describe_Run(object):
 
     @pytest.fixture
     def _Hyperlink_(self, request, hlink_):
-        return class_mock(request, "pptx.text.text._Hyperlink", return_value=hlink_)
+        return class_mock(request, "power_pptx.text.text._Hyperlink", return_value=hlink_)
 
     @pytest.fixture
     def hlink_(self, request):

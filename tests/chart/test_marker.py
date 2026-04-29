@@ -1,12 +1,12 @@
-"""Unit-test suite for the `pptx.chart.marker` module."""
+"""Unit-test suite for the `power_pptx.chart.marker` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.chart.marker import Marker
-from pptx.dml.chtfmt import ChartFormat
-from pptx.enum.chart import XL_MARKER_STYLE
+from power_pptx.chart.marker import Marker
+from power_pptx.dml.chtfmt import ChartFormat
+from power_pptx.enum.chart import XL_MARKER_STYLE
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import class_mock, instance_mock
@@ -127,7 +127,7 @@ class DescribeMarker(object):
 
     @pytest.fixture
     def ChartFormat_(self, request, chart_format_):
-        return class_mock(request, "pptx.chart.marker.ChartFormat", return_value=chart_format_)
+        return class_mock(request, "power_pptx.chart.marker.ChartFormat", return_value=chart_format_)
 
     @pytest.fixture
     def chart_format_(self, request):

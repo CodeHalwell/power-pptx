@@ -13,7 +13,7 @@ the collections that contain them.
 The |SlideShapes| object is encountered as the :attr:`~BaseSlide.shapes`
 property of |Slide|.
 
-.. autoclass:: pptx.shapes.shapetree.SlideShapes()
+.. autoclass:: power_pptx.shapes.shapetree.SlideShapes()
    :members:
    :inherited-members:
    :exclude-members: clone_placeholder, clone_layout_placeholders,
@@ -26,7 +26,7 @@ property of |Slide|.
 The |GroupShapes| object is encountered as the :attr:`~GroupShape.shapes`
 property of |GroupShape|.
 
-.. autoclass:: pptx.shapes.shapetree.GroupShapes()
+.. autoclass:: power_pptx.shapes.shapetree.GroupShapes()
    :members:
    :inherited-members:
    :exclude-members: clone_placeholder, ph_basename
@@ -37,7 +37,7 @@ Shape objects in general
 
 The following properties and methods are common to all shapes.
 
-.. autoclass:: pptx.shapes.base.BaseShape()
+.. autoclass:: power_pptx.shapes.base.BaseShape()
    :members:
    :exclude-members: part
    :member-order: bysource
@@ -50,7 +50,7 @@ The following properties and methods are common to all shapes.
 The following properties and methods are defined for AutoShapes, which
 include text boxes and placeholders.
 
-.. autoclass:: pptx.shapes.autoshape.Shape()
+.. autoclass:: power_pptx.shapes.autoshape.Shape()
    :members:
    :exclude-members: get_or_add_ln, ln
    :member-order: bysource
@@ -69,7 +69,7 @@ AutoShape, each of which is an |Adjustment| instance.
 The |AdjustmentCollection| instance for an AutoShape is accessed using the
 ``Shape.adjustments`` property (read-only).
 
-.. autoclass:: pptx.shapes.autoshape.AdjustmentCollection
+.. autoclass:: power_pptx.shapes.autoshape.AdjustmentCollection
    :members:
    :member-order: bysource
    :undoc-members:
@@ -78,7 +78,7 @@ The |AdjustmentCollection| instance for an AutoShape is accessed using the
 |Adjustment| objects
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: pptx.shapes.autoshape.Adjustment
+.. autoclass:: power_pptx.shapes.autoshape.Adjustment
    :members:
    :member-order: bysource
    :undoc-members:
@@ -89,7 +89,7 @@ The |AdjustmentCollection| instance for an AutoShape is accessed using the
 
 The following properties and methods are defined for Connector shapes:
 
-.. autoclass:: pptx.shapes.connector.Connector()
+.. autoclass:: power_pptx.shapes.connector.Connector()
    :members:
    :member-order: bysource
    :exclude-members: get_or_add_ln, ln
@@ -101,7 +101,7 @@ The following properties and methods are defined for Connector shapes:
 The following properties and methods are defined for FreeformBuilder objects.
 A freeform builder is used to create a shape with custom geometry:
 
-.. autoclass:: pptx.shapes.freeform.FreeformBuilder()
+.. autoclass:: power_pptx.shapes.freeform.FreeformBuilder()
    :exclude-members: new, shape_offset_x, shape_offset_y
    :members:
    :member-order: bysource
@@ -113,7 +113,7 @@ A freeform builder is used to create a shape with custom geometry:
 
 The following properties and methods are defined for picture shapes.
 
-.. autoclass:: pptx.shapes.picture.Picture()
+.. autoclass:: power_pptx.shapes.picture.Picture()
    :inherited-members:
    :members:
    :exclude-members: get_or_add_ln, ln
@@ -126,7 +126,7 @@ The following properties and methods are defined for picture shapes.
 The following properties and methods are defined for graphic frame shapes.
 A graphic frame is the shape containing a table, chart, or smart art.
 
-.. autoclass:: pptx.shapes.graphfrm.GraphicFrame()
+.. autoclass:: power_pptx.shapes.graphfrm.GraphicFrame()
    :show-inheritance:
    :members:
    :exclude-members:
@@ -146,7 +146,7 @@ Note that:
 * A group shape has no text frame and cannot have one.
 * A group shape cannot have a click action, such as a hyperlink.
 
-.. autoclass:: pptx.shapes.group.GroupShape()
+.. autoclass:: power_pptx.shapes.group.GroupShape()
    :show-inheritance:
    :members:
    :exclude-members:

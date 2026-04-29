@@ -59,7 +59,7 @@ Where are the custom geometries defined?
    The geometries for autoshapes are defined in ``presetShapeDefinitions.xml``,
    located in:
 
-   ``pptx/ref/ISO-IEC-29500-1/schemas/dml-geometries/OfficeOpenXML-DrawingMLGeometries/``.
+   ``power_pptx/ref/ISO-IEC-29500-1/schemas/dml-geometries/OfficeOpenXML-DrawingMLGeometries/``.
 
 What is the range of the formula values?
    In general, the nominal adjustment value range for the preset shapes is 0 to

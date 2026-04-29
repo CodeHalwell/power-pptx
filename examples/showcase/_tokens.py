@@ -7,7 +7,7 @@ as one coherent suite.
 
 from __future__ import annotations
 
-from pptx.design.tokens import DesignTokens
+from power_pptx.design.tokens import DesignTokens
 
 BRAND = DesignTokens.from_dict(
     {

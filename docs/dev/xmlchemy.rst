@@ -22,12 +22,12 @@ Additional topics to add ...
 Adding support for a new element type
 -------------------------------------
 
-* add a new custom element mapping to ``pptx.oxml.__init__``
-* add a new custom element class in the appropriate ``pptx.oxml`` subpackage
+* add a new custom element mapping to ``power_pptx.oxml.__init__``
+* add a new custom element class in the appropriate ``power_pptx.oxml`` subpackage
   module
 * Add element definition members to the class
 * Add attribute definition members to the class
-* Add simple type definitions to ``pptx.oxml.simpletype``
+* Add simple type definitions to ``power_pptx.oxml.simpletype``
 
 
 Example
@@ -35,7 +35,7 @@ Example
 
 ::
 
-    from pptx.oxml.xmlchemy import BaseOxmlElement
+    from power_pptx.oxml.xmlchemy import BaseOxmlElement
 
 
     class CT_Foobar(BaseOxmlElement):
@@ -70,7 +70,7 @@ Protocol
     None
     >>> hlink = foobar._add_hlink()
     >>> hlink
-    <pptx.oxml.xyz.CT_Hyperlink object at 0x10ab4b2d0>
+    <power_pptx.oxml.xyz.CT_Hyperlink object at 0x10ab4b2d0>
     >>> assert foobar.hlink is hlink
 
     >>> foobar.eg_fillProperties
@@ -79,7 +79,7 @@ Protocol
     None
     >>> solidFill = foobar.get_or_change_to_solidFill()
     >>> solidFill
-    <pptx.oxml.xyz.CT_SolidFill object at 0x10ab4b2d0>
+    <power_pptx.oxml.xyz.CT_SolidFill object at 0x10ab4b2d0>
     >>> assert foobar.eg_fillProperties is solidFill
     >>> assert foobar.solidFill is solidFill
     >>> foobar.remove_eg_fillProperties()
@@ -116,7 +116,7 @@ Protocol
 ::
 
     >>> foobar.childElement
-    <pptx.oxml.xyz.CT_ChildElement object at 0x10ab4b2d0>
+    <power_pptx.oxml.xyz.CT_ChildElement object at 0x10ab4b2d0>
 
 
 ``RequiredAttribute`` attribute declaration

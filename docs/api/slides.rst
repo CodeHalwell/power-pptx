@@ -7,10 +7,10 @@ Slides
 -----------------
 
 The |Slides| object is accessed using the
-:attr:`~pptx.presentation.Presentation.slides` property of |Presentation|. It
+:attr:`~power_pptx.presentation.Presentation.slides` property of |Presentation|. It
 is not intended to be constructed directly.
 
-.. autoclass:: pptx.slide.Slides()
+.. autoclass:: power_pptx.slide.Slides()
    :members:
    :member-order: bysource
    :undoc-members:
@@ -22,7 +22,7 @@ is not intended to be constructed directly.
 An individual |Slide| object is accessed by index from |Slides| or as the
 return value of :meth:`add_slide`.
 
-.. autoclass:: pptx.slide.Slide()
+.. autoclass:: power_pptx.slide.Slide()
    :members:
    :exclude-members: part
    :inherited-members:
@@ -33,9 +33,9 @@ return value of :meth:`add_slide`.
 ----------------------
 
 The |SlideLayouts| object is accessed using the
-:attr:`~pptx.slide.SlideMaster.slide_layouts` property of |SlideMaster|, typically::
+:attr:`~power_pptx.slide.SlideMaster.slide_layouts` property of |SlideMaster|, typically::
 
-    >>> from pptx import Presentation
+    >>> from power_pptx import Presentation
     >>> prs = Presentation()
     >>> slide_layouts = prs.slide_master.slide_layouts
 
@@ -47,7 +47,7 @@ As a convenience, since most presentations have only a single slide master, the
 
 This class is not intended to be constructed directly.
 
-.. autoclass:: pptx.slide.SlideLayouts()
+.. autoclass:: power_pptx.slide.SlideLayouts()
    :members:
    :exclude-members: element, parent
    :inherited-members:
@@ -57,7 +57,7 @@ This class is not intended to be constructed directly.
 |SlideLayout| objects
 ---------------------
 
-.. autoclass:: pptx.slide.SlideLayout
+.. autoclass:: power_pptx.slide.SlideLayout
    :members:
    :exclude-members: iter_cloneable_placeholders
 
@@ -66,9 +66,9 @@ This class is not intended to be constructed directly.
 ----------------------
 
 The |SlideMasters| object is accessed using the
-:attr:`~pptx.presentation.slide_masters` property of |Presentation|, typically::
+:attr:`~power_pptx.presentation.slide_masters` property of |Presentation|, typically::
 
-    >>> from pptx import Presentation
+    >>> from power_pptx import Presentation
     >>> prs = Presentation()
     >>> slide_masters = prs.slide_masters
 
@@ -80,7 +80,7 @@ the collection::
 
 This class is not intended to be constructed directly.
 
-.. autoclass:: pptx.slide.SlideMasters()
+.. autoclass:: power_pptx.slide.SlideMasters()
    :members:
    :exclude-members: element, parent
    :inherited-members:
@@ -89,7 +89,7 @@ This class is not intended to be constructed directly.
 |SlideMaster| objects
 ---------------------
 
-.. autoclass:: pptx.slide.SlideMaster
+.. autoclass:: power_pptx.slide.SlideMaster
    :members:
    :exclude-members: related_slide_layout, sldLayoutIdLst
 
@@ -97,14 +97,14 @@ This class is not intended to be constructed directly.
 |SlidePlaceholders| objects
 ---------------------------
 
-.. autoclass:: pptx.shapes.shapetree.SlidePlaceholders
+.. autoclass:: power_pptx.shapes.shapetree.SlidePlaceholders
    :members:
 
 
 |NotesSlide| objects
 --------------------
 
-.. autoclass:: pptx.slide.NotesSlide
+.. autoclass:: power_pptx.slide.NotesSlide
    :members:
    :exclude-members: clone_master_placeholders
    :inherited-members:
@@ -113,11 +113,11 @@ This class is not intended to be constructed directly.
 |SlideTransition| objects
 -------------------------
 
-The :attr:`~pptx.slide.Slide.transition` property of |Slide| returns a
+The :attr:`~power_pptx.slide.Slide.transition` property of |Slide| returns a
 |SlideTransition| proxy backed by ``<p:transition>``. Reads on an unset
 transition return |None| and never mutate XML, keeping theme inheritance
 intact.
 
-.. autoclass:: pptx.slide.SlideTransition
+.. autoclass:: power_pptx.slide.SlideTransition
    :members:
    :undoc-members:

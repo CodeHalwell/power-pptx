@@ -17,18 +17,18 @@ Proposed protocol
 
 ::
 
-    >>> from pptx.enum.shapes import PROG_ID
+    >>> from power_pptx.enum.shapes import PROG_ID
     >>> shapes = prs.slides[0].shapes
     >>> shape = shapes.add_ole_object(
             "worksheet.xlsx", PROG_ID.EXCEL, left, top, width, height
         )
     >>> shape
-    <pptx.shapes.graphfrm.GraphicFrame instance at 0x00000008>
+    <power_pptx.shapes.graphfrm.GraphicFrame instance at 0x00000008>
     >>> shape.shape_type
     MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT
     >>> ole_format = shape.ole_format
     >>> ole_format
-    <pptx.shapes.graphfrm._OleFormat instance at 0x00000010>
+    <power_pptx.shapes.graphfrm._OleFormat instance at 0x00000010>
     >>> ole_format.blob
     <bytes instance at 0x00000018>
     >>> ole_format.prog_id
@@ -192,7 +192,7 @@ practical for us.
   In Microsoft parlance, this identifies the OLE server called upon to operate on this
   object.
 
-  The `pptx.enum.shapes.PROG_ID` enumeration defines these values for common cases like
+  The `power_pptx.enum.shapes.PROG_ID` enumeration defines these values for common cases like
   an Excel workbook, an Word document, or another PowerPoint presentation. Probably we
   should also include PDFs and any other common cases we can think of.
 

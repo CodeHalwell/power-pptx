@@ -1,6 +1,6 @@
 # Slide thumbnails (Phase 10)
 
-`pptx.render` shells out to LibreOffice to rasterise slides as PNGs.
+`power_pptx.render` shells out to LibreOffice to rasterise slides as PNGs.
 This is for review tooling, dashboards, and CI artifacts — it does not
 require Microsoft PowerPoint or an Office license, but `soffice` must
 be on `$PATH` (or you can point at a custom binary).
@@ -21,7 +21,7 @@ slide.render_thumbnail(out_path="cover.png")
 ## Module-level entry points
 
 ```python
-from pptx.render import (
+from power_pptx.render import (
     render_slide_thumbnails,
     render_slide_thumbnail,
 )
@@ -58,7 +58,7 @@ prs.render_thumbnails(out_dir="thumbs")
 ## Errors
 
 ```python
-from pptx.render import (
+from power_pptx.render import (
     ThumbnailRendererUnavailable,
     ThumbnailRendererError,
 )

@@ -1,12 +1,12 @@
-"""Unit tests for `pptx.design.layout`."""
+"""Unit tests for `power_pptx.design.layout`."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.design.layout import Box, Grid, Stack
-from pptx.util import Emu, Inches, Pt
+from power_pptx import Presentation
+from power_pptx.design.layout import Box, Grid, Stack
+from power_pptx.util import Emu, Inches, Pt
 
 
 @pytest.fixture

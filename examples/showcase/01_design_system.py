@@ -5,7 +5,7 @@ Builds a six-slide branded deck using the high-level recipes:
     title_slide → kpi_slide → bullet_slide → quote_slide
     → image_hero_slide → custom Grid-laid card row
 
-Demonstrates: ``DesignTokens``, every recipe in ``pptx.design.recipes``,
+Demonstrates: ``DesignTokens``, every recipe in ``power_pptx.design.recipes``,
 the ``Grid`` layout primitive, and the lint-on-save safety net.
 """
 
@@ -13,18 +13,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx import Presentation
-from pptx.design.layout import Grid
-from pptx.design.recipes import (
+from power_pptx import Presentation
+from power_pptx.design.layout import Grid
+from power_pptx.design.recipes import (
     bullet_slide,
     image_hero_slide,
     kpi_slide,
     quote_slide,
     title_slide,
 )
-from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.util import Inches, Pt
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
 
 from _lint import lint_or_die
 from _tokens import BRAND

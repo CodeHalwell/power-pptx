@@ -5,9 +5,9 @@ from __future__ import annotations
 from behave import given, then, when
 from helpers import test_pptx
 
-from pptx import Presentation
-from pptx.enum.text import MSO_AUTO_SIZE
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.util import Inches, Pt
 
 # given ===================================================
 

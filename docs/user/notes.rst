@@ -118,9 +118,9 @@ and also the shapes (a superset of the placeholders)::
     >>> for shape in notes_slide.shapes:
     ...   print shape
     ...
-    <pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e890>
-    <pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e750>
-    <pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e990>
+    <power_pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e890>
+    <power_pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e750>
+    <power_pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e990>
 
 In the common case, the notes slide contains only placeholders. However, if
 you added an image, for example, to the notes slide, that would show up as

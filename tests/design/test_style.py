@@ -1,14 +1,14 @@
-"""Unit-test suite for :mod:`pptx.design.style`."""
+"""Unit-test suite for :mod:`power_pptx.design.style`."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.design.style import ShapeStyle
-from pptx.design.tokens import ShadowToken, TypographyToken
-from pptx.dml.color import RGBColor
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.design.style import ShapeStyle
+from power_pptx.design.tokens import ShadowToken, TypographyToken
+from power_pptx.dml.color import RGBColor
+from power_pptx.util import Inches, Pt
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ class DescribeShapeStyle:
     def it_clears_the_fill_when_assigned_none(self, shape):
         shape.style.fill = "#FF0000"
         shape.style.fill = None
-        from pptx.enum.dml import MSO_FILL
+        from power_pptx.enum.dml import MSO_FILL
 
         assert shape.fill.type == MSO_FILL.BACKGROUND
 

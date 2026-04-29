@@ -18,7 +18,7 @@ Adding an auto shape
 The following code adds a rounded rectangle shape, one inch square, and
 positioned one inch from the top-left corner of the slide::
 
-    from pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.enum.shapes import MSO_SHAPE
 
     shapes = slide.shapes
     left = top = width = height = Inches(1.0)
@@ -50,7 +50,7 @@ As you might imagine, working directly in EMU is inconvenient. To make it
 easier, python-pptx provides a collection of value types to allow easy
 specification and conversion into convenient units::
 
-    >>> from pptx.util import Inches, Pt
+    >>> from power_pptx.util import Inches, Pt
     >>> length = Inches(1)
     >>> length
     914400
@@ -64,7 +64,7 @@ specification and conversion into convenient units::
     >>> length
     914400
 
-More details are available in the :ref:`API documentation for pptx.util
+More details are available in the :ref:`API documentation for power_pptx.util
 <util>`
 
 
@@ -75,7 +75,7 @@ All shapes have a position on their slide and have a size. In general,
 position and size are specified when the shape is created. Position and size
 can also be read from existing shapes and changed::
 
-    >>> from pptx.enum.shapes import MSO_SHAPE
+    >>> from power_pptx.enum.shapes import MSO_SHAPE
     >>> left = top = width = height = Inches(1.0)
     >>> shape = shapes.add_shape(
     >>>     MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height
@@ -112,7 +112,7 @@ code sets the fill of a shape to red::
 This sets it to the theme color that appears as 'Accent 1 - 25% Darker' in
 the toolbar palette::
 
-    >>> from pptx.enum.dml import MSO_THEME_COLOR
+    >>> from power_pptx.enum.dml import MSO_THEME_COLOR
     >>> fill = shape.fill
     >>> fill.solid()
     >>> fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
@@ -132,7 +132,7 @@ exception::
     >>> fill = shape.fill
     >>> fill.solid()
     >>> fill.fore_color
-    <pptx.dml.color.ColorFormat object at 0x10ce20910>
+    <power_pptx.dml.color.ColorFormat object at 0x10ce20910>
     >>> fill.background()
     >>> fill.fore_color
     Traceback (most recent call last):

@@ -23,7 +23,7 @@ Hello World! example
 
 ::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     prs = Presentation()
     title_slide_layout = prs.slide_layouts[0]
@@ -48,7 +48,7 @@ Bullet slide example
 
 ::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     prs = Presentation()
     bullet_slide_layout = prs.slide_layouts[1]
@@ -97,8 +97,8 @@ before setting the text it contains.
 
 ::
 
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
+    from power_pptx import Presentation
+    from power_pptx.util import Inches, Pt
 
     prs = Presentation()
     blank_slide_layout = prs.slide_layouts[6]
@@ -132,8 +132,8 @@ before setting the text it contains.
 
 ::
 
-    from pptx import Presentation
-    from pptx.util import Inches
+    from power_pptx import Presentation
+    from power_pptx.util import Inches
 
     img_path = 'monty-truth.png'
 
@@ -163,9 +163,9 @@ before setting the text it contains.
 
 ::
 
-    from pptx import Presentation
-    from pptx.enum.shapes import MSO_SHAPE
-    from pptx.util import Inches
+    from power_pptx import Presentation
+    from power_pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.util import Inches
 
     prs = Presentation()
     title_only_slide_layout = prs.slide_layouts[5]
@@ -210,8 +210,8 @@ MSO_SHAPE.ROUNDED_RECT, MSO_SHAPE.CHEVRON, etc.) are listed on the
 
 ::
 
-    from pptx import Presentation
-    from pptx.util import Inches
+    from power_pptx import Presentation
+    from power_pptx.util import Inches
 
     prs = Presentation()
     title_only_slide_layout = prs.slide_layouts[5]
@@ -249,7 +249,7 @@ Extract all text from slides in presentation
 
 ::
 
-    from pptx import Presentation
+    from power_pptx import Presentation
 
     prs = Presentation(path_to_presentation)
 

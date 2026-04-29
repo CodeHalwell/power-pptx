@@ -11,10 +11,10 @@ Adding a chart
 
 The following code adds a single-series column chart in a new presentation::
 
-    from pptx import Presentation
-    from pptx.chart.data import CategoryChartData
-    from pptx.enum.chart import XL_CHART_TYPE
-    from pptx.util import Inches
+    from power_pptx import Presentation
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+    from power_pptx.util import Inches
 
     # create presentation with 1 slide ------
     prs = Presentation()
@@ -127,8 +127,8 @@ Axes
 
 Let's change up the category and value axes a bit::
 
-    from pptx.enum.chart import XL_TICK_MARK
-    from pptx.util import Pt
+    from power_pptx.enum.chart import XL_TICK_MARK
+    from power_pptx.util import Pt
 
     category_axis = chart.category_axis
     category_axis.has_major_gridlines = True
@@ -159,8 +159,8 @@ Data Labels
 Let's add some data labels so we can see exactly what the value for each bar
 is::
 
-    from pptx.dml.color import RGBColor
-    from pptx.enum.chart import XL_LABEL_POSITION
+    from power_pptx.dml.color import RGBColor
+    from power_pptx.enum.chart import XL_LABEL_POSITION
 
     plot = chart.plots[0]
     plot.has_data_labels = True
@@ -192,7 +192,7 @@ Legend
 A legend is often useful to have on a chart, to give a name to each series
 and help a reader tell which one is which::
 
-    from pptx.enum.chart import XL_LEGEND_POSITION
+    from power_pptx.enum.chart import XL_LEGEND_POSITION
 
     chart.has_legend = True
     chart.legend.position = XL_LEGEND_POSITION.RIGHT

@@ -16,7 +16,7 @@ a URL in a mapped relationship is used by other verbs such as `hlinkfile` and
 `program`, but these are considered distinct from hyperlinks for the sake of
 this analysis. That distinction is reflected in the API.
 
-See also: _Run.hyperlink, `pptx.text._Hyperlink`
+See also: _Run.hyperlink, `power_pptx.text._Hyperlink`
 
 
 Candidate Protocol

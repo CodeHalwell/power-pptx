@@ -218,7 +218,7 @@ Obtain a FreeformBuilder object::
 
     >>> freeform_builder = shapes.build_freeform(50, 0, scale=100/Inches(1))
     >>> freeform_builder
-    <pptx.shapes.freeform.FreeformBuilder objext at 0x...>
+    <power_pptx.shapes.freeform.FreeformBuilder objext at 0x...>
 
 The `x` and `y` arguments specify the starting pen location in local
 coordinates. The `scale` argument determines the rendered size of the shape

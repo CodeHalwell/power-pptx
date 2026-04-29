@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.dml.color import RGBColor
-from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
-from pptx.util import Inches, Pt
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from power_pptx.util import Inches, Pt
 
 from _lint import lint_or_die
 from _tokens import BRAND, CHART_PALETTE

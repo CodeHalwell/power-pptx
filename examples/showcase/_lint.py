@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pptx.exc import LintError
-from pptx.lint import LintSeverity
-from pptx.presentation import Presentation
+from power_pptx.exc import LintError
+from power_pptx.lint import LintSeverity
+from power_pptx.presentation import Presentation
 
 
 def lint_or_die(prs: Presentation) -> None:

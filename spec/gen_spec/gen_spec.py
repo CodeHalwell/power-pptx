@@ -257,7 +257,7 @@ def render_mso_auto_shape_type_constants(auto_shape_types):
         '    """\n'
         '    Constants corresponding to the msoAutoShapeType enumeration in '
         'the\n    MS API. Standard abbreviation is \'MAST\', e.g.:\n\n      '
-        '  from pptx.spec import MSO_AUTO_SHAPE_TYPE as MAST\n\n'
+        '  from power_pptx.spec import MSO_AUTO_SHAPE_TYPE as MAST\n\n'
         '    """\n'
         '    # msoAutoShapeType -----------------\n'
     )

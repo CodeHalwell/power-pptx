@@ -16,21 +16,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx import Presentation
-from pptx.animation import Emphasis, Entrance, Trigger
-from pptx.chart.data import CategoryChartData
-from pptx.design.recipes import (
+from power_pptx import Presentation
+from power_pptx.animation import Emphasis, Entrance, Trigger
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.design.recipes import (
     bullet_slide,
     image_hero_slide,
     kpi_slide,
     quote_slide,
     title_slide,
 )
-from pptx.design.tokens import DesignTokens
-from pptx.dml.color import RGBColor
-from pptx.enum.presentation import MSO_TRANSITION_TYPE
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.util import Inches, Pt
+from power_pptx.design.tokens import DesignTokens
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.util import Inches, Pt
 
 
 # ---- Tokens ------------------------------------------------------------------
@@ -153,7 +153,7 @@ def build(out_path: str | Path) -> Presentation:
 
 
 def _lint_or_die(prs: Presentation) -> None:
-    from pptx.exc import LintError
+    from power_pptx.exc import LintError
 
     # Pass 1: nudge off-slide shapes inside the slide bounds
     for slide in prs.slides:
@@ -174,7 +174,7 @@ def _lint_or_die(prs: Presentation) -> None:
 
 def render_thumbnails(prs: Presentation, out_dir: str | Path) -> list[Path]:
     """Best-effort thumbnail render. Skips gracefully if soffice is missing."""
-    from pptx.render import ThumbnailRendererUnavailable
+    from power_pptx.render import ThumbnailRendererUnavailable
 
     try:
         return prs.render_thumbnails(out_dir=out_dir)
@@ -223,7 +223,7 @@ if __name__ == "__main__":
   behaviour in CI.
 - There is no `Presentation`-level lint hook in 1.1; iterate
   `prs.slides` and call `slide.lint()` per slide, or use
-  `pptx.compose.from_spec(..., lint="raise")` if you can express the
+  `power_pptx.compose.from_spec(..., lint="raise")` if you can express the
   deck as a spec.
 - If you want the chart palette to align with brand tokens rather than
   the built-in `"modern"`, pass an explicit list:

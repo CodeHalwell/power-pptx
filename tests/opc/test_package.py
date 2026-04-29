@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.opc.package` module."""
+"""Unit-test suite for `power_pptx.opc.package` module."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from typing import Any
 
 import pytest
 
-from pptx.opc.constants import CONTENT_TYPE as CT
-from pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.opc.oxml import CT_Relationship, CT_Relationships
-from pptx.opc.package import (
+from power_pptx.opc.constants import CONTENT_TYPE as CT
+from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
+from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.oxml import CT_Relationship, CT_Relationships
+from power_pptx.opc.package import (
     OpcPackage,
     Part,
     PartFactory,
@@ -26,9 +26,9 @@ from pptx.opc.package import (
     _Relationship,
     _Relationships,
 )
-from pptx.opc.packuri import PACKAGE_URI, PackURI
-from pptx.oxml import parse_xml
-from pptx.parts.presentation import PresentationPart
+from power_pptx.opc.packuri import PACKAGE_URI, PackURI
+from power_pptx.oxml import parse_xml
+from power_pptx.parts.presentation import PresentationPart
 
 from ..unitutil.cxml import element
 from ..unitutil.file import absjoin, snippet_bytes, test_file_dir, testfile_bytes
@@ -47,7 +47,7 @@ from ..unitutil.mock import (
 
 
 class Describe_RelatableMixin:
-    """Unit-test suite for `pptx.opc.package._RelatableMixin`.
+    """Unit-test suite for `power_pptx.opc.package._RelatableMixin`.
 
     This mixin is used for both OpcPackage and Part because both a package and a part
     can have relationships to target parts.
@@ -131,7 +131,7 @@ class Describe_RelatableMixin:
 
 
 class DescribeOpcPackage:
-    """Unit-test suite for `pptx.opc.package.OpcPackage` objects."""
+    """Unit-test suite for `power_pptx.opc.package.OpcPackage` objects."""
 
     def it_can_open_a_pkg_file(self, request):
         package_ = instance_mock(request, OpcPackage)
@@ -236,7 +236,7 @@ class DescribeOpcPackage:
         )
         next_partname = tmpl % expected_n
         PackURI_ = class_mock(
-            request, "pptx.opc.package.PackURI", return_value=PackURI(next_partname)
+            request, "power_pptx.opc.package.PackURI", return_value=PackURI(next_partname)
         )
         package = OpcPackage(None)
 
@@ -249,7 +249,7 @@ class DescribeOpcPackage:
         _rels_prop_.return_value = relationships_
         parts_ = tuple(instance_mock(request, Part) for _ in range(3))
         method_mock(request, OpcPackage, "iter_parts", return_value=iter(parts_))
-        PackageWriter_ = class_mock(request, "pptx.opc.package.PackageWriter")
+        PackageWriter_ = class_mock(request, "power_pptx.opc.package.PackageWriter")
         package = OpcPackage(None)
 
         package.save("prs.pptx")
@@ -257,7 +257,7 @@ class DescribeOpcPackage:
         PackageWriter_.write.assert_called_once_with("prs.pptx", relationships_, parts_)
 
     def it_loads_the_pkg_file_to_help(self, request, _rels_prop_, relationships_):
-        _PackageLoader_ = class_mock(request, "pptx.opc.package._PackageLoader")
+        _PackageLoader_ = class_mock(request, "power_pptx.opc.package._PackageLoader")
         _PackageLoader_.load.return_value = "pkg-rels-xml", {"partname": "part"}
         _rels_prop_.return_value = relationships_
         package = OpcPackage("prs.pptx")
@@ -272,7 +272,7 @@ class DescribeOpcPackage:
 
     def it_constructs_its_relationships_object_to_help(self, request, relationships_):
         _Relationships_ = class_mock(
-            request, "pptx.opc.package._Relationships", return_value=relationships_
+            request, "power_pptx.opc.package._Relationships", return_value=relationships_
         )
         package = OpcPackage(None)
 
@@ -293,7 +293,7 @@ class DescribeOpcPackage:
 
 
 class Describe_PackageLoader:
-    """Unit-test suite for `pptx.opc.package._PackageLoader` objects."""
+    """Unit-test suite for `power_pptx.opc.package._PackageLoader` objects."""
 
     def it_provides_a_load_interface_classmethod(self, request, package_):
         _init_ = initializer_mock(request, _PackageLoader)
@@ -386,7 +386,7 @@ class Describe_PackageLoader:
 
 
 class DescribePart:
-    """Unit-test suite for `pptx.opc.package.Part` objects."""
+    """Unit-test suite for `power_pptx.opc.package.Part` objects."""
 
     def it_can_be_constructed_by_PartFactory(self, request, package_):
         partname_ = instance_mock(request, PackURI)
@@ -437,7 +437,7 @@ class DescribePart:
 
     def it_constructs_its_relationships_object_to_help(self, request, relationships_):
         _Relationships_ = class_mock(
-            request, "pptx.opc.package._Relationships", return_value=relationships_
+            request, "power_pptx.opc.package._Relationships", return_value=relationships_
         )
         part = Part(PackURI("/ppt/slides/slide1.xml"), None, None)
 
@@ -458,13 +458,13 @@ class DescribePart:
 
 
 class DescribeXmlPart:
-    """Unit-test suite for `pptx.opc.package.XmlPart` objects."""
+    """Unit-test suite for `power_pptx.opc.package.XmlPart` objects."""
 
     def it_can_be_constructed_by_PartFactory(self, request):
         partname = PackURI("/ppt/slides/slide1.xml")
         element_ = element("p:sld")
         package_ = instance_mock(request, OpcPackage)
-        parse_xml_ = function_mock(request, "pptx.opc.package.parse_xml", return_value=element_)
+        parse_xml_ = function_mock(request, "power_pptx.opc.package.parse_xml", return_value=element_)
         _init_ = initializer_mock(request, XmlPart)
 
         part = XmlPart.load(partname, CT.PML_SLIDE, package_, b"blob")
@@ -475,7 +475,7 @@ class DescribeXmlPart:
 
     def it_can_serialize_to_xml(self, request):
         element_ = element("p:sld")
-        serialize_part_xml_ = function_mock(request, "pptx.opc.package.serialize_part_xml")
+        serialize_part_xml_ = function_mock(request, "power_pptx.opc.package.serialize_part_xml")
         xml_part = XmlPart(None, None, None, element_)
 
         blob = xml_part.blob
@@ -508,10 +508,10 @@ class DescribeXmlPart:
 
 
 class DescribePartFactory:
-    """Unit-test suite for `pptx.opc.package.PartFactory` objects."""
+    """Unit-test suite for `power_pptx.opc.package.PartFactory` objects."""
 
     def it_constructs_custom_part_type_for_registered_content_types(self, request, package_, part_):
-        SlidePart_ = class_mock(request, "pptx.opc.package.XmlPart")
+        SlidePart_ = class_mock(request, "power_pptx.opc.package.XmlPart")
         SlidePart_.load.return_value = part_
         partname = PackURI("/ppt/slides/slide7.xml")
         original = PartFactory.part_type_for.get(CT.PML_SLIDE)
@@ -530,7 +530,7 @@ class DescribePartFactory:
     def it_constructs_part_using_default_class_when_no_custom_registered(
         self, request, package_, part_
     ):
-        Part_ = class_mock(request, "pptx.opc.package.Part")
+        Part_ = class_mock(request, "power_pptx.opc.package.Part")
         Part_.load.return_value = part_
         partname = PackURI("/bar/foo.xml")
 
@@ -551,7 +551,7 @@ class DescribePartFactory:
 
 
 class Describe_ContentTypeMap:
-    """Unit-test suite for `pptx.opc.package._ContentTypeMap` objects."""
+    """Unit-test suite for `power_pptx.opc.package._ContentTypeMap` objects."""
 
     def it_can_construct_from_content_types_xml(self, request):
         _init_ = initializer_mock(request, _ContentTypeMap)
@@ -621,7 +621,7 @@ class Describe_ContentTypeMap:
 
 
 class Describe_Relationships:
-    """Unit-test suite for `pptx.opc.package._Relationships` objects."""
+    """Unit-test suite for `power_pptx.opc.package._Relationships` objects."""
 
     @pytest.mark.parametrize("rId, expected_value", (("rId1", True), ("rId2", False)))
     def it_knows_whether_it_contains_a_relationship_with_rId(
@@ -930,7 +930,7 @@ class Describe_Relationships:
 
     @pytest.fixture
     def _Relationship_(self, request):
-        return class_mock(request, "pptx.opc.package._Relationship")
+        return class_mock(request, "power_pptx.opc.package._Relationship")
 
     @pytest.fixture
     def relationship_(self, request):
@@ -946,7 +946,7 @@ class Describe_Relationships:
 
 
 class Describe_Relationship:
-    """Unit-test suite for `pptx.opc.package._Relationship` objects."""
+    """Unit-test suite for `power_pptx.opc.package._Relationship` objects."""
 
     def it_can_construct_from_xml(self, request, part_):
         _init_ = initializer_mock(request, _Relationship)

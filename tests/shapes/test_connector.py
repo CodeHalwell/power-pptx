@@ -1,21 +1,21 @@
-"""Unit test suite for pptx.shapes.connector module."""
+"""Unit test suite for power_pptx.shapes.connector module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.line import LineFormat
-from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pptx.shapes.base import BaseShape
-from pptx.shapes.connector import Connector
-from pptx.util import Emu
+from power_pptx.dml.line import LineFormat
+from power_pptx.enum.shapes import MSO_SHAPE_TYPE
+from power_pptx.shapes.base import BaseShape
+from power_pptx.shapes.connector import Connector
+from power_pptx.util import Emu
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import instance_mock, method_mock
 
 
 class DescribeConnector(object):
-    """Unit-test suite for `pptx.shapes.connector.Connector`."""
+    """Unit-test suite for `power_pptx.shapes.connector.Connector`."""
 
     def it_knows_its_begin_point_x_location(self, begin_x_get_fixture):
         connector, expected_value = begin_x_get_fixture

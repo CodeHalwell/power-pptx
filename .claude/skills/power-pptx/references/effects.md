@@ -7,8 +7,8 @@ return `None` when nothing is set; writes lazily create the underlying
 ## Outer shadow
 
 ```python
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
+from power_pptx.util import Pt
+from power_pptx.dml.color import RGBColor
 
 shadow = card.shadow
 shadow.blur_radius = Pt(8)
@@ -56,9 +56,9 @@ card.reflection.end_alpha   = 0.0
 ## Combining for a "card" look
 
 ```python
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
+from power_pptx.dml.color import RGBColor
 
 card = slide.shapes.add_shape(
     MSO_SHAPE.ROUNDED_RECTANGLE,
@@ -118,7 +118,7 @@ below that.
 ## Line ends, caps, joins, compound lines
 
 ```python
-from pptx.enum.dml import (
+from power_pptx.enum.dml import (
     MSO_LINE_CAP_STYLE,
     MSO_LINE_COMPOUND_STYLE,
     MSO_LINE_JOIN_STYLE,

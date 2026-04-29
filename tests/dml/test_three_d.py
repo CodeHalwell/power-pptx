@@ -1,12 +1,12 @@
-"""Unit-test suite for `pptx.dml.three_d` module."""
+"""Unit-test suite for `power_pptx.dml.three_d` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.three_d import ThreeDFormat, _BevelFormat
-from pptx.enum.dml import BevelPreset, PresetMaterial
-from pptx.util import Emu, Pt
+from power_pptx.dml.three_d import ThreeDFormat, _BevelFormat
+from power_pptx.enum.dml import BevelPreset, PresetMaterial
+from power_pptx.util import Emu, Pt
 
 from ..unitutil.cxml import element, xml
 
@@ -153,7 +153,7 @@ class DescribeThreeDFormat:
         assert td._element.xml == xml("p:spPr")
 
     def it_creates_extrusionClr_on_color_write(self):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         spPr = element("p:spPr")
         td = ThreeDFormat(spPr)

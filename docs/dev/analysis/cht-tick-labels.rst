@@ -27,7 +27,7 @@ Candidate protocol
     >>> tick_labels = value_axis.tick_labels
 
     >>> tick_labels.font
-    <pptx.text.Font object at 0xdeadbeef1>
+    <power_pptx.text.Font object at 0xdeadbeef1>
 
     >>> tick_labels.number_format
     'General'

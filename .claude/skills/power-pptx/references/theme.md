@@ -7,7 +7,7 @@ writes round-trip on save.
 ## Reading the palette
 
 ```python
-from pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx.enum.dml import MSO_THEME_COLOR
 
 accent1 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]    # → RGBColor
 accent2 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_2]
@@ -30,7 +30,7 @@ minor = prs.theme.fonts.minor     # body font  (str)
 ## Writing the palette
 
 ```python
-from pptx.dml.color import RGBColor
+from power_pptx.dml.color import RGBColor
 
 prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x4F, 0x9D, 0xFF)
 prs.theme.colors[MSO_THEME_COLOR.ACCENT_2] = RGBColor(0x10, 0xB9, 0x81)
@@ -58,13 +58,13 @@ prs.theme.apply(brand.theme)        # copies palette + major/minor fonts
 
 ## Theme-aware color resolution
 
-`pptx.inherit.resolve_color` returns the effective `RGBColor` for any
+`power_pptx.inherit.resolve_color` returns the effective `RGBColor` for any
 `ColorFormat` (or the lazy proxy on `Font.color` / `LineFormat.color`).
 Explicit RGB values are returned as-is, scheme colors resolve through
 the theme, and unset colors return `None` without mutating XML:
 
 ```python
-from pptx.inherit import resolve_color
+from power_pptx.inherit import resolve_color
 
 rgb = resolve_color(run.font.color, theme=prs.theme)
 if rgb is None:
@@ -83,9 +83,9 @@ PowerPoint's `lumMod` / `lumOff` model.
 ## End-to-end: rebrand a deck
 
 ```python
-from pptx import Presentation
-from pptx.dml.color import RGBColor
-from pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx import Presentation
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.dml import MSO_THEME_COLOR
 
 prs = Presentation("input.pptx")
 

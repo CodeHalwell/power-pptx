@@ -7,7 +7,7 @@ Specifies the language identifier.
 
 Example::
 
-    from pptx.enum.lang import MSO_LANGUAGE_ID
+    from power_pptx.enum.lang import MSO_LANGUAGE_ID
 
     font.language_id = MSO_LANGUAGE_ID.POLISH
 

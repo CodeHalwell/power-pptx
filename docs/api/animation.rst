@@ -3,7 +3,7 @@
 Animations
 ==========
 
-.. currentmodule:: pptx.animation
+.. currentmodule:: power_pptx.animation
 
 
 |SlideAnimations| objects
@@ -39,5 +39,5 @@ Motion paths
 Triggers
 --------
 
-See :ref:`PpAnimTrigger`. ``Trigger`` is exported from :mod:`pptx.animation`
-as an alias for :class:`pptx.enum.animation.PP_ANIM_TRIGGER`.
+See :ref:`PpAnimTrigger`. ``Trigger`` is exported from :mod:`power_pptx.animation`
+as an alias for :class:`power_pptx.enum.animation.PP_ANIM_TRIGGER`.

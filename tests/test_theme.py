@@ -1,13 +1,13 @@
-"""Unit-test suite for the high-level `pptx.theme` module."""
+"""Unit-test suite for the high-level `power_pptx.theme` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx import Presentation
-from pptx.dml.color import RGBColor
-from pptx.enum.dml import MSO_THEME_COLOR
-from pptx.theme import Theme, ThemeColors, ThemeFonts
+from power_pptx import Presentation
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx.theme import Theme, ThemeColors, ThemeFonts
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ class DescribeThemeColors:
             theme.colors["accent1"] = RGBColor(0, 0, 0)  # type: ignore[index]
 
     def it_inserts_a_missing_slot_at_the_schema_defined_position(self, prs):
-        from pptx.oxml.ns import qn
+        from power_pptx.oxml.ns import qn
 
         clr_scheme = prs.theme._theme_elm.find(  # type: ignore[attr-defined]
             f"{qn('a:themeElements')}/{qn('a:clrScheme')}"
@@ -63,7 +63,7 @@ class DescribeThemeColors:
         # Replace the existing srgbClr in the accent3 slot with sysClr,
         # then verify the writer drops the sysClr and replaces with srgbClr.
         from lxml import etree
-        from pptx.oxml.ns import qn
+        from power_pptx.oxml.ns import qn
 
         slot = prs.theme._theme_elm.find(  # type: ignore[attr-defined]
             f"{qn('a:themeElements')}/{qn('a:clrScheme')}/{qn('a:accent3')}"

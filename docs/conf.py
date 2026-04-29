@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(".."))
 
-from pptx import __version__  # noqa: E402
+from power_pptx import __version__  # noqa: E402
 
 # -- Project information -----------------------------------------------------
 
@@ -172,7 +172,7 @@ rst_epilog = """
 .. |PlaceholderPicture| replace:: :class:`.PlaceholderPicture`
 .. |Plots| replace:: :class:`.Plots`
 .. |Point| replace:: :class:`.Point`
-.. |Presentation| replace:: :class:`~pptx.presentation.Presentation`
+.. |Presentation| replace:: :class:`~power_pptx.presentation.Presentation`
 .. |Pt| replace:: :class:`.Pt`
 .. |RadarSeries| replace:: :class:`.RadarSeries`
 .. |ReflectionFormat| replace:: :class:`.ReflectionFormat`

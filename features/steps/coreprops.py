@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from behave import given, then, when
 from helpers import no_core_props_pptx_path, saved_pptx_path
 
-from pptx import Presentation
+from power_pptx import Presentation
 
 # given ===================================================
 

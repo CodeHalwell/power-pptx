@@ -2,13 +2,13 @@
 
 `shape.three_d` exposes bevels (`<a:bevelT>` / `<a:bevelB>`) and
 extrusion (`<a:sp3d>`), backed by `CT_Shape3D` and `CT_Scene3D` element
-classes in `pptx.oxml.dml.three_d`.
+classes in `power_pptx.oxml.dml.three_d`.
 
 ## Bevels
 
 ```python
-from pptx.util import Pt
-from pptx.enum.dml import BevelPreset
+from power_pptx.util import Pt
+from power_pptx.enum.dml import BevelPreset
 
 three_d = card.three_d
 
@@ -30,7 +30,7 @@ three_d.bevel_bottom.height = Pt(1)
 ## Extrusion
 
 ```python
-from pptx.dml.color import RGBColor
+from power_pptx.dml.color import RGBColor
 
 three_d.extrusion_height = Pt(20)
 three_d.extrusion_color  = RGBColor(0x12, 0x1E, 0x4D)
@@ -48,7 +48,7 @@ three_d.contour_color = RGBColor(0xFF, 0xFF, 0xFF)
 Material affects how the surface reacts to scene lighting:
 
 ```python
-from pptx.enum.dml import PresetMaterial
+from power_pptx.enum.dml import PresetMaterial
 
 three_d.preset_material = PresetMaterial.METAL
 # Other options: MATTE, PLASTIC, METAL, WARM_MATTE, TRANSLUCENT_POWDER,
@@ -58,11 +58,11 @@ three_d.preset_material = PresetMaterial.METAL
 ## End-to-end: a beveled badge
 
 ```python
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.dml import BevelPreset, PresetMaterial
-from pptx.dml.color import RGBColor
+from power_pptx import Presentation
+from power_pptx.util import Inches, Pt
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.dml import BevelPreset, PresetMaterial
+from power_pptx.dml.color import RGBColor
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])

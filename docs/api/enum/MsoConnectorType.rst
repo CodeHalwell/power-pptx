@@ -9,8 +9,8 @@ Alias: ``MSO_CONNECTOR``
 
 Example::
 
-    from pptx.enum.shapes import MSO_CONNECTOR
-    from pptx.util import Cm
+    from power_pptx.enum.shapes import MSO_CONNECTOR
+    from power_pptx.util import Cm
 
     shapes = prs.slides[0].shapes
     connector = shapes.add_connector(

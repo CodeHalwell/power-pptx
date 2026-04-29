@@ -1,10 +1,10 @@
-"""Unit-test suite for pptx.oxml.graphfrm module."""
+"""Unit-test suite for power_pptx.oxml.graphfrm module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.oxml.shapes.graphfrm import CT_GraphicalObjectFrame
+from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectFrame
 
 from ...unitutil.cxml import xml
 
@@ -13,7 +13,7 @@ TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
 
 class DescribeCT_GraphicalObjectFrame(object):
-    """Unit-test suite for `pptx.oxml.shapes.graphfrm.CT_GraphicalObjectFrame."""
+    """Unit-test suite for `power_pptx.oxml.shapes.graphfrm.CT_GraphicalObjectFrame."""
 
     def it_can_construct_a_new_graphicFrame(self, new_graphicFrame_fixture):
         id_, name, x, y, cx, cy, expected_xml = new_graphicFrame_fixture

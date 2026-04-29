@@ -71,7 +71,7 @@ The top-left cell of a merged cell is the merge-origin cell::
 
     >>> origin_cell = table.cells(0, 0)
     >>> origin_cell
-    <pptx.table._MergeOriginCell object at 0x...>
+    <power_pptx.table._MergeOriginCell object at 0x...>
     >>> origin_cell.is_merge_origin
     True
     >>> origin_cell.is_spanned
@@ -85,7 +85,7 @@ A spanned cell has |True| on its `.is_spanned` property::
 
     >>> spanned_cell = table.cell(0, 1)
     >>> spanned_cell
-    <pptx.table._SpannedCell object at 0x...>
+    <power_pptx.table._SpannedCell object at 0x...>
     >>> spanned_cell.is_merge_origin
     False
     >>> spanned_cell.is_spanned
@@ -96,7 +96,7 @@ spanned::
 
     >>> cell = table.cell(0, 2)
     >>> cell
-    <pptx.table._Cell object at 0x...>
+    <power_pptx.table._Cell object at 0x...>
     >>> cell.is_merge_origin
     False
     >>> cell.is_spanned

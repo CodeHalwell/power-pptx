@@ -8,7 +8,7 @@ Determines the type of automatic sizing allowed.
 The following names can be used to specify the automatic sizing behavior
 used to fit a shape's text within the shape bounding box, for example::
 
-    from pptx.enum.text import MSO_AUTO_SIZE
+    from power_pptx.enum.text import MSO_AUTO_SIZE
 
     shape.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 

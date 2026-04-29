@@ -17,8 +17,8 @@ from zipfile import ZipFile
 
 from lxml import etree
 
-from pptx import Presentation
-from pptx.presentation import Presentation as PresentationT
+from power_pptx import Presentation
+from power_pptx.presentation import Presentation as PresentationT
 
 
 def _parts(pptx_bytes: bytes) -> dict[str, bytes]:

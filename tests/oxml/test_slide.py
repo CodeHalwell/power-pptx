@@ -1,14 +1,14 @@
-"""Unit-test suite for `pptx.oxml.slide` module."""
+"""Unit-test suite for `power_pptx.oxml.slide` module."""
 
 from __future__ import annotations
 
-from pptx.oxml.slide import CT_NotesMaster, CT_NotesSlide
+from power_pptx.oxml.slide import CT_NotesMaster, CT_NotesSlide
 
 from ..unitutil.file import snippet_text
 
 
 class DescribeCT_NotesMaster(object):
-    """Unit-test suite for `pptx.oxml.slide.CT_NotesMaster` objects."""
+    """Unit-test suite for `power_pptx.oxml.slide.CT_NotesMaster` objects."""
 
     def it_can_create_a_default_notesMaster_element(self):
         notesMaster = CT_NotesMaster.new_default()
@@ -16,7 +16,7 @@ class DescribeCT_NotesMaster(object):
 
 
 class DescribeCT_NotesSlide(object):
-    """Unit-test suite for `pptx.oxml.slide.CT_NotesSlide` objects."""
+    """Unit-test suite for `power_pptx.oxml.slide.CT_NotesSlide` objects."""
 
     def it_can_create_a_new_notes_element(self):
         notes = CT_NotesSlide.new()

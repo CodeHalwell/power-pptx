@@ -13,8 +13,8 @@ Shadow, glow, soft edges, blur, reflection
 
 ::
 
-    from pptx.util import Pt
-    from pptx.dml.color import RGBColor
+    from power_pptx.util import Pt
+    from power_pptx.dml.color import RGBColor
 
     shadow = shape.shadow
     shadow.blur_radius = Pt(8)
@@ -88,7 +88,7 @@ Line ends, caps, joins, compound lines
 
 ::
 
-    from pptx.enum.dml import (
+    from power_pptx.enum.dml import (
         MSO_LINE_CAP_STYLE,
         MSO_LINE_COMPOUND_STYLE,
         MSO_LINE_JOIN_STYLE,

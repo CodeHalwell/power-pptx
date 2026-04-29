@@ -1,13 +1,13 @@
-"""Test suite for pptx.oxml.__init__.py module, primarily XML parser-related."""
+"""Test suite for power_pptx.oxml.__init__.py module, primarily XML parser-related."""
 
 from __future__ import annotations
 
 import pytest
 from lxml import etree
 
-from pptx.oxml import oxml_parser, parse_xml, register_element_cls
-from pptx.oxml.ns import qn
-from pptx.oxml.xmlchemy import BaseOxmlElement
+from power_pptx.oxml import oxml_parser, parse_xml, register_element_cls
+from power_pptx.oxml.ns import qn
+from power_pptx.oxml.xmlchemy import BaseOxmlElement
 
 from ..unitutil.mock import function_mock, loose_mock, var_mock
 
@@ -68,12 +68,12 @@ def foo(xml_bytes):
 
 @pytest.fixture
 def fromstring(request):
-    return function_mock(request, "pptx.oxml.etree.fromstring")
+    return function_mock(request, "power_pptx.oxml.etree.fromstring")
 
 
 @pytest.fixture
 def mock_oxml_parser(request):
-    return var_mock(request, "pptx.oxml.oxml_parser")
+    return var_mock(request, "power_pptx.oxml.oxml_parser")
 
 
 @pytest.fixture

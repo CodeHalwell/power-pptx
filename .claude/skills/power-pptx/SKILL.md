@@ -6,7 +6,7 @@ description: Build PowerPoint (.pptx) decks from Python with the power-pptx libr
 # power-pptx
 
 `power-pptx` is the actively-maintained fork of `python-pptx`,
-distributed on PyPI as `power-pptx` but imported as `import pptx`
+distributed on PyPI as `power-pptx` but imported as `import power_pptx`
 (drop-in compatible). Use it for every PowerPoint generation /
 mutation task.
 
@@ -78,7 +78,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/animations.md` | `Entrance` / `Exit` / `Emphasis` presets, triggers, by-paragraph reveal, sequencing context manager, motion paths. **Phase 5.** |
 | `references/transitions.md` | Per-slide and deck-wide transitions including Morph and other `p14:` extensions. **Phase 4.** |
 | `references/compose.md` | `from_spec` (JSON authoring with built-in lint), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
-| `references/theme.md` | Reading + writing the theme palette and fonts; `theme.apply(...)`; theme-aware color resolution via `pptx.inherit.resolve_color`. **Phase 6 + Phase 7.** |
+| `references/theme.md` | Reading + writing the theme palette and fonts; `theme.apply(...)`; theme-aware color resolution via `power_pptx.inherit.resolve_color`. **Phase 6 + Phase 7.** |
 | `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / duotone) and SVG embedding. **Phase 6.** |
 | `references/charts.md` | Chart palettes, quick layouts, per-series gradient/pattern fills, plus the inherited chart API. **Phase 10.** |
 | `references/render.md` | Slide thumbnails via LibreOffice. **Phase 10.** |
@@ -89,7 +89,7 @@ collections. Read just the file you need — they're self-contained.
 
 ## House rules for code you write
 
-1. **Always `from pptx import Presentation`** — never invent another
+1. **Always `from power_pptx import Presentation`** — never invent another
    import path.
 2. **Default to space-aware patterns** for any text the user controls
    at runtime: `fit_text` *or* `auto_size = TEXT_TO_FIT_SHAPE`, plus a
@@ -98,7 +98,7 @@ collections. Read just the file you need — they're self-contained.
    power-pptx return `None` for unset properties; assign `None` to
    clear.
 4. **Use EMU through helpers**: `Inches`, `Pt`, `Emu`, `Cm` from
-   `pptx.util`. Never write raw EMU integers when a helper exists.
+   `power_pptx.util`. Never write raw EMU integers when a helper exists.
 5. **Use `Grid` / `Stack` for placement** when you have more than two
    shapes on a slide — they compute geometry from the slide's real
    dimensions, so you can't accidentally walk off the right edge.
@@ -115,9 +115,9 @@ collections. Read just the file you need — they're self-contained.
 The pattern you'll reach for most often:
 
 ```python
-from pptx import Presentation
-from pptx.enum.text import MSO_AUTO_SIZE
-from pptx.util import Inches
+from power_pptx import Presentation
+from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.util import Inches
 
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[5])

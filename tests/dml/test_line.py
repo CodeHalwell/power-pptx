@@ -1,13 +1,13 @@
-"""Test suite for `pptx.dml.line` module."""
+"""Test suite for `power_pptx.dml.line` module."""
 
 from __future__ import annotations
 
 import pytest
 
-from pptx.dml.color import ColorFormat
-from pptx.dml.fill import FillFormat
-from pptx.dml.line import LineEndFormat, LineFormat
-from pptx.enum.dml import (
+from power_pptx.dml.color import ColorFormat
+from power_pptx.dml.fill import FillFormat
+from power_pptx.dml.line import LineEndFormat, LineFormat
+from power_pptx.enum.dml import (
     MSO_FILL,
     MSO_LINE,
     MSO_LINE_CAP,
@@ -16,8 +16,8 @@ from pptx.enum.dml import (
     MSO_LINE_END_TYPE,
     MSO_LINE_JOIN,
 )
-from pptx.oxml.shapes.shared import CT_LineProperties
-from pptx.shapes.autoshape import Shape
+from power_pptx.oxml.shapes.shared import CT_LineProperties
+from power_pptx.shapes.autoshape import Shape
 
 from ..oxml.unitdata.dml import an_ln
 from ..unitutil.cxml import element, xml
@@ -94,7 +94,7 @@ class DescribeLineFormat(object):
     def it_delegates_color_writes_through_to_a_solid_fill(
         self, line, fill_, fill_prop_, FillFormat_, color_
     ):
-        from pptx.dml.color import RGBColor
+        from power_pptx.dml.color import RGBColor
 
         fill_.type = MSO_FILL.BACKGROUND
         line.color.rgb = RGBColor(0xFF, 0x00, 0x00)
@@ -166,7 +166,7 @@ class DescribeLineFormat(object):
 
     @pytest.fixture
     def FillFormat_(self, request, fill_):
-        FillFormat_ = class_mock(request, "pptx.dml.line.FillFormat")
+        FillFormat_ = class_mock(request, "power_pptx.dml.line.FillFormat")
         FillFormat_.from_fill_parent.return_value = fill_
         return FillFormat_
 

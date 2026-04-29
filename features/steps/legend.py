@@ -5,9 +5,9 @@ from __future__ import annotations
 from behave import given, then, when
 from helpers import test_pptx
 
-from pptx import Presentation
-from pptx.enum.chart import XL_LEGEND_POSITION
-from pptx.text.text import Font
+from power_pptx import Presentation
+from power_pptx.enum.chart import XL_LEGEND_POSITION
+from power_pptx.text.text import Font
 
 # given ===================================================
 

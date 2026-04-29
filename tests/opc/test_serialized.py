@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""Unit-test suite for `pptx.opc.serialized` module."""
+"""Unit-test suite for `power_pptx.opc.serialized` module."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import zipfile
 
 import pytest
 
-from pptx.exc import PackageNotFoundError
-from pptx.opc.constants import CONTENT_TYPE as CT
-from pptx.opc.package import Part, _Relationships
-from pptx.opc.packuri import CONTENT_TYPES_URI, PackURI
-from pptx.opc.serialized import (
+from power_pptx.exc import PackageNotFoundError
+from power_pptx.opc.constants import CONTENT_TYPE as CT
+from power_pptx.opc.package import Part, _Relationships
+from power_pptx.opc.packuri import CONTENT_TYPES_URI, PackURI
+from power_pptx.opc.serialized import (
     PackageReader,
     PackageWriter,
     _ContentTypesItem,
@@ -45,7 +45,7 @@ zip_pkg_path = test_pptx_path
 
 
 class DescribePackageReader:
-    """Unit-test suite for `pptx.opc.serialized.PackageReader` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized.PackageReader` objects."""
 
     def it_knows_whether_it_contains_a_partname(self, _blob_reader_prop_: Mock):
         _blob_reader_prop_.return_value = {"/ppt", "/docProps"}
@@ -74,7 +74,7 @@ class DescribePackageReader:
 
     def it_constructs_its_blob_reader_to_help(self, request: FixtureRequest):
         phys_pkg_reader_ = instance_mock(request, _PhysPkgReader)
-        _PhysPkgReader_ = class_mock(request, "pptx.opc.serialized._PhysPkgReader")
+        _PhysPkgReader_ = class_mock(request, "power_pptx.opc.serialized._PhysPkgReader")
         _PhysPkgReader_.factory.return_value = phys_pkg_reader_
         package_reader = PackageReader("prs.pptx")
 
@@ -91,7 +91,7 @@ class DescribePackageReader:
 
 
 class DescribePackageWriter:
-    """Unit-test suite for `pptx.opc.serialized.PackageWriter` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized.PackageWriter` objects."""
 
     def it_provides_a_write_interface_classmethod(
         self, request: FixtureRequest, relationships_: Mock, part_: Mock
@@ -107,7 +107,7 @@ class DescribePackageWriter:
     def it_can_write_a_package(
         self, request: FixtureRequest, phys_writer_: Mock, relationships_: Mock
     ):
-        _PhysPkgWriter_ = class_mock(request, "pptx.opc.serialized._PhysPkgWriter")
+        _PhysPkgWriter_ = class_mock(request, "power_pptx.opc.serialized._PhysPkgWriter")
         phys_writer_.__enter__.return_value = phys_writer_
         _PhysPkgWriter_.factory.return_value = phys_writer_
         _write_content_types_stream_ = method_mock(
@@ -127,10 +127,10 @@ class DescribePackageWriter:
     def it_can_write_a_content_types_stream(
         self, request: FixtureRequest, phys_writer_: Mock, relationships_: Mock, part_: Mock
     ):
-        _ContentTypesItem_ = class_mock(request, "pptx.opc.serialized._ContentTypesItem")
+        _ContentTypesItem_ = class_mock(request, "power_pptx.opc.serialized._ContentTypesItem")
         _ContentTypesItem_.xml_for.return_value = "part_xml"
         serialize_part_xml_ = function_mock(
-            request, "pptx.opc.serialized.serialize_part_xml", return_value=b"xml"
+            request, "power_pptx.opc.serialized.serialize_part_xml", return_value=b"xml"
         )
         package_writer = PackageWriter("", relationships_, (part_, part_))
 
@@ -190,7 +190,7 @@ class DescribePackageWriter:
 
 
 class Describe_PhysPkgReader:
-    """Unit-test suite for `pptx.opc.serialized._PhysPkgReader` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._PhysPkgReader` objects."""
 
     def it_constructs_ZipPkgReader_when_pkg_is_file_like(
         self, _ZipPkgReader_: Mock, zip_pkg_reader_: Mock
@@ -206,7 +206,7 @@ class Describe_PhysPkgReader:
     def and_it_constructs_DirPkgReader_when_pkg_is_a_dir(self, request: FixtureRequest):
         dir_pkg_reader_ = instance_mock(request, _DirPkgReader)
         _DirPkgReader_ = class_mock(
-            request, "pptx.opc.serialized._DirPkgReader", return_value=dir_pkg_reader_
+            request, "power_pptx.opc.serialized._DirPkgReader", return_value=dir_pkg_reader_
         )
 
         phys_reader = _PhysPkgReader.factory(dir_pkg_path)
@@ -238,11 +238,11 @@ class Describe_PhysPkgReader:
 
     @pytest.fixture
     def _ZipPkgReader_(self, request: FixtureRequest):
-        return class_mock(request, "pptx.opc.serialized._ZipPkgReader")
+        return class_mock(request, "power_pptx.opc.serialized._ZipPkgReader")
 
 
 class Describe_DirPkgReader:
-    """Unit-test suite for `pptx.opc.serialized._DirPkgReader` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._DirPkgReader` objects."""
 
     def it_knows_whether_it_contains_a_partname(self, dir_pkg_reader: _DirPkgReader):
         assert PackURI("/ppt/presentation.xml") in dir_pkg_reader
@@ -267,7 +267,7 @@ class Describe_DirPkgReader:
 
 
 class Describe_ZipPkgReader:
-    """Unit-test suite for `pptx.opc.serialized._ZipPkgReader` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._ZipPkgReader` objects."""
 
     def it_knows_whether_it_contains_a_partname(self, zip_pkg_reader: _ZipPkgReader):
         assert PackURI("/ppt/presentation.xml") in zip_pkg_reader
@@ -298,12 +298,12 @@ class Describe_ZipPkgReader:
 
 
 class Describe_PhysPkgWriter:
-    """Unit-test suite for `pptx.opc.serialized._PhysPkgWriter` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._PhysPkgWriter` objects."""
 
     def it_constructs_ZipPkgWriter_unconditionally(self, request: FixtureRequest):
         zip_pkg_writer_ = instance_mock(request, _ZipPkgWriter)
         _ZipPkgWriter_ = class_mock(
-            request, "pptx.opc.serialized._ZipPkgWriter", return_value=zip_pkg_writer_
+            request, "power_pptx.opc.serialized._ZipPkgWriter", return_value=zip_pkg_writer_
         )
 
         phys_writer = _PhysPkgWriter.factory("prs.pptx")
@@ -313,7 +313,7 @@ class Describe_PhysPkgWriter:
 
 
 class Describe_ZipPkgWriter:
-    """Unit-test suite for `pptx.opc.serialized._ZipPkgWriter` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._ZipPkgWriter` objects."""
 
     def it_has_an__enter__method_for_context_management(self):
         pkg_writer = _ZipPkgWriter("")
@@ -336,7 +336,7 @@ class Describe_ZipPkgWriter:
         assert members[pack_uri] == b"blob"
 
     def it_provides_access_to_the_open_zip_file_to_help(self, request: FixtureRequest):
-        ZipFile_ = class_mock(request, "pptx.opc.serialized.zipfile.ZipFile")
+        ZipFile_ = class_mock(request, "power_pptx.opc.serialized.zipfile.ZipFile")
         pkg_writer = _ZipPkgWriter("prs.pptx")
 
         zipf = pkg_writer._zipf
@@ -354,7 +354,7 @@ class Describe_ZipPkgWriter:
 
 
 class Describe_ContentTypesItem:
-    """Unit-test suite for `pptx.opc.serialized._ContentTypesItem` objects."""
+    """Unit-test suite for `power_pptx.opc.serialized._ContentTypesItem` objects."""
 
     def it_provides_an_interface_classmethod(self, request: FixtureRequest, part_: Mock):
         _init_ = initializer_mock(request, _ContentTypesItem)
