@@ -290,11 +290,8 @@ def kpi_slide(
         if border_color is not None:
             card.line.color.rgb = border_color
             card.line.width = Pt(0.75)
-        # Drop a soft card shadow if the tokens declared one.
-        if tokens is not None:
-            card_shadow = tokens.shadows.get("card")
-            if card_shadow is not None:
-                card.style.shadow = card_shadow
+        # Drop a soft card shadow + corner radius from the tokens.
+        _apply_card_styling(card, tokens)
         # Suppress the default text on the autoshape so it doesn't peek
         # through behind our textboxes.
         card.text_frame.text = ""
@@ -850,6 +847,7 @@ def code_slide(
         panel.line.width = Pt(0.75)
     else:
         panel.line.fill.background()
+    _apply_card_styling(panel, tokens)
     panel.text_frame.text = ""
 
     pad = Inches(0.25)
@@ -1398,6 +1396,44 @@ def _pygments_highlight(
             if j < len(chunks) - 1:
                 lines.append([])
     return lines
+
+
+def _apply_card_styling(shape: Any, tokens: Optional[DesignTokens]) -> None:
+    """Apply the ``shadows.card`` and ``radii.md`` tokens to *shape*.
+
+    A no-op for token sets that don't define those slots, so it's safe
+    to call unconditionally from recipes.  When ``radii.md`` is present
+    *and* the shape is a rounded rectangle, the adjustment value is
+    nudged to roughly match the requested corner radius (the OOXML
+    ``adj`` is a fraction of the smaller bbox edge, so we clamp to
+    ``[0, 0.5]`` to avoid overlapping curves on small cards).
+    """
+    if tokens is None:
+        return
+    shadow = tokens.shadows.get("card")
+    if shadow is not None:
+        try:
+            shape.style.shadow = shadow
+        except Exception:
+            # Some shape types (graphic frames, group shapes) don't
+            # carry a shadow facade.  Silently skip rather than fail
+            # the whole recipe — the caller can layer one on by hand.
+            pass
+    md = tokens.radii.get("md")
+    if md is not None:
+        try:
+            # ``ROUNDED_RECTANGLE`` exposes a single adjustment whose
+            # value is a fraction (0..50000 maps to 0..0.5 of the
+            # shorter edge).  Translating ``radii.md`` directly is
+            # approximate but visually consistent across card sizes.
+            adj_list = shape.adjustments
+            if len(adj_list) >= 1:
+                short_edge = min(int(shape.width or 1), int(shape.height or 1))
+                if short_edge > 0:
+                    frac = max(0.0, min(0.5, float(md) / float(short_edge)))
+                    adj_list[0] = frac
+        except Exception:
+            pass
 
 
 def _strip_attribution_dash(attribution: str) -> str:

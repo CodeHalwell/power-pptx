@@ -117,3 +117,60 @@ class DescribeDesignTokensFromPptx:
             assert isinstance(tokens.palette[slot], RGBColor)
         assert "heading" in tokens.typography
         assert "body" in tokens.typography
+
+
+class DescribeFromPreset:
+    """Built-in named token presets save callers from inventing a brand."""
+
+    def it_loads_the_modern_light_preset(self):
+        t = DesignTokens.from_preset("modern_light")
+        # Sanity: the preset populates every category so recipes don't
+        # have to fall back to defaults.
+        assert "primary" in t.palette
+        assert "neutral" in t.palette
+        assert "heading" in t.typography
+        assert "md" in t.radii
+        assert "card" in t.shadows
+        assert "md" in t.spacings
+
+    def it_loads_each_named_preset(self):
+        for name in ("modern_light", "modern_dark", "corporate_navy", "vibrant"):
+            t = DesignTokens.from_preset(name)
+            assert "primary" in t.palette
+
+    def it_rejects_unknown_presets(self):
+        with pytest.raises(ValueError, match="Unknown preset"):
+            DesignTokens.from_preset("not-a-thing")
+
+
+class DescribeWithOverrides:
+    """`tokens.with_overrides({'palette.primary': ...})` for per-call tweaks."""
+
+    def it_overrides_a_palette_color(self):
+        t = DesignTokens.from_preset("modern_light")
+        t2 = t.with_overrides({"palette.primary": "#FF6600"})
+        assert t2.palette["primary"] == RGBColor(0xFF, 0x66, 0x00)
+        # The base is untouched.
+        assert t.palette["primary"] != RGBColor(0xFF, 0x66, 0x00)
+
+    def it_overrides_a_radius(self):
+        t = DesignTokens.from_preset("modern_light")
+        t2 = t.with_overrides({"radii.lg": Pt(24)})
+        assert t2.radii["lg"] == Pt(24)
+
+    def it_overrides_a_typography_subfield(self):
+        t = DesignTokens.from_preset("modern_light")
+        t2 = t.with_overrides({"typography.heading.size": Pt(48)})
+        assert t2.typography["heading"].size == Pt(48)
+        # The other heading fields survive.
+        assert t2.typography["heading"].family == t.typography["heading"].family
+
+    def it_rejects_a_non_dotted_key(self):
+        t = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match="must be dotted"):
+            t.with_overrides({"primary": "#FF0000"})
+
+    def it_rejects_an_unknown_category(self):
+        t = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match="unknown override category"):
+            t.with_overrides({"nonsense.foo": "bar"})
