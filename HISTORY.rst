@@ -14,6 +14,67 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.2.0 (2026-04-29)
+++++++++++++++++++
+
+Two additive lint detector changes scoped from the post-2.1.1
+follow-up — both signal-to-noise improvements on layered production
+decks.  No behavior change for existing callers: the new
+classification surfaces extra fields on existing issues, and the new
+geometry mode is opt-in.
+
+ShapeCollision now scores
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ShapeCollision`` issues carry a ``score: float`` in ``[0.0, 1.0]``
+and a ``kind: str`` in ``{"incidental", "partial", "matched"}``,
+emitted alongside the pre-existing ``intersection_area`` /
+``intersection_pct`` / ``groups`` fields.
+
+- ``incidental`` — small shape fully inside a larger one (the
+  card-on-panel pattern).  Severity drops to ``INFO``.
+- ``partial`` — partial overlap, neither contains the other.
+  Severity stays ``WARNING``.
+- ``matched`` — near-identical bbox (within 5% on each axis) and
+  heavy overlap (>80%).  Severity raised to ``ERROR`` — almost
+  certainly a duplicate or copy-paste bug.
+
+The score combines containment (pulls toward incidental), size ratio
+(closer to 1.0 pulls up), and overlap percentage (pulls up).
+``lint_group`` suppression still runs *before* scoring — a tagged
+group is intentional by definition and never scores.
+
+The classification is also surfaced in ``report.summary()``: each
+``ShapeCollision`` line now carries ``[kind=…, score=…]`` so readers
+can spot the genuine bugs without re-running the detector.
+
+Effect-bleed-aware geometry (opt-in)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``slide.lint(...)`` and ``lint_slide(slide, ...)`` accept a new
+``include_effect_bleed: bool = False`` keyword argument.  When
+``True``, the ``OffSlide`` and ``ShapeCollision`` detectors widen
+each shape's bbox by its shadow's blur radius before checking
+geometry — catching the case where a panel's raw bbox sits inside the
+slide but its shadow visually bleeds past the edge.
+
+Bleed-only triggers (where the raw bbox stays clean and only the
+inflated bbox crosses the boundary) are emitted as
+``OffSlideShadow`` / ``ShapeCollisionShadow`` subclasses, so callers
+can opt out specifically via ``shape.lint_skip = {"OffSlideShadow"}``
+without silencing real geometry warnings.
+
+The inflation model is the simple one in this release — each side
+extended by ``blur_radius / 2``.  Directional projection
+(``distance × direction``) and other effects (glow, soft-edges,
+reflection) are TODOs for a follow-up.  ``GraphicFrame.shadow ==
+None`` (added in 2.1.1) is handled gracefully — the helper falls
+back to the raw bbox.
+
+Default behavior is unchanged; existing decks see no new warnings
+unless they opt in to ``include_effect_bleed=True``.
+
+
 2.1.1 (2026-04-29)
 ++++++++++++++++++
 
