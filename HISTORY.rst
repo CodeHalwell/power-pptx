@@ -14,6 +14,27 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.1.1 (2026-04-29)
+++++++++++++++++++
+
+Bug fix.
+
+- Fix "PowerPoint found a problem with content. Repaired and removed it"
+  prompt on decks that used ``shape.lint_group`` /
+  ``slide.lint_group()`` / ``slide.design_group()``.  The 2.1.0
+  implementation stored the group name as a custom-namespaced *attribute*
+  on each shape's ``p:cNvPr`` element.  ``CT_NonVisualDrawingProps`` has
+  no ``xsd:anyAttribute`` in the OOXML schema, so PowerPoint's strict
+  validator (notably on macOS) flagged every tagged shape as malformed
+  and stripped its non-visual properties on open.
+
+  Lint metadata now lives in an ``a:extLst/a:ext`` extension element
+  under ``cNvPr``, the schema-sanctioned mechanism PowerPoint preserves
+  verbatim.  Decks saved with 2.1.0 are read transparently — the legacy
+  attribute is migrated to the new layout the next time the value is
+  written.
+
+
 2.1.0 (2026-04-29)
 ++++++++++++++++++
 

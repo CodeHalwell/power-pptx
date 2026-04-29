@@ -273,9 +273,10 @@ class BaseShape(object):
         with ``lint_group is None`` (the default) and shapes belonging to
         different groups continue to warn on overlap.
 
-        The value is stored as a custom-namespaced attribute on the shape's
-        ``p:cNvPr`` element so it round-trips through ``power-pptx`` save/load.
-        PowerPoint ignores the unknown namespace.
+        The value is round-tripped through save/load via an ``<a:ext>``
+        element under the shape's ``cNvPr/extLst`` — the OOXML-sanctioned
+        extension mechanism. PowerPoint preserves the element verbatim and
+        does not flag it as unrecognised content.
 
         Example::
 
@@ -285,23 +286,22 @@ class BaseShape(object):
 
         Assigning ``None`` clears the tag.
         """
-        from power_pptx.lint import _LINT_GROUP_ATTR
+        from power_pptx.lint import _read_lint_group
 
         cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
-        return cNvPr.get(_LINT_GROUP_ATTR)
+        return _read_lint_group(cNvPr)
 
     @lint_group.setter
     def lint_group(self, value: str | None) -> None:
-        from power_pptx.lint import _LINT_GROUP_ATTR
+        from power_pptx.lint import _clear_lint_group, _write_lint_group
 
         cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
         if value is None:
-            if _LINT_GROUP_ATTR in cNvPr.attrib:
-                del cNvPr.attrib[_LINT_GROUP_ATTR]
+            _clear_lint_group(cNvPr)
             return
         if not isinstance(value, str) or not value:
             raise ValueError("lint_group must be a non-empty string or None")
-        cNvPr.set(_LINT_GROUP_ATTR, value)
+        _write_lint_group(cNvPr, value)
 
     def delete(self) -> None:
         """Remove this shape from its slide and clean up dependent state.

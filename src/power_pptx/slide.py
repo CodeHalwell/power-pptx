@@ -421,7 +421,7 @@ class Slide(_BaseSlide):
         try:
             yield
         finally:
-            from power_pptx.lint import _LINT_GROUP_ATTR
+            from power_pptx.lint import _read_lint_group, _write_lint_group
 
             for elm in sp_tree.iter_shape_elms():
                 if id(elm) in before:
@@ -433,9 +433,9 @@ class Slide(_BaseSlide):
                 # Don't overwrite an explicit group set by the caller or by
                 # an inner ``design_group`` block that already tagged this
                 # shape.
-                if cNvPr.get(_LINT_GROUP_ATTR):
+                if _read_lint_group(cNvPr):
                     continue
-                cNvPr.set(_LINT_GROUP_ATTR, name)
+                _write_lint_group(cNvPr, name)
 
     def lint(self) -> SlideLintReport:
         """Inspect this slide for geometric and typographic issues.

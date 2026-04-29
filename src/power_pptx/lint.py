@@ -436,11 +436,100 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
 # touching shapes)
 _COLLISION_THRESHOLD = 0.05
 
-# Custom namespace for shape metadata that the linter consults but PowerPoint
-# ignores. Stored as an attribute on the shape's ``p:cNvPr`` element; lxml
-# round-trips unknown namespaces through save/load.
+# Namespace for power-pptx metadata round-tripped through the deck. The
+# metadata is stored as a child element under ``cNvPr/extLst/ext``, the
+# OOXML-sanctioned extension mechanism — using a custom-namespaced
+# *attribute* on ``cNvPr`` (as the previous implementation did) violates
+# the CT_NonVisualDrawingProps schema, which has no ``xsd:anyAttribute``,
+# and triggers PowerPoint's "Repaired and removed" prompt on open.
 _LINT_NS = "https://power-pptx.io/lint/2024"
-_LINT_GROUP_ATTR = "{%s}group" % _LINT_NS
+
+# Stable GUID identifying the lint-metadata ``<a:ext>`` block. Once
+# published it must not change — PowerPoint preserves the element verbatim
+# as long as it doesn't recognise the URI.
+_LINT_EXT_URI = "{B7AB0FE6-95E5-4FB6-B41F-2C8B9F4D3A21}"
+
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_A_EXTLST = "{%s}extLst" % _A_NS
+_A_EXT = "{%s}ext" % _A_NS
+_PP_LINTGROUP = "{%s}lintGroup" % _LINT_NS
+
+# Pre-2.1.1 layout stored the value as a custom-namespaced attribute
+# directly on ``cNvPr``. Read-only fallback so decks saved with the old
+# release continue to round-trip after upgrade.
+_LEGACY_LINT_GROUP_ATTR = "{%s}group" % _LINT_NS
+
+# Backwards-compatible alias for the public-but-underscored name some
+# external code (and our own tests) imported. Reads still work via the
+# fallback path; new writes go through the helpers below.
+_LINT_GROUP_ATTR = _LEGACY_LINT_GROUP_ATTR
+
+
+def _find_lint_ext(cNvPr):
+    """Return the ``<a:ext uri=...>`` element holding lint metadata, or None."""
+    extLst = cNvPr.find(_A_EXTLST)
+    if extLst is None:
+        return None
+    for ext in extLst.findall(_A_EXT):
+        if ext.get("uri") == _LINT_EXT_URI:
+            return ext
+    return None
+
+
+def _read_lint_group(cNvPr) -> str | None:
+    """Return the ``lint_group`` value stored on *cNvPr*, or ``None``."""
+    ext = _find_lint_ext(cNvPr)
+    if ext is not None:
+        node = ext.find(_PP_LINTGROUP)
+        if node is not None:
+            name = node.get("name")
+            if name:
+                return name
+    # Fallback: legacy attribute layout from pre-2.1.1.
+    legacy = cNvPr.get(_LEGACY_LINT_GROUP_ATTR)
+    return legacy if legacy else None
+
+
+def _write_lint_group(cNvPr, value: str) -> None:
+    """Store ``lint_group = value`` on *cNvPr* using ``a:extLst/a:ext``."""
+    from lxml import etree
+
+    # Drop any legacy-format attribute so the new format is canonical.
+    if _LEGACY_LINT_GROUP_ATTR in cNvPr.attrib:
+        del cNvPr.attrib[_LEGACY_LINT_GROUP_ATTR]
+
+    extLst = cNvPr.find(_A_EXTLST)
+    if extLst is None:
+        # ``a:extLst`` is the last allowed child of cNvPr per the schema
+        # (after a:hlinkClick / a:hlinkHover); appending is safe because
+        # python-pptx removes any element it doesn't recognise on read.
+        extLst = etree.SubElement(cNvPr, _A_EXTLST)
+
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        ext = etree.SubElement(extLst, _A_EXT)
+        ext.set("uri", _LINT_EXT_URI)
+
+    node = ext.find(_PP_LINTGROUP)
+    if node is None:
+        node = etree.SubElement(ext, _PP_LINTGROUP)
+    node.set("name", value)
+
+
+def _clear_lint_group(cNvPr) -> None:
+    """Remove any lint-group metadata from *cNvPr* (both new and legacy)."""
+    if _LEGACY_LINT_GROUP_ATTR in cNvPr.attrib:
+        del cNvPr.attrib[_LEGACY_LINT_GROUP_ATTR]
+    extLst = cNvPr.find(_A_EXTLST)
+    if extLst is None:
+        return
+    for ext in list(extLst.findall(_A_EXT)):
+        if ext.get("uri") == _LINT_EXT_URI:
+            extLst.remove(ext)
+    # If we just emptied extLst, drop it too — an empty <a:extLst/> is
+    # legal but pointless and confuses round-trip diff tests.
+    if len(extLst) == 0:
+        cNvPr.remove(extLst)
 
 
 def _shape_lint_group(shape: BaseShape) -> str | None:
@@ -449,7 +538,7 @@ def _shape_lint_group(shape: BaseShape) -> str | None:
         cNvPr = shape._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
     except AttributeError:
         return None
-    return cNvPr.get(_LINT_GROUP_ATTR)
+    return _read_lint_group(cNvPr)
 
 
 def _check_collisions(

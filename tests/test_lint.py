@@ -15,8 +15,11 @@ from power_pptx.lint import (
     OffGridDrift,
     ShapeCollision,
     ZOrderAnomaly,
-    _LINT_GROUP_ATTR,
+    _LEGACY_LINT_GROUP_ATTR,
+    _LINT_EXT_URI,
     _contrast_ratio,
+    _find_lint_ext,
+    _write_lint_group,
 )
 from power_pptx.util import Inches, Pt
 
@@ -79,13 +82,43 @@ class DescribeShapeLintGroup:
         s.lint_group = None
         assert s.lint_group is None
         cNvPr = s._element._nvXxPr.cNvPr
-        assert _LINT_GROUP_ATTR not in cNvPr.attrib
+        assert _LEGACY_LINT_GROUP_ATTR not in cNvPr.attrib
+        assert _find_lint_ext(cNvPr) is None
 
     def it_rejects_an_empty_string(self):
         _, slide = _new_blank_slide()
         s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
         with pytest.raises(ValueError):
             s.lint_group = ""
+
+    def it_writes_metadata_via_extLst_not_a_custom_attribute(self):
+        # Custom-namespaced *attributes* on cNvPr violate the OOXML schema
+        # and trigger PowerPoint's "Repaired and removed" prompt; metadata
+        # must live in an a:ext extension instead.
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.lint_group = "kpi-card-1"
+        cNvPr = s._element._nvXxPr.cNvPr
+        assert _LEGACY_LINT_GROUP_ATTR not in cNvPr.attrib
+        ext = _find_lint_ext(cNvPr)
+        assert ext is not None
+        assert ext.get("uri") == _LINT_EXT_URI
+
+    def it_reads_legacy_pre_2_1_1_attribute_layout(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        cNvPr = s._element._nvXxPr.cNvPr
+        cNvPr.set(_LEGACY_LINT_GROUP_ATTR, "legacy-card")
+        assert s.lint_group == "legacy-card"
+
+    def it_migrates_legacy_attribute_to_extLst_on_write(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        cNvPr = s._element._nvXxPr.cNvPr
+        cNvPr.set(_LEGACY_LINT_GROUP_ATTR, "legacy-card")
+        s.lint_group = "kpi-card-1"
+        assert _LEGACY_LINT_GROUP_ATTR not in cNvPr.attrib
+        assert _find_lint_ext(cNvPr) is not None
 
 
 class DescribeSlideLintGroupBatch:
