@@ -565,7 +565,10 @@ def _cluster_edges(values: list[int], tol: int) -> list[tuple[int, int]]:
             clusters[-1].append(v)
         else:
             clusters.append([v])
-    return [(int(round(sum(c) / len(c))), len(c)) for c in clusters]
+    # ``+ 0.5`` is round-half-up for the always-non-negative cluster centers;
+    # behaves identically to ``round()`` here but avoids any banker's-rounding
+    # edge case at exact half-EMU boundaries.
+    return [(int(sum(c) / len(c) + 0.5), len(c)) for c in clusters]
 
 
 def _check_off_grid_drift(shapes: Sequence[BaseShape]) -> list[LintIssue]:

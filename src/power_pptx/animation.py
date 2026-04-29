@@ -109,8 +109,11 @@ def _apply_easing(group_elm, easing) -> None:
     visibility nodes.
     """
     accel, decel = _resolve_easing(easing)
-    accel_pct = int(round(accel * 100000))
-    decel_pct = int(round(decel * 100000))
+    # ``int(x + 0.5)`` is round-half-up for the always-non-negative
+    # ``accel`` / ``decel`` values; behaves identically to ``round()`` here
+    # but is unambiguous regardless of banker's-rounding edge cases.
+    accel_pct = int(accel * 100000 + 0.5)
+    decel_pct = int(decel * 100000 + 0.5)
     for ctn in group_elm.iter(qn("p:cTn")):
         dur = ctn.get("dur")
         try:

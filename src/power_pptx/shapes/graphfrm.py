@@ -234,7 +234,15 @@ class GraphicFrame(BaseShape):
 
         fd, persistent = tempfile.mkstemp(prefix="pptx-frame-", suffix=".png")
         os.close(fd)
-        Path(persistent).write_bytes(data)
+        try:
+            Path(persistent).write_bytes(data)
+        except Exception:
+            # Don't leak the empty temp file when the write fails.
+            try:
+                os.remove(persistent)
+            except OSError:
+                pass
+            raise
         return Path(persistent)
 
 
