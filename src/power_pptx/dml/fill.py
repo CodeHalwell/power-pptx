@@ -29,12 +29,12 @@ def _looks_like_color_value(value: Any) -> bool:
     """True when *value* is plausibly a single colour rather than a stop list."""
     if isinstance(value, (str, RGBColor)):
         return True
-    if isinstance(value, tuple) and len(value) == 3 and all(
-        isinstance(v, int) for v in value
-    ):
-        # 3-tuple of ints is an RGB triple, not a (color, position) pair.
-        return True
-    return False
+    # 3-tuple of ints is an RGB triple, not a (color, position) pair.
+    return (
+        isinstance(value, tuple)
+        and len(value) == 3
+        and all(isinstance(v, int) for v in value)
+    )
 
 
 def _normalize_stop_input(stops: Any):
@@ -207,7 +207,7 @@ class FillFormat(object):
         * ``fill.linear_gradient("#06D6FE", "#B14AED", angle=90)`` —
           two-stop short form: pass *start* as ``stops`` and *end* as
           *end*; the stops are placed at positions ``0.0`` and ``1.0``.
-        * ``fill.linear_gradient([("#06D6FE", 0.0), ("#FFF", 0.5),
+        * ``fill.linear_gradient([("#06D6FE", 0.0), ("#FFFFFF", 0.5),
           ("#B14AED", 1.0)], angle=45)`` — explicit list of
           ``(color, position)`` pairs (or just colors, in which case
           positions are spread evenly across ``[0.0, 1.0]``).
@@ -217,18 +217,14 @@ class FillFormat(object):
         bottom-to-top.
 
         Each colour may be an :class:`~power_pptx.dml.color.RGBColor`,
-        a hex string (with or without leading ``#``), or a 3-tuple of
-        ints — anything :class:`power_pptx.design.tokens.DesignTokens`
-        can coerce.
+        a 6-digit hex string (with or without leading ``#``), or a
+        3-tuple of ints.  3-digit hex shorthand (``"#FFF"``) is **not**
+        accepted — write the full 6-digit form.
 
         This is a convenience wrapper over the lower-level
         :meth:`gradient` + :attr:`gradient_stops` API; reach for that
         for fine-grained stop manipulation.
         """
-        # Local import to avoid circulars: design imports dml.color which
-        # imports... etc.  Lazy import keeps the dependency graph clean.
-        from power_pptx.design.tokens import _coerce_color  # noqa: PLC0415
-
         if end is not None:
             # Two-positional-argument form.
             pairs: list[tuple[Any, float]] = [(stops, 0.0), (end, 1.0)]
