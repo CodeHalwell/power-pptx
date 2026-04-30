@@ -14,6 +14,75 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.4.0 (2026-04-30)
+++++++++++++++++++
+
+Animation ergonomics, gradient/alpha discoverability, recipe bug fixes,
+and a bundled Claude skill.  All additive; nothing removed.
+
+New APIs
+~~~~~~~~
+
+- ``slide.animations.group()`` — context manager that animates every
+  effect added in the block as a single visual cluster (first effect
+  ``AFTER_PREVIOUS``; subsequent ones default to ``WITH_PREVIOUS``).
+  Use this for sub-shapes that belong to the same card/row/panel.
+  Drastically reduces the per-slide timing-tree size — and the
+  perceived lag — relative to the same effects added independently.
+
+- ``SlideAnimations`` is now iterable, supports ``len()``, and exposes
+  ``clear()``.  Iteration yields read-only ``AnimationEntry`` views
+  with ``kind``, ``preset``, ``trigger``, ``shape_id``, ``shape``,
+  ``duration``, ``delay``, and a ``remove()`` method.  Useful for
+  re-animating, copying animations between slides, and debugging why
+  something didn't fire.  ``purge_orphans`` is unchanged.
+
+- ``fill.linear_gradient(start, end, angle=...)`` (and a multi-stop
+  list form) — one-line gradient helper that wraps ``gradient()`` +
+  ``gradient_stops`` for the 90% case.  ``gradient_angle``'s docstring
+  now spells out the OOXML convention (``0`` left→right, ``90``
+  top→bottom, ``180`` right→left, ``270`` bottom→top).
+
+- ``DesignTokens.with_overrides(...)`` now accepts nested-dict input
+  in addition to dotted keys (``{"palette": {"primary": "#FF6600"}}``
+  is equivalent to ``{"palette.primary": "#FF6600"}``).  Mixed input
+  is allowed.
+
+Bundled Claude skill
+~~~~~~~~~~~~~~~~~~~~
+
+- The ``power-pptx`` Claude Code skill (``SKILL.md`` + reference docs)
+  ships inside the package at ``power_pptx/skill/``.  Install it with
+  ``python -m power_pptx.skill install`` (or the ``power-pptx-skill``
+  console script).  Pip-installing power-pptx is now sufficient to
+  make the skill available wherever the library runs.
+
+Recipe bug fixes
+~~~~~~~~~~~~~~~~
+
+- ``figure_slide`` correctly routes inline SVG markup that contains a
+  namespace URL (``xmlns="http://..."``) to the SVG embedder rather
+  than mis-classifying it as a file path and raising
+  ``FileNotFoundError``.
+
+- ``code_slide``'s Pygments highlighting renders ``Token.Operator``
+  and ``Token.Punctuation`` in the same colour as plain code text,
+  so member-access dots (``optimiser.zero_grad``) stay legible on
+  light-surface themes (previously they faded into the background).
+
+``from_spec`` ergonomics
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Recipe layouts now reject unknown spec keys (``ValueError``) instead
+  of silently dropping them.  Catches typos like ``"subtitlz"`` or
+  ``"millestones"`` that previously yielded a slide missing the
+  intended content.
+
+- ``"comparison"`` is now an unambiguous alias for the comparison
+  recipe.  Use ``"comparison_layout"`` to opt in to the
+  placeholder-based layout from the underlying template.
+
+
 2.3.0 (2026-04-29)
 ++++++++++++++++++
 

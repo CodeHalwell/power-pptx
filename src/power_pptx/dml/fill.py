@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from power_pptx.dml.color import ColorFormat, RGBColor
 from power_pptx.enum.dml import MSO_FILL, MSO_THEME_COLOR
@@ -23,6 +23,61 @@ from power_pptx.util import lazyproperty
 if TYPE_CHECKING:
     from power_pptx.enum.dml import MSO_FILL_TYPE
     from power_pptx.oxml.xmlchemy import BaseOxmlElement
+
+
+def _looks_like_color_value(value: Any) -> bool:
+    """True when *value* is plausibly a single colour rather than a stop list."""
+    if isinstance(value, (str, RGBColor)):
+        return True
+    # 3-tuple of ints is an RGB triple, not a (color, position) pair.
+    return (
+        isinstance(value, tuple)
+        and len(value) == 3
+        and all(isinstance(v, int) for v in value)
+    )
+
+
+def _normalize_stop_input(stops: Any):
+    """Yield ``(color, position)`` tuples from a flexible stops sequence.
+
+    Accepts:
+
+    * iterable of ``(color, position)`` 2-tuples (positions are taken
+      verbatim).
+    * iterable of bare colours (positions are spread evenly across
+      ``[0.0, 1.0]``).
+    """
+    seq = list(stops)
+    if not seq:
+        return
+    # Decide whether items are (color, position) pairs or bare colours.
+    pair_form = all(
+        isinstance(item, tuple)
+        and len(item) == 2
+        and isinstance(item[1], (int, float))
+        and not (isinstance(item, tuple) and all(isinstance(v, int) for v in item))
+        for item in seq
+    )
+    # Special-case: an RGB 3-tuple of ints would otherwise be confused
+    # with (color, position).  Treat any item that's a 3-int-tuple as a
+    # bare RGB triple regardless.
+    if any(
+        isinstance(item, tuple)
+        and len(item) == 3
+        and all(isinstance(v, int) for v in item)
+        for item in seq
+    ):
+        pair_form = False
+    if pair_form:
+        for color, position in seq:
+            yield color, float(position)
+    else:
+        n = len(seq)
+        if n == 1:
+            yield seq[0], 0.0
+            return
+        for i, color in enumerate(seq):
+            yield color, i / (n - 1)
 
 
 class FillFormat(object):
@@ -115,11 +170,17 @@ class FillFormat(object):
         """Angle in float degrees of line of a linear gradient.
 
         Read/Write. May be |None|, indicating the angle should be inherited
-        from the style hierarchy. An angle of 0.0 corresponds to
-        a left-to-right gradient. Increasing angles represent
-        counter-clockwise rotation of the line, for example 90.0 represents
-        a bottom-to-top gradient. Raises |TypeError| when the fill type is
-        not MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
+        from the style hierarchy.
+
+        Angle convention (OOXML)::
+
+              0    →   left-to-right
+              90   →   top-to-bottom
+              180  →   right-to-left
+              270  →   bottom-to-top
+
+        Raises |TypeError| when the fill type is not
+        MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
         gradient (e.g. a radial gradient).
         """
         if self.type != MSO_FILL.GRADIENT:
@@ -131,6 +192,61 @@ class FillFormat(object):
         if self.type != MSO_FILL.GRADIENT:
             raise TypeError("Fill is not of type MSO_FILL_TYPE.GRADIENT")
         self._fill.gradient_angle = value
+
+    def linear_gradient(
+        self,
+        stops,
+        end=None,
+        *,
+        angle: float = 0.0,
+    ) -> None:
+        """Apply a linear gradient with two-or-more colour stops in one call.
+
+        Two equivalent input shapes are accepted:
+
+        * ``fill.linear_gradient("#06D6FE", "#B14AED", angle=90)`` —
+          two-stop short form: pass *start* as ``stops`` and *end* as
+          *end*; the stops are placed at positions ``0.0`` and ``1.0``.
+        * ``fill.linear_gradient([("#06D6FE", 0.0), ("#FFFFFF", 0.5),
+          ("#B14AED", 1.0)], angle=45)`` — explicit list of
+          ``(color, position)`` pairs (or just colors, in which case
+          positions are spread evenly across ``[0.0, 1.0]``).
+
+        *angle* follows the OOXML convention: ``0`` is left-to-right,
+        ``90`` is top-to-bottom, ``180`` is right-to-left, ``270`` is
+        bottom-to-top.
+
+        Each colour may be an :class:`~power_pptx.dml.color.RGBColor`,
+        a 6-digit hex string (with or without leading ``#``), or a
+        3-tuple of ints.  3-digit hex shorthand (``"#FFF"``) is **not**
+        accepted — write the full 6-digit form.
+
+        This is a convenience wrapper over the lower-level
+        :meth:`gradient` + :attr:`gradient_stops` API; reach for that
+        for fine-grained stop manipulation.
+        """
+        if end is not None:
+            # Two-positional-argument form.
+            pairs: list[tuple[Any, float]] = [(stops, 0.0), (end, 1.0)]
+        elif _looks_like_color_value(stops):
+            raise TypeError(
+                "linear_gradient takes a list of stops or two positional "
+                "colors (start, end); got a single colour. Pass an end colour."
+            )
+        else:
+            pairs = list(_normalize_stop_input(stops))
+
+        if len(pairs) < 2:
+            raise ValueError("linear_gradient requires at least two stops")
+
+        self.gradient("linear")
+        # Defer to the public, atomically-validated GradientStops.replace().
+        # ``replace`` expects ``(position, color)`` while we built
+        # ``(color, position)`` to match the public API; flip the tuples here.
+        # ``replace`` accepts hex strings / RGBColor / 3-tuples natively, so
+        # no extra coercion step is needed.
+        self.gradient_stops.replace([(position, color) for color, position in pairs])
+        self.gradient_angle = float(angle)
 
     @property
     def gradient_kind(self):

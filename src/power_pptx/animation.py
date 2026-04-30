@@ -50,7 +50,8 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
 
 from power_pptx.enum.animation import PP_ANIM_TRIGGER
 from power_pptx.oxml.ns import nsdecls, qn
@@ -141,6 +142,23 @@ def _apply_easing(group_elm, easing) -> None:
 # because that's a valid attribute value elsewhere.
 _TRIGGER_UNSET = object()
 
+# presetClass attribute → human kind name.  Used by AnimationEntry.kind
+# for read-side introspection.
+_PRESET_CLASS_TO_KIND: dict[str, str] = {
+    "entr": "entrance",
+    "exit": "exit",
+    "emph": "emphasis",
+    "path": "motion",
+}
+
+# nodeType attribute on the wrapper cTn → trigger enum.  Used by
+# AnimationEntry.trigger.
+_NODE_TYPE_TO_TRIGGER: dict[str, "PP_ANIM_TRIGGER"] = {
+    "clickEffect": PP_ANIM_TRIGGER.ON_CLICK,
+    "withEffect":  PP_ANIM_TRIGGER.WITH_PREVIOUS,
+    "afterEffect": PP_ANIM_TRIGGER.AFTER_PREVIOUS,
+}
+
 # ---------------------------------------------------------------------------
 # Namespace helpers
 # ---------------------------------------------------------------------------
@@ -179,6 +197,24 @@ _EMPHASIS_PRESETS = {
     "pulse":  (13, 0),
     "spin":   (5,  0),
     "teeter": (6,  0),
+}
+
+# Reverse mappings from (presetID, presetSubtype) → preset name, keyed by
+# preset class.  Used by AnimationEntry.preset for read-side introspection.
+# Subtype matches are preferred but falling back to a "subtype-agnostic"
+# match handles presets like ``fly_in`` where subtype encodes direction.
+def _build_reverse_presets() -> dict[str, dict[tuple[int, int], str]]:
+    out: dict[str, dict[tuple[int, int], str]] = {
+        "entr": {(pid, sub): name for name, (pid, sub) in _ENTRANCE_PRESETS.items()},
+        "exit": {(pid, sub): name for name, (pid, sub) in _EXIT_PRESETS.items()},
+        "emph": {(pid, sub): name for name, (pid, sub) in _EMPHASIS_PRESETS.items()},
+    }
+    return out
+
+_REVERSE_PRESETS = _build_reverse_presets()
+_REVERSE_PRESET_BY_ID: dict[str, dict[int, str]] = {
+    cls: {pid: name for (pid, _sub), name in entries.items()}
+    for cls, entries in _REVERSE_PRESETS.items()
 }
 
 # animEffect filter strings for each preset name (entrance direction)
@@ -345,6 +381,62 @@ class SlideAnimations:
         self._seq_count: int = 0
         self._seq_delay: int = 0
         self._seq_delay_consumed: bool = False
+        # Group-context state.  When active, the first call uses ``_grp_start``
+        # and every subsequent call within the block defaults to
+        # WITH_PREVIOUS — i.e. the whole cluster animates as one visual unit.
+        self._grp_active: bool = False
+        self._grp_start: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.AFTER_PREVIOUS
+        self._grp_count: int = 0
+        self._grp_delay: int = 0
+        self._grp_delay_consumed: bool = False
+
+    # -- introspection ------------------------------------------------------
+
+    def __iter__(self) -> "Iterator[AnimationEntry]":
+        """Iterate over the slide's top-level animation entries.
+
+        Yields one :class:`AnimationEntry` per click-group ``<p:par>``,
+        in document order.  Effects authored inside PowerPoint as well
+        as those added via this API are reported.
+        """
+        for top_par in self._top_level_pars():
+            yield AnimationEntry(top_par, self._slide)
+
+    def __len__(self) -> int:
+        return len(self._top_level_pars())
+
+    def __bool__(self) -> bool:  # explicit so __len__ doesn't drive truthiness alone
+        return bool(self._top_level_pars())
+
+    def list(self) -> "list[AnimationEntry]":
+        """Return a list of :class:`AnimationEntry` views, in document order.
+
+        Convenience for callers that prefer not to iterate.
+        """
+        return list(self)
+
+    def clear(self) -> int:
+        """Remove every animation from the slide.
+
+        Returns the number of top-level click-group entries removed.
+        Unlike :meth:`purge_orphans`, this drops **all** entries — useful
+        when iterating on animation design and you want to re-run the
+        build without the previous run's effects piling up.
+        """
+        removed = 0
+        for top_par in list(self._top_level_pars()):
+            parent = top_par.getparent()
+            if parent is not None:
+                parent.remove(top_par)
+                removed += 1
+        return removed
+
+    def _top_level_pars(self) -> list[Any]:
+        """Return the top-level click-group ``<p:par>`` elements."""
+        sld = self._slide._element
+        return list(
+            sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
+        )
 
     # -- public API ----------------------------------------------------------
 
@@ -593,6 +685,8 @@ class SlideAnimations:
         """
         if self._seq_active:
             raise RuntimeError("animation sequences cannot be nested")
+        if self._grp_active:
+            raise RuntimeError("cannot enter sequence() inside group()")
         self._seq_active = True
         self._seq_start = start
         self._seq_delay = delay
@@ -605,6 +699,55 @@ class SlideAnimations:
             self._seq_count = 0
             self._seq_delay = 0
             self._seq_delay_consumed = False
+
+    @contextmanager
+    def group(
+        self,
+        *,
+        start: PP_ANIM_TRIGGER = PP_ANIM_TRIGGER.AFTER_PREVIOUS,
+        delay: int = 0,
+    ) -> Iterator["SlideAnimations"]:
+        """Animate every effect added in the block as a single visual cluster.
+
+        The first effect added inside the ``with`` block uses *start*
+        (default :attr:`Trigger.AFTER_PREVIOUS`) and every subsequent
+        effect defaults to :attr:`Trigger.WITH_PREVIOUS`, so the whole
+        cluster animates as one unit.  Pair this with a per-cluster
+        anchor delay to control the rhythm between clusters::
+
+            for i, card in enumerate(cards):
+                with slide.animations.group(delay=0 if i == 0 else 200):
+                    Entrance.fade(slide, card.body)
+                    Entrance.fade(slide, card.title)
+                    Entrance.fade(slide, card.blurb)
+
+        ``group()`` is the right primitive when sub-shapes belong to the
+        same visual unit (a card, a row, a panel) — emitting a single
+        ``WITH_PREVIOUS`` cluster is much cheaper for PowerPoint to
+        render than the same number of independent click-groups.
+
+        Effects whose *trigger* is supplied explicitly still honour the
+        caller's choice; the group default only applies to unset triggers.
+
+        Cannot be nested or combined with :meth:`sequence` —
+        :class:`RuntimeError` is raised on either.
+        """
+        if self._grp_active:
+            raise RuntimeError("animation groups cannot be nested")
+        if self._seq_active:
+            raise RuntimeError("cannot enter group() inside sequence()")
+        self._grp_active = True
+        self._grp_start = start
+        self._grp_delay = delay
+        self._grp_delay_consumed = False
+        self._grp_count = 0
+        try:
+            yield self
+        finally:
+            self._grp_active = False
+            self._grp_count = 0
+            self._grp_delay = 0
+            self._grp_delay_consumed = False
 
     # -- behavior builders ---------------------------------------------------
 
@@ -785,29 +928,47 @@ class SlideAnimations:
     def _resolve_default_trigger(self, trigger: PP_ANIM_TRIGGER) -> PP_ANIM_TRIGGER:
         """Map the ``_TRIGGER_UNSET`` sentinel to a concrete trigger.
 
-        When called outside a sequence, an unset trigger falls back to
+        When called outside a sequence/group, an unset trigger falls back to
         ``Trigger.ON_CLICK``.  Inside a sequence, the first effect uses
         the sequence's ``start`` trigger and subsequent effects default
-        to ``Trigger.AFTER_PREVIOUS``.
+        to ``Trigger.AFTER_PREVIOUS``.  Inside a group, the first effect
+        uses the group's ``start`` trigger and subsequent effects default
+        to ``Trigger.WITH_PREVIOUS`` so the whole cluster animates as
+        one unit.
+
+        Counters bump on **every** call inside a block, even when the
+        caller supplied an explicit trigger.  Otherwise an explicit
+        trigger on the first effect would let the *next* unset-trigger
+        effect get the "first effect" treatment instead of being
+        ``WITH_PREVIOUS`` / ``AFTER_PREVIOUS`` as documented.
         """
+        if self._grp_active:
+            is_first = self._grp_count == 0
+            self._grp_count += 1
+            if trigger is not _TRIGGER_UNSET:
+                return trigger
+            return self._grp_start if is_first else PP_ANIM_TRIGGER.WITH_PREVIOUS
+        if self._seq_active:
+            is_first = self._seq_count == 0
+            self._seq_count += 1
+            if trigger is not _TRIGGER_UNSET:
+                return trigger
+            return self._seq_start if is_first else PP_ANIM_TRIGGER.AFTER_PREVIOUS
         if trigger is not _TRIGGER_UNSET:
             return trigger
-        if not self._seq_active:
-            return PP_ANIM_TRIGGER.ON_CLICK
-        if self._seq_count == 0:
-            self._seq_count += 1
-            return self._seq_start
-        self._seq_count += 1
-        return PP_ANIM_TRIGGER.AFTER_PREVIOUS
+        return PP_ANIM_TRIGGER.ON_CLICK
 
-    def _consume_sequence_delay(self, delay: int) -> int:
-        """Add the sequence's ``delay`` to the first effect's *delay*.
+    def _consume_block_delay(self, delay: int) -> int:
+        """Add the active sequence/group ``delay`` to the first effect's *delay*.
 
-        ``sequence(delay=N)`` shifts the whole chain by N ms, so the
-        sequence-level delay is added to the first effect's per-call
-        ``delay`` and never applied again within the same block.
-        Returns *delay* unchanged when no sequence is active.
+        ``sequence(delay=N)`` and ``group(delay=N)`` shift the whole
+        block by N ms, so the block-level delay is added to the first
+        effect's per-call ``delay`` and never applied again within the
+        same block.  Returns *delay* unchanged when no block is active.
         """
+        if self._grp_active and not self._grp_delay_consumed:
+            self._grp_delay_consumed = True
+            return delay + self._grp_delay
         if self._seq_active and not self._seq_delay_consumed:
             self._seq_delay_consumed = True
             return delay + self._seq_delay
@@ -831,7 +992,7 @@ class SlideAnimations:
         root_ctn = self._get_or_create_root_ctn()
 
         trigger = self._resolve_default_trigger(trigger)
-        delay = self._consume_sequence_delay(delay)
+        delay = self._consume_block_delay(delay)
         grp_id, node_type, wrapper_delay = self._resolve_trigger(trigger)
 
         indent_behaviors = "\n".join(
@@ -1012,6 +1173,171 @@ class SlideAnimations:
         else:  # AFTER_PREVIOUS
             grp_id = max(current_max, 0)
             return grp_id, "afterEffect", "0"
+
+
+# ---------------------------------------------------------------------------
+# Read-side introspection view
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AnimationEntry:
+    """Read-only view onto a single animation entry on a slide.
+
+    Yielded by iteration over :class:`SlideAnimations`.  Exposes the
+    fields most useful for debugging and copying animations between
+    slides:
+
+    * :attr:`kind` — one of ``"entrance"``, ``"exit"``, ``"emphasis"``,
+      ``"motion"`` (or ``None`` for unknown preset classes)
+    * :attr:`preset` — the preset name (``"fade"``, ``"fly_in"``,
+      ``"pulse"`` etc.) or ``None`` if the presetID isn't recognised
+    * :attr:`trigger` — the :class:`PP_ANIM_TRIGGER` for this entry
+    * :attr:`shape_id` — the target shape's id, or ``None`` if the
+      entry has no ``<p:spTgt>`` (rare)
+    * :attr:`duration` — milliseconds, from the inner cTn ``dur`` attr
+    * :attr:`delay` — milliseconds, from the inner cTn's first
+      ``<p:cond delay="...">``
+    * :attr:`shape` — looked up live from the slide's shape tree by id;
+      may be ``None`` if the shape has been deleted (use
+      :meth:`SlideAnimations.purge_orphans` to drop orphan entries).
+    """
+
+    _par_element: Any  # the wrapping <p:par> click-group element
+    _slide: Any
+
+    @property
+    def trigger(self) -> Optional[PP_ANIM_TRIGGER]:
+        # The nodeType lives on the inner effect cTn (same one carrying
+        # presetID).  The outer click-group cTn just wraps timing.
+        ctn = self._inner_effect_ctn()
+        if ctn is None:
+            return None
+        return _NODE_TYPE_TO_TRIGGER.get(ctn.get("nodeType"))
+
+    @property
+    def kind(self) -> Optional[str]:
+        cls = self._effect_attr("presetClass")
+        return _PRESET_CLASS_TO_KIND.get(cls) if cls else None
+
+    @property
+    def preset(self) -> Optional[str]:
+        cls = self._effect_attr("presetClass")
+        if cls == "path":
+            return "custom"  # MotionPath presets aren't named the same way
+        pid = self._effect_attr("presetID")
+        sub = self._effect_attr("presetSubtype")
+        if cls is None or pid is None:
+            return None
+        try:
+            pid_i = int(pid)
+            sub_i = int(sub) if sub is not None else 0
+        except ValueError:
+            return None
+        # Prefer exact (pid, subtype) match — handles fly_in's directional
+        # subtypes — then fall back to the subtype-agnostic match for
+        # presets like fade where subtype is always 0.
+        by_pair = _REVERSE_PRESETS.get(cls, {})
+        name = by_pair.get((pid_i, sub_i))
+        if name is not None:
+            return name
+        return _REVERSE_PRESET_BY_ID.get(cls, {}).get(pid_i)
+
+    @property
+    def shape_id(self) -> Optional[int]:
+        spTgt = self._par_element.find(".//" + qn("p:spTgt"))
+        if spTgt is None:
+            return None
+        spid = spTgt.get("spid")
+        try:
+            return int(spid) if spid is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def duration(self) -> Optional[int]:
+        ctn = self._inner_effect_ctn()
+        if ctn is None:
+            return None
+        # The wrapper cTn has dur="indefinite"; the actual animation
+        # duration lives on a nested behaviour cTn.  Find the deepest
+        # cTn with a numeric dur attribute.
+        best: Optional[int] = None
+        for child in self._par_element.iter(qn("p:cTn")):
+            dur = child.get("dur")
+            if dur is None or dur == "indefinite":
+                continue
+            try:
+                val = int(dur)
+            except ValueError:
+                continue
+            # Skip the wrapper's "0" placeholder; pick the largest concrete
+            # duration in the subtree, which corresponds to the visible
+            # effect duration.
+            if val > 0 and (best is None or val > best):
+                best = val
+        return best
+
+    @property
+    def delay(self) -> int:
+        ctn = self._inner_effect_ctn()
+        if ctn is None:
+            return 0
+        cond = ctn.find(".//" + qn("p:stCondLst") + "/" + qn("p:cond"))
+        if cond is None:
+            return 0
+        delay = cond.get("delay")
+        try:
+            return int(delay) if delay is not None and delay != "indefinite" else 0
+        except ValueError:
+            return 0
+
+    @property
+    def shape(self) -> Any:
+        """Look up the live |BaseShape| for this entry on its slide.
+
+        Walks the slide's spTree elements directly to locate the shape
+        with a matching id and only then constructs a proxy — so the
+        cost is one proxy construction per access, not ``N`` (where
+        ``N`` is the number of shapes on the slide).  Returns ``None``
+        when the shape has been deleted.  Callers iterating many
+        entries on a dense slide can still build their own
+        ``shape_id`` → shape map from a single ``slide.shapes`` walk
+        if they want to amortise across accesses.
+        """
+        spid = self.shape_id
+        if spid is None:
+            return None
+        shapes = self._slide.shapes
+        for shape_elm in shapes._iter_member_elms():
+            elm_id = getattr(shape_elm, "shape_id", None)
+            if elm_id == spid:
+                return shapes._shape_factory(shape_elm)
+        return None
+
+    @property
+    def element(self) -> Any:
+        """The underlying ``<p:par>`` element.  Treat as read-only."""
+        return self._par_element
+
+    def remove(self) -> None:
+        """Remove this animation entry from the slide."""
+        parent = self._par_element.getparent()
+        if parent is not None:
+            parent.remove(self._par_element)
+
+    # -- internal helpers --------------------------------------------------
+
+    def _effect_attr(self, name: str) -> Optional[str]:
+        ctn = self._inner_effect_ctn()
+        return ctn.get(name) if ctn is not None else None
+
+    def _inner_effect_ctn(self) -> Any:
+        """Return the inner cTn carrying presetID/presetClass attributes."""
+        for ctn in self._par_element.iter(qn("p:cTn")):
+            if ctn.get("presetID") is not None:
+                return ctn
+        return None
 
 
 # ---------------------------------------------------------------------------

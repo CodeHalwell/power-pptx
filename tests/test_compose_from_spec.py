@@ -204,3 +204,87 @@ class DescribeTokenSpecResolution:
             "slides": [{"layout": "title_recipe", "title": "x"}],
         })
         assert len(prs.slides) == 1
+
+
+class DescribeRecipeKwargValidation:
+    """Recipe layouts in `from_spec` reject unknown kwargs (fail-closed)."""
+
+    def it_rejects_a_typo_in_a_recipe_kwarg(self):
+        from power_pptx.compose.from_spec import from_spec
+
+        spec = {
+            "slides": [
+                {
+                    "layout": "kpi",
+                    "title": "Q4",
+                    "kpis": [{"value": "1", "label": "x"}],
+                    # Typo: should have been "subtitle"
+                    "subtitlz": "Q4 results",
+                }
+            ]
+        }
+        with pytest.raises(ValueError, match="unknown spec keys"):
+            from_spec(spec)
+
+    def it_accepts_known_recipe_kwargs(self):
+        from power_pptx.compose.from_spec import from_spec
+
+        spec = {
+            "slides": [
+                {
+                    "layout": "kpi",
+                    "title": "Q4",
+                    "kpis": [{"value": "1", "label": "x"}],
+                    # transition is a recipe-accepted kwarg
+                    "transition": "fade",
+                }
+            ]
+        }
+        prs = from_spec(spec)
+        assert len(prs.slides) == 1
+
+
+class DescribeComparisonLayoutAlias:
+    """`comparison` routes to the recipe; `comparison_layout` to placeholder."""
+
+    def it_routes_comparison_to_the_recipe(self):
+        from power_pptx.compose.from_spec import from_spec
+
+        spec = {
+            "slides": [
+                {
+                    "layout": "comparison",
+                    "title": "Side by side",
+                    "left_heading": "Before",
+                    "right_heading": "After",
+                    "rows": [{"left": "5s", "right": "1s"}],
+                }
+            ]
+        }
+        prs = from_spec(spec)
+        assert len(prs.slides) == 1
+
+
+class DescribeComparisonLayoutPlaceholders:
+    """`comparison_layout` (the placeholder-based opt-in) populates left/right."""
+
+    def it_populates_left_and_right_placeholders(self):
+        from power_pptx.compose.from_spec import from_spec
+
+        spec = {
+            "slides": [
+                {
+                    "layout": "comparison_layout",
+                    "title": "A vs B",
+                    "left": "Faster",
+                    "right": "Cheaper",
+                }
+            ]
+        }
+        prs = from_spec(spec)
+        slide = prs.slides[0]
+        # Find any placeholder containing the strings — the exact placeholder
+        # idx layout is template-dependent, but the values must land somewhere.
+        texts = [ph.text for ph in slide.placeholders]
+        assert any("Faster" in t for t in texts)
+        assert any("Cheaper" in t for t in texts)

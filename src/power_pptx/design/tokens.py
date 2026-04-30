@@ -333,15 +333,27 @@ class DesignTokens:
     def with_overrides(
         self, overrides: Mapping[str, Any]
     ) -> "DesignTokens":
-        """Return a new :class:`DesignTokens` with dotted-path *overrides* layered on.
+        """Return a new :class:`DesignTokens` with *overrides* layered on.
 
-        *overrides* is a flat mapping of dotted keys to values, e.g.::
+        Two equivalent input shapes are accepted:
 
-            tokens.with_overrides({
-                "palette.primary": "#FF6600",
-                "typography.heading.size": Pt(40),
-                "radii.md": Pt(12),
-            })
+        * **Dotted-path keys** — flat mapping where each key is a
+          dotted path through the token tree::
+
+              tokens.with_overrides({
+                  "palette.primary": "#FF6600",
+                  "typography.heading.size": Pt(40),
+                  "radii.md": Pt(12),
+              })
+
+        * **Nested dicts** — the same structure expressed as nested
+          mappings (matches the README's earlier examples)::
+
+              tokens.with_overrides({
+                  "palette": {"primary": "#FF6600"},
+                  "typography": {"heading": {"size": Pt(40)}},
+                  "radii": {"md": Pt(12)},
+              })
 
         The leading segment is the token category (``palette`` /
         ``typography`` / ``radii`` / ``shadows`` / ``spacings``), the
@@ -358,6 +370,7 @@ class DesignTokens:
 
         without forking the base token set.
         """
+        overrides = _flatten_overrides(overrides)
         # Deep-copy at the dict level so callers don't accidentally
         # mutate the base.  Token dataclasses themselves are frozen.
         palette = dict(self.palette)
@@ -447,6 +460,39 @@ class DesignTokens:
 # ---------------------------------------------------------------------------
 # Coercion helpers
 # ---------------------------------------------------------------------------
+
+
+def _flatten_overrides(
+    overrides: Mapping[str, Any], _prefix: str = ""
+) -> dict[str, Any]:
+    """Flatten a nested-dict override spec into dotted-key form.
+
+    Dotted-key inputs round-trip unchanged.  Nested dicts are walked
+    recursively, joining segments with ``"."``.  Mixing both styles in
+    the same input is allowed — e.g. ``{"palette.primary": ...,
+    "typography": {"heading": {"size": ...}}}``.
+
+    Stops descending at non-mapping values; in particular, dataclasses
+    like :class:`TypographyToken` and :class:`ShadowToken` are passed
+    through whole rather than walked, so callers can supply a token
+    instance for a slot.
+    """
+    flat: dict[str, Any] = {}
+    for key, value in overrides.items():
+        full = f"{_prefix}.{key}" if _prefix else key
+        if isinstance(value, Mapping) and not isinstance(value, RGBColor):
+            # Mappings whose values are themselves token instances
+            # (TypographyToken, ShadowToken) shouldn't be walked.
+            if not _is_token_value(value):
+                flat.update(_flatten_overrides(value, full))
+                continue
+        flat[full] = value
+    return flat
+
+
+def _is_token_value(value: Any) -> bool:
+    """True if *value* is a typography/shadow/length token shouldn't be flattened."""
+    return isinstance(value, (TypographyToken, ShadowToken, Length, RGBColor))
 
 
 def _coerce_color(value: Any) -> RGBColor:

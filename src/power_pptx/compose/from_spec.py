@@ -65,7 +65,11 @@ _LAYOUT_ALIASES: dict[str, str] = {
     "bullets": "Title and Content",
     "section": "Section Header",
     "two_column": "Two Content",
-    "comparison": "Comparison",
+    # The bare ``comparison`` alias is intentionally absent here — that
+    # name now exclusively routes to the ``comparison_slide`` recipe.
+    # Use ``comparison_layout`` to opt in to the placeholder-based
+    # layout from the underlying template.
+    "comparison_layout": "Comparison",
     "title_only": "Title Only",
     "blank": "Blank",
     "caption": "Content with Caption",
@@ -306,7 +310,14 @@ def _add_recipe_slide(
     keyword argument to the recipe.  The ``tokens`` and ``transition``
     arguments are threaded through automatically: spec-level tokens
     win when a slide-level ``tokens`` field isn't set.
+
+    Unknown kwargs (keys the recipe's signature doesn't accept) raise
+    :class:`ValueError` rather than being silently dropped.  This
+    prevents subtle typos like ``subtitlz: ...`` from quietly producing
+    a slide without the intended subtitle.
     """
+    import inspect
+
     from power_pptx.design import recipes as _recipes
 
     recipe_name, required = _RECIPE_LAYOUTS[layout_name]
@@ -325,6 +336,24 @@ def _add_recipe_slide(
     }
     # Spec-level tokens flow through unless the slide opts out / overrides.
     kwargs.setdefault("tokens", tokens)
+
+    # Fail closed on typos: any kwarg the recipe doesn't accept is an
+    # error.  Recipes accept ``tokens`` and ``transition`` consistently,
+    # so this catches misspelled content keys (``subtitlz``, ``millestones``)
+    # that previously silently no-op'd.
+    sig = inspect.signature(recipe)
+    accepts_var_kw = any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if not accepts_var_kw:
+        accepted = set(sig.parameters)
+        unknown = sorted(set(kwargs) - accepted)
+        if unknown:
+            raise ValueError(
+                f"layout {layout_name!r}: unknown spec keys {unknown}. "
+                f"Accepted: {sorted(accepted - {'prs'})}."
+            )
+
     return recipe(prs, **kwargs)
 
 
@@ -359,7 +388,10 @@ def _set_subtitle_or_body(slide: Any, spec: dict[str, Any], layout_name: str) ->
         if kpis:
             _add_kpi_shapes(slide, kpis)
 
-    elif layout_name in ("two_column", "comparison"):
+    elif layout_name in ("two_column", "comparison_layout"):
+        # Note: ``comparison`` (bare) routes to the recipe earlier in the
+        # dispatcher and never reaches this branch.  ``comparison_layout``
+        # is the placeholder-based opt-in that does.
         left = spec.get("left") or spec.get("content_left")
         right = spec.get("right") or spec.get("content_right")
         if left:

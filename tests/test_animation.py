@@ -461,3 +461,193 @@ class DescribeEntranceByParagraph:
 
         with pytest.raises(TypeError, match="shape_id"):
             Entrance.fade(slide, tb.text_frame)
+
+
+class DescribeAnimationGroup:
+    """`group()` makes the contained effects animate as one visual cluster."""
+
+    def it_emits_first_after_previous_then_with_previous(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+        c = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(1))
+
+        with slide.animations.group():
+            Entrance.fade(slide, a)
+            Entrance.fade(slide, b)
+            Entrance.fade(slide, c)
+
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
+        assert node_types == ["afterEffect", "withEffect", "withEffect"]
+
+    def it_honours_an_explicit_start_trigger(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+
+        with slide.animations.group(start=Trigger.ON_CLICK):
+            Entrance.fade(slide, a)
+            Entrance.fade(slide, b)
+
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
+        assert node_types == ["clickEffect", "withEffect"]
+
+    def it_shifts_only_the_first_effect_by_the_group_delay(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(2), Inches(1))
+
+        with slide.animations.group(delay=200):
+            Entrance.fade(slide, a)
+            Entrance.fade(slide, b)
+
+        cond_delays = [c.get("delay") for c in slide._element.iter(qn("p:cond"))]
+        assert "200" in cond_delays
+        assert cond_delays.count("200") == 1
+
+    def it_resets_after_the_block(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(2), Inches(1))
+
+        with slide.animations.group():
+            Entrance.fade(slide, a)
+        Entrance.fade(slide, b)
+
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
+        assert node_types == ["afterEffect", "clickEffect"]
+
+    def it_rejects_nested_groups(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        with slide.animations.group():
+            with pytest.raises(RuntimeError):
+                with slide.animations.group():
+                    pass
+
+    def it_rejects_mixing_with_sequence(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        with slide.animations.sequence():
+            with pytest.raises(RuntimeError):
+                with slide.animations.group():
+                    pass
+
+
+class DescribeAnimationsIntrospection:
+    """`SlideAnimations` is iterable, sized, and clearable."""
+
+    def it_iterates_in_document_order(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+
+        Entrance.fade(slide, a)
+        Entrance.fly_in(slide, b, direction="left")
+
+        entries = list(slide.animations)
+        assert len(entries) == 2
+        assert entries[0].kind == "entrance"
+        assert entries[0].preset == "fade"
+        assert entries[0].shape_id == a.shape_id
+        # Shape proxies are created on demand, so identity is not preserved;
+        # compare by shape_id which is stable.
+        assert entries[0].shape is not None
+        assert entries[0].shape.shape_id == a.shape_id
+        assert entries[0].trigger == Trigger.ON_CLICK
+        assert entries[1].preset == "fly_in"
+        assert entries[1].shape_id == b.shape_id
+
+    def it_supports_len(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        assert len(slide.animations) == 0
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        assert len(slide.animations) == 1
+
+    def it_clears_every_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Entrance.fade(slide, b)
+
+        removed = slide.animations.clear()
+        assert removed == 2
+        assert len(slide.animations) == 0
+
+    def it_reports_the_inner_effect_duration(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a, duration=750)
+        entry = next(iter(slide.animations))
+        assert entry.duration == 750
+
+    def it_reports_the_per_effect_delay(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a, delay=120)
+        entry = next(iter(slide.animations))
+        assert entry.delay == 120
+
+    def it_remove_drops_just_that_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Entrance.fade(slide, b)
+
+        first = next(iter(slide.animations))
+        first.remove()
+        assert len(slide.animations) == 1
+        assert next(iter(slide.animations)).shape_id == b.shape_id
+
+
+class DescribeBlockTriggerCounting:
+    """Explicit triggers inside group()/sequence() still consume a slot.
+
+    Regression for: when the *first* effect inside a group() or sequence()
+    block sets ``trigger=`` explicitly, the *next* unset-trigger effect
+    must still default to WITH_PREVIOUS / AFTER_PREVIOUS — not be treated
+    as if it were itself the first effect of the block.
+    """
+
+    def it_treats_subsequent_unset_trigger_as_with_previous_in_group(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+        c = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(1))
+
+        with slide.animations.group():
+            Entrance.fade(slide, a, trigger=Trigger.ON_CLICK)  # explicit
+            Entrance.fade(slide, b)  # must be WITH_PREVIOUS, not AFTER_PREVIOUS
+            Entrance.fade(slide, c)
+
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
+        assert node_types == ["clickEffect", "withEffect", "withEffect"]
+
+    def it_treats_subsequent_unset_trigger_as_after_previous_in_sequence(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
+        c = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(1))
+
+        with slide.animations.sequence():
+            Entrance.fade(slide, a, trigger=Trigger.WITH_PREVIOUS)  # explicit
+            Entrance.fade(slide, b)  # must be AFTER_PREVIOUS
+            Entrance.fade(slide, c)
+
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
+        assert node_types == ["withEffect", "afterEffect", "afterEffect"]
