@@ -174,3 +174,46 @@ class DescribeWithOverrides:
         t = DesignTokens.from_preset("modern_light")
         with pytest.raises(ValueError, match="unknown override category"):
             t.with_overrides({"nonsense.foo": "bar"})
+
+
+class DescribeNestedDictOverrides:
+    """`with_overrides` accepts nested dicts in addition to dotted keys."""
+
+    def it_accepts_a_nested_dict(self):
+        from power_pptx.design.tokens import DesignTokens
+        from power_pptx.util import Pt
+
+        tokens = DesignTokens.from_dict({
+            "palette": {"primary": "#000000"},
+            "typography": {"heading": {"family": "Inter", "size": 24}},
+        })
+        result = tokens.with_overrides({
+            "palette": {"primary": "#FF6600"},
+            "typography": {"heading": {"size": Pt(40)}},
+        })
+        assert str(result.palette["primary"]) == "FF6600"
+        assert result.typography["heading"].size == Pt(40)
+
+    def it_accepts_dotted_keys(self):
+        from power_pptx.design.tokens import DesignTokens
+        from power_pptx.util import Pt
+
+        tokens = DesignTokens.from_dict({"palette": {"primary": "#000000"}})
+        result = tokens.with_overrides({
+            "palette.primary": "#11AA22",
+            "typography.heading.size": Pt(20),
+        })
+        assert str(result.palette["primary"]) == "11AA22"
+        assert result.typography["heading"].size == Pt(20)
+
+    def it_accepts_mixed_styles(self):
+        from power_pptx.design.tokens import DesignTokens
+        from power_pptx.util import Pt
+
+        tokens = DesignTokens.from_dict({"palette": {"primary": "#000000"}})
+        result = tokens.with_overrides({
+            "palette.primary": "#AA00BB",
+            "typography": {"heading": {"size": Pt(28)}},
+        })
+        assert str(result.palette["primary"]) == "AA00BB"
+        assert result.typography["heading"].size == Pt(28)

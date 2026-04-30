@@ -1400,15 +1400,32 @@ def _embed_figure(
 def _is_markup_string(value: Any) -> bool:
     """Return True when *value* looks like inline SVG / HTML rather than a path.
 
-    Filesystem paths can technically start with ``<`` on some systems
-    (e.g. Windows), so we also rule out anything containing a path
-    separator or ending in a known image extension before deciding.
+    Markup detection has to come *before* the path-separator check because
+    inline SVG routinely contains namespace URLs (``xmlns="http://..."``)
+    whose ``/`` characters would otherwise mis-route the figure to
+    :meth:`add_picture` and raise :class:`FileNotFoundError`.
+
+    The detection is deliberately conservative: a leading ``<`` followed
+    by a tag name or XML declaration is taken as markup.  Falls back to
+    the path heuristic only when the value doesn't look like markup at
+    all.
     """
     if not isinstance(value, str):
         return False
     s = value.lstrip()
     if not s.startswith("<"):
         return False
+    # Anything that looks like an XML declaration, an SVG/HTML tag, or
+    # a tag-like ``<name`` is treated as markup regardless of any ``/``
+    # characters further down (which would normally signal a path).
+    if s.startswith(("<?xml", "<!DOCTYPE", "<svg", "<html")):
+        return True
+    # Generic ``<tagname`` where tagname starts with an ASCII letter.
+    if len(s) >= 2 and s[1].isalpha():
+        return True
+    # Fallback: starts with ``<`` but no recognisable tag — treat as
+    # path (rare on real input, but preserves the historical behaviour
+    # for the corner case of weird filenames).
     if os.sep in value or "/" in value:
         return False
     return True
@@ -1604,7 +1621,16 @@ def _pygments_highlight(
     # A small token-class → hex map.  Pygments has built-in styles but
     # they're tuned for HTML output; using a hand-picked map keeps the
     # slide colors in a single, reviewable place.
-    color_map: dict[Any, str] = {
+    #
+    # Operator/Punctuation/Text are mapped to the sentinel ``None`` so
+    # they fall through to ``fallback_color`` at render time.  Hard-coding
+    # ``#D4D4D4`` (a light grey) here would render as nearly-invisible
+    # punctuation on light token themes — and ``.`` in member access
+    # (``optimiser.zero_grad``) is its own Pygments token, so the
+    # consequence was code reading as ``optimiser zero_grad`` on slides
+    # that used a light surface.  Routing these through ``fallback_color``
+    # keeps them legible on whichever theme the caller is using.
+    color_map: dict[Any, Optional[str]] = {
         Token.Keyword: "#C586C0",
         Token.Keyword.Constant: "#569CD6",
         Token.Keyword.Namespace: "#C586C0",
@@ -1618,19 +1644,24 @@ def _pygments_highlight(
         Token.Comment: "#6A9955",
         Token.Comment.Single: "#6A9955",
         Token.Comment.Multiline: "#6A9955",
-        Token.Operator: "#D4D4D4",
-        Token.Punctuation: "#D4D4D4",
-        Token.Text: "#D4D4D4",
+        Token.Operator: None,
+        Token.Punctuation: None,
+        Token.Text: None,
     }
 
     def _color_for(tok_type: Any) -> Optional[RGBColor]:
         # Pygments token types are hierarchical: walk up to the nearest
         # mapped ancestor so e.g. ``Token.String.Single`` reuses the
-        # ``Token.String`` color.
+        # ``Token.String`` color.  A mapped entry of ``None`` means
+        # "use the fallback colour" — explicit no-color rather than
+        # falling further up the hierarchy.
         t = tok_type
         while t is not None:
             if t in color_map:
-                hex_str = color_map[t].lstrip("#")
+                hex_str = color_map[t]
+                if hex_str is None:
+                    return None
+                hex_str = hex_str.lstrip("#")
                 return RGBColor(
                     int(hex_str[0:2], 16),
                     int(hex_str[2:4], 16),

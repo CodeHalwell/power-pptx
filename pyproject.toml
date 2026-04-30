@@ -148,3 +148,17 @@ known-first-party = ["power_pptx"]
 
 [tool.setuptools.dynamic]
 version = {attr = "power_pptx.__version__"}
+
+[tool.setuptools.package-data]
+# Ship the bundled Claude skill (SKILL.md + reference docs) so that
+# `python -m power_pptx.skill install` works for downstream installs,
+# and any in-tree templates (the .pptx files used by Presentation()).
+power_pptx = [
+    "skill/SKILL.md",
+    "skill/references/*.md",
+    "templates/*",
+]
+
+[project.scripts]
+# Convenience CLI: `power-pptx-skill install` ≈ `python -m power_pptx.skill install`.
+power-pptx-skill = "power_pptx.skill.__main__:main"

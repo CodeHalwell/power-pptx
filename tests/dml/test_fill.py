@@ -905,3 +905,73 @@ class Describe_GradientStop(object):
         out_of_range_value = request.param
         stop = _GradientStop(element("a:gs{pos=50000}"))
         return stop, out_of_range_value
+
+
+class DescribeLinearGradientHelper:
+    """`fill.linear_gradient(...)` is a one-line wrapper around gradient + stops."""
+
+    def it_accepts_two_positional_colors(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        shape.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)
+
+        stops = list(shape.fill.gradient_stops)
+        assert len(stops) == 2
+        assert str(stops[0].color.rgb) == "06D6FE"
+        assert str(stops[1].color.rgb) == "B14AED"
+        assert stops[0].position == 0.0
+        assert stops[1].position == 1.0
+        assert shape.fill.gradient_angle == 90.0
+
+    def it_accepts_a_list_of_color_position_pairs(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        shape.fill.linear_gradient(
+            [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
+            angle=45,
+        )
+        stops = list(shape.fill.gradient_stops)
+        assert len(stops) == 3
+        assert [round(s.position, 2) for s in stops] == [0.0, 0.5, 1.0]
+
+    def it_spreads_bare_colors_evenly(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        shape.fill.linear_gradient(["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"])
+        stops = list(shape.fill.gradient_stops)
+        positions = [round(s.position, 3) for s in stops]
+        assert positions == [0.0, 0.333, 0.667, 1.0]
+
+    def it_rejects_a_single_color_with_no_end(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        with pytest.raises(TypeError, match="end colour"):
+            shape.fill.linear_gradient("#FF0000")
