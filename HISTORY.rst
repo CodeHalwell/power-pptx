@@ -30,9 +30,9 @@ New APIs
   instead of ``chart.element.getparent().getparent()`` when
   animating, measuring, or restyling the chart's parent shape.
 
-- ``TextFrame.set_paragraph_defaults(font_name=, size=, bold=,
-  italic=, color=)`` — fills any *unset* font properties on every
-  paragraph and run in the frame.  Explicit per-run overrides
+- ``TextFrame.set_paragraph_defaults(font_name=None, size=None,
+  bold=None, italic=None, color=None)`` — fills any *unset* font
+  properties on every paragraph and run in the frame.  Explicit per-run overrides
   (including theme-coloured runs) survive verbatim.  Collapses the
   six-lines-per-paragraph branding ritual into one call.
 
