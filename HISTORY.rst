@@ -14,6 +14,125 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.5.0 (2026-05-01)
+++++++++++++++++++
+
+End-to-end pass over the IMPROVEMENT_PLAN.md punch list.  Smooths
+the most common authoring footguns for both human and LLM-driven
+deck generation; all changes are additive except where called out.
+
+New APIs
+~~~~~~~~
+
+- ``Chart.shape`` — returns the parent ``GraphicFrame``, populated
+  on first access via ``GraphicFrame.chart`` so callers don't have
+  to keep the ``add_chart`` return value around.  Reach for this
+  instead of ``chart.element.getparent().getparent()`` when
+  animating, measuring, or restyling the chart's parent shape.
+
+- ``TextFrame.set_paragraph_defaults(font_name=None, size=None,
+  bold=None, italic=None, color=None)`` — fills any *unset* font
+  properties on every paragraph and run in the frame.  Explicit per-run overrides
+  (including theme-coloured runs) survive verbatim.  Collapses the
+  six-lines-per-paragraph branding ritual into one call.
+
+- ``Slide.lint_group_overlaps(*shapes, name=None)`` — convenience
+  over ``lint_group`` that auto-generates a unique-on-the-slide
+  group name (``design-group-N``).  Returns the chosen name so
+  callers can reuse it later.
+
+- ``power_pptx._color.coerce_color`` — internal helper exported for
+  third-party integrations that want the same "color-like" coercion
+  applied at every public boundary.
+
+Improvements
+~~~~~~~~~~~~
+
+- **Color inputs are uniform across every public setter.**
+  ``shape.fill.fore_color.rgb``, ``Chart.text_color``,
+  ``linear_gradient``, ``gradient``, and friends now all accept hex
+  strings (with or without ``#``), ``RGBColor`` instances, and
+  3-tuples of ints interchangeably.  No more ``hex_rgb`` shims in
+  user code.  Floats / numeric strings / ``bool`` inside a 3-tuple
+  are explicitly rejected so the contract stays tight.
+
+- ``FillFormat.gradient(angle=...)`` now mirrors
+  ``linear_gradient(angle=...)`` for symmetry.  Linear-only;
+  passing ``angle=`` with a non-linear ``kind`` raises
+  ``ValueError``.
+
+- ``apply_quick_layout`` accepts ``legend_position`` as either an
+  ``XL_LEGEND_POSITION`` member, an integer enum value (preserving
+  the historical numeric form), or its lowercase string name
+  (``"right"``, ``"left"``, ``"top"``, ``"bottom"``, ``"corner"``).
+
+- ``Presentation.set_transition(kind=...)`` no longer silently
+  clobbers per-slide overrides.  Slides that already have an
+  explicit ``slide.transition.kind`` (including
+  ``MSO_TRANSITION_TYPE.NONE`` — an explicit "no transition") are
+  preserved by default; pass ``force=True`` to restore the old
+  "force every slide" behaviour.  ``duration``,
+  ``advance_on_click``, and ``advance_after`` are unaffected.
+  ``kind=None`` still wipes every slide so the existing "clear all"
+  idiom keeps working.
+
+- ``SlideLintReport.auto_fix()`` now handles ``TextOverflow``
+  alongside ``OffSlide`` and ``OffGridDrift``.  The fix flips the
+  offending text frame's ``auto_size`` to
+  ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` so PowerPoint shrinks the
+  runs at render time; frames with an explicit auto-size are
+  respected.  This is the single biggest lever for "lint-or-die"
+  pipelines on runtime-supplied text.
+
+- Linter heuristic tuning:
+
+  - ``OffGridDrift`` default tolerance relaxed from 0.01" to 0.05".
+    ``Inches(0.6)`` divider next to ``Inches(0.62)`` eyebrow no
+    longer fires on every section header.
+  - ``TextOverflow`` uses a tighter 0.45× character-width
+    multiplier for short single-line strings (≤ 20 chars) — fixes
+    the false positive on small badges / pills at 9pt.
+  - ``ShapeCollision`` auto-suppresses the canonical layered-design
+    pattern (smaller shape strictly contained in a larger shape and
+    drawn on top).  Equal-bbox pairs still classify as ``matched``
+    so duplicate-rectangle bugs remain auditable.
+
+- ``RGBColor.from_string`` now emits ``DeprecationWarning`` on call.
+  ``RGBColor.from_hex`` is the supported parser (it accepts hex
+  with or without a leading ``#``).  Internal call sites switched
+  to ``from_hex`` so the warning only fires in user code.
+
+Documentation
+~~~~~~~~~~~~~
+
+- New ``docs/user/common-pitfalls.rst`` — covers colour coercion,
+  transition ordering, recipe → blank layout, ``chart.shape``,
+  animation experimental status, and the linter's behaviour
+  changes in one place.
+
+- ``power_pptx.animation`` is now flagged **experimental** in the
+  module docstring, the bundled skill (``references/animations.md``),
+  and ``docs/user/animation.rst``.  Animation timing XML
+  round-trips through the OOXML schema and renders correctly via
+  LibreOffice, but does not currently play in PowerPoint slideshow
+  mode (animated shapes sit at 10–15% opacity and snap to fully
+  visible all at once).  Slides combining entrance animations with
+  a Morph transition can additionally trigger PowerPoint's
+  "Repair?" dialog.  Use slide *transitions* until this is fixed.
+
+- Bundled Claude skill updated: SKILL.md gains a "do not generate
+  animation calls" house rule, refreshed pitfalls list, and a
+  pointer at the new ``references/real-world-decks.md``.
+
+Infrastructure
+~~~~~~~~~~~~~~
+
+- CI gains a ``pyflakes examples/`` static-check job and a
+  ``examples/real_world/build_all.py`` smoke build, so the public
+  surface stays green against the ten Fortune-500-style example
+  decks.
+
+
 2.4.0 (2026-04-30)
 ++++++++++++++++++
 
