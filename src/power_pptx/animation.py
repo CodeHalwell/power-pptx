@@ -1,8 +1,28 @@
 """High-level animation API for python-pptx.
 
+.. warning::
+
+   **Experimental — playback is currently broken in PowerPoint.**
+   Animation timing XML produced by this module round-trips through
+   the OOXML schema, reads back correctly via the introspection API,
+   and converts cleanly to PDF via LibreOffice.  But in PowerPoint
+   slideshow mode, animated shapes sit at 10–15% opacity for several
+   seconds and then snap to fully visible all at once, instead of
+   playing the requested animation.  Decks containing entrance
+   animations on the same slide as a Morph transition can additionally
+   trigger PowerPoint's "Repair?" dialog on open.
+
+   Until this is resolved, prefer slide :class:`transitions
+   <power_pptx.slide.SlideTransition>` (which round-trip and play
+   correctly) and treat the animation API as a code-shape preview
+   only.  See ``IMPROVEMENT_PLAN.md`` (item 1) for the diagnostic plan.
+
 Exposes entrance, exit, and emphasis preset animations that map to
-PowerPoint's built-in animation library.  All generated XML is valid
-OOXML and round-trips through PowerPoint without loss.
+PowerPoint's built-in animation library.  Generated XML is valid
+OOXML and persists/reads back correctly at the XML level via the
+introspection API — but that is a *schema-validity* guarantee, not a
+guarantee of PowerPoint open/save round-tripping or slideshow
+playback (see the warning above).
 
 Typical usage::
 

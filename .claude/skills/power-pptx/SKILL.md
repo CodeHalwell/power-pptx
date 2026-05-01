@@ -86,6 +86,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/smart-art.md` | Text substitution inside an existing template's SmartArt. **Phase 8.** |
 | `references/tables.md` | The inherited table API, plus `Cell.borders`. **Phase 4.** |
 | `references/end-to-end-deck.md` | A complete worked example: tokens, recipes, animations, transitions, charts, **and a lint pass before save**. |
+| `references/real-world-decks.md` | Pointer at `examples/real_world/` — ten Fortune-500-style decks demonstrating the patterns each script uses (cover, KPI dashboard, conditional-fill table, multi-stage timeline, etc.). |
 
 ## House rules for code you write
 
@@ -109,6 +110,13 @@ collections. Read just the file you need — they're self-contained.
    `prs.save(...)`. Don't open and re-save inside loops.
 8. **For released-version constraints**: this fork is
    `power-pptx>=1.1.0`. Pin that in any requirements file you generate.
+9. **Do not generate `power_pptx.animation` calls.** The animation
+   module produces XML that round-trips through the OOXML schema and
+   reads back via the introspection API, but **playback is currently
+   broken in PowerPoint slideshow mode** (animated shapes sit at
+   10–15% opacity for several seconds and snap to fully visible all at
+   once). Use slide *transitions* instead — those round-trip and play
+   correctly. See `references/animations.md` for the warning callout.
 
 ## A space-aware mini-template
 
@@ -150,6 +158,9 @@ prs.save("out.pptx")
 
 ## Common pitfalls
 
+- **Animations don't play in PowerPoint slideshow mode.** See house
+  rule 9: do not generate `power_pptx.animation` calls. Use slide
+  transitions instead.
 - **Calling `shape.shadow.inherit`** raises `DeprecationWarning`. Read
   individual properties (`blur_radius`, `distance`, `direction`,
   `color`) and check for `None` instead.
@@ -161,13 +172,43 @@ prs.save("out.pptx")
 - **`add_svg_picture` without `cairosvg` and without a `png_fallback`**
   raises `CairoSvgUnavailable`. Either install cairosvg or supply a
   pre-rasterised PNG.
-- **`TextOverflow` is reported but not auto-fixed**. The current
-  `report.auto_fix()` only handles `OffSlide`. For overflow, use
-  `tf.fit_text(...)` or `auto_size = TEXT_TO_FIT_SHAPE`.
+- **`TextOverflow` is now auto-fixable** via
+  `report.auto_fix()` — it flips `auto_size` to `TEXT_TO_FIT_SHAPE`
+  on the offending frame. For more control, set
+  `auto_size = TEXT_TO_FIT_SHAPE` yourself or call `tf.fit_text(...)`.
 - **Slide thumbnails require `soffice` on PATH** (LibreOffice).
   Otherwise you get `ThumbnailRendererUnavailable`.
 - **`MSO_PATTERN_TYPE.ERCENT_40`** is the upstream typo and emits a
   `DeprecationWarning`. Use `PERCENT_40`.
+- **Use `RGBColor.from_hex(value)`, not `from_string(value)`.** The
+  latter does not strip a leading `#` and now emits a
+  `DeprecationWarning`; it will be removed in a future major release.
+  Every public color-accepting setter
+  (`shape.fill.fore_color.rgb`, `chart.text_color`, `linear_gradient`,
+  `gradient`, etc.) accepts hex strings (with or without `#`),
+  `RGBColor`, and 3-tuples interchangeably.
+- **Cards holding more than ~5 lines of body text should set
+  `text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`** immediately
+  after writing the text. The lint heuristic is conservative and will
+  otherwise raise.
+- **Pricing-card / badge text in shapes ≤ 0.5" tall should set
+  `auto_size = TEXT_TO_FIT_SHAPE`** to avoid the `TextOverflow` lint.
+- **When you need to animate or measure a chart's parent shape**, use
+  `chart.shape` (returns the `GraphicFrame`) — *not*
+  `chart.element.getparent().getparent()`. `chart.shape` works
+  whenever the chart was reached via
+  `slide.shapes.add_chart(...).chart` or `slide.shapes[i].chart`.
+- **`prs.set_transition(kind=…)` preserves per-slide overrides** by
+  default. Code that wrote `slide.transition.kind = MORPH` first,
+  then `prs.set_transition(FADE)` for the rest, no longer needs to
+  re-apply MORPH after the deck-wide call. Pass `force=True` if you
+  *do* want the deck-wide kind to clobber per-slide settings.
+- **`apply_quick_layout` accepts both forms for `legend_position`**:
+  `XL_LEGEND_POSITION.RIGHT` and `"right"` both work.
+- **For paragraph-level branded fonts**, use
+  `text_frame.set_paragraph_defaults(font_name="Inter", size=Pt(14),
+  color="#222222")` instead of looping over runs and setting six
+  properties each.
 
 ## Where to look in the project
 

@@ -25,7 +25,9 @@ calling ``apply_quick_layout`` twice.
 ``has_title``                   bool — toggle the chart title.
 ``title_text``                  str  — set chart title text (forces ``has_title=True``).
 ``has_legend``                  bool — toggle the legend.
-``legend_position``             ``XL_LEGEND_POSITION`` member — legend slot.
+``legend_position``             ``XL_LEGEND_POSITION`` member *or* its
+                                lowercase string name (``"right"``, ``"left"``,
+                                ``"top"``, ``"bottom"``, ``"corner"``).
 ``legend_in_layout``            bool — whether the legend overlaps the plot area.
 ``has_category_axis_title``     bool — toggle the category-axis title.
 ``category_axis_title_text``    str  — set category-axis title text.
@@ -214,6 +216,54 @@ def _apply_title(chart, spec: Mapping[str, Any]) -> None:
         chart.has_title = bool(spec["has_title"])
 
 
+_LEGEND_POSITION_NAMES = {
+    "right": XL_LEGEND_POSITION.RIGHT,
+    "left": XL_LEGEND_POSITION.LEFT,
+    "top": XL_LEGEND_POSITION.TOP,
+    "bottom": XL_LEGEND_POSITION.BOTTOM,
+    "corner": XL_LEGEND_POSITION.CORNER,
+}
+
+
+def _coerce_legend_position(value: Any) -> XL_LEGEND_POSITION:
+    """Accept an :class:`XL_LEGEND_POSITION` member, int value, or lowercase name.
+
+    The reference docs were inconsistent about which form was canonical
+    (``"bottom"`` in prose, ``XL_LEGEND_POSITION.BOTTOM`` in code).
+    Accept both at the boundary, plus the historical integer form
+    (``-4107`` etc.) that ``Legend.position`` already supported via
+    ``XL_LEGEND_POSITION.to_xml``, so config-driven layouts that
+    serialised enum values as ints keep working.  Unknown strings or
+    out-of-range integers raise :class:`ValueError`.
+    """
+    if isinstance(value, XL_LEGEND_POSITION):
+        return value
+    if isinstance(value, str):
+        try:
+            return _LEGEND_POSITION_NAMES[value.lower()]
+        except KeyError:
+            raise ValueError(
+                "legend_position string must be one of %s; got %r"
+                % (sorted(_LEGEND_POSITION_NAMES), value)
+            ) from None
+    # ``bool`` is a subclass of ``int`` — guard explicitly so
+    # ``legend_position=True`` doesn't silently resolve to whichever
+    # member happens to have value 1.
+    if isinstance(value, int) and not isinstance(value, bool):
+        try:
+            return XL_LEGEND_POSITION(value)
+        except ValueError:
+            raise ValueError(
+                "legend_position int %r is not a valid XL_LEGEND_POSITION "
+                "value" % value
+            ) from None
+    raise TypeError(
+        "legend_position must be an XL_LEGEND_POSITION member, int value, "
+        "or string name (one of %s); got %r"
+        % (sorted(_LEGEND_POSITION_NAMES), value)
+    )
+
+
 def _apply_legend(chart, spec: Mapping[str, Any]) -> None:
     if "has_legend" in spec:
         chart.has_legend = bool(spec["has_legend"])
@@ -225,7 +275,7 @@ def _apply_legend(chart, spec: Mapping[str, Any]) -> None:
 
     legend = chart.legend
     if "legend_position" in spec:
-        legend.position = spec["legend_position"]
+        legend.position = _coerce_legend_position(spec["legend_position"])
     if "legend_in_layout" in spec:
         legend.include_in_layout = bool(spec["legend_in_layout"])
 

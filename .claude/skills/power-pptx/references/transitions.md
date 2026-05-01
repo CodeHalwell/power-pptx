@@ -1,5 +1,24 @@
 # Slide transitions (Phase 4)
 
+> ℹ️ **Per-slide overrides are preserved across `set_transition`**
+>
+> `prs.set_transition(kind=…)` skips slides that already have an
+> explicit per-slide transition kind, instead of silently overwriting
+> them. Either order now works — set the per-slide override before
+> *or* after the deck-wide call:
+>
+> ```python
+> slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH       # before
+> prs.set_transition(MSO_TRANSITION_TYPE.FADE)             # leaves slide1 alone
+>
+> # Or:
+> prs.set_transition(MSO_TRANSITION_TYPE.FADE)             # default for the deck
+> slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH       # after — also fine
+> ```
+>
+> Pass `force=True` to restore the old "force every slide" behaviour:
+> `prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)`.
+
 Each slide exposes a `transition` proxy backed by `<p:transition>`.
 Reads on an unset transition return `None` and never mutate XML,
 keeping theme inheritance intact.
@@ -84,17 +103,11 @@ slide2.shapes.title.text = "Run-rate metrics"
 slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
 slide1.transition.duration = 1500
 
-# Default everything else to a quick fade
+# Default everything else to a quick fade.  set_transition skips
+# slides with an explicit kind by default, so slide1's MORPH is
+# preserved.  Pass force=True if you ever want to clobber per-slide
+# kinds.
 prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
-# (set_transition won't overwrite slide1's already-set kind unless the
-#  kind kwarg is provided — but we passed kind here, so for slide1 it
-#  WILL be overwritten. To preserve slide1, set it AFTER the deck-wide
-#  call instead.)
-
-# Correct order:
-prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
-slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
-slide1.transition.duration = 1500
 
 prs.save("with-transitions.pptx")
 ```

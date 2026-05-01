@@ -179,6 +179,83 @@ class TextFrame(Subshape):
             p = txBody.add_p()
             p.append_text(p_text)
 
+    def set_paragraph_defaults(
+        self,
+        *,
+        font_name: str | None = None,
+        size: Length | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        color: object | None = None,
+    ) -> None:
+        """Apply default font properties to every paragraph/run in this text frame.
+
+        Sets the supplied properties on each existing paragraph (and on
+        every run inside each paragraph) **only where the property is
+        currently unset** — explicit per-run overrides are preserved
+        verbatim.  Pass only the keyword arguments you want to enforce.
+
+        Branded decks repeatedly want to set the same six lines
+        (``font.name``, ``font.size``, ``font.bold``, ``font.color.rgb``)
+        on every paragraph in a card body.  This wrapper collapses that
+        ritual into one call::
+
+            from power_pptx.util import Pt
+
+            tf.set_paragraph_defaults(
+                font_name="Inter",
+                size=Pt(14),
+                color="#222222",
+            )
+
+        ``color`` accepts any "color-like" value supported by
+        :func:`power_pptx._color.coerce_color` (``RGBColor``,
+        ``"#RRGGBB"`` hex, or ``(r, g, b)`` 3-tuple).  Pass ``None`` to
+        leave a property alone — explicit defaults are required to be
+        keyword-only so ``set_paragraph_defaults(font_name="Inter")``
+        is unambiguous.
+
+        See ``IMPROVEMENT_PLAN.md`` item 8.
+        """
+        rgb = None
+        if color is not None:
+            from power_pptx._color import coerce_color
+
+            rgb = coerce_color(color)
+
+        def _apply_to_font(font: Font) -> None:
+            if font_name is not None and font.name is None:
+                font.name = font_name
+            if size is not None and font.size is None:
+                font.size = size
+            if bold is not None and font.bold is None:
+                font.bold = bold
+            if italic is not None and font.italic is None:
+                font.italic = italic
+            if rgb is not None:
+                # Don't read ``font.color.rgb`` first — that raises
+                # ``AttributeError`` for runs with an explicit non-RGB
+                # color (e.g. ``theme_color`` / scheme colour), which
+                # would crash the helper on mixed-format frames.  Use
+                # ``font.color.type`` as the "is anything set?" probe
+                # instead; ``None`` means no explicit colour, scheme /
+                # RGB / preset / system means leave it alone.
+                try:
+                    color_type = font.color.type
+                except AttributeError:
+                    color_type = None
+                if color_type is None:
+                    font.color.rgb = rgb
+
+        for paragraph in self.paragraphs:
+            # The paragraph-level Font controls run defaults via
+            # `a:defRPr`; setting it here gives a baseline that empty
+            # paragraphs inherit, while the per-run pass below
+            # overwrites any already-set run-level properties.
+            _apply_to_font(paragraph.font)
+            for run in paragraph.runs:
+                _apply_to_font(run.font)
+
     @property
     def vertical_anchor(self) -> MSO_VERTICAL_ANCHOR | None:
         """Represents the vertical alignment of text in this text frame.

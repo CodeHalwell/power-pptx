@@ -15,7 +15,6 @@ from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches, Pt
 
 from _lint import lint_or_die
-from _tokens import BRAND
 
 HERE = Path(__file__).parent
 

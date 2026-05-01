@@ -1,5 +1,22 @@
 # Animations (Phase 5)
 
+> ⚠️ **Experimental — playback is currently broken in PowerPoint.**
+>
+> `power_pptx.animation` round-trips cleanly through the OOXML schema
+> and reads back via the introspection API, but in PowerPoint
+> slideshow mode animated shapes sit at 10–15% opacity for several
+> seconds and then snap to fully visible all at once. LibreOffice
+> renders the animation correctly when converting to PDF. Until
+> this is resolved, **do not generate `power_pptx.animation` calls
+> in production decks** — use slide [transitions](transitions.md)
+> instead, which round-trip and play correctly. See
+> `IMPROVEMENT_PLAN.md` (item 1) for the diagnostic plan.
+>
+> Slides that combine entrance animations with a Morph transition
+> can additionally trigger PowerPoint's "Repair?" dialog on open.
+> If you need to demo the API, generate a deck with animations
+> *or* a deck with Morph, never both on the same slide.
+
 `power_pptx.animation` ships a preset-only API that maps directly onto
 PowerPoint's built-in animation library. All generated XML is valid
 OOXML and round-trips through PowerPoint without loss.

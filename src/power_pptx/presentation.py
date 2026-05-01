@@ -230,6 +230,7 @@ class Presentation(PartElementProxy):
         duration: int | None = cast(int, _UNSET),
         advance_on_click: bool | None = cast(bool, _UNSET),
         advance_after: int | None = cast(int, _UNSET),
+        force: bool = False,
     ) -> None:
         """Apply a transition to every slide in this presentation.
 
@@ -251,11 +252,43 @@ class Presentation(PartElementProxy):
         (restoring inheritance/defaults).  Passing ``duration=None``,
         ``advance_on_click=None``, or ``advance_after=None`` clears that
         individual attribute on every slide.
+
+        Per-slide overrides are preserved by default
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        When ``kind`` is supplied, slides that already have an explicit
+        transition kind are **left untouched** — the deck-wide call no
+        longer silently clobbers an earlier ``slide.transition.kind = …``.
+        This is the historical footgun that prompted item 2 in
+        ``IMPROVEMENT_PLAN.md``.  To restore the old "force every slide to
+        match" behaviour, pass ``force=True``::
+
+            slide_2.transition.kind = MSO_TRANSITION_TYPE.MORPH
+            prs.set_transition(MSO_TRANSITION_TYPE.FADE)              # slide 2 keeps MORPH
+            prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # slide 2 → FADE
+
+        ``duration``, ``advance_on_click``, and ``advance_after`` are
+        always applied to every slide regardless of ``force``; only
+        ``kind`` participates in the override-preservation behaviour.
         """
         for slide in self.slides:
             transition = slide.transition
             if kind is not _UNSET:
-                transition.kind = kind
+                # Skip slides that already have an explicit kind unless
+                # the caller has opted in to force-overwrite.  The
+                # ``transition.kind`` getter returns ``None`` only when
+                # no ``<p:transition>`` element is present.  An explicit
+                # ``<p:transition/>`` reads back as
+                # ``MSO_TRANSITION_TYPE.NONE`` and counts as an existing
+                # explicit choice (the slide author asked for "no
+                # transition"), so it is preserved unless ``force=True``.
+                #
+                # ``kind=None`` on the caller side means "clear" — apply
+                # unconditionally so callers can still wipe the
+                # transition off every slide in one call without an
+                # explicit ``force=True``.
+                if kind is None or transition.kind is None or force:
+                    transition.kind = kind
             if duration is not _UNSET:
                 transition.duration = duration
             if advance_on_click is not _UNSET:

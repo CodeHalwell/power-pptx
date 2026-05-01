@@ -128,7 +128,7 @@ class FillFormat(object):
 
     _GRADIENT_KINDS = ("linear", "radial", "rectangular", "shape")
 
-    def gradient(self, kind: str = "linear"):
+    def gradient(self, kind: str = "linear", *, angle: float | None = None):
         """Sets the fill type to gradient.
 
         If the fill is not already a gradient, a default gradient is added.
@@ -151,11 +151,21 @@ class FillFormat(object):
         gradient stops are preserved; only the path/lin shading element is
         swapped out. Invalid `kind` values raise ``ValueError`` *before*
         any fill mutation, leaving the existing fill untouched.
+
+        The optional ``angle`` keyword sets ``gradient_angle`` after the
+        fill has been initialized — symmetric with
+        :meth:`linear_gradient`'s ``angle=`` parameter.  Only meaningful
+        for ``kind="linear"``; passing it with a non-linear ``kind`` is
+        a :class:`ValueError`.
         """
         if kind not in self._GRADIENT_KINDS:
             raise ValueError(
                 "gradient kind must be one of %r; got %r"
                 % (self._GRADIENT_KINDS, kind)
+            )
+        if angle is not None and kind != "linear":
+            raise ValueError(
+                "angle= is only valid for kind='linear'; got kind=%r" % kind
             )
         gradFill = self._xPr.get_or_change_to_gradFill()
         if kind != "linear":
@@ -164,6 +174,8 @@ class FillFormat(object):
             # convert an existing radial/rectangular/shape gradient back to linear
             gradFill.change_to_kind("linear")
         self._fill = _GradFill(gradFill)
+        if angle is not None:
+            self.gradient_angle = float(angle)
 
     @property
     def gradient_angle(self):

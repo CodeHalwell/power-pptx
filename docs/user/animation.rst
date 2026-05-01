@@ -3,6 +3,23 @@
 Animations
 ==========
 
+.. warning::
+
+   **Experimental — playback is currently broken in PowerPoint.**
+   Animation timing XML produced by this module round-trips through
+   the OOXML schema and reads back correctly via the introspection
+   API, but in PowerPoint slideshow mode animated shapes sit at
+   10–15% opacity for several seconds and then snap to fully visible
+   all at once instead of playing the requested animation.
+   LibreOffice renders the animation correctly when converting to
+   PDF.  Slides that combine entrance animations with a Morph
+   transition can additionally trigger PowerPoint's "Repair?" dialog
+   on open.
+
+   Until this is resolved, prefer slide :doc:`transitions <transitions>`
+   (which round-trip and play correctly) over animations.  See
+   ``IMPROVEMENT_PLAN.md`` (item 1) for the diagnostic plan.
+
 |pp| ships a preset-only animation API that maps directly onto
 PowerPoint's built-in animation library.  All generated XML is valid OOXML
 and round-trips through PowerPoint without loss.  Animations authored in

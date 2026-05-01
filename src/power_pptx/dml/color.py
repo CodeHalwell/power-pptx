@@ -85,8 +85,19 @@ class ColorFormat(object):
 
     @rgb.setter
     def rgb(self, rgb):
+        # Accept any documented "color-like" value (RGBColor, '#RRGGBB' hex
+        # string with or without '#', or 3-tuple of ints).  Historically
+        # this setter required RGBColor — leaving callers with a category
+        # of "did the wrong source surface accept hex?" footgun.
+        from power_pptx._color import coerce_color
+
         if not isinstance(rgb, RGBColor):
-            raise ValueError("assigned value must be type RGBColor")
+            try:
+                rgb = coerce_color(rgb)
+            except (TypeError, ValueError) as exc:
+                # Preserve the historical exception type for callers that
+                # caught ValueError.
+                raise ValueError(str(exc)) from exc
         # change to rgb color format if not already
         if not isinstance(self._color, _SRgbColor):
             srgbClr = self._xFill.get_or_change_to_srgbClr()
@@ -203,7 +214,9 @@ class _LazyColorFormat(ColorFormat):
         return cf.rgb if cf is not None else None
 
     @rgb.setter
-    def rgb(self, value: RGBColor):
+    def rgb(self, value: "RGBColor | str | tuple[int, int, int]"):
+        # The downstream ColorFormat.rgb setter accepts color-like values
+        # (hex strings, 3-tuples, or RGBColor); pass through unchanged.
         self._ensure_solid().rgb = value
 
     @property
@@ -410,7 +423,7 @@ class _SRgbColor(_Color):
         |RGBColor| value of this color, corresponding to the value in the
         required ``val`` attribute of the ``<a:srgbColr>`` element.
         """
-        return RGBColor.from_string(self._srgbClr.val)
+        return RGBColor.from_hex(self._srgbClr.val)
 
     @rgb.setter
     def rgb(self, rgb):
@@ -451,13 +464,32 @@ class RGBColor(tuple):
         """
         if hex_str.startswith("#"):
             hex_str = hex_str[1:]
-        return cls.from_string(hex_str)
+        # Call the underlying parser directly to avoid the
+        # ``DeprecationWarning`` emitted by ``from_string``.
+        r = int(hex_str[:2], 16)
+        g = int(hex_str[2:4], 16)
+        b = int(hex_str[4:], 16)
+        return cls(r, g, b)
 
     @classmethod
     def from_string(cls, rgb_hex_str):
+        """Return a new instance from an RGB color hex string like ``'3C2F80'``.
+
+        .. deprecated::
+            Prefer :meth:`from_hex` (which accepts hex with or without a
+            leading ``'#'``) for new code.  ``from_string`` will be
+            removed in a future major release; until then it emits a
+            :class:`DeprecationWarning` on call.
         """
-        Return a new instance from an RGB color hex string like ``'3C2F80'``.
-        """
+        import warnings
+
+        warnings.warn(
+            "RGBColor.from_string is deprecated and will be removed in a "
+            "future major release; use RGBColor.from_hex (which accepts "
+            "hex strings with or without a leading '#') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         r = int(rgb_hex_str[:2], 16)
         g = int(rgb_hex_str[2:4], 16)
         b = int(rgb_hex_str[4:], 16)
