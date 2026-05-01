@@ -26,7 +26,7 @@ sys.path.insert(0, str(HERE))
 
 from power_pptx.animation import Entrance, Trigger
 from power_pptx.chart.data import CategoryChartData
-from power_pptx.design.recipes import kpi_slide, quote_slide
+from power_pptx.design.recipes import kpi_slide
 from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import MSO_SHAPE

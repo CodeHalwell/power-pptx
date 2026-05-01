@@ -34,12 +34,17 @@ def new_deck() -> Presentation:
 
 
 def lint_or_die(prs: Presentation) -> None:
-    """Auto-fix what we can, raise on remaining errors."""
-    for slide in prs.slides:
-        slide.lint().auto_fix()
+    """Auto-fix what we can, raise on remaining errors.
+
+    ``SlideLintReport.auto_fix()`` refreshes ``report.issues`` in place,
+    so a single lint pass per slide is enough — no second ``slide.lint()``
+    call needed to collect the residual punch list.
+    """
     errors: list[str] = []
     for i, slide in enumerate(prs.slides):
-        for issue in slide.lint().issues:
+        report = slide.lint()
+        report.auto_fix()
+        for issue in report.issues:
             if issue.severity is LintSeverity.ERROR:
                 errors.append(f"slide {i + 1}: {issue}")
     if errors:

@@ -147,16 +147,13 @@ def _strategic_rationale(prs) -> None:
 
     pillars = [
         ("Portfolio",
-         "Closes a $400M revenue gap in advanced composites and lifts portfolio margin by 60 bps.",
-         "PALETTE 0"),
+         "Closes a $400M revenue gap in advanced composites and lifts portfolio margin by 60 bps."),
         ("Channel",
-         "Tier-1 aerospace OEM relationships unlock cross-sell of our existing alloy portfolio.",
-         "PALETTE 1"),
+         "Tier-1 aerospace OEM relationships unlock cross-sell of our existing alloy portfolio."),
         ("Talent",
-         "Inherits a 230-person R&D bench specialised in carbon-fibre process engineering.",
-         "PALETTE 2"),
+         "Inherits a 230-person R&D bench specialised in carbon-fibre process engineering."),
     ]
-    for i, (head, body, _) in enumerate(pillars):
+    for i, (head, body) in enumerate(pillars):
         left = 0.6 + i * 4.2
         card = styled_card(slide, left, 1.85, 4.05, 4.7,
                            tokens=TOKENS, fill_hex="#FFFFFF",
