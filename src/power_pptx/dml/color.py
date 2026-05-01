@@ -446,7 +446,8 @@ class RGBColor(tuple):
         """Return a new instance from an RGB hex string, with or without a leading ``'#'``.
 
         Accepts both ``'#3C2F80'`` and ``'3C2F80'``. Prefer this over
-        :meth:`from_string` for new code; ``from_string`` will be removed in 2.0.
+        :meth:`from_string` for new code; ``from_string`` is slated for
+        removal in a future major release.
         """
         if hex_str.startswith("#"):
             hex_str = hex_str[1:]

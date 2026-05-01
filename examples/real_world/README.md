@@ -61,9 +61,11 @@ chapters of the user guide:
   for status / delta columns, and `Cell.borders` for separators.
 - **Visual effects** — shadow, gradient fills, alpha-tinted glass
   cards on cover and closing slides.
-- **Animations & transitions** — sequenced reveals, fade /
-  Morph transitions, and timed "big idea" reveals on the product
-  launch and marketing campaign decks.
+- **Transitions** — deck-wide fade with a per-slide Morph
+  override on the "INTRODUCING ATLAS 4.0" and "THE BIG IDEA"
+  reveal slides in the product launch and marketing campaign decks. Entrance
+  animations are intentionally not exercised here — they are still
+  experimental and may not play correctly in PowerPoint.
 
 ## Files
 
