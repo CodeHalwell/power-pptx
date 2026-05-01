@@ -62,8 +62,8 @@ chapters of the user guide:
 - **Visual effects** — shadow, gradient fills, alpha-tinted glass
   cards on cover and closing slides.
 - **Transitions** — deck-wide fade with a per-slide Morph
-  override on the "Introducing Atlas" and "Big idea" reveal slides
-  in the product launch and marketing campaign decks. Entrance
+  override on the "INTRODUCING ATLAS 4.0" and "THE BIG IDEA"
+  reveal slides in the product launch and marketing campaign decks. Entrance
   animations are intentionally not exercised here — they are still
   experimental and may not play correctly in PowerPoint.
 

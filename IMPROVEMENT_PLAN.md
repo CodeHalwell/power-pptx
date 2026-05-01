@@ -247,7 +247,7 @@ edits:
 - **Common pitfalls section in `SKILL.md`** — add:
   - "Use `RGBColor.from_hex(value)`, not
     `from_string(value)`. The latter does not strip `#` and
-    is removed in 2.0."
+    is slated for removal in a future major release."
   - "Cards holding more than ~5 lines of body text should
     set `text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`
     immediately after writing the text. The lint heuristic
@@ -266,10 +266,16 @@ edits:
 
 ### 15. Mark deprecations more loudly
 
-`RGBColor.from_string`'s docstring says "removed in 2.0"
-but the function is still the path most snippets reach
-for. Add a `DeprecationWarning` so users get a runtime
-nudge.
+`RGBColor.from_string`'s docstring still references a
+removal target ("removed in 2.0") that the project has
+already passed (currently at 2.4.0), and the function is
+the path most snippets reach for. Two fixes ship together:
+
+1. Update the docstring to reference a future major release
+   (or drop the specific version), so it stops misleading
+   readers.
+2. Add a `DeprecationWarning` on call so users get a runtime
+   nudge, not just a docstring.
 
 ### 16. CI hygiene for `examples/`
 
