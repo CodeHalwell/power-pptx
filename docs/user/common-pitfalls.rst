@@ -29,8 +29,8 @@ progress in ``IMPROVEMENT_PLAN.md`` (item 1).
 Color values: hex strings, RGBColor, or 3-tuples
 ------------------------------------------------
 
-As of 2.5, every public color-accepting setter accepts the same
-"color-like" inputs:
+Every public color-accepting setter accepts the same "color-like"
+inputs:
 
 * :class:`~power_pptx.dml.color.RGBColor`,
 * a 6-digit hex string with or without ``"#"`` (``"#06D6FE"`` or
@@ -63,9 +63,9 @@ naturally and is the supported path::
 Transitions: ``set_transition`` preserves per-slide overrides
 -------------------------------------------------------------
 
-As of 2.5, ``prs.set_transition(kind=…)`` skips slides that already
-have an explicit per-slide transition kind, instead of silently
-overwriting them.  The previous behaviour was a footgun — code like::
+``prs.set_transition(kind=…)`` skips slides that already have an
+explicit per-slide transition kind, instead of silently overwriting
+them.  The previous behaviour was a footgun — code like::
 
     slide_2.transition.kind = MSO_TRANSITION_TYPE.MORPH
     prs.set_transition(MSO_TRANSITION_TYPE.FADE)
@@ -190,7 +190,6 @@ OffGridDrift tolerance is 0.05"
 -------------------------------
 
 The default off-grid drift tolerance was relaxed from 0.01" to 0.05"
-in 2.7 (IMPROVEMENT_PLAN item 10).  An ``Inches(0.6)`` divider next
-to an ``Inches(0.62)`` eyebrow no longer lights up a warning on
-section headers.  Genuine drift between 0.05" and 0.10" is still
-flagged.
+(IMPROVEMENT_PLAN item 10).  An ``Inches(0.6)`` divider next to an
+``Inches(0.62)`` eyebrow no longer lights up a warning on section
+headers.  Genuine drift between 0.05" and 0.10" is still flagged.

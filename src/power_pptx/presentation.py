@@ -276,18 +276,18 @@ class Presentation(PartElementProxy):
             if kind is not _UNSET:
                 # Skip slides that already have an explicit kind unless
                 # the caller has opted in to force-overwrite.  The
-                # ``transition.kind`` getter returns ``None`` when no
-                # ``<p:transition>`` element is present *and*
-                # ``MSO_TRANSITION_TYPE.NONE`` for an explicit no-op
-                # transition; either way, "no explicit choice has been
-                # made" reads back as ``None`` so slides that have not
-                # been customised still receive the deck-wide default.
+                # ``transition.kind`` getter returns ``None`` only when
+                # no ``<p:transition>`` element is present.  An explicit
+                # ``<p:transition/>`` reads back as
+                # ``MSO_TRANSITION_TYPE.NONE`` and counts as an existing
+                # explicit choice (the slide author asked for "no
+                # transition"), so it is preserved unless ``force=True``.
                 #
-                # ``kind=None`` means "clear" — apply unconditionally so
-                # callers can still wipe the transition off every slide
-                # in one call without an explicit ``force=True``.
-                existing = transition.kind
-                if kind is None or existing is None or force:
+                # ``kind=None`` on the caller side means "clear" — apply
+                # unconditionally so callers can still wipe the
+                # transition off every slide in one call without an
+                # explicit ``force=True``.
+                if kind is None or transition.kind is None or force:
                     transition.kind = kind
             if duration is not _UNSET:
                 transition.duration = duration

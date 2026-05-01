@@ -18,8 +18,11 @@
    only.  See ``IMPROVEMENT_PLAN.md`` (item 1) for the diagnostic plan.
 
 Exposes entrance, exit, and emphasis preset animations that map to
-PowerPoint's built-in animation library.  All generated XML is valid
-OOXML and round-trips through PowerPoint without loss.
+PowerPoint's built-in animation library.  Generated XML is valid
+OOXML and persists/reads back correctly at the XML level via the
+introspection API — but that is a *schema-validity* guarantee, not a
+guarantee of PowerPoint open/save round-tripping or slideshow
+playback (see the warning above).
 
 Typical usage::
 

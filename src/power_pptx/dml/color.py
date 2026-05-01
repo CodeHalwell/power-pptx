@@ -214,7 +214,7 @@ class _LazyColorFormat(ColorFormat):
         return cf.rgb if cf is not None else None
 
     @rgb.setter
-    def rgb(self, value: RGBColor):
+    def rgb(self, value: "RGBColor | str | tuple[int, int, int]"):
         # The downstream ColorFormat.rgb setter accepts color-like values
         # (hex strings, 3-tuples, or RGBColor); pass through unchanged.
         self._ensure_solid().rgb = value

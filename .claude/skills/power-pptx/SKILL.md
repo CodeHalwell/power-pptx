@@ -183,7 +183,7 @@ prs.save("out.pptx")
 - **Use `RGBColor.from_hex(value)`, not `from_string(value)`.** The
   latter does not strip a leading `#` and now emits a
   `DeprecationWarning`; it will be removed in a future major release.
-  As of 2.5+, every public color-accepting setter
+  Every public color-accepting setter
   (`shape.fill.fore_color.rgb`, `chart.text_color`, `linear_gradient`,
   `gradient`, etc.) accepts hex strings (with or without `#`),
   `RGBColor`, and 3-tuples interchangeably.

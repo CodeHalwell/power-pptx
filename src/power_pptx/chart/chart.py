@@ -203,8 +203,9 @@ class Chart(PartElementProxy):
             rgb = coerce_color(value)
         except (TypeError, ValueError) as exc:
             raise TypeError(
-                "text_color must be RGBColor, '#RRGGBB' string, or (r, g, b) "
-                f"tuple; got {type(value).__name__}: {exc}"
+                "text_color must be RGBColor, 6-digit hex string with or "
+                "without '#', or (r, g, b) tuple; got "
+                f"{type(value).__name__}: {exc}"
             ) from exc
 
         # 1. Chart-wide default text properties (c:chartSpace/c:txPr).

@@ -127,6 +127,25 @@ class DescribePresentation(object):
         for slide_ in slides_:
             assert slide_.transition.kind == MSO_TRANSITION_TYPE.FADE
 
+    def it_treats_an_explicit_NONE_transition_as_a_per_slide_override(
+        self, set_transition_fixture
+    ):
+        # Regression for Copilot review on PR #27: an explicit
+        # ``<p:transition/>`` element reads back as
+        # ``MSO_TRANSITION_TYPE.NONE``, which is meaningfully different
+        # from "no element at all" (the slide author asked for "no
+        # transition", not "use the theme default").  ``set_transition``
+        # must treat NONE as an existing explicit choice and preserve
+        # it by default, only overwriting under ``force=True``.
+        prs, slides_, _kind = set_transition_fixture
+        slides_[1].transition.kind = MSO_TRANSITION_TYPE.NONE
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE)
+
+        assert slides_[0].transition.kind == MSO_TRANSITION_TYPE.FADE
+        assert slides_[1].transition.kind == MSO_TRANSITION_TYPE.NONE
+        assert slides_[2].transition.kind == MSO_TRANSITION_TYPE.FADE
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture

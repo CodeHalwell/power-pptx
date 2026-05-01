@@ -51,13 +51,19 @@ def coerce_color(value: Any) -> RGBColor:
         except ValueError as exc:
             raise ValueError("invalid color hex string %r: %s" % (value, exc)) from exc
     if isinstance(value, (tuple, list)) and len(value) == 3:
-        try:
-            r, g, b = (int(c) for c in value)
-        except (TypeError, ValueError) as exc:
-            raise TypeError(
-                "color 3-tuple must contain integers in [0, 255]; got %r" % (value,)
-            ) from exc
-        return RGBColor(r, g, b)
+        # Reject floats, numeric strings, and bools rather than
+        # silently coercing via ``int()`` — the documented contract is
+        # "3-tuple of int", and the previous ``RGBColor(*value)`` path
+        # rejected non-int inputs too.  ``bool`` is a subclass of
+        # ``int`` in Python, so guard explicitly so ``(True, False,
+        # True)`` doesn't silently resolve to ``RGBColor(1, 0, 1)``.
+        for c in value:
+            if not isinstance(c, int) or isinstance(c, bool):
+                raise TypeError(
+                    "color 3-tuple must contain ints in [0, 255]; got %r"
+                    % (value,)
+                )
+        return RGBColor(value[0], value[1], value[2])
     raise TypeError(
         "expected a color-like value (RGBColor, '#RRGGBB' hex string, "
         "or 3-tuple of ints); got %r" % (value,)

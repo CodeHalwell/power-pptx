@@ -412,9 +412,9 @@ class Slide(_BaseSlide):
 
         When *name* is supplied it is used verbatim (matching
         :meth:`lint_group`).  Otherwise a name of the form
-        ``"design-group-N"`` is chosen, where ``N`` is the smallest
-        non-negative integer that doesn't already appear as a
-        ``lint_group`` tag on this slide.
+        ``"design-group-N"`` is chosen, where ``N`` starts at 1 and
+        increments to the smallest positive integer that doesn't
+        already appear as a ``lint_group`` tag on this slide.
         """
         if not shapes:
             raise ValueError(

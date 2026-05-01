@@ -2,10 +2,10 @@
 
 > ℹ️ **Per-slide overrides are preserved across `set_transition`**
 >
-> As of 2.5, `prs.set_transition(kind=…)` skips slides that already
-> have an explicit per-slide transition kind, instead of silently
-> overwriting them. Either order now works — set the per-slide
-> override before *or* after the deck-wide call:
+> `prs.set_transition(kind=…)` skips slides that already have an
+> explicit per-slide transition kind, instead of silently overwriting
+> them. Either order now works — set the per-slide override before
+> *or* after the deck-wide call:
 >
 > ```python
 > slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH       # before
