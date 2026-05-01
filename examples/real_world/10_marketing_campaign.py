@@ -24,7 +24,6 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-from power_pptx.animation import Entrance, Trigger
 from power_pptx.chart.data import CategoryChartData
 from power_pptx.design.recipes import kpi_slide
 from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
@@ -211,8 +210,6 @@ def _big_idea(prs):
     tf.paragraphs[0].font.color.rgb = hex_rgb("#FFFFFF")
     tf.paragraphs[0].font.color.alpha = 0.92
 
-    Entrance.fade(slide, head)
-    Entrance.fade(slide, sub, trigger=Trigger.AFTER_PREVIOUS)
     # Caller applies the Morph override AFTER the deck-wide set_transition.
     return slide
 

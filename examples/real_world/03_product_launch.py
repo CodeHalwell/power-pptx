@@ -24,7 +24,6 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-from power_pptx.animation import Entrance, Trigger
 from power_pptx.chart.data import CategoryChartData
 from power_pptx.design.recipes import kpi_slide, quote_slide
 from power_pptx.enum.chart import XL_CHART_TYPE
@@ -239,10 +238,6 @@ def _introducing(prs):
         p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
         px += 3.0
 
-    # Sequenced entrance for cinematic feel
-    with slide.animations.sequence():
-        Entrance.fade(slide, title, trigger=Trigger.WITH_PREVIOUS)
-        Entrance.fade(slide, sub)
     # Caller applies the Morph override AFTER the deck-wide set_transition.
     return slide
 
@@ -331,7 +326,6 @@ def _benchmarks(prs) -> None:
     chart.apply_quick_layout("title_legend_bottom")
     chart.chart_title.text_frame.text = "Atlas 4.0 — measured improvements"
 
-    Entrance.fade(slide, chart_shape)
     footer(slide, FOOTER, "6", TOKENS)
 
 
