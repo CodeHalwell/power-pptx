@@ -79,6 +79,7 @@ User Guide
    user/design
    user/charts-advanced
    user/render
+   user/common-pitfalls
 
 
 Community Guide

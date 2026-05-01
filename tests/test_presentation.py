@@ -103,6 +103,30 @@ class DescribePresentation(object):
         for slide_ in slides_:
             assert slide_.transition.kind is None
 
+    def it_preserves_per_slide_overrides_by_default(self, set_transition_fixture):
+        # Regression for IMPROVEMENT_PLAN.md item 2: a per-slide
+        # ``slide.transition.kind = …`` followed by a deck-wide
+        # ``prs.set_transition(kind=…)`` historically clobbered the
+        # explicit per-slide value.  The new default skips slides that
+        # have already been customised.
+        prs, slides_, _kind = set_transition_fixture
+        slides_[1].transition.kind = MSO_TRANSITION_TYPE.MORPH
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE)
+
+        assert slides_[0].transition.kind == MSO_TRANSITION_TYPE.FADE
+        assert slides_[1].transition.kind == MSO_TRANSITION_TYPE.MORPH
+        assert slides_[2].transition.kind == MSO_TRANSITION_TYPE.FADE
+
+    def it_overwrites_per_slide_overrides_with_force(self, set_transition_fixture):
+        prs, slides_, _kind = set_transition_fixture
+        slides_[1].transition.kind = MSO_TRANSITION_TYPE.MORPH
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)
+
+        for slide_ in slides_:
+            assert slide_.transition.kind == MSO_TRANSITION_TYPE.FADE
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture

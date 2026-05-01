@@ -149,6 +149,24 @@ class DescribeApplyQuickLayout:
 
         assert chart.legend.position == XL_LEGEND_POSITION.BOTTOM
 
+    def it_accepts_legend_position_as_lowercase_string(self):
+        # Regression for IMPROVEMENT_PLAN.md item 3: ``legend_position``
+        # used to require the enum and crashed on the lowercase string
+        # form that the reference docs documented.
+        chart = _make_column_chart()
+
+        apply_quick_layout(chart, {"has_legend": True, "legend_position": "bottom"})
+
+        assert chart.legend.position == XL_LEGEND_POSITION.BOTTOM
+
+    def it_rejects_unknown_legend_position_strings(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(ValueError, match="legend_position string must be one of"):
+            apply_quick_layout(
+                chart, {"has_legend": True, "legend_position": "diagonal"}
+            )
+
 
 class DescribeLayoutNames:
     def it_returns_all_built_in_names(self):

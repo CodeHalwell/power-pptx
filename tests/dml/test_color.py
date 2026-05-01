@@ -51,10 +51,25 @@ class DescribeColorFormat(object):
         color_format.rgb = rgb_color
         assert color_format._xFill.xml == expected_xml
 
-    def it_raises_on_assign_non_RGBColor_type_to_rgb(self, rgb_color_format):
-        color_format = rgb_color_format
+    def it_accepts_color_like_values_for_rgb(self, rgb_color_format):
+        # IMPROVEMENT_PLAN.md item 5: ``ColorFormat.rgb`` accepts every
+        # documented "color-like" value — RGBColor, hex string with or
+        # without ``#``, and 3-tuple of ints — for parity with the rest
+        # of the public color-accepting setters.
+        from power_pptx.dml.color import RGBColor
+
+        rgb_color_format.rgb = (0x12, 0x34, 0x56)
+        assert rgb_color_format.rgb == RGBColor(0x12, 0x34, 0x56)
+        rgb_color_format.rgb = "#789ABC"
+        assert rgb_color_format.rgb == RGBColor(0x78, 0x9A, 0xBC)
+        rgb_color_format.rgb = "DEF012"
+        assert rgb_color_format.rgb == RGBColor(0xDE, 0xF0, 0x12)
+
+    def it_raises_on_assign_invalid_value_to_rgb(self, rgb_color_format):
         with pytest.raises(ValueError):
-            color_format.rgb = (0x12, 0x34, 0x56)
+            rgb_color_format.rgb = "not-a-color"
+        with pytest.raises(ValueError):
+            rgb_color_format.rgb = object()
 
     def it_can_set_itself_to_a_theme_color(self, set_theme_color_fixture_):
         color_format, theme_color, expected_xml = set_theme_color_fixture_
@@ -310,8 +325,22 @@ class DescribeRGBColor(object):
             RGBColor(12, 256, 56)
 
     def it_can_construct_from_a_hex_string_rgb_value(self):
-        rgb = RGBColor.from_string("123456")
+        # ``from_string`` is deprecated; suppress the warning so the parser
+        # behaviour test still passes under -W error.
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            rgb = RGBColor.from_string("123456")
         assert rgb == RGBColor(0x12, 0x34, 0x56)
+
+    def it_emits_DeprecationWarning_from_from_string(self):
+        with pytest.warns(DeprecationWarning, match="from_hex"):
+            RGBColor.from_string("123456")
+
+    def it_can_construct_from_a_hex_string_with_or_without_hash(self):
+        assert RGBColor.from_hex("#123456") == RGBColor(0x12, 0x34, 0x56)
+        assert RGBColor.from_hex("123456") == RGBColor(0x12, 0x34, 0x56)
 
     def it_can_provide_a_hex_string_rgb_value(self):
         assert str(RGBColor(0x12, 0x34, 0x56)) == "123456"

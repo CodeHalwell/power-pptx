@@ -395,6 +395,44 @@ class Slide(_BaseSlide):
         for shape in shapes:
             shape.lint_group = name
 
+    def lint_group_overlaps(self, *shapes, name: str | None = None) -> str:
+        """Tag *shapes* as a co-overlapping design group, returning the group name.
+
+        Convenience over :meth:`lint_group` that also auto-generates a
+        unique-on-the-slide group name when one isn't supplied, so
+        callers don't have to invent ``"kpi-card-1"`` / ``"kpi-card-2"``
+        labels by hand.  Inspired by IMPROVEMENT_PLAN.md item 12 — the
+        single-line equivalent of:
+
+            slide.lint_group(f"design-group-{n}", *shapes)
+
+        Example::
+
+            slide.lint_group_overlaps(card, accent_bar, label, value)
+
+        When *name* is supplied it is used verbatim (matching
+        :meth:`lint_group`).  Otherwise a name of the form
+        ``"design-group-N"`` is chosen, where ``N`` is the smallest
+        non-negative integer that doesn't already appear as a
+        ``lint_group`` tag on this slide.
+        """
+        if not shapes:
+            raise ValueError(
+                "lint_group_overlaps requires at least one shape; got 0"
+            )
+        if name is None:
+            existing = {
+                getattr(s, "lint_group", None)
+                for s in self.shapes
+            } - {None, ""}
+            n = 1
+            while f"design-group-{n}" in existing:
+                n += 1
+            name = f"design-group-{n}"
+        for shape in shapes:
+            shape.lint_group = name
+        return name
+
     @contextmanager
     def design_group(self, name: str):
         """Context manager that auto-tags shapes added inside the block.

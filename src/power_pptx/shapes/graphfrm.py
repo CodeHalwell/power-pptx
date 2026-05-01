@@ -53,7 +53,12 @@ class GraphicFrame(BaseShape):
         """
         if not self.has_chart:
             raise ValueError("shape does not contain a chart")
-        return self.chart_part.chart
+        chart = self.chart_part.chart
+        # Cache the parent shape ref on the chart so callers can reach
+        # back to the GraphicFrame without keeping the ``add_chart``
+        # return value around.  ``Chart.shape`` reads this attribute.
+        chart._parent_shape = self  # type: ignore[attr-defined]
+        return chart
 
     @property
     def chart_part(self) -> ChartPart:

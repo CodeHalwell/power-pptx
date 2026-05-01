@@ -18,9 +18,41 @@ from power_pptx.util import lazyproperty
 class Chart(PartElementProxy):
     """A chart object."""
 
+    # Set by ``GraphicFrame.chart`` so callers can navigate back to the
+    # parent shape without keeping the ``add_chart`` return value
+    # around.  Lives on the class so mocks spec'd against ``Chart``
+    # (e.g. ``instance_mock(request, Chart)``) see it; the per-instance
+    # write in ``GraphicFrame.chart`` shadows the class default.
+    _parent_shape = None
+
     def __init__(self, chartSpace, chart_part):
         super(Chart, self).__init__(chartSpace, chart_part)
         self._chartSpace = chartSpace
+
+    @property
+    def shape(self):
+        """The :class:`GraphicFrame` shape that contains this chart.
+
+        Raises :class:`ValueError` when the chart was reached via a path
+        that did not flow through a graphic frame (e.g. constructed
+        directly from a chart part).  In normal use — chart returned by
+        ``slide.shapes.add_chart(...).chart`` or by iterating
+        ``slide.shapes`` — the parent shape is cached on first access.
+
+        This is the canonical accessor for animating, measuring, or
+        styling a chart's parent shape; reach for it instead of
+        ``chart.element.getparent().getparent()`` or keeping the
+        ``add_chart`` return value separately.
+        """
+        if self._parent_shape is None:
+            raise ValueError(
+                "chart.shape is unavailable on this Chart: it was not "
+                "reached through GraphicFrame.chart. Hold onto the "
+                "shape returned by slide.shapes.add_chart(...) (which "
+                "is the GraphicFrame), or fetch the chart through "
+                "slide.shapes[i].chart, to get a usable .shape ref."
+            )
+        return self._parent_shape
 
     @property
     def category_axis(self):
@@ -165,19 +197,15 @@ class Chart(PartElementProxy):
 
     @text_color.setter
     def text_color(self, value):
-        from power_pptx.dml.color import RGBColor
+        from power_pptx._color import coerce_color
 
-        if isinstance(value, str):
-            rgb = RGBColor.from_string(value.lstrip("#"))
-        elif isinstance(value, tuple) and len(value) == 3:
-            rgb = RGBColor(*value)
-        elif isinstance(value, RGBColor):
-            rgb = value
-        else:
+        try:
+            rgb = coerce_color(value)
+        except (TypeError, ValueError) as exc:
             raise TypeError(
                 "text_color must be RGBColor, '#RRGGBB' string, or (r, g, b) "
-                f"tuple; got {type(value).__name__}"
-            )
+                f"tuple; got {type(value).__name__}: {exc}"
+            ) from exc
 
         # 1. Chart-wide default text properties (c:chartSpace/c:txPr).
         self.font.color.rgb = rgb

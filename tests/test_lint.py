@@ -419,9 +419,11 @@ class DescribeOffGridDrift:
             slide.shapes.add_shape(
                 1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
             )
-        # One drift offender ~0.033" off the column.
+        # One drift offender ~0.07" off the column — must exceed the
+        # tight tolerance (0.05" after IMPROVEMENT_PLAN.md item 10) but
+        # stay under the loose tolerance (0.10").
         drift = slide.shapes.add_shape(
-            1, Inches(6) + 30000, Inches(5), Inches(1), Inches(0.5)
+            1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5)
         )
         return slide, drift
 
@@ -432,6 +434,24 @@ class DescribeOffGridDrift:
         assert any(
             i.shapes[0] == drift and i.axis == "left" for i in issues
         )
+
+    def it_does_not_flag_small_drift_within_tight_tolerance(self):
+        # Regression for IMPROVEMENT_PLAN.md item 10: a drift of ~0.033"
+        # (e.g. Inches(0.6) divider vs Inches(0.62) eyebrow) should be
+        # tolerated.  Before the tolerance change this lit up a warning
+        # on basically every section header.
+        _, slide = _new_blank_slide()
+        for i in range(4):
+            slide.shapes.add_shape(
+                1, Inches(0.6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
+            )
+        # 0.02" off the column — well inside the new 0.05" tolerance.
+        slide.shapes.add_shape(
+            1, Inches(0.62), Inches(5), Inches(1), Inches(0.5)
+        )
+        assert [
+            i for i in slide.lint().issues if isinstance(i, OffGridDrift)
+        ] == []
 
     def it_does_not_flag_shapes_when_there_are_no_3plus_clusters(self):
         _, slide = _new_blank_slide()
@@ -468,6 +488,85 @@ class DescribeOffGridDrift:
         before = list(report.issues)
         report.auto_fix(dry_run=True)
         assert report.issues == before
+
+
+class DescribeAutoFixTextOverflow:
+    """Regression tests for IMPROVEMENT_PLAN.md item 4.
+
+    Before this change, ``auto_fix()`` only handled ``OffSlide`` and
+    ``OffGridDrift``; ``TextOverflow`` was the most common runtime issue
+    when generating decks from dynamic input but the linter detected and
+    refused to act.  ``auto_fix()`` now flips the offending text frame's
+    auto-size to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` so PowerPoint
+    shrinks the runs at render time.
+    """
+
+    def _overflowing_textbox(self):
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+        from power_pptx.lint import TextOverflow
+
+        _, slide = _new_blank_slide()
+        # 1.5" × 0.4" rectangle with ~80 chars at 18pt — way too much.
+        # Autoshapes default to auto_size=None (NONE), unlike add_textbox
+        # which defaults to SHAPE_TO_FIT_TEXT and would silence the lint.
+        box = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(1.5), Inches(0.4)
+        )
+        box.text_frame.text = (
+            "This is a deliberately long string that will not fit "
+            "in this tiny one-inch wide badge text frame."
+        )
+        # Sanity check: the linter should flag this.
+        issues = slide.lint().issues
+        assert any(isinstance(i, TextOverflow) for i in issues)
+        # And the shape should not yet have auto_size set.
+        assert box.text_frame.auto_size in (None, MSO_AUTO_SIZE.NONE)
+        return slide, box
+
+    def it_flips_auto_size_to_TEXT_TO_FIT_SHAPE(self):
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+        from power_pptx.lint import TextOverflow
+
+        slide, box = self._overflowing_textbox()
+        report = slide.lint()
+        fixes = report.auto_fix()
+
+        assert any("TEXT_TO_FIT_SHAPE" in f for f in fixes)
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        # And the issue is gone after the fix.
+        assert [
+            i for i in report.issues if isinstance(i, TextOverflow)
+        ] == []
+
+    def it_skips_frames_that_already_set_auto_size(self):
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        slide, box = self._overflowing_textbox()
+        # Capture the report while auto_size is still NONE so the report
+        # contains the TextOverflow.  Then flip auto_size to
+        # SHAPE_TO_FIT_TEXT manually before running auto_fix to prove
+        # that the fixer respects an explicit per-frame choice.
+        before = slide.lint()
+        box.text_frame.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+
+        fixes = before.auto_fix()
+
+        assert not any("TEXT_TO_FIT_SHAPE" in f for f in fixes)
+        # The explicit author choice is preserved verbatim.
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+
+    def it_supports_dry_run(self):
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        slide, box = self._overflowing_textbox()
+        report = slide.lint()
+
+        fixes = report.auto_fix(dry_run=True)
+
+        assert any("TEXT_TO_FIT_SHAPE" in f for f in fixes)
+        # Nothing should have been mutated.
+        assert box.text_frame.auto_size in (None, MSO_AUTO_SIZE.NONE)
 
 
 class DescribeLowContrast:
@@ -583,16 +682,16 @@ class DescribeReportSummary:
 class DescribeShapeCollisionScoring:
     """Structural-vs-incidental scoring on ``ShapeCollision``."""
 
-    def it_classifies_a_card_on_panel_as_incidental_INFO(self):
-        # Big panel, small card fully inside it.
+    def it_auto_suppresses_a_card_on_panel_layered_design(self):
+        # Big panel, small card fully inside it, smaller drawn on top.
+        # IMPROVEMENT_PLAN.md item 12: this is the canonical
+        # layered-design pattern (badge-on-card, eyebrow-over-rectangle,
+        # accent-bar-on-card) and is auto-suppressed entirely — not
+        # even an INFO issue lands in the report.
         _, slide = _new_blank_slide()
         slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(5), Inches(5))
         slide.shapes.add_shape(1, Inches(2), Inches(2), Inches(1), Inches(1))
-        cs = _collisions(slide)
-        assert len(cs) == 1
-        assert cs[0].kind == "incidental"
-        assert cs[0].severity == LintSeverity.INFO
-        assert 0.0 <= cs[0].score <= 0.5
+        assert _collisions(slide) == []
 
     def it_classifies_two_partially_overlapping_peers_as_partial_WARNING(self):
         # Two same-size rectangles partially overlapping, neither contains

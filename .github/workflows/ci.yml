@@ -34,3 +34,33 @@ jobs:
         run: pytest --cov=power_pptx --cov-report term-missing tests
       - name: Acceptance tests with behave
         run: behave --stop
+
+  examples-lint:
+    # Static-check examples/ for unused imports / undefined names so
+    # PR review bots don't have to chase the same nits across every
+    # example deck (IMPROVEMENT_PLAN item 16).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pyflakes
+        run: pip install pyflakes
+      - name: Static-check examples/
+        run: pyflakes examples/
+
+  examples-build:
+    # Smoke-test the real-world deck suite end-to-end.  These ten
+    # decks combine recipes, design tokens, charts, and the linter,
+    # so a green build proves the public surface didn't regress.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: pip install .
+      - name: Build all real-world decks
+        run: python examples/real_world/build_all.py

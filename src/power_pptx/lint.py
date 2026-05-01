@@ -398,12 +398,18 @@ class SlideLintReport:
           when it triggered multiple OffSlide issues (e.g. left + right).
         * ``OffGridDrift`` — snaps the shape's drifted edge onto the dominant
           grid line (Tier 3 of the auto-fix tier list).
+        * ``TextOverflow`` — flips the offending text frame's auto-size
+          setting to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` so PowerPoint
+          shrinks the runs at render time.  This is a non-destructive
+          fix: the text content is preserved verbatim, only the
+          render-time sizing changes.  Frames that already have a
+          non-NONE auto-size are skipped (they should not have linted
+          in the first place).
 
         Not auto-fixable:
 
         * ``ShapeCollision`` — nudging shapes apart almost always breaks intent;
           tag intentional overlaps with ``shape.lint_group`` to suppress.
-        * ``TextOverflow`` — requires designer judgment on font size / content.
         * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
           ``MasterPlaceholderCollision`` — require designer judgment.
         """
@@ -472,6 +478,29 @@ class SlideLintReport:
                         if new_height != height:
                             shape.height = new_height
                     clamped.add(shape_key)
+
+            elif isinstance(issue, TextOverflow):
+                shape = issue.shapes[0]
+                # Skip silently if the shape no longer has a text frame
+                # (defensive — TextOverflow only fires for has_text_frame).
+                if not getattr(shape, "has_text_frame", False):
+                    continue
+                tf = shape.text_frame  # type: ignore[attr-defined]
+                # Only fix frames whose auto-size hasn't been set yet —
+                # SHAPE_TO_FIT_TEXT or TEXT_TO_FIT_SHAPE owners have made
+                # an explicit choice and shouldn't be silently flipped.
+                if tf.auto_size in (
+                    MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT,
+                    MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE,
+                ):
+                    continue
+                desc = (
+                    f"Set '{shape.name}' text frame auto_size = "
+                    f"TEXT_TO_FIT_SHAPE (estimated {issue.ratio:.1f}× overflow)."
+                )
+                fixes.append(desc)
+                if not dry_run:
+                    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
             elif isinstance(issue, OffGridDrift):
                 shape = issue.shapes[0]
@@ -696,8 +725,17 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     if frame_w <= 0 or frame_h <= 0:
         return issues
 
-    # Approximate character width at the given pt size (very rough: 0.55 × pt)
-    char_w_emu = font_pt * 0.55 * _PT_TO_EMU
+    # Approximate character width at the given pt size.  The base 0.55×
+    # multiplier is a Calibri-ish average across mixed casing, but it
+    # systematically over-estimates short uppercase strings (badge /
+    # pill labels) where every character is an upper-case letter and
+    # there's only one line.  For short single-line strings (≤ 20
+    # chars), use a tighter 0.45× multiplier — see IMPROVEMENT_PLAN
+    # item 11 for the failure case ("MOST POPULAR" pill at 9pt).
+    has_newline = "\n" in text
+    short_single_line = (not has_newline) and len(text) <= 20
+    char_w_pt_mult = 0.45 if short_single_line else 0.55
+    char_w_emu = font_pt * char_w_pt_mult * _PT_TO_EMU
     # Line height ~ 1.2 × font size
     line_h_emu = font_pt * 1.2 * _PT_TO_EMU
 
@@ -1056,6 +1094,31 @@ def _check_collisions(
             if pct < _COLLISION_THRESHOLD:
                 continue
 
+            # Auto-suppress the "small shape stacked on top of a larger
+            # backing card" pattern (badge-on-card, eyebrow-on-rectangle,
+            # accent-bar-on-card).  The combination of (a) the smaller
+            # shape is *strictly* contained inside the larger (size
+            # ratio < 0.9 — equal-bbox pairs are still classified as
+            # ``matched`` so callers can audit them), and (b) the
+            # smaller shape has a higher z-order — i.e. it's drawn
+            # later in spTree (higher index in this iteration) — is the
+            # canonical layered-design layout.  See IMPROVEMENT_PLAN.md
+            # item 12.
+            ai_l, ai_t, ai_r, ai_b = bboxes[i]
+            aj_l, aj_t, aj_r, aj_b = bboxes[j]
+            area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
+            area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
+            size_ratio = min(area_i, area_j) / max(area_i, area_j)
+            if size_ratio < 0.9:
+                if _bbox_contains(bboxes[i], bboxes[j]) and area_j < area_i:
+                    # j is the smaller shape and it's drawn on top of i
+                    # (j > i in spTree order); skip.
+                    continue
+                # Note: ``i contained in j with i < j`` would mean the
+                # smaller shape is *under* the larger one — a
+                # ZOrderAnomaly, not a layered-design pattern — so we
+                # let collision detection proceed.
+
             kind, score = _classify_collision(bboxes[i], bboxes[j], pct)
 
             # Decide whether the inflated bbox is what triggered the
@@ -1123,7 +1186,7 @@ def _check_min_font_size(
 
 # A shape is "on" a grid line if it's within this much of the cluster center
 # (1/100"). Anything further is potential drift.
-_GRID_TIGHT_TOLERANCE_EMU = 9144  # ~0.01"
+_GRID_TIGHT_TOLERANCE_EMU = 45720  # ~0.05" (was 0.01"; see IMPROVEMENT_PLAN item 10)
 # Drift candidates must be within this much of a cluster (else they're just
 # unrelated edges).
 _GRID_LOOSE_TOLERANCE_EMU = 91440  # ~0.10"

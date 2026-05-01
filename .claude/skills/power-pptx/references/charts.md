@@ -96,20 +96,39 @@ chart.apply_quick_layout("dense")
 Custom layouts can be supplied as a dict spec:
 
 ```python
+from power_pptx.enum.chart import XL_LEGEND_POSITION
+
 chart.apply_quick_layout({
     "has_title":       True,
     "title_text":      "ARR ($M)",
     "has_legend":      True,
-    "legend_position": "bottom",
+    "legend_position": XL_LEGEND_POSITION.BOTTOM,  # or the lowercase string "bottom"
     "category_axis":   {"has_major_gridlines": False},
     "value_axis":      {"has_major_gridlines": True,
                         "tick_labels": True},
 })
 ```
 
-Missing keys leave the chart untouched so layouts compose cleanly.
-Charts without category/value axes (e.g. pie) silently skip the
-corresponding keys.
+`legend_position` accepts both the `XL_LEGEND_POSITION` enum and its
+lowercase string name (`"right"`, `"left"`, `"top"`, `"bottom"`,
+`"corner"`). Missing keys leave the chart untouched so layouts
+compose cleanly. Charts without category/value axes (e.g. pie)
+silently skip the corresponding keys.
+
+## Reach the chart's parent shape via `chart.shape`
+
+When you need to animate, position, or measure the *shape* that
+contains the chart (the `GraphicFrame`), use `chart.shape`:
+
+```python
+chart = slide.shapes.add_chart(...).chart   # or `slide.shapes[i].chart`
+chart.shape.left  = Inches(0.5)
+chart.shape.width = Inches(9)
+```
+
+Don't reach for `chart.element.getparent().getparent()` — the parent
+chain bottoms out earlier than you expect. `chart.shape` is the
+canonical accessor.
 
 ## Per-series gradient and pattern fills
 
