@@ -16,14 +16,14 @@ from pathlib import Path
 
 from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData
-from power_pptx.design.layout import Grid, Stack
+from power_pptx.design.layout import Grid
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.util import Inches, Pt
 
-from _brand import SUNSET, SUNSET_CHART_PALETTE
+from _brand import SUNSET
 from _common import lint_or_die
 
 HERE = Path(__file__).parent

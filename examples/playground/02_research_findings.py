@@ -20,16 +20,12 @@ from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData, XyChartData
 from power_pptx.design.layout import Grid
 from power_pptx.dml.color import RGBColor
-from power_pptx.enum.chart import (
-    XL_CHART_TYPE,
-    XL_LABEL_POSITION,
-    XL_LEGEND_POSITION,
-)
+from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.util import Inches, Pt
 
-from _brand import SUNSET, SUNSET_CHART_PALETTE, MIDNIGHT_CHART_PALETTE
+from _brand import SUNSET, SUNSET_CHART_PALETTE
 from _common import lint_or_die
 
 HERE = Path(__file__).parent
@@ -316,7 +312,7 @@ def _donut_with_legend(prs: Presentation) -> None:
     })
     try:
         chart.legend.include_in_layout = False
-    except Exception:
+    except AttributeError:
         pass
 
     # Stat block beside the donut.

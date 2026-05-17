@@ -18,36 +18,16 @@ from pathlib import Path
 
 from power_pptx.compose import from_spec
 
+from _brand import SUNSET_DICT
+
 HERE = Path(__file__).parent
 
 # `from_spec` reads the top-level "tokens" key and resolves it via
 # `DesignTokens.from_dict`. It does NOT accept a `DesignTokens` instance
 # directly (or a `theme` key — that's docs drift; see IMPROVEMENTS.md #8).
-# So we declare the tokens inline as a dict here. We mirror the SUNSET
-# palette in _brand.py for consistency across the playground decks.
-SUNSET_DICT = {
-    "palette": {
-        "primary":    "#E04E39",
-        "accent":     "#F4B860",
-        "neutral":    "#0B132B",
-        "muted":      "#5C677D",
-        "surface":    "#FBF5EC",
-        "background": "#FFFFFF",
-        "on_primary": "#FFFFFF",
-        "positive":   "#2E8B57",
-        "negative":   "#C0392B",
-    },
-    "typography": {
-        "heading": {"family": "DejaVu Serif", "size": 44.0, "bold": True},
-        "body":    {"family": "DejaVu Sans",  "size": 18.0},
-        "caption": {"family": "DejaVu Sans",  "size": 11.0, "italic": True},
-    },
-    "shadows": {
-        "card": {"blur": 22.0, "distance": 6.0, "alpha": 0.16},
-    },
-    "radii":    {"card": 16.0, "button": 8.0},
-    "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
-}
+# We import the same SUNSET_DICT that ``_brand.py`` uses to build the
+# ``DesignTokens`` for the imperative decks, so both paths share one
+# source of truth.
 
 
 SPEC = {

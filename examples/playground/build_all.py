@@ -53,7 +53,8 @@ def _load(name: str):
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
-    THUMBS.mkdir(exist_ok=True)
+    # `_render.render()` creates its own per-deck thumbs directory, so
+    # we don't pre-create the parent here.
 
     for name in SCRIPTS:
         print(f"→ building {name}.pptx")
