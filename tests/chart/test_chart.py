@@ -305,6 +305,30 @@ class DescribeChart(object):
         actual = [str(p.format.fill.fore_color.rgb) for p in chart.series[0].points]
         assert actual == ["FF0000", "00FF00", "0000FF"]
 
+    def it_recolours_line_strokes_on_line_charts(self):
+        # ``apply_palette`` originally only set the per-series fill, which
+        # has no visible effect on LINE chart variants — the renderer paints
+        # the line stroke from the theme.  This test pins the post-fix
+        # behaviour: both the fill *and* the line stroke get the palette
+        # colour, so LibreOffice and PowerPoint show the recolour.  See
+        # IMPROVEMENTS item 2.
+        chart = _make_chart_with_series(("S1", "S2"), XL_CHART_TYPE.LINE)
+
+        chart.apply_palette(["#FF0000", "#00FF00"])
+
+        line_actual = [str(s.format.line.color.rgb) for s in chart.series]
+        assert line_actual == ["FF0000", "00FF00"]
+
+    def it_recolours_line_strokes_via_recolour_on_line_markers(self):
+        # ``recolour`` (the auto-dispatching public API) should match
+        # ``apply_palette`` and write the line stroke for LINE_MARKERS.
+        chart = _make_chart_with_series(("S1", "S2"), XL_CHART_TYPE.LINE_MARKERS)
+
+        chart.recolour(["#FF0000", "#00FF00"])
+
+        line_actual = [str(s.format.line.color.rgb) for s in chart.series]
+        assert line_actual == ["FF0000", "00FF00"]
+
     def it_pins_axis_line_and_gridline_colours_via_line_color(self):
         from power_pptx.dml.color import RGBColor
 

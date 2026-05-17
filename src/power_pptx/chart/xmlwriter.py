@@ -1192,6 +1192,13 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
         )
         if self._chart_type in smooth_types:
             return "smoothMarker"
+        # Markers-only scatter: ``val="marker"`` is the OOXML way to
+        # say "no lines" at the chart-type level, so callers that recolour
+        # a series via ``series.format.line.color.rgb`` don't accidentally
+        # re-enable the line by overwriting the per-series ``noFill``
+        # suppression we used to emit.  See IMPROVEMENTS item 5.
+        if self._chart_type == XL_CHART_TYPE.XY_SCATTER:
+            return "marker"
         return "lineMarker"
 
     @property
@@ -1225,14 +1232,10 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
 
     @property
     def _spPr_xml(self):
-        if self._chart_type == XL_CHART_TYPE.XY_SCATTER:
-            return (
-                "          <c:spPr>\n"
-                '            <a:ln w="47625">\n'
-                "              <a:noFill/>\n"
-                "            </a:ln>\n"
-                "          </c:spPr>\n"
-            )
+        # XY_SCATTER now communicates "no lines" via the chart-type
+        # ``<c:scatterStyle val="marker"/>`` rather than a per-series
+        # ``<a:ln><a:noFill/>`` override (see ``_scatterStyle_val``), so
+        # no per-series spPr is required.
         return ""
 
 

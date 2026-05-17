@@ -316,13 +316,25 @@ class TextFrame(Subshape):
         to calculate the fit, whether or not it matches `family`, `bold`, and `italic`. When no
         font file is provided and no matching system font can be located, Pillow's bundled
         default font is used so `fit_text` produces a usable estimate rather than raising.
+
+        Raises :class:`ValueError` when even 1pt overflows the text frame — typically the
+        frame is too small to render the wrapped text at any usable size.  Pre-IMPROVEMENTS
+        item 7 this silently returned ``None`` and crashed the downstream ``_apply_fit``
+        setter with a confusing ``TypeError`` from inside ``Pt(None)``.
         """
         if font_file is None:
             try:
                 font_file = FontFiles.find(family, bold, italic)
             except (KeyError, OSError):
                 font_file = None
-        return TextFitter.best_fit_font_size(self.text, self._extents, max_size, font_file)
+        size = TextFitter.best_fit_font_size(self.text, self._extents, max_size, font_file)
+        if size is None:
+            raise ValueError(
+                "fit_text: text does not fit at any size from 1pt to "
+                f"{max_size}pt in this text frame; resize the shape, "
+                "shorten the text, or split it across multiple frames."
+            )
+        return size
 
     @property
     def _bodyPr(self):

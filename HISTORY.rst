@@ -14,6 +14,132 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.7.0 (2026-05-17)
+++++++++++++++++++
+
+Minor release rolling up the playground-driven improvement batch
+(``examples/playground/IMPROVEMENTS.md``).  These are the fixes a
+real authoring session — building five varied decks against the
+recipe + ``from_spec`` paths — surfaced as friction points or
+silent footguns.
+
+Bug fixes
+~~~~~~~~~
+
+- ``Chart.apply_palette`` now also sets ``series.format.line.color.rgb``
+  on the line-stroke chart family — ``LINE``, ``LINE_MARKERS``,
+  ``LINE_STACKED``, ``LINE_STACKED_100``, ``LINE_MARKERS_STACKED``,
+  ``LINE_MARKERS_STACKED_100``, ``THREE_D_LINE``,
+  ``XY_SCATTER_LINES`` (+ smooth and no-marker variants).  Previously
+  only the per-series fill was written, so the call appeared to do
+  nothing on a line chart — the renderer fell back to the default
+  Office palette because the visible colour is the stroke, not the
+  fill.  ``Chart.recolour`` got the same fix.
+
+- ``XL_CHART_TYPE.XY_SCATTER`` now emits ``<c:scatterStyle val="marker"/>``
+  instead of ``val="lineMarker"`` + per-series ``<a:ln><a:noFill/>``.
+  The legacy combination still reads back as ``XY_SCATTER`` so older
+  decks round-trip, but newly-saved scatters are robust against
+  callers that recolour a series via ``series.format.line.color.rgb``
+  (which previously overwrote the ``noFill`` suppression and silently
+  flipped the chart to "lines with markers").
+
+- ``TextFrame.fit_text`` measurement now uses
+  ``max(ink_box_height, point_size * 1.2)`` as the per-line vertical
+  cost, so a 72pt title in a 2-inch box no longer claims to fit when
+  wrapping forces a second line.  Pillow's getbbox returns the *ink
+  box* — descenders and ascender included but not line leading — so
+  the old predicate under-counted wrapped-line height by ~40% and
+  picked a font size that overflowed.
+
+- ``TextFrame.fit_text`` now raises ``ValueError`` when even 1pt
+  overflows the frame, with an actionable message.  Pre-fix the
+  method silently returned ``None`` and the downstream ``Pt(None)``
+  setter crashed with a confusing ``TypeError``.
+
+- ``slide.lint()`` ``TextOverflow`` heuristic now uses ``math.ceil``
+  on wrapped-line counts.  A 31-char line wrapping to two real lines
+  used to count as 1.5 lines in the heuristic — under the
+  ``lines_available`` threshold — and the overflow was missed even
+  though every renderer drew the second line below the frame.
+
+Added
+~~~~~
+
+- ``Table.clear_style()`` detaches the default
+  "Medium Style 2 — Accent 1" table-style ID attached to every
+  ``slide.shapes.add_table(...)``.  Necessary because the built-in
+  style applies its own banded-row overlay that survives
+  ``table.horz_banding = False`` and ``table.first_row = False``;
+  callers who paint every cell themselves can now stop the bleed
+  in one line.
+
+- ``from_spec`` accepts a ``slide_size`` field — named shorthand
+  (``"16:9"``, ``"widescreen"``, ``"4:3"``, ``"standard"``,
+  ``"16:10"``, ``"a4"``, ``"letter"``), a ``(width, height)`` pair
+  in inches, or a ``{"width": …, "height": …}`` mapping.  Previously
+  every spec-driven deck rendered at the bundled template's 4:3
+  default regardless of which recipes it called.
+
+- ``from_spec`` accepts a pre-built
+  :class:`~power_pptx.design.tokens.DesignTokens` instance under the
+  ``tokens`` key.  Previously the resolver rejected anything that
+  wasn't a ``Mapping`` with "must be a mapping"; sharing tokens
+  between imperative recipe calls and ``from_spec`` had to
+  round-trip through a (non-existent) ``.to_dict()``.
+
+Changed
+~~~~~~~
+
+- ``from_spec`` ``"theme"`` key — listed in ``_VALID_TOP_KEYS`` for
+  years — is now wired up as a friendly alias for ``"tokens"`` when
+  the latter is absent.  Previously the validator accepted it and
+  ``_resolve_tokens`` silently ignored it, producing an unstyled deck
+  from any spec that used the documented ``theme`` shape.  ``tokens``
+  wins when both are present.
+
+- ``from_spec`` legacy layout aliases ``"title"`` and ``"bullets"``
+  are now auto-upgraded to their recipe counterparts
+  (``"title_recipe"`` / ``"bullets_recipe"``) when ``tokens`` is
+  supplied.  Previously the legacy placeholder path was taken and
+  the user's palette / typography was silently ignored.  Specs that
+  pass no ``tokens`` continue to hit the placeholder layouts
+  unchanged.
+
+- Recipe titles (``title_slide``, ``bullet_slide``, ``kpi_slide``,
+  ``quote_slide``, ``image_hero_slide``, ``chart_slide``,
+  ``table_slide``, ``code_slide``, ``timeline_slide``,
+  ``comparison_slide``, ``figure_slide``) now set
+  ``auto_size = TEXT_TO_FIT_SHAPE`` on the title text frame.  Long
+  titles that wrapped to a second line no longer spill below the
+  fixed-height title region into the body content underneath.  KPI
+  card label / value / delta boxes got the same treatment so long
+  labels like "Lines of code per slide" stop pushing the delta on
+  top of the label.
+
+Docs
+~~~~
+
+- ``references/design.md`` calls out that ``tokens.palette[k]``
+  returns ``RGBColor`` (not a hex string); every public setter
+  accepts the rich form, so ``RGBColor.from_hex(tokens.palette[k])``
+  is unnecessary (and crashes).
+
+- ``references/render.md`` documents three cross-renderer footguns
+  worth knowing about when reviewing via
+  ``Presentation.render_thumbnails`` — emoji tofu without an emoji
+  font installed, LibreOffice centering un-aligned text that
+  PowerPoint left-aligns, and ``wrap="none" + spAutoFit`` re-centering
+  un-wrapped textboxes inside their original width.
+
+- ``references/tables.md`` documents ``Table.clear_style()`` and the
+  default-style-banding gotcha that motivates it.
+
+- ``references/compose.md`` documents ``slide_size``, the
+  ``theme``-as-``tokens``-alias behaviour, the legacy-layout
+  auto-upgrade, and the ``DesignTokens`` instance acceptance.
+
+
 2.6.1 (2026-05-08)
 ++++++++++++++++++
 

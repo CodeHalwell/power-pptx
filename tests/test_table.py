@@ -93,6 +93,50 @@ class DescribeTable(object):
         table.notify_height_changed()
         assert table._graphic_frame.height == expected_height
 
+    def it_can_detach_the_default_table_style(self, graphic_frame_):
+        # See IMPROVEMENTS item 4 — ``horz_banding = False`` is not enough
+        # to stop a built-in style from banding rows; the canonical fix is
+        # to drop the ``<a:tableStyleId>`` entirely.
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls, qn
+
+        tbl_xml = (
+            "<a:tbl %s>\n"
+            '  <a:tblPr firstRow="1" bandRow="1">\n'
+            "    <a:tableStyleId>{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}</a:tableStyleId>\n"
+            "  </a:tblPr>\n"
+            "  <a:tblGrid/>\n"
+            "</a:tbl>" % nsdecls("a")
+        )
+        table = Table(parse_xml(tbl_xml), graphic_frame_)
+        # Sanity: the style ID is present before the call.
+        tblPr = table._tbl.tblPr
+        assert tblPr is not None
+        assert tblPr.find(qn("a:tableStyleId")) is not None
+
+        table.clear_style()
+
+        # ``a:tblPr`` survives because we still need to round-trip the
+        # bandRow / firstRow attributes; only the style-id child is gone.
+        assert table._tbl.tblPr is not None
+        assert table._tbl.tblPr.find(qn("a:tableStyleId")) is None
+
+    def it_clears_style_idempotently_when_no_style_id_is_present(self, graphic_frame_):
+        # ``clear_style()`` must be a no-op when there's nothing to drop;
+        # callers shouldn't have to guard a second call.
+        tbl_cxml = "a:tbl/a:tblPr"
+        table = Table(element(tbl_cxml), graphic_frame_)
+
+        table.clear_style()  # must not raise
+
+    def it_clears_style_silently_when_tblPr_is_absent(self, graphic_frame_):
+        # Some fixtures construct ``a:tbl`` without an ``a:tblPr`` child.
+        # Guard against that case explicitly.
+        tbl_cxml = "a:tbl/a:tblGrid/a:gridCol{w=111}"
+        table = Table(element(tbl_cxml), graphic_frame_)
+
+        table.clear_style()  # must not raise
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture

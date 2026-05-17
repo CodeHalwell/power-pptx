@@ -89,7 +89,20 @@ class TextFitter(tuple):
                 # is the explicit no-fit signal from ``_wrap_lines`` /
                 # ``_break_line``.
                 return False
-            cy = _rendered_size("Ty", point_size, self._font_file)[1]
+            # Use the bigger of (Pillow ink-box height) and (1.2× the
+            # point-size baseline) per line.  Pillow's getbbox on ``"Ty"``
+            # returns the *ink box* — descenders and ascender margins
+            # included, but not line leading — which under-estimates the
+            # vertical space a wrapped line actually occupies in
+            # PowerPoint / LibreOffice (where leading bumps each line to
+            # roughly 1.2× the point size).  The pre-fix predicate
+            # accepted 72pt wrapping to 2 lines inside a 2-inch box
+            # because 2 × ink-box ≈ 1.6 inches; the rendered layout
+            # actually consumed 2.4 inches and overflowed.  See
+            # IMPROVEMENTS item 7.
+            ink_cy = _rendered_size("Ty", point_size, self._font_file)[1]
+            leading_cy = int(point_size * 1.2 * 914400 / 72.0)
+            cy = max(ink_cy, leading_cy)
             return (cy * len(text_lines)) <= self._height
 
         return predicate

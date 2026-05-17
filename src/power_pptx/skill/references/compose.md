@@ -13,7 +13,14 @@ construction (no JSON Schema is involved):
 from power_pptx.compose import from_spec
 
 prs = from_spec({
-    "theme": {"palette": "modern_blue", "fonts": "inter"},
+    # 16:9 widescreen — the modern default. Other shorthands:
+    # "4:3", "16:10", "a4", "letter". Or pass an (w, h) pair / dict
+    # in inches.
+    "slide_size": "16:9",
+    # Brand tokens. Inline dict / preset / yaml / DesignTokens — all
+    # supported. ``"theme"`` is a friendly alias when ``"tokens"`` is
+    # absent.
+    "tokens": {"preset": "modern_light"},
     "slides": [
         {
             "layout": "title",
@@ -22,7 +29,7 @@ prs = from_spec({
             "transition": "morph",
         },
         {
-            "layout": "kpi_grid",
+            "layout": "kpi",
             "title": "Run-rate metrics",
             "kpis": [
                 {"label": "ARR", "value": "$182M", "delta": +0.27},
@@ -43,6 +50,31 @@ prs = from_spec({
 
 prs.save("q4-review.pptx")
 ```
+
+When `tokens` is present, the legacy alias names `"title"` and
+`"bullets"` are silently upgraded to the styled recipes
+(`"title_recipe"` / `"bullets_recipe"`); this used to be silent and
+strand the deck on default placeholder styling.  Pass an explicit
+recipe layout name (e.g. `"kpi"`, `"chart"`, `"table"`, `"quote"`)
+to skip the alias step and reach the styled recipe directly.
+
+`tokens` accepts five shapes:
+
+- A preset by name: `{"preset": "modern_light"}` (optionally with
+  `"overrides": {...}` to layer brand-specific tweaks on top).
+- A YAML brand file: `{"yaml": "brand.yml"}`.
+- An inline dict matching `DesignTokens.from_dict` (palette,
+  typography, radii, shadows, spacings).
+- A `DesignTokens` instance — handy when the same token bag is
+  reused between imperative recipe calls and `from_spec`.
+- `None` (omitted) — falls through to the placeholder layouts on
+  the host template; the recipe slides render with their built-in
+  defaults.
+
+`slide_size` is optional. With no setting, the bundled template's
+4:3 dimensions (10" × 7.5") are used. The shorthand resolves
+through `_SLIDE_SIZE_PRESETS`; pass an inches pair like
+`(13.333, 7.5)` for any custom dimension.
 
 Layout names map either to Phase-9 design recipes (where supplied) or
 to a small built-in set of layouts using the host presentation's

@@ -51,11 +51,17 @@ class DescribeTextFitter(object):
         assert font_size is font_size_
 
     @pytest.mark.parametrize(
+        # ``cy`` used by the predicate is now ``max(ink_cy, leading_cy)``
+        # where ``leading_cy = int(point_size * 1.2 * 914400 / 72.0)``.
+        # For the mocked ink_cy=50 and point_size=6, leading_cy=91439
+        # (floating-point truncation of 91439.999...) dominates, so the
+        # 2-line height bound is 182878 EMU. Boundary cases exercised
+        # here.  See IMPROVEMENTS item 7.
         "extents, point_size, text_lines, expected_value",
         (
-            ((66, 99), 6, ("foo", "bar"), False),
-            ((66, 100), 6, ("foo", "bar"), True),
-            ((66, 101), 6, ("foo", "bar"), True),
+            ((66, 182877), 6, ("foo", "bar"), False),
+            ((66, 182878), 6, ("foo", "bar"), True),
+            ((66, 182879), 6, ("foo", "bar"), True),
         ),
     )
     def it_provides_a_fits_inside_predicate_fn(

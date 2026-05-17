@@ -130,7 +130,17 @@ def from_spec(
     ``tokens`` *(optional)*
         Either a preset name (``{"preset": "modern_light"}``), a path
         to a YAML file (``{"yaml": "brand.yml"}``), an inline token
-        dict, or a mix of preset + ``overrides`` for per-deck tweaks.
+        dict, a mix of preset + ``overrides`` for per-deck tweaks, or
+        an already-built :class:`~power_pptx.design.tokens.DesignTokens`
+        instance.
+
+    ``slide_size`` *(optional)*
+        Resize the slides to the given dimensions.  Accepts shorthand
+        strings (``"16:9"``, ``"widescreen"``, ``"4:3"``, ``"a4"``)
+        or an explicit ``(width, height)`` pair / dict
+        (``{"width": 13.333, "height": 7.5}``).  Numbers are
+        interpreted as inches.  See :func:`_resolve_slide_size` for
+        the full list of named aspect ratios.
 
     ``vars`` *(optional)*
         Variable bag for ``{{name}}`` interpolation in any string field
@@ -174,7 +184,18 @@ def from_spec(
     template = spec.get("template")
     prs = Presentation(template) if template else Presentation()
 
-    tokens = _resolve_tokens(spec.get("tokens"))
+    # ``theme`` is treated as a friendly alias for ``tokens`` when
+    # ``tokens`` is absent.  Pre-IMPROVEMENTS-#8 the key was in
+    # ``_VALID_TOP_KEYS`` and silently ignored, so docs that read
+    # ``{"theme": {...}}`` produced an unstyled deck without error.
+    token_spec = spec.get("tokens")
+    if token_spec is None:
+        token_spec = spec.get("theme")
+    tokens = _resolve_tokens(token_spec)
+
+    slide_size = spec.get("slide_size")
+    if slide_size is not None:
+        _apply_slide_size(prs, slide_size)
 
     for slide_spec in spec.get("slides", []):
         _add_slide(prs, slide_spec, tokens)
@@ -218,7 +239,7 @@ def from_yaml(
 # ---------------------------------------------------------------------------
 
 _VALID_TOP_KEYS = frozenset(
-    {"slides", "lint", "template", "theme", "tokens", "vars"}
+    {"slides", "lint", "template", "theme", "tokens", "vars", "slide_size"}
 )
 _VALID_LINT_VALUES = frozenset({"off", "warn", "raise"})
 
@@ -282,8 +303,21 @@ def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:
     …), dispatch through :mod:`power_pptx.design.recipes`; otherwise
     fall back to the placeholder-based legacy path so existing decks
     keep working.
+
+    When *tokens* is provided, legacy alias names (``"title"`` /
+    ``"bullets"``) are silently upgraded to their token-aware recipe
+    counterparts (``"title_recipe"`` / ``"bullets_recipe"``).  Before
+    this change the placeholder-based legacy path was taken and the
+    user's tokens were silently ignored, producing a default-styled
+    slide while ``lint`` and ``save`` succeeded.  See IMPROVEMENTS
+    item 9.
     """
     layout_name = (slide_spec.get("layout") or "blank").lower()
+
+    if tokens is not None:
+        upgrade = _LEGACY_TO_RECIPE.get(layout_name)
+        if upgrade is not None:
+            layout_name = upgrade
 
     if layout_name in _RECIPE_LAYOUTS:
         return _add_recipe_slide(prs, slide_spec, layout_name, tokens)
@@ -296,6 +330,15 @@ def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:
     _set_transition(slide, slide_spec.get("transition"))
 
     return slide
+
+
+# Legacy placeholder-based layout name → recipe layout name.  Only
+# applied when ``tokens`` is provided to :func:`from_spec`; without
+# tokens the legacy path is what the caller wants.
+_LEGACY_TO_RECIPE: dict[str, str] = {
+    "title": "title_recipe",
+    "bullets": "bullets_recipe",
+}
 
 
 _RECIPE_NEVER_KWARGS = frozenset({"layout"})
@@ -494,6 +537,10 @@ def _resolve_tokens(spec: Any) -> Any:
     Accepts:
 
     * ``None`` — return ``None``.
+    * A :class:`~power_pptx.design.tokens.DesignTokens` instance — returned as-is so
+      callers can reuse a built token bag between imperative recipes and
+      :func:`from_spec` without round-tripping through ``.to_dict()`` (no such
+      method exists today).  See IMPROVEMENTS item 8.
     * ``{"preset": "modern_light", "overrides": {...}}`` — load preset
       and optionally layer overrides.
     * ``{"yaml": "brand.yml"}`` — load from a YAML file.
@@ -504,9 +551,12 @@ def _resolve_tokens(spec: Any) -> Any:
         return None
     from power_pptx.design.tokens import DesignTokens
 
+    if isinstance(spec, DesignTokens):
+        return spec
     if not isinstance(spec, Mapping):
         raise ValueError(
-            f"'tokens' must be a mapping; got {type(spec).__name__!r}"
+            f"'tokens' must be a mapping or DesignTokens instance; got "
+            f"{type(spec).__name__!r}"
         )
     if "preset" in spec:
         tokens = DesignTokens.from_preset(spec["preset"])
@@ -517,6 +567,73 @@ def _resolve_tokens(spec: Any) -> Any:
     if "yaml" in spec:
         return DesignTokens.from_yaml(spec["yaml"])
     return DesignTokens.from_dict(spec)
+
+
+# ---------------------------------------------------------------------------
+# Slide size resolver
+# ---------------------------------------------------------------------------
+
+# Named aspect-ratio shorthands → (width_in, height_in) in inches.
+# Matches PowerPoint's built-in "Page Setup" presets.
+_SLIDE_SIZE_PRESETS: dict[str, tuple[float, float]] = {
+    "16:9":         (13.333, 7.5),
+    "widescreen":   (13.333, 7.5),
+    "4:3":          (10.0, 7.5),
+    "standard":     (10.0, 7.5),
+    "16:10":        (13.333, 8.333),
+    "a4":           (11.69, 8.27),
+    "letter":       (11.0, 8.5),
+}
+
+
+def _apply_slide_size(prs: Any, slide_size: Any) -> None:
+    """Set ``prs.slide_width`` / ``prs.slide_height`` from a spec value.
+
+    Accepts a named shorthand string, an ``(width, height)`` 2-tuple of
+    inches, or a ``{"width": w, "height": h}`` mapping (inches or
+    :class:`~power_pptx.util.Length`).  Numbers are interpreted as inches;
+    pass an explicit ``Length`` to opt out.  See IMPROVEMENTS item 10.
+    """
+    from power_pptx.util import Inches, Length
+
+    def _to_emu(value: Any) -> Length:
+        if isinstance(value, Length):
+            return value
+        if isinstance(value, (int, float)):
+            return Inches(float(value))
+        raise ValueError(
+            f"slide_size dimension must be a number (inches) or Length; "
+            f"got {type(value).__name__!r}: {value!r}"
+        )
+
+    if isinstance(slide_size, str):
+        key = slide_size.lower()
+        preset = _SLIDE_SIZE_PRESETS.get(key)
+        if preset is None:
+            raise ValueError(
+                f"Unknown slide_size {slide_size!r}. Valid shorthands: "
+                f"{sorted(_SLIDE_SIZE_PRESETS)}, or pass (width, height)."
+            )
+        width_in, height_in = preset
+        prs.slide_width = Inches(width_in)
+        prs.slide_height = Inches(height_in)
+        return
+    if isinstance(slide_size, Mapping):
+        if "width" not in slide_size or "height" not in slide_size:
+            raise ValueError(
+                "slide_size mapping must have 'width' and 'height' keys"
+            )
+        prs.slide_width = _to_emu(slide_size["width"])
+        prs.slide_height = _to_emu(slide_size["height"])
+        return
+    if isinstance(slide_size, (list, tuple)) and len(slide_size) == 2:
+        prs.slide_width = _to_emu(slide_size[0])
+        prs.slide_height = _to_emu(slide_size[1])
+        return
+    raise ValueError(
+        f"slide_size must be a string preset, (w, h) pair, or "
+        f"{{'width', 'height'}} mapping; got {type(slide_size).__name__!r}"
+    )
 
 
 _INTERP_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
