@@ -20,21 +20,23 @@ class TextFitter(tuple):
     @classmethod
     def best_fit_font_size(
         cls, text: str, extents: tuple[Length, Length], max_size: int, font_file: str | None
-    ) -> int:
+    ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
         The return value is the largest whole-number point size less than or equal to
         `max_size` that allows `text` to fit completely within `extents` when rendered
-        using font defined in `font_file`.
+        using font defined in `font_file`.  Returns ``None`` when even 1pt overflows the
+        extents — callers are expected to surface that as an error (see
+        :meth:`TextFrame._best_fit_font_size`).
         """
         line_source = _LineSource(text)
         text_fitter = cls(line_source, extents, font_file)
         return text_fitter._best_fit_font_size(max_size)
 
-    def _best_fit_font_size(self, max_size):
+    def _best_fit_font_size(self, max_size: int) -> int | None:
         """
         Return the largest whole-number point size less than or equal to
-        *max_size* that this fitter can fit.
+        *max_size* that this fitter can fit, or ``None`` when no size fits.
         """
         predicate = self._fits_inside_predicate
         sizes = _BinarySearchTree.from_ordered_sequence(range(1, int(max_size) + 1))

@@ -203,10 +203,15 @@ class Chart(PartElementProxy):
         points are the user-visible coloured regions. ``apply_palette`` —
         being series-level — therefore can't recolour them per-slice, and
         callers almost always want per-point colouring instead.
+
+        ``IndexError`` is caught alongside the type-detection errors
+        because ``self.chart_type`` walks ``self.plots[0]``, which
+        raises ``IndexError`` on a chart with no plot element (rare
+        but possible for partially-constructed chart parts).
         """
         try:
             return self.chart_type in _SINGLE_SERIES_CHART_TYPES
-        except (NotImplementedError, KeyError, AttributeError):
+        except (NotImplementedError, KeyError, AttributeError, IndexError):
             return False
 
     def _is_line_stroke_chart(self):
@@ -215,11 +220,13 @@ class Chart(PartElementProxy):
         LINE / LINE_MARKERS / XY_SCATTER_LINES and friends render the
         series as a stroked path; the fill colour set by ``apply_palette``
         alone has no visible effect.  ``apply_palette`` keys off this to
-        also set ``series.format.line.color.rgb``.
+        also set ``series.format.line.color.rgb``.  See
+        :meth:`_is_single_series_chart` for the rationale on the
+        ``IndexError`` branch.
         """
         try:
             return self.chart_type in _LINE_STROKE_CHART_TYPES
-        except (NotImplementedError, KeyError, AttributeError):
+        except (NotImplementedError, KeyError, AttributeError, IndexError):
             return False
 
     def recolour(self, palette, *, by="auto"):

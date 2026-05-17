@@ -139,8 +139,9 @@ def from_spec(
         strings (``"16:9"``, ``"widescreen"``, ``"4:3"``, ``"a4"``)
         or an explicit ``(width, height)`` pair / dict
         (``{"width": 13.333, "height": 7.5}``).  Numbers are
-        interpreted as inches.  See :func:`_resolve_slide_size` for
-        the full list of named aspect ratios.
+        interpreted as inches.  See :func:`_apply_slide_size` for the
+        resolver implementation and ``_SLIDE_SIZE_PRESETS`` for the
+        full list of named aspect ratios.
 
     ``vars`` *(optional)*
         Variable bag for ``{{name}}`` interpolation in any string field
@@ -599,6 +600,16 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
     def _to_emu(value: Any) -> Length:
         if isinstance(value, Length):
             return value
+        # ``bool`` is a subclass of ``int``, so the ``isinstance(value,
+        # (int, float))`` branch below would silently accept
+        # ``slide_size=(True, False)`` as a 1" × 0" canvas.  Reject it
+        # explicitly — matches the boolean-rejection rule that
+        # ``power_pptx.util._coerce_emu`` applies for shape coordinates.
+        if isinstance(value, bool):
+            raise ValueError(
+                f"slide_size dimension must be a number (inches) or Length; "
+                f"got bool: {value!r}"
+            )
         if isinstance(value, (int, float)):
             return Inches(float(value))
         raise ValueError(
