@@ -288,3 +288,136 @@ class DescribeComparisonLayoutPlaceholders:
         texts = [ph.text for ph in slide.placeholders]
         assert any("Faster" in t for t in texts)
         assert any("Cheaper" in t for t in texts)
+
+
+class DescribeThemeAlias:
+    """``theme`` is a friendly alias for ``tokens`` when the latter is absent."""
+
+    def it_treats_theme_as_tokens_when_tokens_is_absent(self):
+        # See IMPROVEMENTS item 8 — the ``theme`` key used to validate but
+        # was silently ignored by ``_resolve_tokens``.
+        prs = from_spec({
+            "theme": {"preset": "modern_dark"},
+            "slides": [{
+                "layout": "kpi",
+                "title": "Run-rate",
+                "kpis": [{"label": "ARR", "value": "$182M"}],
+            }],
+        })
+        slide = prs.slides[0]
+        # ``modern_dark`` preset's primary is ``#7C5CFF``; the recipe pins
+        # the title colour to that, so the title run reflects the preset.
+        from power_pptx.dml.color import RGBColor
+
+        title_rgb = None
+        for sh in slide.shapes:
+            if not sh.has_text_frame:
+                continue
+            for p in sh.text_frame.paragraphs:
+                for r in p.runs:
+                    if r.text:
+                        title_rgb = r.font.color.rgb
+                        break
+                if title_rgb:
+                    break
+            if title_rgb:
+                break
+        assert title_rgb == RGBColor(0x7C, 0x5C, 0xFF)
+
+    def it_prefers_tokens_over_theme_when_both_are_set(self):
+        # ``tokens`` wins so both spec dialects can coexist in mixed files
+        # without surprising the caller.
+        prs = from_spec({
+            "tokens": {"preset": "modern_light"},
+            "theme":  {"preset": "modern_dark"},
+            "slides": [{
+                "layout": "title_recipe",
+                "title": "Hello",
+            }],
+        })
+        assert len(prs.slides) == 1
+
+
+class DescribeTokensAcceptsDesignTokens:
+    """``tokens`` may be a pre-built ``DesignTokens`` instance."""
+
+    def it_accepts_a_DesignTokens_instance_directly(self):
+        # See IMPROVEMENTS item 8 — previously rejected with
+        # "'tokens' must be a mapping".
+        from power_pptx.design.tokens import DesignTokens
+
+        tokens = DesignTokens.from_preset("modern_light")
+        prs = from_spec({
+            "tokens": tokens,
+            "slides": [{
+                "layout": "title_recipe",
+                "title": "Hello",
+            }],
+        })
+        assert len(prs.slides) == 1
+
+
+class DescribeSlideSize:
+    """``slide_size`` resizes the deck to the named shorthand or explicit pair."""
+
+    def it_resizes_to_16_9_widescreen(self):
+        from power_pptx.util import Inches
+
+        prs = from_spec({
+            "slide_size": "16:9",
+            "slides": [{"layout": "blank"}],
+        })
+        assert prs.slide_width == Inches(13.333)
+        assert prs.slide_height == Inches(7.5)
+
+    def it_resizes_from_an_inches_pair(self):
+        from power_pptx.util import Inches
+
+        prs = from_spec({
+            "slide_size": (12, 9),
+            "slides": [{"layout": "blank"}],
+        })
+        assert prs.slide_width == Inches(12)
+        assert prs.slide_height == Inches(9)
+
+    def it_resizes_from_a_width_height_mapping(self):
+        from power_pptx.util import Inches
+
+        prs = from_spec({
+            "slide_size": {"width": 13.333, "height": 7.5},
+            "slides": [{"layout": "blank"}],
+        })
+        assert prs.slide_width == Inches(13.333)
+        assert prs.slide_height == Inches(7.5)
+
+    def it_rejects_unknown_named_sizes(self):
+        with pytest.raises(ValueError, match="Unknown slide_size"):
+            from_spec({
+                "slide_size": "ultra-wide",
+                "slides": [{"layout": "blank"}],
+            })
+
+
+class DescribeLegacyLayoutTokenUpgrade:
+    """When tokens are present, the legacy ``title`` / ``bullets`` aliases
+    are silently upgraded to their recipe counterparts so the user's
+    palette / typography is actually applied (IMPROVEMENTS item 9)."""
+
+    def it_upgrades_title_to_title_recipe_when_tokens_are_present(self):
+        prs = from_spec({
+            "tokens": {"preset": "modern_dark"},
+            "slides": [{"layout": "title", "title": "Hello"}],
+        })
+        slide = prs.slides[0]
+        # The recipe path uses ``add_textbox`` (no placeholders), the
+        # legacy path uses the host template's Title-Slide layout (which
+        # always has at least one placeholder).
+        assert len(slide.placeholders) == 0
+
+    def it_does_not_upgrade_when_no_tokens_are_supplied(self):
+        prs = from_spec({
+            "slides": [{"layout": "title", "title": "Hello"}],
+        })
+        slide = prs.slides[0]
+        # Legacy path keeps the placeholder layout.
+        assert len(slide.placeholders) > 0

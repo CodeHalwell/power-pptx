@@ -124,6 +124,7 @@ def title_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.MIDDLE,
+        shrink_to_fit=True,
     )
 
     if subtitle:
@@ -178,6 +179,7 @@ def bullet_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     body_top = Length(title_top + title_h + Inches(0.2))
@@ -256,6 +258,7 @@ def kpi_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     n = len(kpis)
@@ -309,9 +312,13 @@ def kpi_slide(
             color=value_color,
             align=PP_ALIGN.CENTER,
             anchor=MSO_ANCHOR.MIDDLE,
+            shrink_to_fit=True,
         )
 
-        # Label
+        # Label — ``shrink_to_fit=True`` keeps a long label like
+        # "Lines of code per slide" inside the 0.4" reserved row
+        # instead of wrapping to a second line that overlaps the
+        # delta below (IMPROVEMENTS item 11 trailing note).
         l_box = slide.shapes.add_textbox(
             left, Length(top + Inches(1.10)), card_w, Inches(0.4)
         )
@@ -322,6 +329,7 @@ def kpi_slide(
             color=label_color,
             align=PP_ALIGN.CENTER,
             anchor=MSO_ANCHOR.TOP,
+            shrink_to_fit=True,
         )
 
         d_text, d_sign = _resolve_delta(kpi)
@@ -337,6 +345,7 @@ def kpi_slide(
                 color=d_color,
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
 
     _apply_transition(slide, transition)
@@ -382,6 +391,7 @@ def quote_slide(
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.MIDDLE,
         word_wrap=True,
+        shrink_to_fit=True,
     )
 
     if attribution:
@@ -459,6 +469,7 @@ def image_hero_slide(
         color=_palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     if caption:
@@ -674,6 +685,7 @@ def chart_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     chart_data = CategoryChartData()
@@ -797,6 +809,7 @@ def table_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     totals_row = _coerce_totals_row(totals, len(columns)) if totals else None
@@ -925,6 +938,7 @@ def code_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     panel_top = Length(title_top + title_h + Inches(0.2))
@@ -1042,6 +1056,7 @@ def timeline_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     # Rail across the middle.
@@ -1179,6 +1194,7 @@ def comparison_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     gap = Inches(0.3)
@@ -1310,6 +1326,7 @@ def figure_slide(
         color=_palette(tokens, ("primary", "neutral")),
         align=PP_ALIGN.LEFT,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     fig_top = Length(title_top + title_h + Inches(0.2))
@@ -1517,9 +1534,19 @@ def _fill_text_frame(
     align: PP_ALIGN,
     anchor: MSO_ANCHOR,
     word_wrap: bool = True,
+    shrink_to_fit: bool = False,
 ) -> None:
     text_frame.word_wrap = word_wrap
     text_frame.vertical_anchor = anchor
+    if shrink_to_fit:
+        # Tell PowerPoint to scale the text down when it doesn't fit
+        # the reserved frame.  Used by the recipe titles whose
+        # text-region height is fixed by the recipe geometry — without
+        # this, a long title wraps to a second line that overlaps the
+        # body region below (see IMPROVEMENTS item 11).
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     para = text_frame.paragraphs[0]
     para.alignment = align
     # Clear any default text and add a fresh run we can style.

@@ -9,6 +9,20 @@ built on top of the foundations from earlier phases.
 `DesignTokens` is a source-agnostic container for brand tokens:
 palette, typography, radii, shadows, spacings.
 
+> **Reads return rich objects, not strings.** `tokens.palette[k]` returns
+> an `RGBColor`, `tokens.typography[k]` returns a `TypographyToken`,
+> `tokens.radii[k]` / `tokens.spacings[k]` return `Length`. Every public
+> setter accepts the rich form, so usually you just pass the lookup
+> through — no `RGBColor.from_hex(...)` round-trip required:
+>
+> ```python
+> shape.fill.fore_color.rgb = tokens.palette["primary"]   # ✓ pass RGBColor
+> shape.fill.fore_color.rgb = "#4F9DFF"                    # ✓ hex string
+> # Don't:
+> shape.fill.fore_color.rgb = RGBColor.from_hex(tokens.palette["primary"])
+> # 'RGBColor' object has no attribute 'startswith'
+> ```
+
 ```python
 from power_pptx.design.tokens import DesignTokens
 

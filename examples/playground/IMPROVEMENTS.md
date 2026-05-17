@@ -4,6 +4,11 @@ Logged while exploring the library to build a wider set of example decks.
 File is appended to as I find things; nothing in here is a planned commit
 to the library — these are observations the maintainers can triage.
 
+> **Status (v2.7.0):** Every item in this file has been addressed —
+> see ``HISTORY.rst`` for the per-item release notes.  Reproductions
+> and rationale are preserved here as the "why" trail behind those
+> changes.
+
 ## Format
 
 Each entry: short title, severity (info / nit / bug), and a code-ish

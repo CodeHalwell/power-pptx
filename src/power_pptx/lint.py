@@ -25,6 +25,7 @@ Issue types:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Sequence
@@ -755,7 +756,16 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
 
     chars_per_line = max(1, frame_w / char_w_emu)
     lines_available = max(1, frame_h / line_h_emu)
-    estimated_lines = sum(max(1.0, len(line) / chars_per_line) for line in text.split("\n"))
+    # When a line wraps, it occupies a whole-number line slot in the
+    # rendered frame — half a line of overflow still pushes content out.
+    # Counting the raw float (e.g. 1.5 lines for a 31-char line that
+    # wraps to two) under-counts overflow vs. ``lines_available`` (also
+    # a raw float), so a real two-line render slips past the check.
+    # ``ceil`` matches what the renderer does: each wrapped line is one
+    # full line of vertical space.  See IMPROVEMENTS item 7.
+    estimated_lines = sum(
+        max(1, math.ceil(len(line) / chars_per_line)) for line in text.split("\n")
+    )
 
     if estimated_lines > lines_available:
         ratio = estimated_lines / lines_available

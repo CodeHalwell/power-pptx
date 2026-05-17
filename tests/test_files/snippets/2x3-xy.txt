@@ -3,7 +3,7 @@
   <c:chart>
     <c:plotArea>
       <c:scatterChart>
-        <c:scatterStyle val="lineMarker"/>
+        <c:scatterStyle val="marker"/>
         <c:varyColors val="0"/>
         <c:ser>
           <c:idx val="0"/>
@@ -19,11 +19,6 @@
               </c:strCache>
             </c:strRef>
           </c:tx>
-          <c:spPr>
-            <a:ln w="47625">
-              <a:noFill/>
-            </a:ln>
-          </c:spPr>
           <c:xVal>
             <c:numRef>
               <c:f>Sheet1!$A$2:$A$4</c:f>
@@ -76,11 +71,6 @@
               </c:strCache>
             </c:strRef>
           </c:tx>
-          <c:spPr>
-            <a:ln w="47625">
-              <a:noFill/>
-            </a:ln>
-          </c:spPr>
           <c:xVal>
             <c:numRef>
               <c:f>Sheet1!$A$7:$A$9</c:f>

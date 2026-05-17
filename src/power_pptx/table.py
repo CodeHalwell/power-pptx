@@ -274,6 +274,31 @@ class Table(object):
     def vert_banding(self, value: bool):
         self._tbl.bandCol = value
 
+    def clear_style(self) -> None:
+        """Detach this table from any built-in table style.
+
+        Removes the ``<a:tableStyleId>`` element from ``a:tblPr``.  By
+        default, every table created via ``slide.shapes.add_table(...)``
+        is attached to PowerPoint's "Medium Style 2 — Accent 1"
+        (``{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}``), which paints
+        alternating-row banding even when :attr:`horz_banding` is set
+        to ``False`` — the toggles only control *bandRow/bandCol*
+        attributes, not the style's own banded-row overlay (which
+        LibreOffice and PowerPoint apply independently of the toggle).
+
+        Call this when "I'll style every cell myself" — every fill,
+        border, and font is set explicitly — so the style's defaults
+        don't bleed through any cells the caller didn't paint.  See
+        IMPROVEMENTS item 4.
+        """
+        tblPr = self._tbl.tblPr
+        if tblPr is None:
+            return
+        from power_pptx.oxml.ns import qn
+
+        for style_id in tblPr.findall(qn("a:tableStyleId")):
+            tblPr.remove(style_id)
+
 
 class _Cell(Subshape):
     """Table cell"""

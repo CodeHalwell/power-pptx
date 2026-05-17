@@ -20,21 +20,23 @@ class TextFitter(tuple):
     @classmethod
     def best_fit_font_size(
         cls, text: str, extents: tuple[Length, Length], max_size: int, font_file: str | None
-    ) -> int:
+    ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
         The return value is the largest whole-number point size less than or equal to
         `max_size` that allows `text` to fit completely within `extents` when rendered
-        using font defined in `font_file`.
+        using font defined in `font_file`.  Returns ``None`` when even 1pt overflows the
+        extents — callers are expected to surface that as an error (see
+        :meth:`TextFrame._best_fit_font_size`).
         """
         line_source = _LineSource(text)
         text_fitter = cls(line_source, extents, font_file)
         return text_fitter._best_fit_font_size(max_size)
 
-    def _best_fit_font_size(self, max_size):
+    def _best_fit_font_size(self, max_size: int) -> int | None:
         """
         Return the largest whole-number point size less than or equal to
-        *max_size* that this fitter can fit.
+        *max_size* that this fitter can fit, or ``None`` when no size fits.
         """
         predicate = self._fits_inside_predicate
         sizes = _BinarySearchTree.from_ordered_sequence(range(1, int(max_size) + 1))
@@ -89,7 +91,20 @@ class TextFitter(tuple):
                 # is the explicit no-fit signal from ``_wrap_lines`` /
                 # ``_break_line``.
                 return False
-            cy = _rendered_size("Ty", point_size, self._font_file)[1]
+            # Use the bigger of (Pillow ink-box height) and (1.2× the
+            # point-size baseline) per line.  Pillow's getbbox on ``"Ty"``
+            # returns the *ink box* — descenders and ascender margins
+            # included, but not line leading — which under-estimates the
+            # vertical space a wrapped line actually occupies in
+            # PowerPoint / LibreOffice (where leading bumps each line to
+            # roughly 1.2× the point size).  The pre-fix predicate
+            # accepted 72pt wrapping to 2 lines inside a 2-inch box
+            # because 2 × ink-box ≈ 1.6 inches; the rendered layout
+            # actually consumed 2.4 inches and overflowed.  See
+            # IMPROVEMENTS item 7.
+            ink_cy = _rendered_size("Ty", point_size, self._font_file)[1]
+            leading_cy = int(point_size * 1.2 * 914400 / 72.0)
+            cy = max(ink_cy, leading_cy)
             return (cy * len(text_lines)) <= self._height
 
         return predicate

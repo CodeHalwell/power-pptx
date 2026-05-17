@@ -29,6 +29,28 @@ _SINGLE_SERIES_CHART_TYPES = frozenset(
     }
 )
 
+# Chart types where the user-visible colour is the line stroke
+# (``c:spPr/a:ln/a:solidFill``), not the per-series fill.  Setting only
+# the fill on these — as ``apply_palette`` used to do — leaves the
+# rendered line at the default Office palette colour, silently no-op'ing
+# the recolour.  Membership picks up every variant of LINE and
+# XY_SCATTER that draws lines.
+_LINE_STROKE_CHART_TYPES = frozenset(
+    {
+        XL_CHART_TYPE.LINE,
+        XL_CHART_TYPE.LINE_MARKERS,
+        XL_CHART_TYPE.LINE_MARKERS_STACKED,
+        XL_CHART_TYPE.LINE_MARKERS_STACKED_100,
+        XL_CHART_TYPE.LINE_STACKED,
+        XL_CHART_TYPE.LINE_STACKED_100,
+        XL_CHART_TYPE.THREE_D_LINE,
+        XL_CHART_TYPE.XY_SCATTER_LINES,
+        XL_CHART_TYPE.XY_SCATTER_LINES_NO_MARKERS,
+        XL_CHART_TYPE.XY_SCATTER_SMOOTH,
+        XL_CHART_TYPE.XY_SCATTER_SMOOTH_NO_MARKERS,
+    }
+)
+
 
 class Chart(PartElementProxy):
     """A chart object."""
@@ -161,10 +183,18 @@ class Chart(PartElementProxy):
         from power_pptx.chart.palettes import resolve_palette
 
         colors = resolve_palette(palette)
+        is_line_stroke = self._is_line_stroke_chart()
         for idx, series in enumerate(self.series):
+            color = colors[idx % len(colors)]
             fill = series.format.fill
             fill.solid()
-            fill.fore_color.rgb = colors[idx % len(colors)]
+            fill.fore_color.rgb = color
+            # For LINE / scatter-with-lines variants the user-visible
+            # colour is the line stroke, not the fill — also pin
+            # ``series.format.line.color.rgb`` so the recolour shows up
+            # in PowerPoint and LibreOffice.
+            if is_line_stroke:
+                series.format.line.color.rgb = color
 
     def _is_single_series_chart(self):
         """True for chart types where one series renders as N slices/bars.
@@ -173,10 +203,30 @@ class Chart(PartElementProxy):
         points are the user-visible coloured regions. ``apply_palette`` —
         being series-level — therefore can't recolour them per-slice, and
         callers almost always want per-point colouring instead.
+
+        ``IndexError`` is caught alongside the type-detection errors
+        because ``self.chart_type`` walks ``self.plots[0]``, which
+        raises ``IndexError`` on a chart with no plot element (rare
+        but possible for partially-constructed chart parts).
         """
         try:
             return self.chart_type in _SINGLE_SERIES_CHART_TYPES
-        except (NotImplementedError, KeyError, AttributeError):
+        except (NotImplementedError, KeyError, AttributeError, IndexError):
+            return False
+
+    def _is_line_stroke_chart(self):
+        """True for chart types where the visible colour is the line stroke.
+
+        LINE / LINE_MARKERS / XY_SCATTER_LINES and friends render the
+        series as a stroked path; the fill colour set by ``apply_palette``
+        alone has no visible effect.  ``apply_palette`` keys off this to
+        also set ``series.format.line.color.rgb``.  See
+        :meth:`_is_single_series_chart` for the rationale on the
+        ``IndexError`` branch.
+        """
+        try:
+            return self.chart_type in _LINE_STROKE_CHART_TYPES
+        except (NotImplementedError, KeyError, AttributeError, IndexError):
             return False
 
     def recolour(self, palette, *, by="auto"):
@@ -210,10 +260,14 @@ class Chart(PartElementProxy):
             from power_pptx.chart.palettes import resolve_palette
 
             colors = resolve_palette(palette)
+            is_line_stroke = self._is_line_stroke_chart()
             for idx, series in enumerate(self.series):
+                color = colors[idx % len(colors)]
                 fill = series.format.fill
                 fill.solid()
-                fill.fore_color.rgb = colors[idx % len(colors)]
+                fill.fore_color.rgb = color
+                if is_line_stroke:
+                    series.format.line.color.rgb = color
 
     # US-spelling alias kept stable.
     recolor = recolour

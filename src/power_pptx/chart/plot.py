@@ -397,6 +397,14 @@ class PlotTypeInspector(object):
 
         scatter_style = scatterChart.xpath("c:scatterStyle")[0].get("val")
 
+        # ``val="marker"`` (markers-only) is the canonical OOXML way to
+        # encode XY_SCATTER and is what the writer now emits. The legacy
+        # ``lineMarker + noLine`` combination is still recognised so
+        # decks saved by earlier releases keep round-tripping. See
+        # IMPROVEMENTS item 5.
+        if scatter_style == "marker":
+            return XL.XY_SCATTER
+
         if scatter_style == "lineMarker":
             if noLine():
                 return XL.XY_SCATTER

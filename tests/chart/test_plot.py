@@ -430,6 +430,11 @@ class DescribePlotTypeInspector(object):
             ("c:pieChart", XL.PIE),
             ("c:pieChart/c:ser/c:explosion{val=25}", XL.PIE_EXPLODED),
             ("c:scatterChart/c:scatterStyle", XL.XY_SCATTER),
+            # New writer output: ``val="marker"`` for XY_SCATTER.
+            ("c:scatterChart/c:scatterStyle{val=marker}", XL.XY_SCATTER),
+            # Legacy writer output (pre-IMPROVEMENTS #5): ``val="lineMarker"``
+            # with a per-series ``a:ln/a:noFill``.  Still recognised so
+            # older decks round-trip.
             (
                 "c:scatterChart/(c:scatterStyle{val=lineMarker},c:ser/c:spPr/a:ln/a" ":noFill)",
                 XL.XY_SCATTER,

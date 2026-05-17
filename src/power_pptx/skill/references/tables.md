@@ -66,6 +66,29 @@ from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
 ```
 
+## Detaching the default table style
+
+Every table created via `slide.shapes.add_table(...)` is born with
+the "Medium Style 2 — Accent 1" `tableStyleId` attached. The style
+ships a banded-row overlay that PowerPoint and LibreOffice render
+on top of any per-cell fills you set — and that overlay survives
+`table.horz_banding = False` and `table.first_row = False`, because
+those flags only suppress `bandRow` / `firstRow` markup, not the
+style's own banding rules.
+
+When you want full control of every cell's appearance, detach the
+default style outright:
+
+```python
+table.clear_style()           # drops <a:tableStyleId>
+# now style every cell explicitly:
+for r in range(len(table.rows)):
+    for c in range(len(table.columns)):
+        cell = table.cell(r, c)
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+```
+
 ## Cell borders (Phase 4 — post-fork addition)
 
 `cell.borders` exposes per-edge `LineFormat` proxies plus convenience
