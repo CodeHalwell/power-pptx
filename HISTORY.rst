@@ -14,6 +14,127 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.8.0 (2026-05-22)
+++++++++++++++++++
+
+Minor release adding a high-level geometry / text / arrow / diagram
+surface that collapses the seven-line styling rituals LLM-generated
+deck code repeatedly reinvents.  Motivated by the v2.7-era
+recommendations captured during a real AI Engineering deck rebuild
+— the friction points where the existing 1.0.2 surface forced
+generated code to re-implement the same glue every time.
+
+All additions are drop-in compatible.  The 1.0.2 + post-fork
+surface continues to work unchanged.
+
+Added
+~~~~~
+
+- ``power_pptx.BBox`` — immutable rectangular-region value object
+  with EMU storage.  Constructors: ``from_inches``, ``from_emu``,
+  ``from_shape``, ``from_slide``.  Transforms: ``inset(all=, x=, y=,
+  left=, top=, right=, bottom=)``, ``shifted``, ``resized``, ``sub``.
+  Splits: ``split_h([1, 1], gap=)``, ``split_v``, ``grid(cols, rows,
+  gap_x=, gap_y=)``.  Predicates: ``contains``, ``intersects``,
+  ``intersection``, ``union``.  Unpacks to ``(left, top, width,
+  height)`` so it splats into every ``add_*`` API
+  (``slide.shapes.add_shape(MSO_SHAPE.RECT, *bbox)``).  Re-exported
+  from the package root.  Available as ``shape.bbox`` for any shape.
+
+- ``slide.shapes.add_text(bbox_or_lengths, text=..., font=...,
+  size_pt=..., bold=..., italic=..., color=..., align="center",
+  anchor="middle", margin_pt=..., word_wrap=True)`` — one-call
+  styled textbox.  Hex strings, ``RGBColor``, and ``(r, g, b)``
+  tuples all accepted for colours; short-name strings
+  (``"left"``/``"center"``/``"right"``/``"justify"`` and
+  ``"top"``/``"middle"``/``"bottom"``) accepted for alignment and
+  anchor — no enum imports required.  Returns the textbox shape.
+
+- ``slide.shapes.add_arrow(start, end, head="triangle", tail=None,
+  color=..., weight_pt=1.5, style="solid", route="straight",
+  inset_pt=6.0, start_side="auto", end_side="auto")`` — connector
+  with a real arrowhead, auto-routed mid-edge endpoints, and a
+  configurable inset so the head doesn't bleed into the target
+  shape.  Endpoints accept ``BaseShape``, ``BBox``, or ``(x, y)``.
+
+- ``shape.fill_hex("#0B5CFF")`` and ``shape.line_hex("#0D0D0D",
+  weight_pt=1.25)`` — chainable hex-string shortcuts that return
+  ``self``.  Accept ``None`` to clear, hex strings with or without
+  the leading ``#``, ``RGBColor`` instances, and ``(r, g, b)``
+  tuples.
+
+- ``shape.set_text_preserving_format(new_text)`` — captures the
+  first paragraph's ``<a:pPr>`` and the first run's ``<a:rPr>``,
+  rebuilds the text body for ``new_text`` (one paragraph per
+  ``"\n"``), then re-applies those properties to every new run.
+  Font face / size / colour / bold / italic on the template run
+  are preserved verbatim.
+
+- ``Picture.replace_with(builder, padding=0)`` — deletes the
+  picture and calls ``builder(slide, bbox)`` in its place, with
+  ``bbox`` shrunk by ``padding``.  ``Picture.enclosing_container(
+  exclude_text=True, shrink_around=True)`` walks the slide to find
+  the smallest non-text-bearing shape enclosing the picture (the
+  "card" the picture lives inside) and trims that bbox to avoid
+  sibling content.
+
+- ``slide.slide_bbox()`` returns the full slide ``BBox``.
+  ``slide.content_bbox(include_decorative=False)`` returns the
+  union of non-background shapes.  ``slide.find_empty_region(
+  near=, min_width=, min_height=)`` returns a free region on the
+  slide.  ``slide.tidy(fix_offslide=True, fix_overflow=True,
+  fix_grid_drift=False)`` is the one-call lint + safe auto-fix.
+
+- ``power_pptx.diagrams`` module — six native-shape diagram
+  recipes covering ~80% of architecture-deck patterns:
+  ``horizontal_pipeline``, ``vertical_pipeline``, ``hub_and_spoke``,
+  ``cycle``, ``decision_tree``, ``comparison_columns``.  Each takes
+  a slide, a ``BBox``, and a small content spec; returns a small
+  result dataclass exposing the constituent shapes.  Recipes tag
+  their shapes with a shared ``lint_group`` so intentional
+  arrow-into-card overlaps don't flood ``slide.lint()`` /
+  ``audit()`` output.
+
+- ``power_pptx.audit(prs, size_warn_bytes=2_000_000,
+  check_fonts=True)`` — whole-deck audit returning an
+  ``AuditReport`` with ``lint_issues`` (each tagged with the slide
+  index it came from), ``broken_pictures``, ``empty_slides``,
+  ``font_warnings`` (fonts outside a conservative
+  Windows/macOS/Office safe-list), and ``size_warnings``
+  (pictures larger than ``size_warn_bytes``).  ``report.markdown()``
+  renders a chat-reply-ready summary.  Read-only — never mutates
+  the deck.
+
+- ``power_pptx.render.render_slides(prs, *, out_dir=,
+  slides=[0, 1, 2], name_template="slide-{:02d}.png", scale=0.5)``
+  — friendlier wrapper around ``render_slide_thumbnails`` with
+  cleaner argument names and a string-format template for output
+  filenames.  ``scale=`` is translated to ``dpi=`` internally.
+
+Documentation
+~~~~~~~~~~~~~
+
+- New cheat-sheet block at the top of ``SKILL.md`` covering the
+  25 most-common deck-generation operations on one screen.
+- New anti-patterns block flagging the LLM-common mistakes:
+  comparing ``tf.paragraphs`` wrappers with ``is``, assuming
+  ``add_connector`` produces an arrowhead, sizing a rebuild to a
+  picture bbox when there's an enclosing card, etc.
+- New ``references/geometry-and-arrows.md`` covering the full new
+  API surface with worked examples.
+- README rewritten to lead with space-aware authoring, document
+  ``python -m power_pptx.skill install``, list the post-fork
+  feature set, and provide an end-to-end quick-start example.
+
+Tests
+~~~~~
+
+- 56 new unit tests across ``tests/test_geometry.py``,
+  ``tests/test_shape_helpers.py``, ``tests/test_diagrams.py``,
+  ``tests/test_audit.py`` cover the new API surface.  Full
+  3569-test suite (the existing suite plus the new tests) passes.
+
+
 2.7.0 (2026-05-17)
 ++++++++++++++++++
 
