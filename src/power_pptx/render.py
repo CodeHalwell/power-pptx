@@ -502,6 +502,64 @@ def render_slide_thumbnail(
         return Path(persistent)
 
 
+def render_slides(
+    prs: "_Presentation",
+    *,
+    out_dir: Optional[Union[str, os.PathLike[str]]] = None,
+    slides: Optional[Sequence[int]] = None,
+    name_template: Optional[str] = None,
+    soffice_bin: Optional[str] = None,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    return_bytes: bool = False,
+    strategy: str = "auto",
+    dpi: int = 150,
+    scale: Optional[float] = None,
+) -> Union[List[Path], List[bytes]]:
+    """Render slide thumbnails — friendlier wrapper around :func:`render_slide_thumbnails`.
+
+    Same semantics as :func:`render_slide_thumbnails` but with two
+    quality-of-life additions:
+
+    * ``slides=`` (cleaner name than ``slide_indexes=``).
+    * ``name_template=`` — a ``str.format``-able template like
+      ``"slide-{:02d}.png"`` applied to the rendered PNGs.  Index is
+      0-based.  Defaults to LibreOffice's own ``"_render_input-page-NN"``
+      output if omitted.
+    * ``scale=`` is accepted and translated to ``dpi=`` (``scale=0.5``
+      ≙ ``dpi=72``).
+    """
+    if scale is not None:
+        dpi = max(int(72 * float(scale)), 36)
+    paths = render_slide_thumbnails(
+        prs,
+        out_dir=out_dir,
+        slide_indexes=slides,
+        soffice_bin=soffice_bin,
+        timeout=timeout,
+        return_bytes=return_bytes,
+        strategy=strategy,
+        dpi=dpi,
+    )
+    if return_bytes or name_template is None:
+        return paths
+    # ``paths`` here is List[Path].
+    renamed: list[Path] = []
+    if slides is None:
+        index_iter: list[int] = list(range(len(paths)))
+    else:
+        index_iter = list(slides)
+    for idx, p in zip(index_iter, paths):
+        try:
+            new_name = name_template.format(idx)
+        except (IndexError, ValueError, KeyError):
+            new_name = name_template
+        target = p.parent / new_name
+        if p != target:
+            shutil.move(str(p), str(target))
+        renamed.append(target)
+    return renamed
+
+
 def _presentation_for(slide: "_Slide") -> "_Presentation":
     """Walk back from a Slide to its owning Presentation.
 

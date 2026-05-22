@@ -310,6 +310,78 @@ def _apply_horizontal_bar_default(graphic_frame, chart_type) -> None:
 # +-- SlidePlaceholders
 
 
+def _endpoint_box(target):
+    """Return a ``(left, top, width, height)`` tuple for an arrow endpoint.
+
+    Accepts a ``BaseShape``, a ``BBox`` (or any 4-iterable thereof), or
+    ``None`` (in which case ``None`` is returned).  Coordinate tuples
+    are not treated as boxes — callers pass them through verbatim via
+    the ``_resolve_endpoint`` path that follows.
+    """
+    from power_pptx.geometry import BBox
+
+    if target is None:
+        return None
+    if isinstance(target, BaseShape):
+        return (int(target.left), int(target.top), int(target.width), int(target.height))
+    if isinstance(target, BBox):
+        return (int(target.left), int(target.top), int(target.width), int(target.height))
+    return None
+
+
+def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
+    """Return ``(x, y)`` for an arrow endpoint, snapping to the right edge.
+
+    * If ``target`` is a coordinate tuple ``(x, y)``, return it verbatim.
+    * If ``target`` is a Shape / BBox, choose a mid-edge anchor (the one
+      facing ``opposite``, unless ``side`` is a specific edge name), pull
+      the resulting point inward by ``inset_emu`` so an arrowhead won't
+      bleed past the target's stroke.
+    """
+    if isinstance(target, (tuple, list)) and len(target) == 2:
+        return (int(target[0]), int(target[1]))
+
+    box = _endpoint_box(target)
+    if box is None:
+        raise TypeError(
+            "arrow endpoint must be (x, y), a Shape, or a BBox; got %r"
+            % (target,)
+        )
+    left, top, width, height = box
+
+    if side in (None, "auto"):
+        opp_box = _endpoint_box(opposite)
+        if isinstance(opposite, (tuple, list)) and len(opposite) == 2:
+            opp_cx, opp_cy = int(opposite[0]), int(opposite[1])
+        elif opp_box is not None:
+            opp_cx = opp_box[0] + opp_box[2] // 2
+            opp_cy = opp_box[1] + opp_box[3] // 2
+        else:
+            opp_cx, opp_cy = left + width // 2, top + height // 2
+
+        cx = left + width // 2
+        cy = top + height // 2
+        # Pick whichever edge the opposite endpoint is closest to.
+        dx = opp_cx - cx
+        dy = opp_cy - cy
+        if abs(dx) >= abs(dy):
+            side = "right" if dx >= 0 else "left"
+        else:
+            side = "bottom" if dy >= 0 else "top"
+
+    if side == "right":
+        return (left + width - inset_emu, top + height // 2)
+    if side == "left":
+        return (left + inset_emu, top + height // 2)
+    if side == "top":
+        return (left + width // 2, top + inset_emu)
+    if side == "bottom":
+        return (left + width // 2, top + height - inset_emu)
+    raise ValueError(
+        f"side must be 'top'/'right'/'bottom'/'left'/'auto'; got {side!r}"
+    )
+
+
 class _BaseShapes(ParentedElementProxy):
     """Base class for a shape collection appearing in a slide-type object.
 
@@ -814,6 +886,257 @@ class _BaseGroupShapes(_BaseShapes):
             textbox.left = Emu(cl + new_left)
             textbox.top = Emu(ct + new_top)
         return textbox
+
+    def add_text(
+        self,
+        *bbox_or_positional,
+        text: str = "",
+        font: str | None = None,
+        size_pt: float | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        color=None,
+        align: str | None = None,
+        anchor: str | None = None,
+        margin_pt: float | tuple[float, float, float, float] | None = None,
+        word_wrap: bool | None = True,
+    ) -> Shape:
+        """Add a textbox carrying *text* with one-call styling.
+
+        Accepts either a :class:`~power_pptx.geometry.BBox` positionally
+        or the four ``(left, top, width, height)`` lengths::
+
+            slide.shapes.add_text(bbox, text="Hello", size_pt=24, bold=True,
+                                  color="#0B5CFF", align="center")
+            slide.shapes.add_text(Inches(1), Inches(2), Inches(4), Inches(1),
+                                  text="Hello")
+
+        Keyword args:
+
+        * ``font`` — typeface name (e.g. ``"Inter"``); ``None`` inherits.
+        * ``size_pt`` — font size in points; ``None`` inherits.
+        * ``bold`` / ``italic`` — ``True``/``False``/``None``.
+        * ``color`` — any "color-like" (``"#RRGGBB"``, ``RGBColor``,
+          ``(r, g, b)``).
+        * ``align`` — ``"left"`` / ``"center"`` / ``"right"`` /
+          ``"justify"``; ``None`` inherits.
+        * ``anchor`` — vertical anchor: ``"top"`` / ``"middle"`` /
+          ``"bottom"``; ``None`` inherits.
+        * ``margin_pt`` — uniform margin in points, or a 4-tuple
+          ``(top, right, bottom, left)``.
+        * ``word_wrap`` — defaults to ``True``.
+
+        Returns the textbox :class:`Shape` so further mutation works as
+        normal.
+        """
+        from power_pptx._color import coerce_color
+        from power_pptx.enum.text import (
+            MSO_VERTICAL_ANCHOR,
+            PP_PARAGRAPH_ALIGNMENT,
+        )
+        from power_pptx.geometry import BBox
+        from power_pptx.util import Pt
+
+        if len(bbox_or_positional) == 1 and isinstance(bbox_or_positional[0], BBox):
+            box = bbox_or_positional[0]
+            left, top, width, height = box.left, box.top, box.width, box.height
+        elif len(bbox_or_positional) == 4:
+            left, top, width, height = bbox_or_positional
+        else:
+            raise TypeError(
+                "add_text(): pass either a BBox or (left, top, width, "
+                "height); got %d positional arg(s)" % len(bbox_or_positional)
+            )
+
+        shape = self.add_textbox(left, top, width, height)
+        tf = shape.text_frame
+        if word_wrap is not None:
+            tf.word_wrap = bool(word_wrap)
+
+        if margin_pt is not None:
+            if isinstance(margin_pt, (tuple, list)):
+                if len(margin_pt) != 4:
+                    raise ValueError(
+                        "margin_pt tuple must have 4 elements (top, right, "
+                        "bottom, left)"
+                    )
+                tf.margin_top = Pt(float(margin_pt[0]))
+                tf.margin_right = Pt(float(margin_pt[1]))
+                tf.margin_bottom = Pt(float(margin_pt[2]))
+                tf.margin_left = Pt(float(margin_pt[3]))
+            else:
+                v = Pt(float(margin_pt))
+                tf.margin_top = v
+                tf.margin_right = v
+                tf.margin_bottom = v
+                tf.margin_left = v
+
+        _ANCHOR_MAP = {
+            "top": MSO_VERTICAL_ANCHOR.TOP,
+            "middle": MSO_VERTICAL_ANCHOR.MIDDLE,
+            "center": MSO_VERTICAL_ANCHOR.MIDDLE,
+            "centre": MSO_VERTICAL_ANCHOR.MIDDLE,
+            "bottom": MSO_VERTICAL_ANCHOR.BOTTOM,
+        }
+        if anchor is not None:
+            try:
+                tf.vertical_anchor = _ANCHOR_MAP[anchor.lower()]
+            except KeyError:
+                raise ValueError(
+                    f"anchor must be one of {sorted(set(_ANCHOR_MAP))}; got {anchor!r}"
+                )
+
+        tf.text = text or ""
+
+        _ALIGN_MAP = {
+            "left": PP_PARAGRAPH_ALIGNMENT.LEFT,
+            "right": PP_PARAGRAPH_ALIGNMENT.RIGHT,
+            "center": PP_PARAGRAPH_ALIGNMENT.CENTER,
+            "centre": PP_PARAGRAPH_ALIGNMENT.CENTER,
+            "justify": PP_PARAGRAPH_ALIGNMENT.JUSTIFY,
+        }
+        align_value = None
+        if align is not None:
+            try:
+                align_value = _ALIGN_MAP[align.lower()]
+            except KeyError:
+                raise ValueError(
+                    f"align must be one of {sorted(set(_ALIGN_MAP))}; got {align!r}"
+                )
+
+        rgb = coerce_color(color) if color is not None else None
+        for paragraph in tf.paragraphs:
+            if align_value is not None:
+                paragraph.alignment = align_value
+            for run in paragraph.runs:
+                f = run.font
+                if font is not None:
+                    f.name = font
+                if size_pt is not None:
+                    f.size = Pt(float(size_pt))
+                if bold is not None:
+                    f.bold = bool(bold)
+                if italic is not None:
+                    f.italic = bool(italic)
+                if rgb is not None:
+                    f.color.rgb = rgb
+
+        return shape
+
+    def add_arrow(
+        self,
+        start,
+        end,
+        *,
+        head: str | None = "triangle",
+        tail: str | None = None,
+        head_size: str = "medium",
+        tail_size: str = "medium",
+        color=None,
+        weight_pt: float = 1.5,
+        style: str = "solid",
+        route: str = "straight",
+        inset_pt: float = 0.0,
+        end_side: str = "auto",
+        start_side: str = "auto",
+    ) -> Connector:
+        """Add an arrow connector with proper arrowhead and inset routing.
+
+        ``start`` and ``end`` may each be:
+
+        * an ``(x, y)`` tuple of EMU or ``Length`` coordinates,
+        * a :class:`~power_pptx.geometry.BBox`,
+        * a :class:`~power_pptx.shapes.base.BaseShape`.
+
+        When the endpoint is a shape / BBox, the line is auto-routed to
+        the nearest mid-edge (or the requested ``start_side`` / ``end_side``
+        — one of ``"top"``, ``"right"``, ``"bottom"``, ``"left"``, ``"auto"``).
+        ``inset_pt`` pulls the endpoint back from the shape edge by that many
+        points so the arrowhead triangle doesn't bleed into a target box.
+
+        ``head`` and ``tail`` accept the short names from
+        :class:`~power_pptx.enum.dml.MSO_LINE_END_TYPE`:
+        ``"triangle"``, ``"arrow"``, ``"stealth"``, ``"diamond"``,
+        ``"oval"``, ``"none"`` (or ``None``).
+
+        ``style`` is ``"solid"`` / ``"dashed"`` / ``"dotted"``.
+
+        ``route`` is ``"straight"`` (default), ``"elbow"``, or
+        ``"curved"`` — picks the underlying
+        :class:`~power_pptx.enum.shapes.MSO_CONNECTOR_TYPE`.
+
+        Returns the :class:`Connector` so callers can tweak further.
+        """
+        from power_pptx._color import coerce_color
+        from power_pptx.enum.dml import (
+            MSO_LINE_DASH_STYLE,
+            MSO_LINE_END_SIZE,
+            MSO_LINE_END_TYPE,
+        )
+        from power_pptx.enum.shapes import MSO_CONNECTOR_TYPE
+        from power_pptx.util import Pt
+
+        _CONNECTOR = {
+            "straight": MSO_CONNECTOR_TYPE.STRAIGHT,
+            "elbow": MSO_CONNECTOR_TYPE.ELBOW,
+            "curved": MSO_CONNECTOR_TYPE.CURVE,
+        }
+        if route not in _CONNECTOR:
+            raise ValueError(
+                f"route must be one of {sorted(_CONNECTOR)}; got {route!r}"
+            )
+
+        _DASH = {
+            "solid": MSO_LINE_DASH_STYLE.SOLID,
+            "dashed": MSO_LINE_DASH_STYLE.DASH,
+            "dotted": MSO_LINE_DASH_STYLE.ROUND_DOT,
+        }
+        if style not in _DASH:
+            raise ValueError(
+                f"style must be one of {sorted(_DASH)}; got {style!r}"
+            )
+
+        _END_TYPE = {
+            None: MSO_LINE_END_TYPE.NONE,
+            "none": MSO_LINE_END_TYPE.NONE,
+            "triangle": MSO_LINE_END_TYPE.TRIANGLE,
+            "arrow": MSO_LINE_END_TYPE.ARROW,
+            "stealth": MSO_LINE_END_TYPE.STEALTH,
+            "diamond": MSO_LINE_END_TYPE.DIAMOND,
+            "oval": MSO_LINE_END_TYPE.OVAL,
+        }
+        _END_SIZE = {
+            "small": MSO_LINE_END_SIZE.SMALL,
+            "medium": MSO_LINE_END_SIZE.MEDIUM,
+            "large": MSO_LINE_END_SIZE.LARGE,
+        }
+
+        bx, by = _resolve_endpoint(start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt)))
+        ex, ey = _resolve_endpoint(end, opposite=start, side=end_side, inset_emu=int(Pt(inset_pt)))
+
+        conn = self.add_connector(_CONNECTOR[route], bx, by, ex, ey)
+        line = conn.line
+        line.width = Pt(float(weight_pt))
+        line.dash_style = _DASH[style]
+        if color is not None:
+            line.color.rgb = coerce_color(color)
+
+        # The arrowhead is the tail by OOXML convention: tail = end-point.
+        tail_kind = _END_TYPE.get(tail) if tail is not None else _END_TYPE[None]
+        head_kind = _END_TYPE.get(head) if head is not None else _END_TYPE[None]
+        line.head_end.type = tail_kind  # start
+        line.tail_end.type = head_kind  # end
+        try:
+            line.tail_end.width = _END_SIZE[head_size]
+            line.tail_end.length = _END_SIZE[head_size]
+        except KeyError:
+            pass
+        try:
+            line.head_end.width = _END_SIZE[tail_size]
+            line.head_end.length = _END_SIZE[tail_size]
+        except KeyError:
+            pass
+        return conn
 
     def build_freeform(
         self, start_x: float = 0, start_y: float = 0, scale: tuple[float, float] | float = 1.0

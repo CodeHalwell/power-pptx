@@ -146,6 +146,135 @@ class Picture(_BasePicture):
     Based on the `p:pic` element.
     """
 
+    def replace_with(self, builder, *, padding=0):
+        """Delete this picture and call ``builder(slide, bbox)`` in its place.
+
+        The picture's current bounding box is snapshotted (minus an
+        optional ``padding`` inset), then the picture is removed from
+        the slide.  ``builder`` is invoked with ``(slide, bbox)`` where
+        ``bbox`` is a :class:`~power_pptx.geometry.BBox` — the typical
+        usage is to draw native shapes in the area a broken /
+        suboptimal picture used to occupy::
+
+            def diagram(slide, bbox):
+                left, right = bbox.split_h([1, 1], gap=Inches(0.1))
+                slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
+                slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
+
+            picture.replace_with(diagram, padding=Inches(0.1))
+
+        ``padding`` is an integer EMU (or :class:`~power_pptx.util.Length`)
+        applied as a uniform inset on all four sides.  Negative values
+        expand the area outward.
+
+        Returns whatever ``builder`` returned.
+        """
+        from power_pptx.geometry import BBox
+
+        bbox = BBox.from_shape(self)
+        if padding:
+            bbox = bbox.inset(all=int(padding))
+        # Walk up through the proxy to find the owning slide.
+        try:
+            slide = self.part.slide
+        except AttributeError as exc:
+            raise ValueError(
+                "replace_with() requires the picture to be on a slide"
+            ) from exc
+        self.delete()
+        return builder(slide, bbox)
+
+    def enclosing_container(
+        self,
+        *,
+        exclude_text: bool = True,
+        shrink_around: bool = True,
+    ):
+        """Return the smallest rectangle on the slide enclosing this picture.
+
+        Useful when a picture sits inside a "card" rectangle plus a
+        heading — replacing the picture's own bbox would lose the
+        heading; replacing the enclosing container area keeps the
+        layout intact.
+
+        * ``exclude_text=True`` (default) skips other shapes that hold
+          live text — those are content, not chrome.
+        * ``shrink_around=True`` (default) trims the returned box so it
+          doesn't overlap any sibling content-bearing shape; the
+          biggest empty sub-rectangle of the enclosing card is returned.
+
+        Returns a :class:`~power_pptx.geometry.BBox` or ``None`` when no
+        enclosing shape (other than the slide itself) is found.
+        """
+        from power_pptx.geometry import BBox
+
+        try:
+            slide = self.part.slide
+        except AttributeError:
+            return None
+
+        my_box = BBox.from_shape(self)
+        candidates: list[tuple[int, BaseShape, BBox]] = []
+        for shape in slide.shapes:
+            if shape is self:
+                continue
+            try:
+                box = BBox.from_shape(shape)
+            except Exception:
+                continue
+            if box.area <= my_box.area:
+                continue
+            # Skip if this shape is itself a placeholder for text we
+            # want to keep visible.
+            if exclude_text and getattr(shape, "has_text_frame", False):
+                tf = getattr(shape, "text_frame", None)
+                if tf is not None and tf.text.strip():
+                    continue
+            if box.contains(my_box):
+                candidates.append((box.area, shape, box))
+        if not candidates:
+            return None
+        # Smallest enclosing box.
+        candidates.sort(key=lambda t: t[0])
+        _, _container, container_box = candidates[0]
+        if not shrink_around:
+            return container_box
+
+        # Trim around other content shapes that sit inside the container.
+        trimmed = container_box
+        for shape in slide.shapes:
+            if shape is self or shape is _container:
+                continue
+            try:
+                box = BBox.from_shape(shape)
+            except Exception:
+                continue
+            if not trimmed.contains(box):
+                continue
+            # Determine which edge of `trimmed` to push in.  Push only on
+            # the dimension where the obstacle and target are most
+            # decoupled to avoid eating both width and height.
+            top_gap = int(box.top) - int(trimmed.top)
+            bottom_gap = int(trimmed.bottom) - int(box.bottom)
+            left_gap = int(box.left) - int(trimmed.left)
+            right_gap = int(trimmed.right) - int(box.right)
+            gaps = {
+                "top": top_gap,
+                "bottom": bottom_gap,
+                "left": left_gap,
+                "right": right_gap,
+            }
+            best_edge = max(gaps, key=lambda k: gaps[k])
+            if best_edge == "top":
+                trimmed = trimmed.inset(top=top_gap)
+            elif best_edge == "bottom":
+                trimmed = trimmed.inset(bottom=bottom_gap)
+            elif best_edge == "left":
+                trimmed = trimmed.inset(left=left_gap)
+            elif best_edge == "right":
+                trimmed = trimmed.inset(right=right_gap)
+        return trimmed
+
     @property
     def auto_shape_type(self) -> MSO_SHAPE | None:
         """Member of MSO_SHAPE indicating masking shape.

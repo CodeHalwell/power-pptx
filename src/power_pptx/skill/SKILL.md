@@ -33,6 +33,73 @@ The whole upstream 1.0.2 API still works — the rest of this skill
 focuses on the post-fork additions because they're what's most often
 missed by snippets pulled from the wider internet.
 
+## Cheat sheet (most common operations)
+
+The 25 calls that cover ~90% of deck-generation tasks. Reach for
+`references/geometry-and-arrows.md` for the full surface; this is the
+working set:
+
+```python
+from power_pptx import Presentation, BBox, audit
+from power_pptx.diagrams import horizontal_pipeline, hub_and_spoke, cycle
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
+
+# --- open / save ---
+prs = Presentation()                       # new blank deck
+prs = Presentation("file.pptx")            # open existing
+prs.save("out.pptx")
+
+# --- slides ---
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+
+# --- geometry (BBox is splattable into add_*) ---
+bb = BBox.from_inches(1, 2, 8, 4)
+left, right = bb.split_h([1, 1], gap=Inches(0.2))
+inner = bb.inset(all=Inches(0.2))
+
+# --- text (one call) ---
+slide.shapes.add_text(bb, text="Hello",
+                      size_pt=24, bold=True,
+                      color="#0B5CFF", align="center")
+
+# --- shape with chainable colour ---
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
+    .fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)
+
+# --- arrow with proper triangular head + auto edge routing ---
+slide.shapes.add_arrow(start=a, end=b,
+                       head="triangle", color="#0B5CFF", weight_pt=1.5)
+
+# --- format-preserving text replacement (templated placeholders) ---
+title_shape.set_text_preserving_format("New title")
+
+# --- picture replacement (broken / sub-quality picture → native shapes) ---
+picture.replace_with(lambda slide, bbox: ..., padding=Inches(0.1))
+
+# --- diagram recipes ---
+horizontal_pipeline(slide, bb, steps=["Extract", "Classify", "Enrich"])
+hub_and_spoke(slide, bb, centre="Agent",
+              spokes=["Memory", "Tools", "Planning"])
+
+# --- space-aware fit ---
+tf.fit_text(font_family="Inter", max_size=24)
+
+# --- single-call cleanup before save ---
+slide.tidy()                               # lints + safe auto-fixes
+
+# --- whole-deck audit (markdown summary) ---
+print(audit(prs).markdown())
+
+# --- render thumbnails ---
+from power_pptx.render import render_slides
+render_slides(prs, slides=[0, 1, 2], out_dir="thumbs",
+              name_template="slide-{:02d}.png")
+```
+
+That whole sheet fits on one screen — it's the working set.
+
 ## When to use this skill
 
 - The user wants to **generate a deck** from Python or a JSON / dict spec
@@ -71,6 +138,7 @@ collections. Read just the file you need — they're self-contained.
 | File | What it covers |
 |---|---|
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
+| `references/geometry-and-arrows.md` | `BBox` value object, `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
 | `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
 | `references/design.md` | `DesignTokens`, `shape.style` facade, `Grid` / `Stack` layout primitives (geometry-safe placement), slide recipes (`title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, `image_hero_slide`), starter pack. **Phase 9.** |
 | `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts. Quick-reference cheatsheet. |
@@ -95,6 +163,10 @@ import paths:
 ```python
 from power_pptx import (
     Presentation,
+    # Immutable rectangular region; splats into add_* APIs.
+    BBox,
+    # One-call deck audit (lint + picture + empty-slide + font checks).
+    audit, AuditReport,
     # Figure adapters — Plotly / Matplotlib / SVG / HTML → slide picture.
     # Third-party deps are imported lazily; missing deps surface a clear
     # FigureBackendUnavailable with the right pip install command.
@@ -196,6 +268,38 @@ These changes ship after v2.5 and are easy to miss:
   `(Inches(N) - gutter) / 2` style expressions can be passed straight
   through. Pre-2.6.1 these produced float-valued `<a:off>` / `<a:ext>`
   attributes that PowerPoint rejected with the "Repair?" dialog.
+
+## Anti-patterns to avoid
+
+LLM-generated power-pptx code falls into the same handful of traps.
+Flagging them up front saves the trial-and-error round.
+
+- **Don't** access `tf.paragraphs` twice and compare wrapper objects
+  with `is`. The property returns *fresh* `_Paragraph` objects every
+  call, so `p is not para` is always true — your filter will remove
+  the wrong paragraph. Use `set_text_preserving_format(new_text)` for
+  the common "replace text, keep formatting" case.
+- **Don't** assume `add_connector(MSO_CONNECTOR.STRAIGHT, ...)` puts
+  an arrowhead on the line. It produces a bare line. Use
+  `slide.shapes.add_arrow(start, end, head="triangle")` — it sets the
+  arrowhead, inset, edge routing, and colour in one call.
+- **Don't** size a diagram to a broken picture's bbox when there's an
+  enclosing card. The card area is what you want. Use
+  `picture.enclosing_container()` to find the right box, then
+  `picture.replace_with(builder)`.
+- **Don't** delete a picture and then assume sibling shape indexes
+  are stable. Process in reverse index order, or capture the shapes
+  to mutate *before* iterating.
+- **Don't** import `RGBColor` / `PP_ALIGN` / `MSO_VERTICAL_ANCHOR`
+  for every styling call. Use the hex-string and short-name kwargs:
+  `slide.shapes.add_text(bb, text="…", color="#0B5CFF", align="center",
+  anchor="middle")`. Hex strings, tuples, and `RGBColor` all work
+  everywhere a colour is accepted.
+- **Don't** write raw EMU integers. `BBox.from_inches(1, 2, 8, 4)`
+  for regions, `Inches(1)` / `Pt(12)` for individual lengths. Float
+  arithmetic on EMU is fine — coordinates are coerced at the setter.
+- **Don't** lint + auto_fix + lint again to clear safe issues. Use
+  `slide.tidy()` — it's the one-call wrapper.
 
 ## Common pitfalls
 
