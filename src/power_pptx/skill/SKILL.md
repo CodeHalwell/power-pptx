@@ -200,8 +200,10 @@ from power_pptx import (
    `add_textbox` only when the recipes don't fit.
 7. **Save once at the end** — build the deck in memory, then call
    `prs.save(...)`. Don't open and re-save inside loops.
-8. **For released-version constraints**: this fork is
-   `power-pptx>=1.1.0`. Pin that in any requirements file you generate.
+8. **For released-version constraints**: pin `power-pptx>=2.8.0`
+   when generating requirements files — that's the minimum that
+   ships the `BBox`, `add_text`, `add_arrow`, `diagrams`, and
+   `audit` surface used in this skill.
 
 ## A space-aware mini-template
 
