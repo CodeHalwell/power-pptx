@@ -558,6 +558,146 @@ class Slide(_BaseSlide):
         """Sequence of shape objects appearing on this slide."""
         return SlideShapes(self._element.spTree, self)
 
+    def slide_bbox(self):
+        """Return the slide's full area as a :class:`~power_pptx.geometry.BBox`."""
+        from power_pptx.geometry import BBox
+
+        return BBox.from_slide(self)
+
+    def content_bbox(self, *, include_decorative: bool = False):
+        """Return the bounding box covering all non-decorative shapes.
+
+        ``include_decorative=False`` (the default) skips slide-spanning
+        backgrounds (any shape whose width and height each exceed 95%
+        of the slide area), so the returned box reflects "where the
+        real content is" rather than the full slide.
+
+        Returns ``None`` when the slide has no qualifying shapes.
+        """
+        from power_pptx.geometry import BBox
+
+        slide_box = BBox.from_slide(self)
+        union_box: BBox | None = None
+        threshold_w = int(slide_box.width) * 0.95
+        threshold_h = int(slide_box.height) * 0.95
+        for shape in self.shapes:
+            try:
+                box = BBox.from_shape(shape)
+            except Exception:
+                continue
+            if not include_decorative:
+                if (
+                    int(box.width) >= threshold_w
+                    and int(box.height) >= threshold_h
+                ):
+                    continue
+            union_box = box if union_box is None else union_box.union(box)
+        return union_box
+
+    def find_empty_region(
+        self,
+        *,
+        near=None,
+        min_width=0,
+        min_height=0,
+    ):
+        """Return a :class:`BBox` of an unused region on the slide.
+
+        Walks a coarse grid over the slide and returns the largest cell
+        (or cluster of cells) that doesn't overlap any existing
+        shape.  ``near`` is an optional BBox / Shape; when given, the
+        cell whose centre is nearest its centre is preferred over
+        strictly the largest free area.
+
+        ``min_width`` / ``min_height`` filter out tiny free pockets in
+        EMU.  Returns ``None`` when no region meets the criteria.
+
+        Approximate by design — for one-off LLM placement decisions,
+        not pixel-perfect packing.
+        """
+        from power_pptx.geometry import BBox
+
+        slide_box = BBox.from_slide(self)
+        # 12×8 sample grid is fine-grained enough for typical decks.
+        cells = slide_box.grid(12, 8)
+        existing = []
+        for shape in self.shapes:
+            try:
+                existing.append(BBox.from_shape(shape))
+            except Exception:
+                pass
+
+        free = [c for c in cells if not any(c.intersects(s) for s in existing)]
+        if not free:
+            return None
+
+        # Merge horizontally-adjacent free cells in the same row.
+        merged: list[BBox] = []
+        for c in free:
+            if merged:
+                last = merged[-1]
+                if (
+                    int(last.top) == int(c.top)
+                    and int(last.right) == int(c.left)
+                ):
+                    merged[-1] = last.union(c)
+                    continue
+            merged.append(c)
+
+        candidates = [
+            m for m in merged
+            if int(m.width) >= int(min_width)
+            and int(m.height) >= int(min_height)
+        ]
+        if not candidates:
+            return None
+
+        if near is not None:
+            from power_pptx.shapes.base import BaseShape
+
+            if isinstance(near, BaseShape):
+                target = BBox.from_shape(near)
+            else:
+                target = near
+            tx, ty = int(target.cx), int(target.cy)
+            candidates.sort(
+                key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2
+            )
+            return candidates[0]
+        candidates.sort(key=lambda b: -b.area)
+        return candidates[0]
+
+    def tidy(
+        self,
+        *,
+        fix_offslide: bool = True,
+        fix_overflow: bool = True,
+        fix_grid_drift: bool = False,
+    ) -> list[str]:
+        """One-call cleanup: lint then auto-fix the safe subset.
+
+        Wraps :meth:`lint` + :meth:`SlideLintReport.auto_fix` with the
+        flags most decks want by default.  Returns the list of fixes
+        applied (the same shape as ``auto_fix()``).
+
+        * ``fix_offslide`` (default ``True``) clamps shapes back
+          on-slide.
+        * ``fix_overflow`` (default ``True``) flips overflowing text
+          frames to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE``.
+        * ``fix_grid_drift`` (default ``False``) snaps minor grid drift
+          — off by default because the snap can move a shape by several
+          EMU when the inferred grid is wrong.
+        """
+        disable: list[str] = []
+        if not fix_offslide:
+            disable.append("OffSlide")
+        if not fix_overflow:
+            disable.append("TextOverflow")
+        if not fix_grid_drift:
+            disable.append("OffGridDrift")
+        report = self.lint(disable=disable)
+        return report.auto_fix()
+
     @property
     def smart_art(self) -> SmartArtCollection:
         """Return a |SmartArtCollection| for this slide.

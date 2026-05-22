@@ -535,6 +535,155 @@ class BaseShape(object):
     def width(self, value: Length):
         self._element.cx = _coerce_emu(value)
 
+    @property
+    def bbox(self):
+        """Return the shape's geometry as an immutable :class:`BBox`.
+
+        ``shape.bbox`` is a snapshot — mutating the shape afterwards
+        does not update the box.  Use :meth:`BBox.apply_to` to push a
+        new box back onto the shape.
+
+        Example::
+
+            from power_pptx import BBox
+
+            inner = shape.bbox.inset(all=Inches(0.2))
+            slide.shapes.add_textbox(*inner)
+        """
+        from power_pptx.geometry import BBox
+
+        return BBox.from_shape(self)
+
+    def fill_hex(self, hex_color: str) -> "BaseShape":
+        """Set a solid fill from a hex string (``"#RRGGBB"`` or ``"RRGGBB"``).
+
+        Convenience for the three-line ``shape.fill.solid();
+        shape.fill.fore_color.rgb = RGBColor(...)`` dance.  Returns
+        ``self`` so calls can be chained.
+
+        Example::
+
+            slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *box).fill_hex("#0B5CFF")
+
+        Pass ``None`` to clear the fill (the shape inherits from its
+        theme afterwards).  Hex strings, ``RGBColor`` instances, and
+        ``(r, g, b)`` tuples are all accepted.
+        """
+        from power_pptx._color import coerce_color
+
+        if hex_color is None:
+            # ``fill.background()`` produces a transparent (no-fill)
+            # solid; the closest thing to "clear" without ripping the
+            # element out wholesale.
+            try:
+                self.fill.background()  # type: ignore[attr-defined]
+            except AttributeError as exc:
+                raise AttributeError(
+                    f"{type(self).__name__} does not support fill"
+                ) from exc
+            return self
+        try:
+            fill = self.fill  # type: ignore[attr-defined]
+        except AttributeError as exc:
+            raise AttributeError(
+                f"{type(self).__name__} does not support fill"
+            ) from exc
+        fill.solid()
+        fill.fore_color.rgb = coerce_color(hex_color)
+        return self
+
+    def line_hex(
+        self,
+        hex_color: str,
+        *,
+        weight_pt: float | None = None,
+    ) -> "BaseShape":
+        """Set the line stroke from a hex string (``"#RRGGBB"``).
+
+        Optional ``weight_pt`` sets the stroke width in points.  Returns
+        ``self`` so calls can be chained.
+
+        Example::
+
+            slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *box).line_hex(
+                "#0D0D0D", weight_pt=1.25,
+            )
+        """
+        from power_pptx._color import coerce_color
+        from power_pptx.util import Pt
+
+        try:
+            line = self.line  # type: ignore[attr-defined]
+        except AttributeError as exc:
+            raise AttributeError(
+                f"{type(self).__name__} does not support line"
+            ) from exc
+        if hex_color is None:
+            line.fill.background()
+        else:
+            line.color.rgb = coerce_color(hex_color)
+        if weight_pt is not None:
+            line.width = Pt(float(weight_pt))
+        return self
+
+    def set_text_preserving_format(self, new_text: str) -> "BaseShape":
+        """Replace all text in this shape with ``new_text``, keeping run formatting.
+
+        Captures the first run's character properties (``<a:rPr>``) and
+        the first paragraph's properties (``<a:pPr>``), rebuilds the
+        text body to hold ``new_text`` (one paragraph per ``\\n``), then
+        re-applies those properties to every new run and paragraph.
+
+        Font face / size / colour / bold / italic on that first run are
+        preserved verbatim — useful when overwriting a templated
+        placeholder (e.g. ``"<TITLE>"``) without losing the designer's
+        font choices.
+
+        Example::
+
+            shape.set_text_preserving_format("Q4 revenue overview")
+
+        Raises :class:`ValueError` if the shape has no text frame.
+        """
+        if not getattr(self, "has_text_frame", False):
+            raise ValueError(
+                f"shape {self.name!r} has no text frame; can't replace text"
+            )
+        tf = self.text_frame  # type: ignore[attr-defined]
+
+        from copy import deepcopy
+
+        rPr_template = None
+        pPr_template = None
+        first_para = tf.paragraphs[0] if tf.paragraphs else None
+        if first_para is not None:
+            pPr = first_para._p.pPr  # type: ignore[attr-defined]
+            if pPr is not None:
+                pPr_template = deepcopy(pPr)
+            if first_para.runs:
+                rPr = first_para.runs[0]._r.rPr  # type: ignore[attr-defined]
+                if rPr is not None:
+                    rPr_template = deepcopy(rPr)
+
+        # Rebuild the body using the high-level text setter; this gives
+        # us one paragraph per "\n" with a single run per paragraph.
+        tf.text = new_text if new_text else ""
+
+        for para in tf.paragraphs:
+            p_elm = para._p  # type: ignore[attr-defined]
+            if pPr_template is not None:
+                existing_pPr = p_elm.pPr
+                if existing_pPr is not None:
+                    p_elm._remove_pPr()
+                p_elm._insert_pPr(deepcopy(pPr_template))
+            if rPr_template is not None:
+                for run in para.runs:
+                    r_elm = run._r  # type: ignore[attr-defined]
+                    if r_elm.rPr is not None:
+                        r_elm._remove_rPr()
+                    r_elm._insert_rPr(deepcopy(rPr_template))
+        return self
+
 
 class _PlaceholderFormat(ElementProxy):
     """Provides properties specific to placeholders, such as the placeholder type.

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import power_pptx.exc as exceptions
 from power_pptx.api import Presentation
+from power_pptx.audit import AuditReport, audit
+from power_pptx.geometry import BBox
 from power_pptx.design.components import (
     ArticleCard,
     Gauge,
@@ -60,6 +62,12 @@ del sys
 
 __all__ = [
     "Presentation",
+    # First-class rectangular region value object (immutable, splattable
+    # into add_shape / add_textbox / add_picture).
+    "BBox",
+    # One-call deck audit (lint + picture + empty-slide + font + size).
+    "audit",
+    "AuditReport",
     # Figure adapters — embed Plotly / Matplotlib / SVG / HTML output as
     # slide pictures. Third-party deps are imported lazily on first call.
     "add_plotly_figure",
