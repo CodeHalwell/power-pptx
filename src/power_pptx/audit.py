@@ -145,6 +145,12 @@ def audit(
     slides = list(prs.slides)
     report.total_slides = len(slides)
 
+    # Read slide dimensions once for the full-bleed-background heuristic.
+    slide_w = int(prs.slide_width) if prs.slide_width else 0
+    slide_h = int(prs.slide_height) if prs.slide_height else 0
+    bleed_w = slide_w * 0.95
+    bleed_h = slide_h * 0.95
+
     for idx, slide in enumerate(slides):
         # Lint each slide and prefix with the index.
         for issue in slide.lint().issues:
@@ -159,6 +165,27 @@ def audit(
                 and not shape.text_frame.text.strip()
             ):
                 continue
+            # Skip full-bleed background rectangles — they're decoration,
+            # not content, so a slide that only contains them should be
+            # flagged as empty (matches the documented contract for
+            # ``empty_slides``).
+            try:
+                sw = int(shape.width)
+                sh = int(shape.height)
+            except Exception:
+                sw = sh = 0
+            if (
+                bleed_w > 0
+                and bleed_h > 0
+                and sw >= bleed_w
+                and sh >= bleed_h
+            ):
+                has_text = (
+                    getattr(shape, "has_text_frame", False)
+                    and shape.text_frame.text.strip()
+                )
+                if not has_text:
+                    continue
             content_shapes += 1
 
             # Picture sanity.

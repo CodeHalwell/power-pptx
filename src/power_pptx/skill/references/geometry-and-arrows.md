@@ -18,7 +18,8 @@ Every rectangular region on a slide can be expressed as a
 :class:`BBox` (importable from the package root):
 
 ```python
-from power_pptx import BBox, Inches
+from power_pptx import BBox
+from power_pptx.util import Inches
 
 bb = BBox.from_inches(1, 2, 8, 4)        # left, top, width, height
 bb.right                                  # Emu(9 inches)

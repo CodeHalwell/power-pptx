@@ -8,7 +8,7 @@ import pytest
 
 from power_pptx import BBox, Presentation
 from power_pptx.enum.dml import MSO_LINE_END_TYPE
-from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.shapes import MSO_CONNECTOR_TYPE, MSO_SHAPE
 from power_pptx.util import Inches, Pt
 
 
@@ -117,14 +117,9 @@ class DescribeSetTextPreservingFormat:
                 assert run.font.bold is True
 
     def it_raises_when_shape_has_no_text_frame(self, slide):
-        line = slide.shapes.add_connector(
-            __import__("power_pptx").util.Emu(0),
-            None, None, None, None,
-        ) if False else None
-        # Lines have no text frame.  Use a connector if available, otherwise
-        # skip with a clear assertion.
-        connector_type = __import__("power_pptx.enum.shapes", fromlist=["MSO_CONNECTOR_TYPE"]).MSO_CONNECTOR_TYPE
-        conn = slide.shapes.add_connector(connector_type.STRAIGHT, Inches(0), Inches(0), Inches(1), Inches(1))
+        conn = slide.shapes.add_connector(
+            MSO_CONNECTOR_TYPE.STRAIGHT, Inches(0), Inches(0), Inches(1), Inches(1)
+        )
         with pytest.raises(ValueError):
             conn.set_text_preserving_format("nope")
 
@@ -158,6 +153,35 @@ class DescribeAddArrow:
         with pytest.raises(ValueError):
             slide.shapes.add_arrow((Inches(0), Inches(0)), (Inches(5), Inches(0)), route="zigzag")
 
+    def it_rejects_unknown_head(self, slide):
+        with pytest.raises(ValueError):
+            slide.shapes.add_arrow(
+                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                head="curly",
+            )
+
+    def it_rejects_unknown_tail(self, slide):
+        with pytest.raises(ValueError):
+            slide.shapes.add_arrow(
+                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                tail="splash",
+            )
+
+    def it_rejects_unknown_head_size(self, slide):
+        with pytest.raises(ValueError):
+            slide.shapes.add_arrow(
+                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                head_size="huge",
+            )
+
+    def it_normalises_case_for_head(self, slide):
+        # "TRIANGLE" should be accepted equivalently to "triangle".
+        arrow = slide.shapes.add_arrow(
+            (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+            head="TRIANGLE",
+        )
+        assert arrow.line.tail_end.type == MSO_LINE_END_TYPE.TRIANGLE
+
 
 # ---------------------------------------------------------------------------- picture helpers
 
@@ -182,6 +206,39 @@ class DescribePictureReplaceWith:
         pic.replace_with(build)
         assert called["slide"] is slide
         assert isinstance(called["bbox"], BBox)
+
+
+class DescribePictureEnclosingContainer:
+    def _make_picture(self, slide, left, top, width, height):
+        import io
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"
+            "53de0000000c4944415478da6300010000000500010d0a2db40000000049"
+            "454e44ae426082"
+        )
+        return slide.shapes.add_picture(io.BytesIO(png), left, top, width, height)
+
+    def it_does_not_collapse_onto_a_title_strip(self, slide):
+        # Regression for the Codex finding: a "card" rectangle holds a
+        # title strip at the top plus the picture below.  ``shrink_around``
+        # must trim the title region away while still containing the
+        # picture, not push the bottom edge up onto the title strip.
+        slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(1), Inches(1), Inches(6), Inches(5),   # outer card
+        )
+        slide.shapes.add_text(
+            BBox.from_inches(1.2, 1.2, 5.6, 0.6),         # title strip
+            text="Architecture",
+        )
+        picture = self._make_picture(
+            slide, Inches(1.5), Inches(2), Inches(5), Inches(3.5),
+        )
+        container = picture.enclosing_container()
+        assert container is not None
+        # The returned box must enclose the picture, not the title strip.
+        assert container.contains(BBox.from_shape(picture))
 
 
 # ---------------------------------------------------------------------------- slide-level
@@ -214,3 +271,7 @@ class DescribeSlideHelpers:
         slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(15), Inches(15), Inches(2), Inches(1))
         fixes = slide.tidy()
         assert any("Clamped" in f for f in fixes)
+
+    def it_rejects_unknown_near_type_in_find_empty_region(self, slide):
+        with pytest.raises(TypeError):
+            slide.find_empty_region(near="not-a-shape")

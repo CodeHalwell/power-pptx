@@ -53,3 +53,14 @@ class DescribeAudit:
         report = audit(prs)
         assert any(font == "Definitely-Not-A-Real-Font-Name"
                    for _, font in report.font_warnings)
+
+    def it_treats_full_bleed_only_slide_as_empty(self, prs):
+        # A slide whose only shape is a slide-spanning background rect
+        # should be reported as empty (it has no content).
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0), Inches(0), prs.slide_width, prs.slide_height,
+        )
+        report = audit(prs)
+        assert 0 in report.empty_slides

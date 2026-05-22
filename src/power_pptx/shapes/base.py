@@ -554,7 +554,7 @@ class BaseShape(object):
 
         return BBox.from_shape(self)
 
-    def fill_hex(self, hex_color: str) -> "BaseShape":
+    def fill_hex(self, hex_color: "str | None") -> "BaseShape":
         """Set a solid fill from a hex string (``"#RRGGBB"`` or ``"RRGGBB"``).
 
         Convenience for the three-line ``shape.fill.solid();
@@ -594,7 +594,7 @@ class BaseShape(object):
 
     def line_hex(
         self,
-        hex_color: str,
+        hex_color: "str | None",
         *,
         weight_pt: float | None = None,
     ) -> "BaseShape":

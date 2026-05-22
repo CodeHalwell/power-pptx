@@ -1111,6 +1111,39 @@ class _BaseGroupShapes(_BaseShapes):
             "large": MSO_LINE_END_SIZE.LARGE,
         }
 
+        # Strict validation up front — silently mapping an unknown name to
+        # ``None`` would produce a headless line and make a typo
+        # impossible to debug.  Normalise case so ``"Triangle"`` works.
+        def _norm(name):
+            if name is None:
+                return None
+            if isinstance(name, str):
+                return name.lower()
+            return name
+
+        head_key = _norm(head)
+        tail_key = _norm(tail)
+        if head_key not in _END_TYPE:
+            raise ValueError(
+                f"head must be one of {sorted(k for k in _END_TYPE if k is not None)} "
+                f"or None; got {head!r}"
+            )
+        if tail_key not in _END_TYPE:
+            raise ValueError(
+                f"tail must be one of {sorted(k for k in _END_TYPE if k is not None)} "
+                f"or None; got {tail!r}"
+            )
+        head_size_key = _norm(head_size)
+        tail_size_key = _norm(tail_size)
+        if head_size_key not in _END_SIZE:
+            raise ValueError(
+                f"head_size must be one of {sorted(_END_SIZE)}; got {head_size!r}"
+            )
+        if tail_size_key not in _END_SIZE:
+            raise ValueError(
+                f"tail_size must be one of {sorted(_END_SIZE)}; got {tail_size!r}"
+            )
+
         bx, by = _resolve_endpoint(start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt)))
         ex, ey = _resolve_endpoint(end, opposite=start, side=end_side, inset_emu=int(Pt(inset_pt)))
 
@@ -1122,20 +1155,12 @@ class _BaseGroupShapes(_BaseShapes):
             line.color.rgb = coerce_color(color)
 
         # The arrowhead is the tail by OOXML convention: tail = end-point.
-        tail_kind = _END_TYPE.get(tail) if tail is not None else _END_TYPE[None]
-        head_kind = _END_TYPE.get(head) if head is not None else _END_TYPE[None]
-        line.head_end.type = tail_kind  # start
-        line.tail_end.type = head_kind  # end
-        try:
-            line.tail_end.width = _END_SIZE[head_size]
-            line.tail_end.length = _END_SIZE[head_size]
-        except KeyError:
-            pass
-        try:
-            line.head_end.width = _END_SIZE[tail_size]
-            line.head_end.length = _END_SIZE[tail_size]
-        except KeyError:
-            pass
+        line.head_end.type = _END_TYPE[tail_key]  # start
+        line.tail_end.type = _END_TYPE[head_key]  # end
+        line.tail_end.width = _END_SIZE[head_size_key]
+        line.tail_end.length = _END_SIZE[head_size_key]
+        line.head_end.width = _END_SIZE[tail_size_key]
+        line.head_end.length = _END_SIZE[tail_size_key]
         return conn
 
     def build_freeform(

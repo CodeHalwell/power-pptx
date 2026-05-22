@@ -140,3 +140,39 @@ class DescribeShapeBboxProperty:
         rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(3), Inches(4))
         assert isinstance(rect.bbox, BBox)
         assert rect.bbox.left == Inches(1)
+
+
+class DescribeSplitPreservesSpan:
+    def it_splits_h_into_segments_summing_to_full_width(self):
+        # The naive `int(round(span * r / total))` approach would drift
+        # by ±1 EMU on uneven ratios with high segment counts.
+        bb = BBox.from_inches(0, 0, 7, 1)
+        cols = bb.split_h([1, 1, 1, 1, 1, 1, 1])
+        assert sum(int(c.width) for c in cols) == int(bb.width)
+        # Each consecutive box also starts exactly where the previous ends.
+        for prev, curr in zip(cols, cols[1:]):
+            assert int(prev.right) == int(curr.left)
+
+    def it_splits_v_into_segments_summing_to_full_height(self):
+        bb = BBox.from_inches(0, 0, 1, 7)
+        rows = bb.split_v([2, 3, 5])
+        assert sum(int(r.height) for r in rows) == int(bb.height)
+
+    def it_splits_with_gap_preserving_total_layout_span(self):
+        bb = BBox.from_inches(0, 0, 10, 1)
+        gap = int(Pt(7))   # awkward odd number to stress rounding
+        cols = bb.split_h([1, 1, 1], gap=gap)
+        total = sum(int(c.width) for c in cols) + gap * (len(cols) - 1)
+        assert total == int(bb.width)
+
+
+class DescribeIntersectsTouching:
+    def it_does_not_treat_edge_touching_as_intersection(self):
+        # The docstring promises touching edges do NOT intersect.
+        a = BBox.from_inches(0, 0, 2, 2)
+        b = BBox.from_inches(2, 0, 2, 2)   # shares right/left edge
+        assert not a.intersects(b)
+        c = BBox.from_inches(0, 2, 2, 2)   # shares top/bottom edge
+        assert not a.intersects(c)
+        d = BBox.from_inches(2, 2, 2, 2)   # corner touch
+        assert not a.intersects(d)

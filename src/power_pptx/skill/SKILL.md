@@ -69,7 +69,9 @@ slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
     .fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)
 
 # --- arrow with proper triangular head + auto edge routing ---
-slide.shapes.add_arrow(start=a, end=b,
+start_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
+end_shape   = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
+slide.shapes.add_arrow(start=start_shape, end=end_shape,
                        head="triangle", color="#0B5CFF", weight_pt=1.5)
 
 # --- format-preserving text replacement (templated placeholders) ---
