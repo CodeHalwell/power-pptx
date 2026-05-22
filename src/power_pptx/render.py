@@ -530,6 +530,25 @@ def render_slides(
     """
     if scale is not None:
         dpi = max(int(72 * float(scale)), 36)
+    # Validate name_template *before* rendering — a template without a
+    # format placeholder would rename every slide to the same filename
+    # and silently overwrite all but the last PNG.
+    if name_template is not None and not return_bytes:
+        try:
+            sample_a = name_template.format(0)
+            sample_b = name_template.format(1)
+        except (IndexError, ValueError, KeyError) as exc:
+            raise ValueError(
+                f"name_template {name_template!r} is not a valid str.format "
+                "template (expected one positional placeholder like "
+                "'slide-{:02d}.png'): " + str(exc)
+            ) from exc
+        if sample_a == sample_b:
+            raise ValueError(
+                f"name_template {name_template!r} produces the same filename "
+                "for every slide — include a positional placeholder such as "
+                "'slide-{:02d}.png' so each PNG gets a unique name."
+            )
     paths = render_slide_thumbnails(
         prs,
         out_dir=out_dir,
@@ -549,10 +568,7 @@ def render_slides(
     else:
         index_iter = list(slides)
     for idx, p in zip(index_iter, paths):
-        try:
-            new_name = name_template.format(idx)
-        except (IndexError, ValueError, KeyError):
-            new_name = name_template
+        new_name = name_template.format(idx)
         target = p.parent / new_name
         if p != target:
             shutil.move(str(p), str(target))

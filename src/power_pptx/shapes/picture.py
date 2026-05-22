@@ -241,6 +241,10 @@ class Picture(_BasePicture):
             return container_box
 
         # Trim around other content shapes that sit inside the container.
+        # For each obstacle, try the four edge-pushes that would exclude
+        # it (top edge down past obstacle.bottom, bottom edge up past
+        # obstacle.top, etc.) and pick the smallest waste that still
+        # keeps the picture (``my_box``) inside the trimmed result.
         trimmed = container_box
         for shape in slide.shapes:
             if shape is self or shape is _container:
@@ -251,28 +255,7 @@ class Picture(_BasePicture):
                 continue
             if not trimmed.contains(box):
                 continue
-            # Determine which edge of `trimmed` to push in.  Push only on
-            # the dimension where the obstacle and target are most
-            # decoupled to avoid eating both width and height.
-            top_gap = int(box.top) - int(trimmed.top)
-            bottom_gap = int(trimmed.bottom) - int(box.bottom)
-            left_gap = int(box.left) - int(trimmed.left)
-            right_gap = int(trimmed.right) - int(box.right)
-            gaps = {
-                "top": top_gap,
-                "bottom": bottom_gap,
-                "left": left_gap,
-                "right": right_gap,
-            }
-            best_edge = max(gaps, key=lambda k: gaps[k])
-            if best_edge == "top":
-                trimmed = trimmed.inset(top=top_gap)
-            elif best_edge == "bottom":
-                trimmed = trimmed.inset(bottom=bottom_gap)
-            elif best_edge == "left":
-                trimmed = trimmed.inset(left=left_gap)
-            elif best_edge == "right":
-                trimmed = trimmed.inset(right=right_gap)
+            trimmed = _exclude_obstacle(trimmed, box, must_contain=my_box)
         return trimmed
 
     @property
@@ -335,6 +318,100 @@ class Picture(_BasePicture):
     def shape_type(self) -> MSO_SHAPE_TYPE:
         """Unconditionally `MSO_SHAPE_TYPE.PICTURE` in this case."""
         return MSO_SHAPE_TYPE.PICTURE
+
+
+def _exclude_obstacle(trimmed, obstacle, *, must_contain):
+    """Shrink *trimmed* to exclude *obstacle* while still containing *must_contain*.
+
+    Tries each of the four edge-trims (push top down past obstacle,
+    push bottom up past obstacle, etc.), discards any that would also
+    exclude *must_contain*, and returns the candidate with the least
+    area lost.  Returns *trimmed* unchanged when no valid trim exists.
+
+    Earlier versions of ``Picture.enclosing_container(shrink_around=
+    True)`` used a different heuristic that could collapse the
+    container onto the obstacle (e.g. a title strip above the picture
+    caused the bottom edge to be chosen, returning the top strip
+    instead).  This helper picks the right edge by construction: it
+    only emits a candidate that excludes the obstacle *and* keeps the
+    picture inside.
+    """
+    from power_pptx.geometry import BBox
+    from power_pptx.util import Emu
+
+    candidates: list[tuple[int, BBox]] = []
+    # Push TOP edge down past obstacle.bottom
+    new_top = int(obstacle.bottom)
+    if (
+        new_top > int(trimmed.top)
+        and new_top <= int(must_contain.top)
+        and new_top < int(trimmed.bottom)
+    ):
+        cost = new_top - int(trimmed.top)
+        candidates.append(
+            (
+                cost,
+                BBox(
+                    trimmed.left, Emu(new_top), trimmed.width,
+                    Emu(int(trimmed.bottom) - new_top),
+                ),
+            )
+        )
+    # Push BOTTOM edge up past obstacle.top
+    new_bottom = int(obstacle.top)
+    if (
+        new_bottom < int(trimmed.bottom)
+        and new_bottom >= int(must_contain.bottom)
+        and new_bottom > int(trimmed.top)
+    ):
+        cost = int(trimmed.bottom) - new_bottom
+        candidates.append(
+            (
+                cost,
+                BBox(
+                    trimmed.left, trimmed.top, trimmed.width,
+                    Emu(new_bottom - int(trimmed.top)),
+                ),
+            )
+        )
+    # Push LEFT edge right past obstacle.right
+    new_left = int(obstacle.right)
+    if (
+        new_left > int(trimmed.left)
+        and new_left <= int(must_contain.left)
+        and new_left < int(trimmed.right)
+    ):
+        cost = new_left - int(trimmed.left)
+        candidates.append(
+            (
+                cost,
+                BBox(
+                    Emu(new_left), trimmed.top,
+                    Emu(int(trimmed.right) - new_left), trimmed.height,
+                ),
+            )
+        )
+    # Push RIGHT edge left past obstacle.left
+    new_right = int(obstacle.left)
+    if (
+        new_right < int(trimmed.right)
+        and new_right >= int(must_contain.right)
+        and new_right > int(trimmed.left)
+    ):
+        cost = int(trimmed.right) - new_right
+        candidates.append(
+            (
+                cost,
+                BBox(
+                    trimmed.left, trimmed.top,
+                    Emu(new_right - int(trimmed.left)), trimmed.height,
+                ),
+            )
+        )
+    if not candidates:
+        return trimmed
+    candidates.sort(key=lambda c: c[0])
+    return candidates[0][1]
 
 
 class _MediaFormat(ParentedElementProxy):

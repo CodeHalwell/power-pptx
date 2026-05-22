@@ -126,13 +126,53 @@ Documentation
   ``python -m power_pptx.skill install``, list the post-fork
   feature set, and provide an end-to-end quick-start example.
 
+Review-driven hardening (during PR #34)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``BBox.split_h`` / ``split_v`` / ``grid`` now distribute the span
+  with a running-remainder apportionment, so the emitted segments
+  sum to exactly the input span — previously each segment's width
+  was rounded independently and could drift by ±1 EMU per split,
+  which then accumulated across nested grids.
+- ``BBox.intersects()`` docstring corrected to match the
+  implementation: touching edges do *not* count as intersection
+  (matching the standard "shared area" interpretation).
+- ``slide.shapes.add_arrow(head=, tail=, head_size=, tail_size=)``
+  now validates every choice up front and raises ``ValueError`` on
+  typos, with case-insensitive matching for the four enum-like
+  string arguments.  Previously an unknown name silently produced
+  a headless connector.
+- ``slide.find_empty_region(near=...)`` validates the ``near``
+  argument and raises ``TypeError`` for unexpected types
+  (previously raised ``AttributeError`` deep inside).
+- ``render_slides(name_template=)`` now validates the template
+  format string *before* rendering — a template without a
+  positional placeholder (which would silently overwrite every
+  PNG with the same filename) raises ``ValueError``.
+- ``Picture.enclosing_container(shrink_around=True)`` rebuilt to
+  pick the smallest valid edge-trim that excludes each obstacle
+  while still containing the picture.  The old heuristic could
+  collapse onto the obstacle (e.g. a title strip above the picture
+  caused the bottom edge to be pushed up, returning the top strip
+  instead of the picture area).
+- ``audit()``'s ``empty_slides`` check now also skips slide-spanning
+  background rectangles (any shape ≥95% of the slide area without
+  live text), matching the documented contract.
+- ``shape.fill_hex`` / ``shape.line_hex`` type annotations
+  corrected to ``str | None`` (both already supported ``None`` to
+  clear).
+- ``hub_and_spoke`` recipe no longer creates a rectangle then
+  deletes it to add an oval — it builds the oval directly.
+
 Tests
 ~~~~~
 
-- 56 new unit tests across ``tests/test_geometry.py``,
+- 68 new unit tests across ``tests/test_geometry.py``,
   ``tests/test_shape_helpers.py``, ``tests/test_diagrams.py``,
-  ``tests/test_audit.py`` cover the new API surface.  Full
-  3569-test suite (the existing suite plus the new tests) passes.
+  ``tests/test_audit.py``, and ``tests/test_render_slides_alias.py``
+  cover the new API surface, the validation paths, and the
+  regression cases from the review feedback.  Full 3582-test suite
+  passes.
 
 
 2.7.0 (2026-05-17)

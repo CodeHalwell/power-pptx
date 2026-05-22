@@ -360,25 +360,12 @@ def hub_and_spoke(
         Emu(hub_diameter),
         Emu(hub_diameter),
     )
-    hub = _card(
-        slide,
-        hub_box,
-        fill=hub_fill or accent,
-        line=None,
-        text=centre,
-        text_color=hub_text_color,
-        font=font,
-        size_pt=size_pt,
-        bold=True,
-        radius=hub_diameter / Inches(0.1),  # any positive radius rounds it
-    )
-    # Replace rectangle with oval geometry by setting the prstGeom — easier
-    # to just delete & re-add as OVAL.
-    hub.delete()
+    from power_pptx._color import coerce_color
+    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
+
     hub = slide.shapes.add_shape(MSO_SHAPE.OVAL, *hub_box)
     hub.fill_hex(hub_fill or accent)
     hub.line.fill.background()
-    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
 
     tf = hub.text_frame
     tf.word_wrap = True
@@ -391,8 +378,6 @@ def hub_and_spoke(
                 run.font.name = font
             run.font.size = Pt(float(size_pt))
             run.font.bold = True
-            from power_pptx._color import coerce_color
-
             run.font.color.rgb = coerce_color(hub_text_color)
 
     # Place spokes evenly around the hub.

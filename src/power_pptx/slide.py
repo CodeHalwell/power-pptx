@@ -657,8 +657,13 @@ class Slide(_BaseSlide):
 
             if isinstance(near, BaseShape):
                 target = BBox.from_shape(near)
-            else:
+            elif isinstance(near, BBox):
                 target = near
+            else:
+                raise TypeError(
+                    "find_empty_region(near=...) must be a BaseShape or BBox; "
+                    f"got {type(near).__name__}"
+                )
             tx, ty = int(target.cx), int(target.cy)
             candidates.sort(
                 key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2

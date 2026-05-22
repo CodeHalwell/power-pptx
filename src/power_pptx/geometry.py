@@ -245,16 +245,9 @@ class BBox:
                 f"cols and rows must be >= 1; got cols={cols}, rows={rows}"
             )
         col_boxes = _split(self, [1] * cols, gap_x, axis="h")
-        cells: list[BBox] = []
-        for col in col_boxes:
-            cells.append(col)  # placeholder, replaced below
-        # Build a row-major list by splitting each column vertically.
-        result: list[BBox] = []
-        for r in range(rows):
-            for c in range(cols):
-                row_split = _split(col_boxes[c], [1] * rows, gap_y, axis="v")
-                result.append(row_split[r])
-        return result
+        # Pre-split each column into rows once; flatten in row-major order.
+        col_rows = [_split(cb, [1] * rows, gap_y, axis="v") for cb in col_boxes]
+        return [col_rows[c][r] for r in range(rows) for c in range(cols)]
 
     # -------------------------------------------------------------- geometric
 
@@ -268,7 +261,12 @@ class BBox:
         )
 
     def intersects(self, other: "BBox") -> bool:
-        """True if this box overlaps ``other`` (touching edges count as overlap)."""
+        """True if this box overlaps ``other``.
+
+        Touching edges do *not* count as intersection — two boxes
+        sharing an edge or a corner return ``False``.  This matches
+        the standard "overlap = shared area" interpretation.
+        """
         return not (
             int(self.right) <= int(other.left)
             or int(other.right) <= int(self.left)
@@ -339,7 +337,7 @@ def _split(
                 f"horizontal gaps ({len(ratios) - 1}×{int(gap)}) consume the "
                 f"entire box width ({int(box.width)} EMU)"
             )
-        widths = [int(round(span * r / total)) for r in ratios]
+        widths = _apportion(span, ratios, total)
         out: list[BBox] = []
         cursor = int(box.left)
         for w in widths:
@@ -353,7 +351,7 @@ def _split(
                 f"vertical gaps ({len(ratios) - 1}×{int(gap)}) consume the "
                 f"entire box height ({int(box.height)} EMU)"
             )
-        heights = [int(round(span * r / total)) for r in ratios]
+        heights = _apportion(span, ratios, total)
         out2: list[BBox] = []
         cursor = int(box.top)
         for h in heights:
@@ -362,3 +360,29 @@ def _split(
         return out2
     else:
         raise ValueError(f"axis must be 'h' or 'v'; got {axis!r}")
+
+
+def _apportion(span: int, ratios: Sequence[float], total: float) -> list[int]:
+    """Distribute *span* across *ratios* so the result sums to exactly *span*.
+
+    Rounding each segment independently with ``int(round(span * r / total))``
+    can drift up or down by a few EMU per split, which then accumulates across
+    nested ``BBox.grid`` calls and silently breaks layouts that assume the
+    cells partition the box exactly.  Tracking the remaining span / remaining
+    ratio after each emission keeps the running total exact.
+    """
+    widths: list[int] = []
+    rem_span = int(span)
+    rem_total = float(total)
+    for i, r in enumerate(ratios):
+        if i == len(ratios) - 1:
+            widths.append(rem_span)
+            break
+        if rem_total <= 0:
+            widths.append(0)
+            continue
+        w = int(round(rem_span * float(r) / rem_total))
+        widths.append(w)
+        rem_span -= w
+        rem_total -= float(r)
+    return widths
