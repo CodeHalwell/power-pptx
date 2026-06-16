@@ -4,8 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "power-pptx"
-authors = [{name = "Daniel Halwell", email = "danielhalwell@gmail.com"}]
-maintainers = [{name = "Daniel Halwell", email = "danielhalwell@gmail.com"}]
+# Split the name and email into separate entries so setuptools populates
+# *both* the bare `Author:` core-metadata field (from the name-only entry)
+# and `Author-email:` (from the email-only entry).  A single combined
+# {name, email} entry only fills `Author-email:`, leaving `Author:` blank —
+# which makes simple aggregators (e.g. pypistats) read the package as
+# "Author: None".
+authors = [{name = "Daniel Halwell"}, {email = "danielhalwell@gmail.com"}]
+maintainers = [{name = "Daniel Halwell"}, {email = "danielhalwell@gmail.com"}]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",

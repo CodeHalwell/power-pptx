@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from power_pptx.enum.dml import BevelPreset, PresetMaterial
-from power_pptx.oxml.simpletypes import ST_PositiveCoordinate
+from power_pptx.oxml.simpletypes import ST_PositiveCoordinate, XsdString
 from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
     Choice,
@@ -71,9 +71,38 @@ class CT_ContourColor(BaseOxmlElement):
     eg_colorChoice = ZeroOrOneChoice(_COLOR_CHOICES, successors=())
 
 
+class CT_Camera(BaseOxmlElement):
+    """`<a:camera>` element — the scene camera within `<a:scene3d>`.
+
+    The ``prst`` attribute (preset camera type, e.g. ``orthographicFront``) is required by the
+    OOXML schema.  We model it as a plain string so callers / defaults can write any of the
+    preset names without an exhaustive enum.
+    """
+
+    prst = OptionalAttribute("prst", XsdString)
+
+
+class CT_LightRig(BaseOxmlElement):
+    """`<a:lightRig>` element — the scene light rig within `<a:scene3d>`.
+
+    Both ``rig`` (e.g. ``threePt``) and ``dir`` (e.g. ``t``) are required by the OOXML schema;
+    modelled as strings for the same reason as :class:`CT_Camera`.
+    """
+
+    rig = OptionalAttribute("rig", XsdString)
+    dir = OptionalAttribute("dir", XsdString)
+
+
 class CT_Scene3D(BaseOxmlElement):
     """`<a:scene3d>` element — scene-level 3-D rendering settings.
 
-    Contains camera and light-rig children.  For typical bevel/extrusion use the element only
-    needs to exist; individual sub-element access is not yet implemented.
+    Contains a required ``<a:camera>`` and ``<a:lightRig>`` child (in that order).  PowerPoint
+    rejects a deck whose ``<a:scene3d>`` is empty while a sibling ``<a:sp3d>`` is present, so the
+    creating path (:meth:`power_pptx.dml.three_d.ThreeDFormat._get_or_add_sp3d`) always populates
+    both children with safe defaults.
     """
+
+    _tag_seq = ("a:camera", "a:lightRig", "a:extLst")
+    camera = ZeroOrOne("a:camera", successors=_tag_seq[1:])
+    lightRig = ZeroOrOne("a:lightRig", successors=_tag_seq[2:])
+    del _tag_seq

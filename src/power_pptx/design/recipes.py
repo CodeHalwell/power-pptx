@@ -110,6 +110,7 @@ def title_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(1.0)
     title_top = Length(int(slide_h * 0.38))
@@ -165,6 +166,7 @@ def bullet_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -244,6 +246,7 @@ def kpi_slide(
     """
     slide = _add_blank(prs)
     slide_w, _slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -376,6 +379,7 @@ def quote_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(1.2)
     quote_h = Inches(3.5)
@@ -671,6 +675,7 @@ def chart_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -795,6 +800,7 @@ def table_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -924,6 +930,7 @@ def code_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1042,6 +1049,7 @@ def timeline_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1180,6 +1188,7 @@ def comparison_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1312,6 +1321,7 @@ def figure_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1464,6 +1474,31 @@ def _add_blank(prs: "Presentation") -> "Slide":
     if blank is None:
         blank = layouts[-1]
     return prs.slides.add_slide(blank)
+
+
+def _apply_background(
+    slide: "Slide", prs: "Presentation", tokens: Optional[DesignTokens]
+) -> None:
+    """Lay down a full-bleed ``palette["background"]`` rectangle behind a recipe.
+
+    No-op unless the token set defines a ``background`` palette slot, so the
+    default (master-inherited white) is preserved for callers who don't opt
+    in.  When set, a deck that mixes hand-built slides (which honour the token
+    background) with recipe slides stays visually consistent instead of
+    showing two different "whites".  The rectangle is added first so it sits
+    behind every other shape the recipe places.
+    """
+    if tokens is None:
+        return
+    bg = tokens.palette.get("background")
+    if bg is None:
+        return
+    slide_w, slide_h = _slide_dims(prs)
+    rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(0), Emu(0), slide_w, slide_h)
+    rect.fill.solid()
+    rect.fill.fore_color.rgb = bg
+    rect.line.fill.background()
+    rect.text_frame.text = ""
 
 
 def _slide_dims(prs: "Presentation") -> tuple[Length, Length]:

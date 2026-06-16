@@ -61,6 +61,17 @@ class DescribeShadowFormat(object):
         expected_value = xml(expected_cxml)
         return shadow, value, expected_value
 
+    def it_defaults_color_to_black_on_alpha_only_assignment(self):
+        # Regression: setting shadow.color.alpha on a fresh shadow used to
+        # raise because color.type was None.  Shadows are almost always black,
+        # so an alpha-only assignment now defaults the colour to black.
+        from power_pptx.dml.color import RGBColor
+
+        shadow = ShadowFormat(element("p:spPr"))
+        shadow.color.alpha = 0.4
+        assert shadow.color.rgb == RGBColor(0x00, 0x00, 0x00)
+        assert shadow.color.alpha == 0.4
+
 
 class DescribeBlurFormat(object):
     def it_returns_None_for_radius_when_no_blur_element(self):

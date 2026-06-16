@@ -152,6 +152,43 @@ def _tag_group(slide, prefix: str, shapes: list[Any]) -> None:
                 pass
 
 
+def _fit_circular_label(
+    shape: Any,
+    *,
+    diameter: int,
+    font: str | None,
+    max_size_pt: float,
+    bold: bool = False,
+    italic: bool = False,
+) -> None:
+    """Shrink a circular node's label so it never clips the curved edge.
+
+    The headline reason this fork exists is space-awareness, so the diagram
+    recipes use the same ``fit_text`` pre-flight as everything else.  A circle's
+    usable text area is narrower than its bounding box, so we inset the text
+    frame by a fraction of the diameter before fitting — that keeps long words
+    such as "Retrieval" inside the inscribed area instead of wrapping to
+    "Retriev al".
+    """
+    tf = shape.text_frame
+    tf.word_wrap = True
+    h_inset = Emu(int(diameter * 0.14))
+    v_inset = Emu(int(diameter * 0.08))
+    tf.margin_left = tf.margin_right = h_inset
+    tf.margin_top = tf.margin_bottom = v_inset
+    try:
+        tf.fit_text(
+            font_family=font or "Calibri",
+            max_size=max(1, int(round(max_size_pt))),
+            bold=bold,
+            italic=italic,
+        )
+    except (ValueError, OSError):
+        # Degrade gracefully: if even 1pt won't fit (tiny circle) or no font
+        # metrics are available, keep the size the caller already set.
+        pass
+
+
 def _card(
     slide,
     bbox: BBox,
@@ -379,6 +416,7 @@ def hub_and_spoke(
             run.font.size = Pt(float(size_pt))
             run.font.bold = True
             run.font.color.rgb = coerce_color(hub_text_color)
+    _fit_circular_label(hub, diameter=hub_diameter, font=font, max_size_pt=size_pt, bold=True)
 
     # Place spokes evenly around the hub.
     radius = (min(int(bbox.width), int(bbox.height)) - hub_diameter - spoke_diameter) // 2
@@ -410,6 +448,9 @@ def hub_and_spoke(
                 from power_pptx._color import coerce_color
 
                 run.font.color.rgb = coerce_color(step.text_color or text_color)
+        _fit_circular_label(
+            spoke, diameter=spoke_diameter, font=font, max_size_pt=size_pt * 0.85
+        )
 
         spokes_built.append(spoke)
         arrow = slide.shapes.add_arrow(
@@ -480,6 +521,7 @@ def cycle(
                     run.font.name = font
                 run.font.size = Pt(float(size_pt))
                 run.font.color.rgb = coerce_color(step.text_color or text_color)
+        _fit_circular_label(card, diameter=card_diameter, font=font, max_size_pt=size_pt)
         cards.append(card)
 
     arrows: list[Any] = []
@@ -514,13 +556,21 @@ def decision_tree(
     size_pt: float = 13.0,
     root_fill: str | None = None,
     root_text_color: str = "#FFFFFF",
+    leaf_fill: str | None = None,
+    leaf_text_color: str | None = None,
 ) -> DecisionTreeResult:
     """Decision tree — root question with N branch outcomes underneath.
 
     ``branches`` may be plain labels (each becomes a leaf) or dicts with
     ``label`` and optional ``children=[…]`` for one additional level
     (sufficient for most decision-tree slides).
+
+    Leaf (child) nodes inherit ``fill`` / ``text_color`` from the recipe by
+    default so a dark deck with light text stays legible.  Pass ``leaf_fill``
+    / ``leaf_text_color`` to give the leaves a deliberately distinct style.
     """
+    leaf_fill = leaf_fill if leaf_fill is not None else fill
+    leaf_text_color = leaf_text_color if leaf_text_color is not None else text_color
     if not branches:
         raise ValueError("branches must be non-empty")
 
@@ -595,8 +645,8 @@ def decision_tree(
             for c, cb in zip(branch["children"], child_boxes):
                 label = c if isinstance(c, str) else c.get("label", "")
                 child_card = _card(
-                    slide, cb, fill="#F4F4F4", line=None,
-                    text=label, text_color=text_color,
+                    slide, cb, fill=leaf_fill, line=None,
+                    text=label, text_color=leaf_text_color,
                     font=font, size_pt=size_pt * 0.9,
                     radius=0.04,
                 )

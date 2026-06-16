@@ -34,7 +34,13 @@ from power_pptx.dml.color import RGBColor
 
 three_d.extrusion_height = Pt(20)
 three_d.extrusion_color  = RGBColor(0x12, 0x1E, 0x4D)
+# Equivalent, and the form to use when you want to read the colour back:
+three_d.extrusion_color.rgb = RGBColor(0x12, 0x1E, 0x4D)
 ```
+
+`extrusion_color` / `contour_color` return a non-mutating colour proxy on
+read (`three_d.extrusion_color.rgb`, `.type`, `.theme_color`); assigning an
+`RGBColor` directly to the property is shorthand for setting `.rgb`.
 
 ## Contour
 
@@ -89,6 +95,25 @@ badge.shadow.color.alpha = 0.3
 
 prs.save("badge.pptx")
 ```
+
+## Scene defaults (PowerPoint compatibility)
+
+When you set any 3-D property, power-pptx creates the required
+`<a:scene3d>` / `<a:sp3d>` pair.  The `<a:scene3d>` is **never** written
+empty — it is populated with the same defaults PowerPoint itself uses:
+
+```xml
+<a:scene3d>
+  <a:camera prst="orthographicFront"/>
+  <a:lightRig rig="threePt" dir="t"/>
+</a:scene3d>
+```
+
+This matters: Microsoft PowerPoint reports a deck as broken / unrepairable
+when it finds an empty `<a:scene3d>` next to an `<a:sp3d>`, even though the
+ZIP, the XML, python-pptx, and LibreOffice all accept the file.  See
+`references/render.md` for which 3-D effects the LibreOffice thumbnail
+renderer can and can't show.
 
 ## Round-trip
 

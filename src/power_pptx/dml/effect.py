@@ -92,10 +92,13 @@ class _LazyEffectColorFormat:
     def alpha(self, value: float | None):
         cf = self._existing_cf()
         if cf is None:
-            raise ValueError(
-                "can't set alpha when color.type is None."
-                " Set color.rgb or .theme_color first."
-            )
+            # No colour set yet.  Rather than force callers to set ``.rgb``
+            # first, default to opaque black — shadows (and glows) are almost
+            # always black, so an alpha-only assignment is the common case.
+            from power_pptx.dml.color import RGBColor
+
+            cf = self._ensure_cf()
+            cf.rgb = RGBColor(0x00, 0x00, 0x00)
         cf.alpha = value
 
     def _existing_cf(self) -> ColorFormat | None:

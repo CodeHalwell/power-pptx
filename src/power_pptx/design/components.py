@@ -118,7 +118,10 @@ def add_kpi_card(
     the layout.
     """
     fill_color = _palette(tokens, ("surface", "lt2"))
-    border_color = _palette(tokens, ("muted", "lt1"))
+    # Border tracks the brand: fall through muted → lt1 → neutral → primary so
+    # the outline never lands on an off-palette default (a clashing pale blue
+    # on a non-blue scheme) or silently disappears when muted/lt1 are unset.
+    border_color = _palette(tokens, ("muted", "lt1", "neutral", "primary"))
     value_color = _palette(tokens, ("primary", "neutral"))
     label_color = _palette(tokens, ("muted",))
 
@@ -228,13 +231,31 @@ def add_progress_bar(
         # hostile.
         fraction = max(0.0, min(1.0, float(fraction)))
 
-    resolved_track = _coerce_or_token(track_color, tokens, ("surface", "lt2"))
+    # Track colour: when the caller doesn't pin one, prefer a translucent
+    # ``neutral`` overlay rather than the opaque ``surface`` slot.  ``surface``
+    # is nearly identical to a dark slide background, so the track (and a
+    # gauge's target tick floating on it) would vanish on dark decks; a
+    # low-alpha neutral reads against both light and dark backgrounds.
+    track_alpha: Optional[float] = None
+    if track_color is not None:
+        from power_pptx._color import coerce_color
+
+        resolved_track = coerce_color(track_color)
+    else:
+        neutral = _palette(tokens, ("neutral",))
+        if neutral is not None:
+            resolved_track = neutral
+            track_alpha = 0.14
+        else:
+            resolved_track = _palette(tokens, ("surface", "lt2"))
     resolved_fill = _coerce_or_token(fill_color, tokens, ("primary", "accent", "neutral"))
 
     track = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
     if resolved_track is not None:
         track.fill.solid()
         track.fill.fore_color.rgb = resolved_track
+        if track_alpha is not None:
+            track.fill.fore_color.alpha = track_alpha
     else:
         track.fill.background()
     track.line.fill.background()
