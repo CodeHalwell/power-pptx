@@ -20,7 +20,7 @@ from pathlib import Path
 
 from _util import SLIDE_H, SLIDE_W, blank, deck
 
-from power_pptx import BBox, Presentation
+from power_pptx import BBox
 from power_pptx.animation import MotionPath, PP_ANIM_TRIGGER as TR
 from power_pptx.chart.data import BubbleChartData, CategoryChartData, XyChartData
 from power_pptx.compose import from_spec
@@ -57,12 +57,11 @@ from power_pptx.enum.dml import (
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from power_pptx.enum.text import (
-    MSO_AUTO_SIZE,
     MSO_TEXT_UNDERLINE_TYPE,
     MSO_VERTICAL_ANCHOR,
     PP_ALIGN,
 )
-from power_pptx.util import Emu, Inches, Pt
+from power_pptx.util import Inches, Pt
 
 ASSETS = Path(__file__).parent / "_assets"
 
@@ -138,7 +137,7 @@ def sec_cover(prs):
     tf.text = "The Everything Deck"
     tf.fit_text(font_family="Inter", max_size=60, bold=True)
     tf.paragraphs[0].font.color.rgb = _hx("#FFFFFF")
-    sub = s.shapes.add_text(
+    s.shapes.add_text(
         BBox.from_inches(0.8, 4.1, 11.7, 0.8),
         text="Every capability, one file — and a read-everything pass",
         font="Inter", size_pt=22, color="#E0F2FE", align="left", anchor="top",
@@ -156,7 +155,6 @@ def sec_cover(prs):
     td.preset_material = PresetMaterial.METAL
     badge.shadow.blur_radius = Pt(12)
     badge.shadow.color.alpha = 0.3
-    prs.slides.add_slide  # noop ref
 
 
 def sec_autoshapes(prs):
