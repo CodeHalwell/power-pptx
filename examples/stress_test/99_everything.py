@@ -599,10 +599,12 @@ def sec_design_system(prs):
         card.style.text_color = TOKENS.palette["on_primary"] if i % 2 else TOKENS.palette["neutral"]
         card.style.font = TOKENS.typography["body"]
         card.text_frame.text = f"card {i}"
-    stack = Stack(direction="horizontal", gap=Pt(12), left=Pt(40), top=Pt(360), width=Pt(840))
+    # The two wide cards (row 3, span 2) bottom out near y=421pt; place the chip
+    # row safely below that so the Stack doesn't overlap the Grid cards.
+    stack = Stack(direction="horizontal", gap=Pt(12), left=Pt(40), top=Pt(440), width=Pt(840))
     for label in ["one", "two", "three", "four"]:
         chip = s.shapes.add_shape(MSO_SHAPE.OVAL, 0, 0, Pt(10), Pt(10))
-        stack.place(chip, width=Pt(120), height=Pt(120))
+        stack.place(chip, width=Pt(120), height=Pt(85))
         chip.style.fill = TOKENS.palette["accent"]
         chip.text_frame.text = label
 
