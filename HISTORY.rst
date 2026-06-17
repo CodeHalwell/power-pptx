@@ -14,6 +14,57 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.8.1 (2026-06-17)
+++++++++++++++++++
+
+Patch release fixing four ISO/IEC 29500 schema-validity bugs surfaced
+by an aggressive deck-generation stress suite (``examples/stress_test/``).
+Each bug produced a file that opens in python-pptx and LibreOffice but
+that Microsoft PowerPoint reports as broken / silently repairs — the
+exact class the ``schema-validation`` CI gate exists to catch.  Every
+fix ships with a reproducing deck builder in
+``tests/schema/test_schema_validity.py``.
+
+Fixed
+~~~~~
+
+- **Slide-transition duration emitted an invalid bare ``p14:dur``.**
+  Setting ``slide.transition.duration`` wrote the PowerPoint-2010
+  extension attribute ``p14:dur`` directly on a plain
+  ``<p:transition>``.  That attribute is only schema-valid inside the
+  ``<mc:AlternateContent><mc:Choice Requires="p14">`` wrapper, which
+  was previously created only for p14 *kind* elements (Morph, …).  A
+  classic transition (Fade, Push, …) carrying a duration therefore
+  produced an invalid file.  The wrapper is now applied whenever the
+  transition holds any p14 content — kind *or* attribute — and a
+  classic kind is preserved in the ``<mc:Fallback>`` for pre-2010
+  viewers.
+
+- **Radar charts emitted a disallowed ``<c:smooth>`` element.**
+  ``CT_RadarSer`` does not admit ``smooth`` (it is a line/scatter
+  series element); it is no longer written for ``RADAR`` /
+  ``RADAR_MARKERS`` / ``RADAR_FILLED`` charts.
+
+- **``PresetMaterial.SOFT_METAL`` emitted ``softMetal``.**  The
+  ISO ``ST_PresetMaterialType`` enumeration spells this value
+  all-lowercase (``softmetal``); the XML value is corrected so 3-D
+  shapes using the soft-metal material validate.
+
+- **Picture recolor ``"washout"`` dropped the required ``thresh``
+  attribute.**  ``<a:biLevel>``'s ``thresh`` was declared as an
+  ``OptionalAttribute`` with ``default=0.5``, so assigning the common
+  value ``0.5`` made the serializer omit the (schema-required)
+  attribute.  ``thresh`` is now a ``RequiredAttribute`` and is always
+  written.
+
+Added
+~~~~~
+
+- ``examples/stress_test/`` — a bug-surfacing deck suite plus a harness
+  that checks every generated deck through build, lint, round-trip,
+  reopen, and ISO-29500 schema validation.
+
+
 2.8.0 (2026-05-22)
 ++++++++++++++++++
 
