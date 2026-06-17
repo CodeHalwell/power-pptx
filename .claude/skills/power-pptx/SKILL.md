@@ -1,6 +1,6 @@
 ---
 name: power-pptx
-description: Build PowerPoint (.pptx) decks from Python with the power-pptx library — the actively-maintained fork of python-pptx. Use this skill whenever the user wants to generate, mutate, lint, theme, animate, or render PowerPoint decks programmatically. The headline reason this fork exists is **space-awareness**: text that doesn't overflow its box and shapes that don't slide off the edges of the slide. Reach for it especially when generation is dynamic (LLM, DB, CLI, JSON spec) and the deck has to look right without manual cleanup. Other post-fork features include visual effects, animations, transitions, theme writer, design tokens, slide recipes, slide thumbnails, chart palettes, SVG embedding, 3D, and SmartArt text substitution.
+description: Build PowerPoint (.pptx) decks from Python with the power-pptx library — the actively-maintained fork of python-pptx. Use this skill whenever the user wants to generate, mutate, lint, theme, animate, or render PowerPoint decks programmatically. The headline reason this fork exists is **space-awareness**: text that doesn't overflow its box and shapes that don't slide off the edges of the slide. Reach for it especially when generation is dynamic (LLM, DB, CLI, JSON spec) and the deck has to look right without manual cleanup. Other post-fork features include visual effects, animations, transitions, theme writer, design tokens, slide recipes, native-shape diagrams (pipelines, hub-and-spoke, cycle, decision tree), slide thumbnails, chart palettes, SVG embedding, 3D, and SmartArt text substitution.
 ---
 
 # power-pptx
@@ -46,6 +46,8 @@ missed by snippets pulled from the wider internet.
 - The user wants to **lint / auto-fix** geometry issues
 - The user wants to **import a slide** between decks or **apply a template**
 - The user wants a **design system** (tokens, recipes, Grid/Stack layout)
+- The user wants a **diagram** — process pipeline, hub-and-spoke, cycle,
+  decision tree, or comparison columns — built from native shapes
 - The user wants **chart palettes**, **quick layouts**, or per-series
   gradient/pattern fills
 - The user wants **slide thumbnails** rendered to PNG
@@ -73,6 +75,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
 | `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
 | `references/design.md` | `DesignTokens`, `shape.style` facade, `Grid` / `Stack` layout primitives (geometry-safe placement), slide recipes (`title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, `image_hero_slide`), starter pack. **Phase 9.** |
+| `references/diagrams.md` | Native-shape diagram recipes (`horizontal_pipeline`, `vertical_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`) — space-aware, fully editable, no SmartArt. |
 | `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts. Quick-reference cheatsheet. |
 | `references/effects.md` | Shadow, glow, soft edges, blur, reflection, alpha-tinted colors, gradient fills (linear / radial / rectangular / shape), line ends/caps/joins/compound. **Phase 3 + Phase 6.** |
 | `references/animations.md` | `Entrance` / `Exit` / `Emphasis` presets, triggers, by-paragraph reveal, sequencing context manager, motion paths. **Phase 5.** |

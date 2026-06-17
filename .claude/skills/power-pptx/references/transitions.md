@@ -61,6 +61,12 @@ extension transitions on the `p14:` namespace:
 (Use `power_pptx.enum.presentation.MSO_TRANSITION_TYPE` for the full,
 authoritative list.)
 
+The `p14:` kinds (Morph, Vortex, …) are written the way PowerPoint itself
+writes them — wrapped in `<mc:AlternateContent>` with an `<mc:Fallback>` for
+pre-2010 viewers — so the deck opens cleanly in PowerPoint instead of being
+flagged for repair. You just set `transition.kind`; the wrapping is automatic
+and round-trips on save/reopen.
+
 Direction modifiers (`fromLeft`, `fromTop`, etc.) are not yet
 exposed by the high-level API — they round-trip but you have to set
 them through the underlying element.

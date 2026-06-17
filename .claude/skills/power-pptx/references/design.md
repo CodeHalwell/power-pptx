@@ -185,6 +185,11 @@ image_hero_slide(
 Recipes use the `Blank` layout and place every shape themselves so the
 rendered geometry doesn't depend on the host template's master.
 
+Set `palette["background"]` and the recipe slides paint a full-bleed
+background rectangle in that colour (so hand-built slides and recipe slides
+share one canvas colour instead of two different "whites"). It's opt-in —
+omit the slot and recipes keep the master's default (white) background.
+
 `kpi_slide` honours `palette["positive"]` / `palette["negative"]` when
 tinting deltas (falls back to green/red when unset). It applies
 `tokens.shadows["card"]` to each card when present.
