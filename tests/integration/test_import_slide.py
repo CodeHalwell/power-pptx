@@ -198,3 +198,51 @@ class Describe_import_slide_notes:
         imported_slide = dst.slides[0]
         assert imported_slide.has_notes_slide
         assert imported_slide.notes_slide.notes_text_frame.text == "Speaker note text"
+
+
+# 1x1 transparent PNG.
+_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+    "0049454e44ae426082"
+)
+
+
+class Describe_import_slide_relationship_remap:
+    def it_keeps_image_embed_references_pointing_at_the_image(self):
+        # Regression: the cloned slide XML kept the source rIds while
+        # relationships were re-created in copy order, so a picture's
+        # r:embed could end up pointing at the slide layout (wrong part) ->
+        # PowerPoint repairs the deck and drops the image.
+        import re
+        import zipfile
+
+        src = Presentation()
+        s = src.slides.add_slide(src.slide_layouts[6])
+        # A textbox first so the image is NOT the slide's first relationship.
+        tb = s.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        tb.text_frame.text = "hi"
+        s.shapes.add_picture(io.BytesIO(_PNG), Inches(3), Inches(3), Inches(1), Inches(1))
+
+        dst = Presentation()
+        dst.import_slide(src.slides[0])
+        buf = io.BytesIO()
+        dst.save(buf)
+        buf.seek(0)
+        with zipfile.ZipFile(buf) as z:
+            slide_parts = [
+                n for n in z.namelist()
+                if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+            ]
+            idx = len(slide_parts)
+            sx = z.read("ppt/slides/slide%d.xml" % idx).decode()
+            rels = z.read("ppt/slides/_rels/slide%d.xml.rels" % idx).decode()
+        relmap = dict(re.findall(r'Id="([^"]+)"[^>]*Target="([^"]+)"', rels))
+
+        embeds = re.findall(r'r:embed="([^"]+)"', sx)
+        assert embeds, "imported slide should still reference an image"
+        for rid in embeds:
+            assert rid in relmap, "r:embed=%r is dangling" % rid
+            assert "media/" in relmap[rid], (
+                "r:embed=%r points at %r, not an image" % (rid, relmap[rid])
+            )

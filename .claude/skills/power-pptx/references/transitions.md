@@ -52,11 +52,20 @@ if slide.transition.kind is None:
 `MSO_TRANSITION_TYPE` covers 25+ kinds including Office 2010+
 extension transitions on the `p14:` namespace:
 
-- Classics: `FADE`, `PUSH`, `WIPE`, `SPLIT`, `REVEAL`, `RANDOM_BARS`,
-  `SHAPE`, `UNCOVER`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`
+- Classics: `NONE`, `FADE`, `PUSH`, `PULL`, `WIPE`, `SPLIT`, `RANDOM`,
+  `RANDOM_BAR`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`, `BLINDS`, `CHECKER`,
+  `CIRCLE`, `DIAMOND`, `PLUS`, `WEDGE`, `WHEEL`, `NEWSFLASH`, `STRIPS`
 - Office 2010+ (p14): `MORPH`, `VORTEX`, `CONVEYOR`, `SWITCH`,
-  `GALLERY`, `FLY_THROUGH`, `RIPPLE`, `HONEYCOMB`, `GLITTER`, `ORBIT`,
-  `PAN`, `WARP`, `WIND`
+  `GALLERY`, `FLY_THROUGH`
+
+(Use `power_pptx.enum.presentation.MSO_TRANSITION_TYPE` for the full,
+authoritative list.)
+
+The `p14:` kinds (Morph, Vortex, …) are written the way PowerPoint itself
+writes them — wrapped in `<mc:AlternateContent>` with an `<mc:Fallback>` for
+pre-2010 viewers — so the deck opens cleanly in PowerPoint instead of being
+flagged for repair. You just set `transition.kind`; the wrapping is automatic
+and round-trips on save/reopen.
 
 Direction modifiers (`fromLeft`, `fromTop`, etc.) are not yet
 exposed by the high-level API — they round-trip but you have to set

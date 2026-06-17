@@ -61,6 +61,52 @@ class DescribeShadowFormat(object):
         expected_value = xml(expected_cxml)
         return shadow, value, expected_value
 
+    def it_defaults_color_to_black_on_alpha_only_assignment(self):
+        # Regression: setting shadow.color.alpha on a fresh shadow used to
+        # raise because color.type was None.  Shadows are almost always black,
+        # so an alpha-only assignment now defaults the colour to black.
+        from power_pptx.dml.color import RGBColor
+
+        shadow = ShadowFormat(element("p:spPr"))
+        shadow.color.alpha = 0.4
+        assert shadow.color.rgb == RGBColor(0x00, 0x00, 0x00)
+        assert shadow.color.alpha == 0.4
+
+    def it_writes_a_colour_child_for_a_geometry_only_shadow(self):
+        # <a:outerShdw> requires exactly one EG_ColorChoice child; a
+        # geometry-only shadow used to emit a colour-less element that
+        # PowerPoint flags as broken (the empty-scene3d failure mode).
+        from power_pptx.dml.color import RGBColor
+
+        shadow = ShadowFormat(element("p:spPr"))
+        shadow.blur_radius = Emu(50800)
+        assert shadow.color.rgb == RGBColor(0x00, 0x00, 0x00)
+
+    def it_supports_direct_color_assignment(self):
+        from power_pptx.dml.color import RGBColor
+
+        shadow = ShadowFormat(element("p:spPr"))
+        shadow.color = RGBColor(0x11, 0x22, 0x33)
+        assert shadow.color.rgb == RGBColor(0x11, 0x22, 0x33)
+
+
+class DescribeGlowFormatColor(object):
+    def it_writes_a_colour_child_for_a_radius_only_glow(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import GlowFormat
+
+        glow = GlowFormat(element("p:spPr"))
+        glow.radius = Emu(76200)
+        assert glow.color.rgb == RGBColor(0x00, 0x00, 0x00)
+
+    def it_supports_direct_color_assignment(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import GlowFormat
+
+        glow = GlowFormat(element("p:spPr"))
+        glow.color = RGBColor(0xAA, 0xBB, 0xCC)
+        assert glow.color.rgb == RGBColor(0xAA, 0xBB, 0xCC)
+
 
 class DescribeBlurFormat(object):
     def it_returns_None_for_radius_when_no_blur_element(self):

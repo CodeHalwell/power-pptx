@@ -10,7 +10,13 @@ from power_pptx.enum.dml import BevelPreset, PresetMaterial
 if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
-    from power_pptx.oxml.dml.three_d import CT_Bevel, CT_ContourColor, CT_ExtrusionColor, CT_Shape3D
+    from power_pptx.oxml.dml.three_d import (
+        CT_Bevel,
+        CT_ContourColor,
+        CT_ExtrusionColor,
+        CT_Scene3D,
+        CT_Shape3D,
+    )
     from power_pptx.oxml.shapes.shared import CT_ShapeProperties
     from power_pptx.util import Length
 
@@ -209,6 +215,12 @@ class ThreeDFormat:
             ensure=self._get_or_add_extrusionClr,
         )
 
+    @extrusion_color.setter
+    def extrusion_color(self, value: RGBColor) -> None:
+        # Convenience setter so ``three_d.extrusion_color = RGBColor(...)`` works
+        # in addition to ``three_d.extrusion_color.rgb = RGBColor(...)``.
+        self.extrusion_color.rgb = value
+
     # ------------------------------------------------------------------
     # Contour
     # ------------------------------------------------------------------
@@ -239,6 +251,12 @@ class ThreeDFormat:
             peek=self._peek_contourClr,
             ensure=self._get_or_add_contourClr,
         )
+
+    @contour_color.setter
+    def contour_color(self, value: RGBColor) -> None:
+        # Convenience setter so ``three_d.contour_color = RGBColor(...)`` works
+        # in addition to ``three_d.contour_color.rgb = RGBColor(...)``.
+        self.contour_color.rgb = value
 
     # ------------------------------------------------------------------
     # Preset material
@@ -271,10 +289,30 @@ class ThreeDFormat:
         """Return the ``<a:sp3d>`` element, creating scene3d + sp3d pair if absent."""
         sp3d = self._element.sp3d
         if sp3d is None:
-            # scene3d must precede sp3d; ensure both are present
-            self._element.get_or_add_scene3d()
+            # scene3d must precede sp3d; ensure both are present.  PowerPoint
+            # flags a deck as corrupt when a slide-level <a:scene3d> is empty
+            # while a sibling <a:sp3d> is present, so populate the scene with
+            # the same defaults PowerPoint / LibreOffice write themselves.
+            scene3d = self._element.get_or_add_scene3d()
+            self._init_scene3d_defaults(scene3d)
             sp3d = self._element.get_or_add_sp3d()
         return sp3d
+
+    @staticmethod
+    def _init_scene3d_defaults(scene3d: CT_Scene3D) -> None:
+        """Populate a freshly-created ``<a:scene3d>`` with default scene children.
+
+        Adds ``<a:camera prst="orthographicFront"/>`` and
+        ``<a:lightRig rig="threePt" dir="t"/>`` when they are absent.  Both are
+        required by the OOXML schema; an empty ``<a:scene3d>`` causes Microsoft
+        PowerPoint to report the file as broken / unrepairable.
+        """
+        if scene3d.camera is None:
+            scene3d.get_or_add_camera().prst = "orthographicFront"
+        if scene3d.lightRig is None:
+            light_rig = scene3d.get_or_add_lightRig()
+            light_rig.rig = "threePt"
+            light_rig.dir = "t"
 
     def _peek_bevelT(self) -> CT_Bevel | None:
         sp3d = self._sp3d

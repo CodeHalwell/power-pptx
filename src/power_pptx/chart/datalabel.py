@@ -68,6 +68,12 @@ class DataLabels(object):
     @number_format_is_linked.setter
     def number_format_is_linked(self, value):
         numFmt = self._element.get_or_add_numFmt()
+        # `formatCode` is schema-required on <c:numFmt>; default it whenever it's
+        # absent (newly created or a pre-existing element that lacks it) so the
+        # linked flag can't be toggled into an invalid, PowerPoint-rejected
+        # element.  An existing explicit value is preserved.
+        if numFmt.get("formatCode") is None:
+            numFmt.formatCode = "General"
         numFmt.sourceLinked = value
 
     @property

@@ -67,7 +67,7 @@ class CT_EffectList(BaseOxmlElement):
 
     _tag_seq = (
         "a:blur",
-        "a:fillOvr",
+        "a:fillOverlay",
         "a:glow",
         "a:innerShdw",
         "a:outerShdw",

@@ -110,6 +110,7 @@ def title_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(1.0)
     title_top = Length(int(slide_h * 0.38))
@@ -165,6 +166,7 @@ def bullet_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -200,6 +202,13 @@ def bullet_slide(
         if body_color is not None:
             run.font.color.rgb = body_color
         para.space_after = Pt(6)
+
+    # Space-awareness: a long bullet list (common from LLM output) would
+    # otherwise overflow the body box off the bottom of the slide.  Tell
+    # PowerPoint to shrink the text to fit the reserved region.
+    from power_pptx.enum.text import MSO_AUTO_SIZE
+
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     _apply_transition(slide, transition)
     return slide
@@ -244,6 +253,7 @@ def kpi_slide(
     """
     slide = _add_blank(prs)
     slide_w, _slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -376,6 +386,7 @@ def quote_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(1.2)
     quote_h = Inches(3.5)
@@ -671,6 +682,7 @@ def chart_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -795,6 +807,7 @@ def table_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -924,6 +937,7 @@ def code_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1042,6 +1056,7 @@ def timeline_slide(
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1085,7 +1100,11 @@ def timeline_slide(
         ]
 
     dot_d = Inches(0.28)
+    # Cap the label width to the per-milestone spacing so adjacent labels don't
+    # overlap once milestones get close together (many milestones on one rail).
     label_w = Inches(2.4)
+    if n > 1:
+        label_w = Length(min(int(label_w), int(span // (n - 1))))
     body_token = _typography(tokens, "body", default_size=Pt(12))
     date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
     body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
@@ -1132,6 +1151,7 @@ def timeline_slide(
                 db.text_frame, date_text,
                 token=date_token, color=body_color,
                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
         if label_text:
             lb = slide.shapes.add_textbox(
@@ -1141,6 +1161,7 @@ def timeline_slide(
                 lb.text_frame, label_text,
                 token=body_token, color=body_color,
                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
 
     _apply_transition(slide, transition)
@@ -1180,6 +1201,7 @@ def comparison_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1259,6 +1281,7 @@ def comparison_slide(
                 color=row_text_color,
                 align=PP_ALIGN.LEFT,
                 anchor=MSO_ANCHOR.MIDDLE,
+                shrink_to_fit=True,
             )
 
     _apply_transition(slide, transition)
@@ -1312,6 +1335,7 @@ def figure_slide(
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    _apply_background(slide, prs, tokens)
 
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -1464,6 +1488,31 @@ def _add_blank(prs: "Presentation") -> "Slide":
     if blank is None:
         blank = layouts[-1]
     return prs.slides.add_slide(blank)
+
+
+def _apply_background(
+    slide: "Slide", prs: "Presentation", tokens: Optional[DesignTokens]
+) -> None:
+    """Lay down a full-bleed ``palette["background"]`` rectangle behind a recipe.
+
+    No-op unless the token set defines a ``background`` palette slot, so the
+    default (master-inherited white) is preserved for callers who don't opt
+    in.  When set, a deck that mixes hand-built slides (which honour the token
+    background) with recipe slides stays visually consistent instead of
+    showing two different "whites".  The rectangle is added first so it sits
+    behind every other shape the recipe places.
+    """
+    if tokens is None:
+        return
+    bg = tokens.palette.get("background")
+    if bg is None:
+        return
+    slide_w, slide_h = _slide_dims(prs)
+    rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(0), Emu(0), slide_w, slide_h)
+    rect.fill.solid()
+    rect.fill.fore_color.rgb = bg
+    rect.line.fill.background()
+    rect.text_frame.text = ""
 
 
 def _slide_dims(prs: "Presentation") -> tuple[Length, Length]:

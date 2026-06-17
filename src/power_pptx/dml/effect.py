@@ -7,6 +7,32 @@ from typing import TYPE_CHECKING, Callable
 
 from power_pptx.dml.color import ColorFormat
 from power_pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx.oxml.ns import qn
+
+# `<a:outerShdw>`, `<a:innerShdw>`, and `<a:glow>` each require *exactly one*
+# EG_ColorChoice child per the OOXML schema (minOccurs=1).  PowerPoint reports a
+# deck as broken when one of these effect elements is written without a colour,
+# even though lxml / python-pptx / LibreOffice accept it (the same failure mode
+# as an empty `<a:scene3d>`).  Geometry-only setters such as
+# ``shadow.blur_radius`` must therefore guarantee a colour child exists.
+_EFFECT_COLOR_TAGS = frozenset(
+    qn(t)
+    for t in ("a:scrgbClr", "a:srgbClr", "a:hslClr", "a:sysClr", "a:schemeClr", "a:prstClr")
+)
+
+
+def _ensure_effect_color(el) -> None:
+    """Add a default opaque-black colour child to *el* when it has none.
+
+    Idempotent: a no-op when the effect element already carries a colour, so a
+    caller who sets ``.color.rgb`` keeps their colour and a caller who only sets
+    geometry still produces schema-valid (PowerPoint-openable) XML.
+    """
+    if any(child.tag in _EFFECT_COLOR_TAGS for child in el):
+        return
+    from power_pptx.dml.color import RGBColor
+
+    ColorFormat.from_colorchoice_parent(el).rgb = RGBColor(0x00, 0x00, 0x00)
 
 if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
@@ -92,10 +118,13 @@ class _LazyEffectColorFormat:
     def alpha(self, value: float | None):
         cf = self._existing_cf()
         if cf is None:
-            raise ValueError(
-                "can't set alpha when color.type is None."
-                " Set color.rgb or .theme_color first."
-            )
+            # No colour set yet.  Rather than force callers to set ``.rgb``
+            # first, default to opaque black — shadows (and glows) are almost
+            # always black, so an alpha-only assignment is the common case.
+            from power_pptx.dml.color import RGBColor
+
+            cf = self._ensure_cf()
+            cf.rgb = RGBColor(0x00, 0x00, 0x00)
         cf.alpha = value
 
     def _existing_cf(self) -> ColorFormat | None:
@@ -218,6 +247,13 @@ class ShadowFormat(object):
         """
         return _LazyEffectColorFormat(lambda: self._outerShdw, self._get_or_add_outerShdw)
 
+    @color.setter
+    def color(self, value: RGBColor) -> None:
+        # Convenience setter so ``shape.shadow.color = RGBColor(...)`` works in
+        # addition to ``shape.shadow.color.rgb = RGBColor(...)`` (parity with
+        # ThreeDFormat.extrusion_color / contour_color).
+        self.color.rgb = value
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -234,6 +270,9 @@ class ShadowFormat(object):
         outerShdw = effectLst.outerShdw
         if outerShdw is None:
             outerShdw = effectLst.get_or_add_outerShdw()
+        # <a:outerShdw> requires a colour child; guarantee one so a
+        # geometry-only shadow doesn't make PowerPoint flag the deck as broken.
+        _ensure_effect_color(outerShdw)
         return outerShdw
 
 
@@ -273,6 +312,12 @@ class GlowFormat(object):
         """
         return _LazyEffectColorFormat(lambda: self._glow, self._get_or_add_glow)
 
+    @color.setter
+    def color(self, value: RGBColor) -> None:
+        # Convenience setter so ``shape.glow.color = RGBColor(...)`` works in
+        # addition to ``shape.glow.color.rgb = RGBColor(...)``.
+        self.color.rgb = value
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -289,6 +334,9 @@ class GlowFormat(object):
         glow = effectLst.glow
         if glow is None:
             glow = effectLst.get_or_add_glow()
+        # <a:glow> requires a colour child (a glow with no colour is invalid and
+        # is rejected by PowerPoint); guarantee one.
+        _ensure_effect_color(glow)
         return glow
 
 

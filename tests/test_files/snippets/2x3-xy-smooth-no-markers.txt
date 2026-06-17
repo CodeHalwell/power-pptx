@@ -115,11 +115,11 @@
           </c:yVal>
           <c:smooth val="0"/>
         </c:ser>
-        <c:axId val="-2128940872"/>
-        <c:axId val="-2129643912"/>
+        <c:axId val="2166026424"/>
+        <c:axId val="2165323384"/>
       </c:scatterChart>
       <c:valAx>
-        <c:axId val="-2128940872"/>
+        <c:axId val="2166026424"/>
         <c:scaling>
           <c:orientation val="minMax"/>
         </c:scaling>
@@ -129,12 +129,12 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="-2129643912"/>
+        <c:crossAx val="2165323384"/>
         <c:crosses val="autoZero"/>
         <c:crossBetween val="midCat"/>
       </c:valAx>
       <c:valAx>
-        <c:axId val="-2129643912"/>
+        <c:axId val="2165323384"/>
         <c:scaling>
           <c:orientation val="minMax"/>
         </c:scaling>
@@ -145,7 +145,7 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="-2128940872"/>
+        <c:crossAx val="2166026424"/>
         <c:crosses val="autoZero"/>
         <c:crossBetween val="midCat"/>
       </c:valAx>

@@ -315,12 +315,12 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
             '          <c:showPercent val="0"/>\n'
             '          <c:showBubbleSize val="0"/>\n'
             "        </c:dLbls>\n"
-            '        <c:axId val="-2101159928"/>\n'
-            '        <c:axId val="-2100718248"/>\n'
+            '        <c:axId val="2193807368"/>\n'
+            '        <c:axId val="2194249048"/>\n'
             "      </c:areaChart>\n"
             "{cat_ax_xml}"
             "      <c:valAx>\n"
-            '        <c:axId val="-2100718248"/>\n'
+            '        <c:axId val="2194249048"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -331,7 +331,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2101159928"/>\n'
+            '        <c:crossAx val="2193807368"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:crossBetween val="midCat"/>\n'
             "      </c:valAx>\n"
@@ -371,7 +371,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
         if categories.are_dates:
             return (
                 "      <c:dateAx>\n"
-                '        <c:axId val="-2101159928"/>\n'
+                '        <c:axId val="2193807368"/>\n'
                 "        <c:scaling>\n"
                 '          <c:orientation val="minMax"/>\n'
                 "        </c:scaling>\n"
@@ -381,7 +381,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
                 '        <c:majorTickMark val="out"/>\n'
                 '        <c:minorTickMark val="none"/>\n'
                 '        <c:tickLblPos val="nextTo"/>\n'
-                '        <c:crossAx val="-2100718248"/>\n'
+                '        <c:crossAx val="2194249048"/>\n'
                 '        <c:crosses val="autoZero"/>\n'
                 '        <c:auto val="1"/>\n'
                 '        <c:lblOffset val="100"/>\n'
@@ -391,7 +391,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
 
         return (
             "      <c:catAx>\n"
-            '        <c:axId val="-2101159928"/>\n'
+            '        <c:axId val="2193807368"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -401,7 +401,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2100718248"/>\n'
+            '        <c:crossAx val="2194249048"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:auto val="1"/>\n'
             '        <c:lblAlgn val="ctr"/>\n'
@@ -466,12 +466,12 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
             "{grouping_xml}"
             "{ser_xml}"
             "{overlap_xml}"
-            '        <c:axId val="-2068027336"/>\n'
-            '        <c:axId val="-2113994440"/>\n'
+            '        <c:axId val="2226939960"/>\n'
+            '        <c:axId val="2180972856"/>\n'
             "      </c:barChart>\n"
             "{cat_ax_xml}"
             "      <c:valAx>\n"
-            '        <c:axId val="-2113994440"/>\n'
+            '        <c:axId val="2180972856"/>\n'
             "        <c:scaling/>\n"
             '        <c:delete val="0"/>\n'
             '        <c:axPos val="{val_ax_pos}"/>\n'
@@ -479,7 +479,7 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2068027336"/>\n'
+            '        <c:crossAx val="2226939960"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             "      </c:valAx>\n"
             "    </c:plotArea>\n"
@@ -536,7 +536,7 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
         if categories.are_dates:
             return (
                 "      <c:dateAx>\n"
-                '        <c:axId val="-2068027336"/>\n'
+                '        <c:axId val="2226939960"/>\n'
                 "        <c:scaling>\n"
                 '          <c:orientation val="minMax"/>\n'
                 "        </c:scaling>\n"
@@ -546,7 +546,7 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
                 '        <c:majorTickMark val="out"/>\n'
                 '        <c:minorTickMark val="none"/>\n'
                 '        <c:tickLblPos val="nextTo"/>\n'
-                '        <c:crossAx val="-2113994440"/>\n'
+                '        <c:crossAx val="2180972856"/>\n'
                 '        <c:crosses val="autoZero"/>\n'
                 '        <c:auto val="1"/>\n'
                 '        <c:lblOffset val="100"/>\n'
@@ -556,7 +556,7 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
 
         return (
             "      <c:catAx>\n"
-            '        <c:axId val="-2068027336"/>\n'
+            '        <c:axId val="2226939960"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -565,7 +565,7 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2113994440"/>\n'
+            '        <c:crossAx val="2180972856"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:auto val="1"/>\n'
             '        <c:lblAlgn val="ctr"/>\n'
@@ -994,7 +994,7 @@ class _RadarChartXmlWriter(_BaseChartXmlWriter):
             '        <c:varyColors val="0"/>\n'
             "{ser_xml}"
             '        <c:axId val="2073612648"/>\n'
-            '        <c:axId val="-2112772216"/>\n'
+            '        <c:axId val="2182195080"/>\n'
             "      </c:radarChart>\n"
             "      <c:catAx>\n"
             '        <c:axId val="2073612648"/>\n'
@@ -1008,7 +1008,7 @@ class _RadarChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2112772216"/>\n'
+            '        <c:crossAx val="2182195080"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:auto val="1"/>\n'
             '        <c:lblAlgn val="ctr"/>\n'
@@ -1016,7 +1016,7 @@ class _RadarChartXmlWriter(_BaseChartXmlWriter):
             '        <c:noMultiLvlLbl val="0"/>\n'
             "      </c:catAx>\n"
             "      <c:valAx>\n"
-            '        <c:axId val="-2112772216"/>\n'
+            '        <c:axId val="2182195080"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -1112,11 +1112,11 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
             '        <c:scatterStyle val="%s"/>\n'
             '        <c:varyColors val="0"/>\n'
             "%s"
-            '        <c:axId val="-2128940872"/>\n'
-            '        <c:axId val="-2129643912"/>\n'
+            '        <c:axId val="2166026424"/>\n'
+            '        <c:axId val="2165323384"/>\n'
             "      </c:scatterChart>\n"
             "      <c:valAx>\n"
-            '        <c:axId val="-2128940872"/>\n'
+            '        <c:axId val="2166026424"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -1126,12 +1126,12 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2129643912"/>\n'
+            '        <c:crossAx val="2165323384"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:crossBetween val="midCat"/>\n'
             "      </c:valAx>\n"
             "      <c:valAx>\n"
-            '        <c:axId val="-2129643912"/>\n'
+            '        <c:axId val="2165323384"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -1142,7 +1142,7 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2128940872"/>\n'
+            '        <c:crossAx val="2166026424"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:crossBetween val="midCat"/>\n'
             "      </c:valAx>\n"
@@ -1270,11 +1270,11 @@ class _BubbleChartXmlWriter(_XyChartXmlWriter):
             "        </c:dLbls>\n"
             '        <c:bubbleScale val="100"/>\n'
             '        <c:showNegBubbles val="0"/>\n'
-            '        <c:axId val="-2115720072"/>\n'
-            '        <c:axId val="-2115723560"/>\n'
+            '        <c:axId val="2179247224"/>\n'
+            '        <c:axId val="2179243736"/>\n'
             "      </c:bubbleChart>\n"
             "      <c:valAx>\n"
-            '        <c:axId val="-2115720072"/>\n'
+            '        <c:axId val="2179247224"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -1284,12 +1284,12 @@ class _BubbleChartXmlWriter(_XyChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2115723560"/>\n'
+            '        <c:crossAx val="2179243736"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:crossBetween val="midCat"/>\n'
             "      </c:valAx>\n"
             "      <c:valAx>\n"
-            '        <c:axId val="-2115723560"/>\n'
+            '        <c:axId val="2179243736"/>\n'
             "        <c:scaling>\n"
             '          <c:orientation val="minMax"/>\n'
             "        </c:scaling>\n"
@@ -1300,7 +1300,7 @@ class _BubbleChartXmlWriter(_XyChartXmlWriter):
             '        <c:majorTickMark val="out"/>\n'
             '        <c:minorTickMark val="none"/>\n'
             '        <c:tickLblPos val="nextTo"/>\n'
-            '        <c:crossAx val="-2115720072"/>\n'
+            '        <c:crossAx val="2179247224"/>\n'
             '        <c:crosses val="autoZero"/>\n'
             '        <c:crossBetween val="midCat"/>\n'
             "      </c:valAx>\n"

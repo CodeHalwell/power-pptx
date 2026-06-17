@@ -269,6 +269,35 @@ class DescribeEmbedFont:
         assert "embeddedFontLst" in xml
         assert "EmbeddedTest" in xml
 
+    def it_orders_weight_slots_by_schema_sequence(self):
+        # CT_EmbeddedFontListEntry is a fixed sequence (font, regular, bold,
+        # italic, boldItalic).  Adding weights out of order must still produce
+        # schema-ordered children, not the call order.
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import qn
+        from power_pptx.theme import _add_embedded_font_entry
+
+        pres = parse_xml(
+            b'<p:presentation '
+            b'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+            b'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        )
+
+        class _Wrap:
+            _element = pres
+
+        for weight, rId in [
+            ("italic", "rId1"),
+            ("boldItalic", "rId2"),
+            ("bold", "rId3"),
+            ("regular", "rId4"),
+        ]:
+            _add_embedded_font_entry(_Wrap, "Inter", weight, rId)
+
+        ef = pres.find(qn("p:embeddedFontLst")).find(qn("p:embeddedFont"))
+        order = [child.tag.rsplit("}", 1)[-1] for child in ef]
+        assert order == ["font", "regular", "bold", "italic", "boldItalic"]
+
     def it_rejects_invalid_weight(self):
         prs = Presentation()
         with pytest.raises(ValueError):

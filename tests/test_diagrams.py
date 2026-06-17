@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx import BBox, Presentation
+from power_pptx.util import Pt
 from power_pptx.diagrams import (
     comparison_columns,
     cycle,
@@ -81,6 +82,39 @@ class DescribeCycle:
         # Arrows count equals card count (cycle wraps around)
         assert len(result.arrows) == 4
 
+    def it_fits_long_labels_inside_the_node(self, slide):
+        # A label longer than the circle can show at the requested size must
+        # be shrunk by the fit_text pre-flight rather than wrapped/clipped.
+        result = cycle(
+            slide, BBox.from_inches(3, 2, 4, 2.5),
+            steps=["Retrieval", "Ingest", "Model", "Observe"],
+            size_pt=14.0,
+        )
+        sizes = [
+            int(run.font.size)
+            for card in result.cards
+            for para in card.text_frame.paragraphs
+            for run in para.runs
+            if run.font.size is not None
+        ]
+        assert sizes  # fit_text applied a concrete size to every run
+        assert max(sizes) <= Pt(14)
+
+
+class DescribeHubAndSpokeFit:
+    def it_fits_long_spoke_labels(self, slide):
+        result = hub_and_spoke(
+            slide, BBox.from_inches(3, 1.5, 5, 4),
+            centre="Retrieval",
+            spokes=["Retrieval", "Ingest", "Observe", "Model"],
+            size_pt=14.0,
+        )
+        for spoke in result.spokes:
+            for para in spoke.text_frame.paragraphs:
+                for run in para.runs:
+                    if run.font.size is not None:
+                        assert int(run.font.size) <= Pt(14)
+
 
 class DescribeDecisionTree:
     def it_creates_a_root_plus_branches(self, slide):
@@ -104,6 +138,39 @@ class DescribeDecisionTree:
         )
         # 2 branches + 3 children
         assert len(result.branches) == 5
+
+    def it_inherits_fill_and_text_color_on_leaf_nodes(self, slide):
+        # Regression: leaf (child) nodes used to hardcode a light fill,
+        # producing invisible light-on-light text on dark decks.  They must
+        # now inherit ``fill`` / ``text_color`` from the recipe.
+        from power_pptx._color import coerce_color
+
+        result = decision_tree(
+            slide, BBox.from_inches(0, 0, 11, 5),
+            root="Request",
+            branches=[{"label": "Cache miss", "children": ["Compute", "Store"]}],
+            fill="#141A23", text_color="#E6EDF3",
+        )
+        leaves = [b for b in result.branches if b.text_frame.text in ("Compute", "Store")]
+        assert len(leaves) == 2
+        for leaf in leaves:
+            assert leaf.fill.fore_color.rgb == coerce_color("#141A23")
+            run = leaf.text_frame.paragraphs[0].runs[0]
+            assert run.font.color.rgb == coerce_color("#E6EDF3")
+
+    def it_allows_distinct_leaf_styling(self, slide):
+        from power_pptx._color import coerce_color
+
+        result = decision_tree(
+            slide, BBox.from_inches(0, 0, 11, 5),
+            root="Request",
+            branches=[{"label": "Branch", "children": ["Leaf"]}],
+            fill="#141A23", text_color="#E6EDF3",
+            leaf_fill="#222C3A", leaf_text_color="#FFD166",
+        )
+        leaf = next(b for b in result.branches if b.text_frame.text == "Leaf")
+        assert leaf.fill.fore_color.rgb == coerce_color("#222C3A")
+        assert leaf.text_frame.paragraphs[0].runs[0].font.color.rgb == coerce_color("#FFD166")
 
 
 class DescribeComparisonColumns:

@@ -47,6 +47,7 @@ on layout choices.
   looping over runs.
 - **Charts** — `chart = slide.shapes.add_chart(...).chart` then
   `chart.shape.left = ...` to position the parent graphic-frame.
-- **Lint-or-die** — every script ends with `prs.lint().auto_fix()`
-  before save; the examples are the proof that the linter and fixer
-  are accurate enough for production decks.
+- **Lint-or-die** — every script ends by linting each slide before
+  save (`for slide in prs.slides: slide.lint().auto_fix()` — lint
+  lives on `Slide`, not `Presentation`); the examples are the proof
+  that the linter and fixer are accurate enough for production decks.

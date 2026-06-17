@@ -387,3 +387,108 @@ class CT_TLMediaNodeVideo(BaseOxmlElement):
     _tag_seq = ("p:cMediaNode",)
     cMediaNode = OneAndOnlyOne("p:cMediaNode")
     del _tag_seq
+
+
+# ---------------------------------------------------------------------------
+# Markup-Compatibility (mc:AlternateContent) wrapping for p14 transitions
+# ---------------------------------------------------------------------------
+#
+# PowerPoint-2010+ transitions (morph, vortex, switch, …) live in the ``p14``
+# namespace.  ``CT_SlideTransition`` (the schema for ``<p:transition>``) only
+# admits the standard ``p:`` kind elements in its choice, so a bare
+# ``<p14:morph/>`` child is schema-invalid and Microsoft PowerPoint reports the
+# deck as needing repair.  PowerPoint instead wraps the whole ``<p:transition>``
+# in ``<mc:AlternateContent>``: an ``<mc:Choice Requires="p14">`` carrying the
+# p14 transition, plus an ``<mc:Fallback>`` carrying a plain (kind-less)
+# ``<p:transition>`` for pre-2010 viewers.
+#
+# We keep the in-memory model as a plain ``<p:transition>`` (so the
+# ``slide.transition`` accessors stay simple) and translate to/from the
+# AlternateContent form only at the serialization boundary — see
+# ``power_pptx.parts.slide.BaseSlidePart``.
+
+_MC_URI = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_P14_URI = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+_P_URI = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+
+def _mc(tag: str) -> str:
+    return "{%s}%s" % (_MC_URI, tag)
+
+
+def _p_tag(tag: str) -> str:
+    return "{%s}%s" % (_P_URI, tag)
+
+
+def _transition_kind_child(transition):
+    """Return the kind child of a ``<p:transition>`` (skipping sndAc/extLst)."""
+    for child in transition:
+        local = child.tag.rsplit("}", 1)[-1]
+        if local in ("sndAc", "extLst"):
+            continue
+        return child
+    return None
+
+
+def _is_p14_transition(transition) -> bool:
+    kind = _transition_kind_child(transition)
+    return kind is not None and kind.tag.startswith("{%s}" % _P14_URI)
+
+
+def slide_has_p14_transition(root) -> bool:
+    """True when *root* (sld/sldLayout/sldMaster) holds a bare p14 transition."""
+    return any(_is_p14_transition(t) for t in root.findall(_p_tag("transition")))
+
+
+def wrap_p14_transitions(root) -> None:
+    """In-place: wrap each bare p14 ``<p:transition>`` in ``<mc:AlternateContent>``.
+
+    Called on a *copy* of the element at serialization time so the live tree
+    keeps its plain ``<p:transition>`` for the high-level accessors.
+    """
+    from lxml import etree
+
+    for transition in list(root.findall(_p_tag("transition"))):
+        if not _is_p14_transition(transition):
+            continue
+        idx = list(root).index(transition)
+
+        ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
+        choice = etree.SubElement(ac, _mc("Choice"), nsmap={"p14": _P14_URI})
+        choice.set("Requires", "p14")
+
+        # Match PowerPoint: <p14:morph option="byObject"/> when option is unset.
+        kind = _transition_kind_child(transition)
+        if kind is not None and kind.tag == "{%s}morph" % _P14_URI and kind.get("option") is None:
+            kind.set("option", "byObject")
+
+        # Fallback transition keeps the timing attributes but no kind child.
+        fallback = etree.SubElement(ac, _mc("Fallback"))
+        fb = etree.SubElement(fallback, _p_tag("transition"))
+        for name, value in transition.attrib.items():
+            if not name.startswith("{%s}" % _P14_URI):
+                fb.set(name, value)
+
+        # Move the original p14 transition under <mc:Choice> and drop it into
+        # the tree where it used to live.
+        choice.append(transition)
+        root.insert(idx, ac)
+
+
+def unwrap_p14_transitions(root) -> None:
+    """In-place inverse of :func:`wrap_p14_transitions` (called on load).
+
+    Replaces any ``<mc:AlternateContent>`` direct child of *root* that wraps a
+    transition with the plain ``<p:transition>`` from its ``<mc:Choice>`` so the
+    high-level accessors see a normal transition element.
+    """
+    for ac in list(root.findall(_mc("AlternateContent"))):
+        choice = ac.find(_mc("Choice"))
+        if choice is None:
+            continue
+        transition = choice.find(_p_tag("transition"))
+        if transition is None:
+            continue
+        idx = list(root).index(ac)
+        root.remove(ac)
+        root.insert(idx, transition)

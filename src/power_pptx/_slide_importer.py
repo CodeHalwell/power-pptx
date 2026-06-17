@@ -295,19 +295,31 @@ class _SlideImporter:
         new_partname = self._next_partname("/ppt/slides/slide%d.xml")
         dst_slide_part = _clone_xml_part(self._src_slide_part, new_partname, dst_package)
 
-        # Copy all deps except master-hierarchy rels (and notes_master)
+        # Copy all deps except master-hierarchy rels (and notes_master).  Track
+        # source-rId -> destination-rId so the cloned slide XML's embedded
+        # references (r:embed, r:id, …) can be rewritten to the new ids.
         skip = _MASTER_HIERARCHY_RELTYPES | {_NOTES_MASTER_RELTYPE}
+        id_map: dict[str, str] = {}
         for rel in self._src_slide_part.rels.values():
             if rel.is_external:
-                dst_slide_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
+                id_map[rel.rId] = dst_slide_part.relate_to(
+                    rel.target_ref, rel.reltype, is_external=True
+                )
                 continue
             if rel.reltype in skip:
                 continue
             dst_dep = self._copy_part_recursive(rel.target_part)
-            dst_slide_part.relate_to(dst_dep, rel.reltype)
+            id_map[rel.rId] = dst_slide_part.relate_to(dst_dep, rel.reltype)
 
-        # Always wire layout relationship
-        dst_slide_part.relate_to(dst_layout_part, RT.SLIDE_LAYOUT)
+        # Always wire layout relationship; map the source layout rId onto the new
+        # one in case the slide XML references it.
+        layout_rId = dst_slide_part.relate_to(dst_layout_part, RT.SLIDE_LAYOUT)
+        for rel in self._src_slide_part.rels.values():
+            if rel.reltype == RT.SLIDE_LAYOUT:
+                id_map[rel.rId] = layout_rId
+                break
+
+        _remap_rids(dst_slide_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
         return dst_slide_part  # type: ignore[return-value]
 
     def _copy_part_recursive(self, src_part: Part) -> Part:
@@ -325,14 +337,22 @@ class _SlideImporter:
         dst_part = _clone_part(src_part, new_partname, dst_package)
         self._part_map[src_part] = dst_part
 
+        id_map: dict[str, str] = {}
         for rel in src_part.rels.values():
             if rel.is_external:
-                dst_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
+                id_map[rel.rId] = dst_part.relate_to(
+                    rel.target_ref, rel.reltype, is_external=True
+                )
                 continue
             if rel.reltype in _MASTER_HIERARCHY_RELTYPES | {_NOTES_MASTER_RELTYPE}:
                 continue
             dst_dep = self._copy_part_recursive(rel.target_part)
-            dst_part.relate_to(dst_dep, rel.reltype)
+            id_map[rel.rId] = dst_part.relate_to(dst_dep, rel.reltype)
+
+        # Rewrite embedded rId references in cloned XML parts (e.g. a chart's
+        # <c:externalData r:id=…> pointing at its embedded workbook).
+        if isinstance(dst_part, XmlPart):
+            _remap_rids(dst_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
 
         return dst_part
 
@@ -369,6 +389,31 @@ def _clone_xml_part(src_part: XmlPart, new_partname: PackURI, dst_package: Packa
     """
     new_element = deepcopy(src_part._element)  # pyright: ignore[reportPrivateUsage]
     return src_part.__class__(new_partname, src_part.content_type, dst_package, new_element)
+
+
+# Relationship-id references embedded in part XML all live in the ``r:``
+# namespace (``r:embed``, ``r:id``, ``r:link``, and the SmartArt
+# ``dgm:relIds`` ``r:dm``/``r:lo``/``r:qs``/``r:cs``).  When a part is cloned its
+# relationships are re-created in copy order, so the new rIds rarely match the
+# ones baked into the deep-copied XML — leaving e.g. a picture's
+# ``r:embed="rId2"`` pointing at whatever part happened to land on rId2 in the
+# destination.  PowerPoint then can't resolve the image and repairs the deck.
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _remap_rids(element, id_map: dict[str, str]) -> None:
+    """Rewrite every ``r:*`` attribute on *element*'s tree through *id_map*.
+
+    Only relationship-namespace attributes whose value is a known source rId are
+    touched, so non-relationship attributes are never disturbed.
+    """
+    if not id_map:
+        return
+    prefix = "{%s}" % _R_NS
+    for el in element.iter():
+        for name, value in list(el.attrib.items()):
+            if name.startswith(prefix) and value in id_map:
+                el.set(name, id_map[value])
 
 
 def _master_fingerprint(master_part: Part) -> bytes:

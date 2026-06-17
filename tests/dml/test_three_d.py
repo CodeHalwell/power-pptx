@@ -161,6 +161,53 @@ class DescribeThreeDFormat:
         assert spPr.sp3d is not None
         assert spPr.sp3d.extrusionClr is not None
 
+    def it_supports_direct_extrusion_color_assignment(self):
+        # Docs show ``three_d.extrusion_color = RGBColor(...)``; the property
+        # must accept that in addition to ``.rgb =``.
+        from power_pptx.dml.color import RGBColor
+
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.extrusion_color = RGBColor(0x12, 0x1E, 0x4D)
+        assert td.extrusion_color.rgb == RGBColor(0x12, 0x1E, 0x4D)
+
+    def it_supports_direct_contour_color_assignment(self):
+        from power_pptx.dml.color import RGBColor
+
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.contour_color = RGBColor(0xFF, 0xFF, 0xFF)
+        assert td.contour_color.rgb == RGBColor(0xFF, 0xFF, 0xFF)
+
+    # ------------------------------------------------------------------
+    # scene3d defaults (PowerPoint compatibility)
+    # ------------------------------------------------------------------
+
+    def it_populates_scene3d_with_camera_and_lightRig(self):
+        # An empty <a:scene3d> beside <a:sp3d> makes PowerPoint flag the deck
+        # as broken; the creating path must populate the required children.
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = BevelPreset.SOFT_ROUND
+        scene3d = spPr.scene3d
+        assert scene3d is not None
+        assert scene3d.camera is not None
+        assert scene3d.camera.prst == "orthographicFront"
+        assert scene3d.lightRig is not None
+        assert scene3d.lightRig.rig == "threePt"
+        assert scene3d.lightRig.dir == "t"
+
+    def it_does_not_duplicate_existing_scene3d_children(self):
+        # Re-entering the creating path (a second 3-D property write) must not
+        # append a second camera/lightRig.
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = BevelPreset.SOFT_ROUND
+        td.extrusion_height = Pt(6)
+        scene3d = spPr.scene3d
+        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}camera")) == 1
+        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}lightRig")) == 1
+
     # ------------------------------------------------------------------
     # contour_width / contour_color
     # ------------------------------------------------------------------

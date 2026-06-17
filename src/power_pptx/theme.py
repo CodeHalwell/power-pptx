@@ -203,6 +203,10 @@ def embed_font(
     return typeface
 
 
+# Schema sequence of the weight slots inside <p:embeddedFont> (after <p:font>).
+_EMBED_WEIGHT_ORDER = ("regular", "bold", "italic", "boldItalic")
+
+
 def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str) -> None:
     """Add or extend a ``<p:embeddedFont>`` entry in presentation.xml.
 
@@ -245,10 +249,21 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     else:
         slot_elm = OxmlElement(f"p:{weight}")
         slot_elm.set(f"{{{r_ns}}}id", rId)
-        # Per the schema the order is regular, bold, italic, boldItalic
-        # *after* the <p:font> child. We append; PowerPoint accepts any
-        # of these in any order in practice, but most readers also do.
-        existing.append(slot_elm)
+        # CT_EmbeddedFontListEntry is a fixed sequence: font, regular?, bold?,
+        # italic?, boldItalic?.  Insert the new slot at its schema position
+        # rather than appending — appending out of order (e.g. italic before
+        # bold) produces a sequence violation PowerPoint may reject/repair.
+        new_idx = _EMBED_WEIGHT_ORDER.index(weight)
+        insert_before = None
+        for child in existing:
+            local = child.tag.rsplit("}", 1)[-1]
+            if local in _EMBED_WEIGHT_ORDER and _EMBED_WEIGHT_ORDER.index(local) > new_idx:
+                insert_before = child
+                break
+        if insert_before is None:
+            existing.append(slot_elm)
+        else:
+            insert_before.addprevious(slot_elm)
 
 
 # Method on Theme for the user-facing API.
