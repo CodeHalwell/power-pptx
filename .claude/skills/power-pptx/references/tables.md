@@ -111,11 +111,14 @@ for r in range(1, len(table.rows)):
 
 ## Reading borders
 
-Reads on an unset edge return a `LineFormat` whose properties read as
-`None` — matching the rest of the library's "reads don't mutate"
-contract:
+Reads on an unset edge return a `LineFormat` and never mutate the XML
+(the "reads don't mutate" contract). `LineFormat.width` reads back as
+`Emu(0)` when no width has been set — the same as a plain shape's
+`shape.line.width` — so test for a falsy width, not `None`:
 
 ```python
-if cell.borders.bottom.width is None:
+if not cell.borders.bottom.width:        # Emu(0) when unset
     print("inherits border from style")
 ```
+
+`color.rgb` on an unset edge does read back as `None`.
