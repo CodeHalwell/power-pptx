@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _util import SLIDE_H, SLIDE_W, blank, deck
+from _util import SLIDE_H, SLIDE_W, blank, deck, save
 
 from power_pptx import BBox
 from power_pptx.chart.data import CategoryChartData
@@ -264,4 +264,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/13_mega_kitchen_sink.pptx")
+    save(build(), "13_mega_kitchen_sink.pptx")

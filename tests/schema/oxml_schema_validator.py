@@ -176,8 +176,10 @@ def iter_schema_violations(
             except etree.XMLSyntaxError as exc:
                 yield (name, "not well-formed XML: %s" % exc)
                 continue
-            # PowerPoint-specific range check the XSD can't express.
-            yield from _iter_axid_range_violations(name, doc)
+            # PowerPoint-specific range check the XSD can't express. axId /
+            # crossAx only occur in chart parts, so skip the scan elsewhere.
+            if name.startswith("ppt/charts/chart"):
+                yield from _iter_axid_range_violations(name, doc)
             schema = _schema_for_namespace(etree.QName(doc).namespace)
             if schema is None:
                 continue

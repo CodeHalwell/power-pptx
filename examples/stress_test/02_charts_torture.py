@@ -5,7 +5,7 @@ chart.shape repositioning.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.chart.data import CategoryChartData, XyChartData
 from power_pptx.chart.palettes import palette_names
@@ -129,4 +129,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/02_charts_torture.pptx")
+    save(build(), "02_charts_torture.pptx")

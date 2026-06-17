@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.dml.color import RGBColor
 from power_pptx.util import Inches
@@ -104,4 +104,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/10_picture_svg_torture.pptx")
+    save(build(), "10_picture_svg_torture.pptx")

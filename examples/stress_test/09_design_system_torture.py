@@ -4,7 +4,7 @@ layout primitives (dense placement), shadow tokens, and every slide recipe.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.design.layout import Grid, Stack
 from power_pptx.design.recipes import (
@@ -114,4 +114,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/09_design_system_torture.pptx")
+    save(build(), "09_design_system_torture.pptx")

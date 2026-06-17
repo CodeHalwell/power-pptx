@@ -4,7 +4,7 @@ diagonal borders, per-cell fills, zebra striping, and vertical anchors.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
@@ -105,4 +105,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/03_tables_torture.pptx")
+    save(build(), "03_tables_torture.pptx")

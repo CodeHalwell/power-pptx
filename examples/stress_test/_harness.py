@@ -43,7 +43,8 @@ from lxml import etree
 # Make the suite runnable straight from a fresh source checkout (no install):
 # put the sibling helpers (HERE), the repo root (for `tests.schema...`), and the
 # src/ layout (for `import power_pptx`) on the path *before* importing the
-# package. An installed power-pptx still wins via normal resolution order.
+# package. These are prepended, so a local checkout takes precedence over any
+# installed power-pptx — intended, since the suite tests the tree it ships with.
 HERE = Path(__file__).parent
 OUT = HERE / "_out"
 REPO_ROOT = HERE.parents[1]
