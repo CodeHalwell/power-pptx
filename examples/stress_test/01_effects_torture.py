@@ -5,7 +5,7 @@ combination — applied across many shape geometries.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import (
@@ -140,4 +140,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/01_effects_torture.pptx")
+    save(build(), "01_effects_torture.pptx")

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import io
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
@@ -91,4 +91,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/06_theme_torture.pptx")
+    save(build(), "06_theme_torture.pptx")

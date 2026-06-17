@@ -18,7 +18,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-from _util import SLIDE_H, SLIDE_W, blank, deck
+from _util import SLIDE_H, SLIDE_W, blank, deck, save
 
 from power_pptx import BBox
 from power_pptx.animation import MotionPath, PP_ANIM_TRIGGER as TR
@@ -754,4 +754,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/99_everything.pptx")
+    save(build(), "99_everything.pptx")

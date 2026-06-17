@@ -6,7 +6,7 @@ catch (and auto_fix where it can).
 
 from __future__ import annotations
 
-from _util import SLIDE_W, blank, deck
+from _util import SLIDE_W, blank, deck, save
 
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.enum.text import MSO_AUTO_SIZE
@@ -101,4 +101,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/11_space_aware_torture.pptx")
+    save(build(), "11_space_aware_torture.pptx")

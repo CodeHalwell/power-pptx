@@ -4,6 +4,8 @@ overrides, multiple slide sizes, transitions in-spec, and lint='raise'.
 
 from __future__ import annotations
 
+from _util import save
+
 from power_pptx.compose import from_spec
 
 
@@ -56,4 +58,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/08_from_spec_torture.pptx")
+    save(build(), "08_from_spec_torture.pptx")

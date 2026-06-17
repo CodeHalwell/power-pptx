@@ -4,7 +4,7 @@ long labels, many nodes, all arrow-head styles, and dark themes.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx import BBox
 from power_pptx.diagrams import (
@@ -105,4 +105,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/04_diagrams_torture.pptx")
+    save(build(), "04_diagrams_torture.pptx")

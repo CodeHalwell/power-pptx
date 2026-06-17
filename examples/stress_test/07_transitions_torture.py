@@ -5,7 +5,7 @@ deck-wide set_transition with and without force, advance settings, and clear.
 
 from __future__ import annotations
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.util import Inches
@@ -66,4 +66,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/07_transitions_torture.pptx")
+    save(build(), "07_transitions_torture.pptx")

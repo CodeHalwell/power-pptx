@@ -143,28 +143,52 @@ def render_slide(slide, prs, scale, idx):
     except Exception:
         pass
 
-    def emu_box(shape, ox=0, oy=0):
-        x0 = int((shape.left + ox) / EMU * scale)
-        y0 = int((shape.top + oy) / EMU * scale)
-        x1 = int((shape.left + ox + shape.width) / EMU * scale)
-        y1 = int((shape.top + oy + shape.height) / EMU * scale)
+    # A transform maps a shape's local EMU coords to slide EMU coords:
+    #   slide = (tx + local * s).  Top-level shapes use the identity; group
+    #   children compose the group's offset + child-space scaling so nested
+    #   groups render in the right place and size.
+    IDENT = (0.0, 0.0, 1.0, 1.0)
+
+    def emu_box(shape, tf):
+        tx, ty, sx, sy = tf
+        x0 = int((tx + shape.left * sx) / EMU * scale)
+        y0 = int((ty + shape.top * sy) / EMU * scale)
+        x1 = int((tx + (shape.left + shape.width) * sx) / EMU * scale)
+        y1 = int((ty + (shape.top + shape.height) * sy) / EMU * scale)
         return [x0, y0, x1, y1]
 
-    def draw_shape(shape, ox=0, oy=0):
+    def _child_transform(group, tf):
+        """Compose *tf* with *group*'s child-space → parent-space mapping."""
+        tx, ty, sx, sy = tf
+        try:
+            xfrm = group._element.grpSpPr.xfrm
+            off, ext = xfrm.off, xfrm.ext
+            ch_off, ch_ext = xfrm.chOff, xfrm.chExt
+            csx = (ext.cx / ch_ext.cx) * sx if ch_ext.cx else sx
+            csy = (ext.cy / ch_ext.cy) * sy if ch_ext.cy else sy
+            ctx = tx + off.x * sx - ch_off.x * csx
+            cty = ty + off.y * sy - ch_off.y * csy
+            return (ctx, cty, csx, csy)
+        except Exception:
+            # Fall back to a plain translate by the group's slide position.
+            return (tx + group.left * sx, ty + group.top * sy, sx, sy)
+
+    def draw_shape(shape, tf=IDENT):
         try:
             st = shape.shape_type
         except Exception:
             st = None
-        # groups: recurse (approximate — ignore child-offset transform)
+        # groups: recurse with the composed child transform (offset + scale)
         if st == MSO_SHAPE_TYPE.GROUP:
+            child_tf = _child_transform(shape, tf)
             try:
                 for sub in shape.shapes:
-                    draw_shape(sub, ox, oy)
+                    draw_shape(sub, child_tf)
             except Exception:
                 pass
             return
         try:
-            box = emu_box(shape, ox, oy)
+            box = emu_box(shape, tf)
         except Exception:
             return
         if box[2] <= box[0] or box[3] <= box[1]:

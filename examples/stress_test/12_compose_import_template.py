@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _util import blank, deck
+from _util import blank, deck, save
 
 from power_pptx import Presentation
 from power_pptx.compose import from_spec
@@ -80,4 +80,4 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save("_out/12_compose_import_template.pptx")
+    save(build(), "12_compose_import_template.pptx")
