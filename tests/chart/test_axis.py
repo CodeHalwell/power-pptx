@@ -939,16 +939,16 @@ class DescribeTickLabels(object):
 
     @pytest.fixture(
         params=[
-            # A freshly-created <c:numFmt> gets the schema-required formatCode
-            # defaulted to "General"; a pre-existing one is left untouched.
+            # The schema-required formatCode is defaulted to "General" whenever
+            # it's absent (newly created or a pre-existing numFmt that lacks it).
             ("c:valAx", True, "c:valAx/c:numFmt{formatCode=General,sourceLinked=1}"),
             ("c:catAx", False, "c:catAx/c:numFmt{formatCode=General,sourceLinked=0}"),
             ("c:valAx", None, "c:valAx/c:numFmt{formatCode=General}"),
-            ("c:catAx/c:numFmt", True, "c:catAx/c:numFmt{sourceLinked=1}"),
+            ("c:catAx/c:numFmt", True, "c:catAx/c:numFmt{formatCode=General,sourceLinked=1}"),
             (
                 "c:valAx/c:numFmt{sourceLinked=1}",
                 False,
-                "c:valAx/c:numFmt{sourceLinked=0}",
+                "c:valAx/c:numFmt{sourceLinked=0,formatCode=General}",
             ),
         ]
     )

@@ -8,6 +8,7 @@ from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
     Choice,
     OptionalAttribute,
+    RequiredAttribute,
     ZeroOrOne,
     ZeroOrOneChoice,
 )
@@ -74,23 +75,24 @@ class CT_ContourColor(BaseOxmlElement):
 class CT_Camera(BaseOxmlElement):
     """`<a:camera>` element — the scene camera within `<a:scene3d>`.
 
-    The ``prst`` attribute (preset camera type, e.g. ``orthographicFront``) is required by the
-    OOXML schema.  We model it as a plain string so callers / defaults can write any of the
-    preset names without an exhaustive enum.
+    The ``prst`` attribute (preset camera type, e.g. ``orthographicFront``) is ``use="required"``
+    in the OOXML schema (``CT_Camera``), so it is modelled as a ``RequiredAttribute`` — a plain
+    string so callers / defaults can write any preset name without an exhaustive enum.
     """
 
-    prst = OptionalAttribute("prst", XsdString)
+    prst = RequiredAttribute("prst", XsdString)
 
 
 class CT_LightRig(BaseOxmlElement):
     """`<a:lightRig>` element — the scene light rig within `<a:scene3d>`.
 
-    Both ``rig`` (e.g. ``threePt``) and ``dir`` (e.g. ``t``) are required by the OOXML schema;
-    modelled as strings for the same reason as :class:`CT_Camera`.
+    Both ``rig`` (e.g. ``threePt``) and ``dir`` (e.g. ``t``) are ``use="required"`` in the OOXML
+    schema (``CT_LightRig``), so they are modelled as ``RequiredAttribute`` for the same reason as
+    :class:`CT_Camera`.
     """
 
-    rig = OptionalAttribute("rig", XsdString)
-    dir = OptionalAttribute("dir", XsdString)
+    rig = RequiredAttribute("rig", XsdString)
+    dir = RequiredAttribute("dir", XsdString)
 
 
 class CT_Scene3D(BaseOxmlElement):

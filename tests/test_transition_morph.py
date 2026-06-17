@@ -19,16 +19,13 @@ from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches
 
-_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
-_P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
-
 
 def _saved_slide_xml(prs, slide_index=0):
     buf = io.BytesIO()
     prs.save(buf)
     buf.seek(0)
-    z = zipfile.ZipFile(buf)
-    return z.read("ppt/slides/slide%d.xml" % (slide_index + 1)).decode("utf-8")
+    with zipfile.ZipFile(buf) as z:
+        return z.read("ppt/slides/slide%d.xml" % (slide_index + 1)).decode("utf-8")
 
 
 class DescribeMorphTransitionSerialization:
