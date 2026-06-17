@@ -81,7 +81,6 @@
               </c:numCache>
             </c:numRef>
           </c:val>
-          <c:smooth val="0"/>
         </c:ser>
         <c:ser>
           <c:idx val="1"/>
@@ -147,7 +146,6 @@
               </c:numCache>
             </c:numRef>
           </c:val>
-          <c:smooth val="0"/>
         </c:ser>
         <c:axId val="2073612648"/>
         <c:axId val="2182195080"/>

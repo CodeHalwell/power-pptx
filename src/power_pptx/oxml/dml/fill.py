@@ -257,9 +257,14 @@ class CT_BiLevelEffect(BaseOxmlElement):
 
     `thresh` is the luminance threshold: pixels darker than this become black,
     brighter ones become white.  ``0.5`` (50%) approximates PowerPoint's "Washout" preset.
+
+    `thresh` is **required** by ``CT_BiLevelEffect`` in ISO/IEC 29500. It must be
+    a ``RequiredAttribute``: as an ``OptionalAttribute`` with ``default=0.5``,
+    assigning the (common) value ``0.5`` made the serializer omit the attribute,
+    producing a schema-invalid ``<a:biLevel/>`` that PowerPoint repairs.
     """
 
-    thresh = OptionalAttribute("thresh", ST_PositiveFixedPercentage, default=0.5)
+    thresh = RequiredAttribute("thresh", ST_PositiveFixedPercentage)
 
 
 _DUOTONE_COLOR_CHOICES = (

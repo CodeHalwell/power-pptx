@@ -435,9 +435,31 @@ def _is_p14_transition(transition) -> bool:
     return kind is not None and kind.tag.startswith("{%s}" % _P14_URI)
 
 
+def _has_p14_attr(transition) -> bool:
+    """True when *transition* carries any PowerPoint-2010 (p14) attribute.
+
+    The most common one is ``p14:dur`` (millisecond duration). Like the p14
+    *kind* elements, a p14 attribute is only schema-valid inside an
+    ``<mc:Choice Requires="p14">`` — a bare ``<p:transition p14:dur="…">`` is
+    rejected by Microsoft PowerPoint (it reports the deck as needing repair).
+    """
+    p14 = "{%s}" % _P14_URI
+    return any(name.startswith(p14) for name in transition.attrib)
+
+
+def _needs_mc_wrap(transition) -> bool:
+    """True when *transition* must be wrapped in ``<mc:AlternateContent>``.
+
+    That is whenever it holds *any* p14 content — a p14 kind child (morph, …)
+    or a p14 attribute (e.g. ``p14:dur``).
+    """
+    return _is_p14_transition(transition) or _has_p14_attr(transition)
+
+
 def slide_has_p14_transition(root) -> bool:
-    """True when *root* (sld/sldLayout/sldMaster) holds a bare p14 transition."""
-    return any(_is_p14_transition(t) for t in root.findall(_p_tag("transition")))
+    """True when *root* (sld/sldLayout/sldMaster) holds a transition needing the
+    ``mc:AlternateContent`` wrapper (a p14 kind child or a p14 attribute)."""
+    return any(_needs_mc_wrap(t) for t in root.findall(_p_tag("transition")))
 
 
 def wrap_p14_transitions(root) -> None:
@@ -446,10 +468,13 @@ def wrap_p14_transitions(root) -> None:
     Called on a *copy* of the element at serialization time so the live tree
     keeps its plain ``<p:transition>`` for the high-level accessors.
     """
+    import copy
+
     from lxml import etree
 
+    p14 = "{%s}" % _P14_URI
     for transition in list(root.findall(_p_tag("transition"))):
-        if not _is_p14_transition(transition):
+        if not _needs_mc_wrap(transition):
             continue
         idx = list(root).index(transition)
 
@@ -462,12 +487,18 @@ def wrap_p14_transitions(root) -> None:
         if kind is not None and kind.tag == "{%s}morph" % _P14_URI and kind.get("option") is None:
             kind.set("option", "byObject")
 
-        # Fallback transition keeps the timing attributes but no kind child.
+        # Fallback transition keeps the non-p14 timing attributes.  When the
+        # kind is a *classic* (p:) element — e.g. a fade carrying only a p14:dur
+        # — preserve it in the fallback so pre-2010 viewers still get the
+        # transition.  p14 kinds (morph, …) have no classic equivalent, so the
+        # fallback stays kind-less for them.
         fallback = etree.SubElement(ac, _mc("Fallback"))
         fb = etree.SubElement(fallback, _p_tag("transition"))
         for name, value in transition.attrib.items():
-            if not name.startswith("{%s}" % _P14_URI):
+            if not name.startswith(p14):
                 fb.set(name, value)
+        if kind is not None and not kind.tag.startswith(p14):
+            fb.append(copy.deepcopy(kind))
 
         # Move the original p14 transition under <mc:Choice> and drop it into
         # the tree where it used to live.

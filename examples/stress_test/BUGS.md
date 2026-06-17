@@ -12,9 +12,14 @@ PowerPoint report the file as broken / repair it.
 
 All four are reproducible with a handful of lines and have a clear root cause.
 
+> **Status: all four FIXED on this branch.** Each fix ships with a reproducing
+> deck builder added to `tests/schema/test_schema_validity.py` so the
+> `schema-validation` CI job guards against regressions. The full unit suite
+> (3637 tests) and the behave acceptance suite stay green.
+
 ---
 
-## Bug 1 — `slide.transition.duration` writes a bare `p14:dur` attribute (HIGH impact)
+## Bug 1 — `slide.transition.duration` writes a bare `p14:dur` attribute (HIGH impact) — ✅ FIXED
 
 **Surfaced by:** `07_transitions_torture` (25 slides), `13_mega_kitchen_sink` (14 slides)
 
@@ -48,7 +53,7 @@ wrapper used for p14 kinds (see the wrapping helpers around lines 393–440).
 
 ---
 
-## Bug 2 — Radar chart series emit a disallowed `<c:smooth>` element
+## Bug 2 — Radar chart series emit a disallowed `<c:smooth>` element — ✅ FIXED
 
 **Surfaced by:** `02_charts_torture` (chart8 = RADAR)
 
@@ -72,7 +77,7 @@ radar plot builder emits it. `smooth` should be suppressed for radar series.
 
 ---
 
-## Bug 3 — `PresetMaterial.SOFT_METAL` emits `softMetal`, but the schema enum is `softmetal`
+## Bug 3 — `PresetMaterial.SOFT_METAL` emits `softMetal`, but the schema enum is `softmetal` — ✅ FIXED
 
 **Surfaced by:** `05_three_d_torture` (slide 2)
 
@@ -90,7 +95,7 @@ three_d.preset_material = PresetMaterial.SOFT_METAL   # writes prstMaterial="sof
 
 ---
 
-## Bug 4 — Picture recolor `"washout"` drops the required `thresh` attribute
+## Bug 4 — Picture recolor `"washout"` drops the required `thresh` attribute — ✅ FIXED
 
 **Surfaced by:** `10_picture_svg_torture` (slide 2)
 
