@@ -1,0 +1,4 @@
+# Generated artifacts — reproducible via the scripts, and several are
+# intentionally schema-invalid bug repros, so they are not committed.
+_out/
+_assets/
