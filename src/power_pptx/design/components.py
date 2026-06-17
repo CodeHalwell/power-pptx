@@ -159,6 +159,7 @@ def add_kpi_card(
         color=value_color,
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.MIDDLE,
+        shrink_to_fit=True,
     )
 
     label_box = slide.shapes.add_textbox(left, label_top, width, label_h)
@@ -169,6 +170,7 @@ def add_kpi_card(
         color=label_color,
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.TOP,
+        shrink_to_fit=True,
     )
 
     delta_box = None
@@ -183,6 +185,7 @@ def add_kpi_card(
                 color=_delta_color(tokens, d_sign),
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
 
     # Tag the stack so the lint pass treats them as one intentional
@@ -428,6 +431,7 @@ def add_status_pill(
         color=text_rgb,
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.MIDDLE,
+        shrink_to_fit=True,
     )
 
     group_name = f"status_pill@{int(left)},{int(top)}"

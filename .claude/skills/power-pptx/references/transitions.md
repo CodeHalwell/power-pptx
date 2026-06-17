@@ -52,11 +52,14 @@ if slide.transition.kind is None:
 `MSO_TRANSITION_TYPE` covers 25+ kinds including Office 2010+
 extension transitions on the `p14:` namespace:
 
-- Classics: `FADE`, `PUSH`, `WIPE`, `SPLIT`, `REVEAL`, `RANDOM_BARS`,
-  `SHAPE`, `UNCOVER`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`
+- Classics: `NONE`, `FADE`, `PUSH`, `PULL`, `WIPE`, `SPLIT`, `RANDOM`,
+  `RANDOM_BAR`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`, `BLINDS`, `CHECKER`,
+  `CIRCLE`, `DIAMOND`, `PLUS`, `WEDGE`, `WHEEL`, `NEWSFLASH`, `STRIPS`
 - Office 2010+ (p14): `MORPH`, `VORTEX`, `CONVEYOR`, `SWITCH`,
-  `GALLERY`, `FLY_THROUGH`, `RIPPLE`, `HONEYCOMB`, `GLITTER`, `ORBIT`,
-  `PAN`, `WARP`, `WIND`
+  `GALLERY`, `FLY_THROUGH`
+
+(Use `power_pptx.enum.presentation.MSO_TRANSITION_TYPE` for the full,
+authoritative list.)
 
 Direction modifiers (`fromLeft`, `fromTop`, etc.) are not yet
 exposed by the high-level API — they round-trip but you have to set

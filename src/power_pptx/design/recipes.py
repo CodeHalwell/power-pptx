@@ -203,6 +203,13 @@ def bullet_slide(
             run.font.color.rgb = body_color
         para.space_after = Pt(6)
 
+    # Space-awareness: a long bullet list (common from LLM output) would
+    # otherwise overflow the body box off the bottom of the slide.  Tell
+    # PowerPoint to shrink the text to fit the reserved region.
+    from power_pptx.enum.text import MSO_AUTO_SIZE
+
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
     _apply_transition(slide, transition)
     return slide
 
@@ -1093,7 +1100,11 @@ def timeline_slide(
         ]
 
     dot_d = Inches(0.28)
+    # Cap the label width to the per-milestone spacing so adjacent labels don't
+    # overlap once milestones get close together (many milestones on one rail).
     label_w = Inches(2.4)
+    if n > 1:
+        label_w = Length(min(int(label_w), int(span // (n - 1))))
     body_token = _typography(tokens, "body", default_size=Pt(12))
     date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
     body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
@@ -1140,6 +1151,7 @@ def timeline_slide(
                 db.text_frame, date_text,
                 token=date_token, color=body_color,
                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
         if label_text:
             lb = slide.shapes.add_textbox(
@@ -1149,6 +1161,7 @@ def timeline_slide(
                 lb.text_frame, label_text,
                 token=body_token, color=body_color,
                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP,
+                shrink_to_fit=True,
             )
 
     _apply_transition(slide, transition)
@@ -1268,6 +1281,7 @@ def comparison_slide(
                 color=row_text_color,
                 align=PP_ALIGN.LEFT,
                 anchor=MSO_ANCHOR.MIDDLE,
+                shrink_to_fit=True,
             )
 
     _apply_transition(slide, transition)

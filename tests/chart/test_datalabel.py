@@ -498,9 +498,11 @@ class DescribeDataLabels(object):
 
     @pytest.fixture(
         params=[
-            ("c:dLbls", True, "c:dLbls/c:numFmt{sourceLinked=1}"),
-            ("c:dLbls", False, "c:dLbls/c:numFmt{sourceLinked=0}"),
-            ("c:dLbls", None, "c:dLbls/c:numFmt"),
+            # A freshly-created <c:numFmt> gets the schema-required formatCode
+            # defaulted to "General"; a pre-existing one is left untouched.
+            ("c:dLbls", True, "c:dLbls/c:numFmt{formatCode=General,sourceLinked=1}"),
+            ("c:dLbls", False, "c:dLbls/c:numFmt{formatCode=General,sourceLinked=0}"),
+            ("c:dLbls", None, "c:dLbls/c:numFmt{formatCode=General}"),
             ("c:dLbls/c:numFmt", True, "c:dLbls/c:numFmt{sourceLinked=1}"),
             (
                 "c:dLbls/c:numFmt{sourceLinked=1}",

@@ -104,7 +104,7 @@ src = Presentation("source.pptx")
 dst = Presentation("destination.pptx")
 
 # Clone src.slides[3] into dst, including its layout reference.
-import_slide(dst, src.slides[3], merge_master="dedupe")
+dst.import_slide(src.slides[3], merge_master="dedupe")
 ```
 
 Image-rename collisions, layout references, and master/theme parts are
@@ -118,7 +118,7 @@ handled automatically. Two strategies for masters:
 ### Applying a template
 
 ```python
-apply_template(dst, "brand-template.potx")
+dst.apply_template("brand-template.potx")
 ```
 
 Re-points every slide's layout/master/theme at masters from the
@@ -133,7 +133,7 @@ script:
 
 ```python
 from power_pptx import Presentation
-from power_pptx.compose import import_slide, apply_template, from_spec
+from power_pptx.compose import from_spec
 
 # 1. Generate the body slides from data
 body = from_spec({
@@ -146,10 +146,10 @@ body = from_spec({
 # 2. Open the cover deck and append the body slides
 deck = Presentation("cover.pptx")
 for slide in body.slides:
-    import_slide(deck, slide, merge_master="dedupe")
+    deck.import_slide(slide, merge_master="dedupe")
 
 # 3. Re-skin everything against the latest brand template
-apply_template(deck, "brand-2026.potx")
+deck.apply_template("brand-2026.potx")
 
 # 4. Lint and save (no Presentation-level lint hook in 1.1; iterate)
 from power_pptx.exc import LintError

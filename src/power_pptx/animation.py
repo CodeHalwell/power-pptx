@@ -364,13 +364,15 @@ def _anim_scale_xml(ctn_id: int, spid: int, duration: int, x: int = 133333, y: i
 def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.0) -> str:
     """Return XML for a `<p:animRot>` (used by Spin emphasis)."""
     ang = int(angle_deg * 60000)
+    # `by` is an ST_Angle *attribute* of <p:animRot> (CT_TLAnimateRotationBehavior
+    # allows only a <p:cBhvr> child).  Emitting it as a <p:by> child — as
+    # <p:animScale> legitimately does — produces XML that PowerPoint rejects.
     return (
-        "<p:animRot>\n"
+        f'<p:animRot by="{ang}">\n'
         "  <p:cBhvr>\n"
         f'    <p:cTn id="{ctn_id}" dur="{duration}" fill="hold"/>\n'
         f'    <p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>\n'
         "  </p:cBhvr>\n"
-        f'  <p:by ang="{ang}"/>\n'
         "</p:animRot>\n"
     )
 
@@ -829,15 +831,15 @@ class SlideAnimations:
         if preset == "spin":
             return _anim_rot_xml(ids[0], spid, duration, angle_deg=degrees)
         if preset == "teeter":
-            # Teeter: oscillate rotation ~10 degrees either side
+            # Teeter: oscillate rotation ~10 degrees either side.  `by` is an
+            # attribute of <p:animRot>, not a child element (see _anim_rot_xml).
             ang = int(10 * 60000)
             return (
-                "<p:animRot>\n"
+                f'<p:animRot by="{ang}">\n'
                 "  <p:cBhvr>\n"
                 f'    <p:cTn id="{ids[0]}" dur="{duration}" autoRev="1"/>\n'
                 f'    <p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>\n'
                 "  </p:cBhvr>\n"
-                f'  <p:by ang="{ang}"/>\n'
                 "</p:animRot>\n"
             )
         return ""

@@ -145,6 +145,27 @@ class DescribeAnimationsAdd:
         paths = _animMotion_paths(slide)
         assert paths == ["M 0 0 L 0.5 0 E"]
 
+    def it_writes_animRot_by_as_an_attribute_not_a_child(self, slide_with_shape):
+        # CT_TLAnimateRotationBehavior allows only a <p:cBhvr> child; `by` is an
+        # ST_Angle attribute.  Emitting <p:by> as a child makes PowerPoint reject
+        # the deck (a <p:by> child is valid only on <p:animScale>).
+        slide, shape = slide_with_shape
+        slide.animations.add("emphasis", "spin", shape)
+        animRots = list(slide._element.iter(qn("p:animRot")))
+        assert animRots, "spin emphasis should emit a <p:animRot>"
+        for animRot in animRots:
+            assert animRot.get("by") is not None
+            assert animRot.find(qn("p:by")) is None
+
+    def it_writes_teeter_animRot_by_as_an_attribute(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        slide.animations.add("emphasis", "teeter", shape)
+        animRots = list(slide._element.iter(qn("p:animRot")))
+        assert animRots
+        for animRot in animRots:
+            assert animRot.get("by") is not None
+            assert animRot.find(qn("p:by")) is None
+
     def it_rejects_unknown_kind(self, slide_with_shape):
         slide, shape = slide_with_shape
         with pytest.raises(ValueError, match="Unknown animation kind"):

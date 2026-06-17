@@ -229,6 +229,16 @@ def _card(
                 from power_pptx._color import coerce_color
 
                 run.font.color.rgb = coerce_color(text_color)
+        # Space-awareness: shrink the label so a long word never clips its card
+        # (the rectangular siblings of the already-fitted circular nodes).
+        try:
+            tf.fit_text(
+                font_family=font or "Calibri",
+                max_size=max(1, int(round(size_pt))),
+                bold=bool(bold),
+            )
+        except (ValueError, OSError):
+            pass
     return rect
 
 
@@ -733,6 +743,11 @@ def comparison_columns(
                     run.font.name = font
                 run.font.size = Pt(float(body_size_pt))
                 run.font.color.rgb = coerce_color(text_color)
+        # Shrink a long body so it doesn't overflow the column card / slide.
+        try:
+            tf.fit_text(font_family=font or "Calibri", max_size=max(1, int(round(body_size_pt))))
+        except (ValueError, OSError):
+            pass
         built_headers.append(header)
         built_columns.append(body_card)
     _tag_group(slide, "columns", built_headers + built_columns)

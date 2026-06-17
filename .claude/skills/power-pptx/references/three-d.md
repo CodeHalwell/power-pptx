@@ -57,8 +57,9 @@ Material affects how the surface reacts to scene lighting:
 from power_pptx.enum.dml import PresetMaterial
 
 three_d.preset_material = PresetMaterial.METAL
-# Other options: MATTE, PLASTIC, METAL, WARM_MATTE, TRANSLUCENT_POWDER,
-# POWDER, DARK_EDGE, SOFT_EDGE, CLEAR, FLAT, SOFT_METAL
+# Other options: MATTE, PLASTIC, WARM_MATTE, TRANSLUCENT_POWDER,
+# POWDER, DK_EDGE, SOFT_EDGE, CLEAR, FLAT, SOFT_METAL, NONE,
+# LEGACY_MATTE, LEGACY_METAL, LEGACY_PLASTIC, LEGACY_WIREFRAME
 ```
 
 ## End-to-end: a beveled badge
