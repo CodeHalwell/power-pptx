@@ -149,6 +149,39 @@ def _deck_recipes() -> bytes:
     return _saved(prs)
 
 
+def _deck_chart_types() -> bytes:
+    # Regression: every chart type must emit axis ids in PowerPoint's signed
+    # int32 range (1..2**31-1). The hardcoded template ids previously exceeded
+    # 2**31, which passes XSD (unsignedInt) but makes PowerPoint repair the file.
+    from power_pptx.chart.data import BubbleChartData, CategoryChartData, XyChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    cat = CategoryChartData()
+    cat.categories = ["A", "B", "C"]
+    cat.add_series("S1", (1, 2, 3))
+    cat.add_series("S2", (3, 2, 1))
+    for i, ct in enumerate((
+        XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.COLUMN_STACKED,
+        XL_CHART_TYPE.BAR_CLUSTERED, XL_CHART_TYPE.LINE, XL_CHART_TYPE.LINE_MARKERS,
+        XL_CHART_TYPE.AREA, XL_CHART_TYPE.AREA_STACKED, XL_CHART_TYPE.RADAR,
+        XL_CHART_TYPE.RADAR_MARKERS,
+    )):
+        s.shapes.add_chart(ct, Inches(0.5), Inches(0.5), Inches(3), Inches(2), cat)
+    xy = XyChartData()
+    xs = xy.add_series("xy")
+    for n in range(4):
+        xs.add_data_point(n, n * 2)
+    s.shapes.add_chart(XL_CHART_TYPE.XY_SCATTER, Inches(0.5), Inches(3), Inches(3), Inches(2), xy)
+    bub = BubbleChartData()
+    bs = bub.add_series("b")
+    for n in range(4):
+        bs.add_data_point(n, n, n + 1)
+    s.shapes.add_chart(XL_CHART_TYPE.BUBBLE, Inches(4), Inches(3), Inches(3), Inches(2), bub)
+    return _saved(prs)
+
+
 def _deck_radar_chart() -> bytes:
     # Regression: radar series must not emit <c:smooth> (invalid in CT_RadarSer).
     from power_pptx.chart.data import CategoryChartData
@@ -236,6 +269,7 @@ _DECK_BUILDERS = {
     "animations": _deck_animations,
     "morph_transition": _deck_morph_transition,
     "transition_duration": _deck_transition_duration,
+    "chart_types": _deck_chart_types,
     "radar_chart": _deck_radar_chart,
     "soft_metal_material": _deck_soft_metal_material,
     "picture_washout": _deck_picture_washout,
@@ -287,3 +321,31 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(_saved(prs)))
         assert any("scene3d" in msg for _, msg in violations), violations
+
+    def it_detects_an_out_of_range_axis_id(self):
+        # Self-test for the PowerPoint signed-int32 axis-id rule: inject an axId
+        # above 2**31 (valid per XSD unsignedInt, but PowerPoint repairs it) and
+        # confirm the validator flags it.
+        import io as _io
+
+        from lxml import etree
+
+        from power_pptx.chart.data import CategoryChartData
+        from power_pptx.enum.chart import XL_CHART_TYPE
+
+        prs = Presentation()
+        s = _blank_slide(prs)
+        data = CategoryChartData()
+        data.categories = ["A", "B"]
+        data.add_series("S", (1, 2))
+        chart = s.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(6), Inches(4), data
+        ).chart
+        # Corrupt one axis id into the >2**31 range, bypassing the writer.
+        ax = chart._chartSpace.xpath(".//c:axId")[0]
+        ax.set("val", str(2**31 + 5))
+
+        buf = _io.BytesIO()
+        prs.save(buf)
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any("axis-id range" in msg for _, msg in violations), violations

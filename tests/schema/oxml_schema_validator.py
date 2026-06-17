@@ -53,6 +53,14 @@ _NS_SCHEMA = {
 }
 
 _MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+
+# PowerPoint parses chart axis ids (``c:axId`` / ``c:crossAx``) as *signed*
+# 32-bit integers, so a value above 2**31-1 reads back negative and PowerPoint
+# reports the deck as needing repair.  The ISO schema types these as
+# ``xsd:unsignedInt`` (0 .. 2**32-1), so XSD validation can't see the problem.
+# A valid id is therefore a positive signed-int32: 1 .. 2**31-1.
+_INT32_MAX = 2**31 - 1
 
 # Only validate parts we have a root schema for.  Keyed by partname prefix.
 _CHECKED_PREFIXES = (
@@ -114,6 +122,32 @@ def _should_check(partname: str) -> bool:
     return partname in _CHECKED_EXACT or partname.startswith(_CHECKED_PREFIXES)
 
 
+def _iter_axid_range_violations(name: str, doc) -> "Iterator[tuple[str, str]]":
+    """Yield violations for chart axis ids outside PowerPoint's signed-int32 range.
+
+    XSD types ``c:axId`` / ``c:crossAx`` as ``unsignedInt``, so a value in
+    ``2**31 .. 2**32-1`` passes schema validation but overflows the signed int
+    PowerPoint uses internally, triggering a repair.  This catches that class,
+    which pure XSD validation cannot.
+    """
+    for tag in ("axId", "crossAx"):
+        for el in doc.iter("{%s}%s" % (_CHART_NS, tag)):
+            raw = el.get("val")
+            if raw is None:
+                continue
+            try:
+                val = int(raw)
+            except ValueError:
+                continue
+            if val < 1 or val > _INT32_MAX:
+                yield (
+                    name,
+                    "c:%s val=%s is outside PowerPoint's valid axis-id range "
+                    "(1..%d); values >= 2**31 overflow the signed int32 "
+                    "PowerPoint uses and trigger a repair" % (tag, raw, _INT32_MAX),
+                )
+
+
 def iter_schema_violations(
     pptx: Union[str, Path, bytes, "io.BytesIO"],
 ) -> Iterator["tuple[str, str]"]:
@@ -142,6 +176,8 @@ def iter_schema_violations(
             except etree.XMLSyntaxError as exc:
                 yield (name, "not well-formed XML: %s" % exc)
                 continue
+            # PowerPoint-specific range check the XSD can't express.
+            yield from _iter_axid_range_violations(name, doc)
             schema = _schema_for_namespace(etree.QName(doc).namespace)
             if schema is None:
                 continue
