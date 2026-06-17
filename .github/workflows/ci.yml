@@ -64,3 +64,23 @@ jobs:
         run: pip install .
       - name: Build all real-world decks
         run: python examples/real_world/build_all.py
+
+  schema-validation:
+    # Validate decks generated through the public API against the bundled
+    # ISO/IEC 29500 XSD schemas.  This is the gate for the "generates fine but
+    # PowerPoint reports the file as broken / repairs it" class of bug
+    # (empty <a:scene3d>, colour-less shadows, negative chart axId, bare
+    # <p14:morph>, dangling import_slide relationships, ...) that ordinary
+    # "does it reopen" checks can't see.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          pip install .
+          pip install -r requirements-test.txt
+      - name: Validate generated decks against the OOXML schema
+        run: pytest -v tests/schema
