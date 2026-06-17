@@ -8,8 +8,17 @@ from power_pptx.enum.shapes import PROG_ID
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
+from power_pptx.opc.oxml import serialize_part_xml
 from power_pptx.opc.packuri import PackURI
-from power_pptx.oxml.slide import CT_NotesMaster, CT_NotesSlide, CT_Slide
+from power_pptx.oxml import parse_xml
+from power_pptx.oxml.slide import (
+    CT_NotesMaster,
+    CT_NotesSlide,
+    CT_Slide,
+    slide_has_p14_transition,
+    unwrap_p14_transitions,
+    wrap_p14_transitions,
+)
 from power_pptx.oxml.theme import CT_OfficeStyleSheet
 from power_pptx.parts.chart import ChartPart
 from power_pptx.parts.embeddedpackage import EmbeddedPackagePart
@@ -31,6 +40,35 @@ class BaseSlidePart(XmlPart):
     """
 
     _element: CT_Slide
+
+    @classmethod
+    def load(cls, partname, content_type, package, blob):
+        """Parse *blob* and normalise any PowerPoint-2010 transition wrapper.
+
+        A morph/p14 transition is stored on disk inside ``<mc:AlternateContent>``;
+        we unwrap it to a plain ``<p:transition>`` so the high-level
+        ``slide.transition`` accessors see a normal element.  ``blob`` re-wraps it
+        on save.
+        """
+        element = cast("CT_Slide", parse_xml(blob))
+        unwrap_p14_transitions(element)
+        return cls(partname, content_type, package, element)
+
+    @property
+    def blob(self) -> bytes:
+        """XML serialization, re-wrapping p14 transitions in mc:AlternateContent.
+
+        The wrap is done on a copy so the live element tree keeps its plain
+        ``<p:transition>`` (and the accessors that read it) intact after a save.
+        """
+        element = self._element
+        if not slide_has_p14_transition(element):
+            return serialize_part_xml(element)
+        from copy import deepcopy
+
+        copy = deepcopy(element)
+        wrap_p14_transitions(copy)
+        return serialize_part_xml(copy)
 
     def get_image(self, rId: str) -> Image:
         """Return an |Image| object containing the image related to this slide by *rId*.
