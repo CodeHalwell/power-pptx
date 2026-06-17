@@ -90,8 +90,8 @@ class DescribeChartAxisIds:
         path = str(tmp_path / "chart.pptx")
         prs.save(path)
 
-        z = zipfile.ZipFile(path)
-        chart_xml = etree.fromstring(z.read("ppt/charts/chart1.xml"))
+        with zipfile.ZipFile(path) as z:
+            chart_xml = etree.fromstring(z.read("ppt/charts/chart1.xml"))
         C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
         vals = [
             int(e.get("val"))

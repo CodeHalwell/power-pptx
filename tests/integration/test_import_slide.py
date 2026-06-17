@@ -229,15 +229,14 @@ class Describe_import_slide_relationship_remap:
         buf = io.BytesIO()
         dst.save(buf)
         buf.seek(0)
-        z = zipfile.ZipFile(buf)
-
-        slide_parts = [
-            n for n in z.namelist()
-            if n.startswith("ppt/slides/slide") and n.endswith(".xml")
-        ]
-        idx = len(slide_parts)
-        sx = z.read("ppt/slides/slide%d.xml" % idx).decode()
-        rels = z.read("ppt/slides/_rels/slide%d.xml.rels" % idx).decode()
+        with zipfile.ZipFile(buf) as z:
+            slide_parts = [
+                n for n in z.namelist()
+                if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+            ]
+            idx = len(slide_parts)
+            sx = z.read("ppt/slides/slide%d.xml" % idx).decode()
+            rels = z.read("ppt/slides/_rels/slide%d.xml.rels" % idx).decode()
         relmap = dict(re.findall(r'Id="([^"]+)"[^>]*Target="([^"]+)"', rels))
 
         embeds = re.findall(r'r:embed="([^"]+)"', sx)
