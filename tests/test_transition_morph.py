@@ -12,8 +12,6 @@ from __future__ import annotations
 import io
 import zipfile
 
-import pytest
-
 from power_pptx import Presentation
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import MSO_SHAPE
