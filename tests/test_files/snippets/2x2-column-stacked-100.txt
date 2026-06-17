@@ -96,11 +96,11 @@
           </c:val>
         </c:ser>
         <c:overlap val="100"/>
-        <c:axId val="2226939960"/>
-        <c:axId val="2180972856"/>
+        <c:axId val="79456312"/>
+        <c:axId val="33489208"/>
       </c:barChart>
       <c:catAx>
-        <c:axId val="2226939960"/>
+        <c:axId val="79456312"/>
         <c:scaling>
           <c:orientation val="minMax"/>
         </c:scaling>
@@ -109,7 +109,7 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="2180972856"/>
+        <c:crossAx val="33489208"/>
         <c:crosses val="autoZero"/>
         <c:auto val="1"/>
         <c:lblAlgn val="ctr"/>
@@ -117,7 +117,7 @@
         <c:noMultiLvlLbl val="0"/>
       </c:catAx>
       <c:valAx>
-        <c:axId val="2180972856"/>
+        <c:axId val="33489208"/>
         <c:scaling/>
         <c:delete val="0"/>
         <c:axPos val="l"/>
@@ -125,7 +125,7 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="2226939960"/>
+        <c:crossAx val="79456312"/>
         <c:crosses val="autoZero"/>
       </c:valAx>
     </c:plotArea>

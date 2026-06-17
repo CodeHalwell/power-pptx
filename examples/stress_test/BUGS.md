@@ -10,12 +10,56 @@ reopens** — but the ISO-29500 schema validator (the same one behind the
 "does it reopen in python-pptx / LibreOffice" check yet would make Microsoft
 PowerPoint report the file as broken / repair it.
 
-All four are reproducible with a handful of lines and have a clear root cause.
+All are reproducible with a handful of lines and have a clear root cause.
 
-> **Status: all four FIXED on this branch.** Each fix ships with a reproducing
-> deck builder added to `tests/schema/test_schema_validity.py` so the
+A **fifth, higher-severity** bug was later surfaced by the "everything deck"
+(`99_everything.py`) — and it slipped past even the ISO-29500 XSD validator,
+so it took manual PowerPoint testing to find. See **Bug 5** below; it's the
+reason chart decks were being rejected by PowerPoint.
+
+> **Status: all five FIXED on this branch.** Each fix ships with a reproducing
+> deck builder in `tests/schema/test_schema_validity.py` so the
 > `schema-validation` CI job guards against regressions. The full unit suite
-> (3637 tests) and the behave acceptance suite stay green.
+> (3643 tests) and the behave acceptance suite stay green.
+
+---
+
+## Bug 5 — Every chart was rejected by PowerPoint (axis-id signed-int32 overflow) — ✅ FIXED
+
+**Surfaced by:** `99_everything.py` and a single-chart deck (`min_chart`).
+**Severity:** high — affects *every* chart this fork produces.
+**Why the harness missed it:** XSD types `c:axId` / `c:crossAx` as
+`xsd:unsignedInt` (`0 .. 2**32-1`), so the oversized values validate cleanly;
+python-pptx and LibreOffice both open the file. Only Microsoft PowerPoint
+rejects it.
+
+The chart XML writer hardcoded axis ids above `2**31`, e.g.:
+
+```xml
+<c:axId val="2226939960"/>   <!-- 2226939960 > 2147483648 -->
+```
+
+PowerPoint parses `axId` as a **signed** 32-bit integer, so `2226939960`
+overflows to `-2068027336` → "PowerPoint found a problem … needs to repair".
+(Upstream python-pptx ships the *negative* signed form, which PowerPoint
+accepts; the fork had converted those to unsigned positive to satisfy the XSD
+`unsignedInt` type, overshooting past `2**31`.)
+
+```python
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+prs = Presentation(); s = prs.slides.add_slide(prs.slide_layouts[6])
+d = CategoryChartData(); d.categories = ["A","B","C"]; d.add_series("S",(1,2,3))
+s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, 0, 0, 5000000, 4000000, d)
+prs.save("one_chart.pptx")   # opened fine in python-pptx/LibreOffice; PowerPoint repaired it
+```
+
+**Root cause / fix:** the hardcoded ids in `src/power_pptx/chart/xmlwriter.py`
+(and the matching snippet fixtures) are now all in the valid signed-int32
+range `1 .. 2**31-1`. The `schema-validation` harness gained an explicit
+axis-id range check (`tests/schema/oxml_schema_validator.py`) — which the XSD
+cannot express — plus a self-test confirming it fires.
 
 ---
 

@@ -158,11 +158,11 @@
         </c:dLbls>
         <c:bubbleScale val="100"/>
         <c:showNegBubbles val="0"/>
-        <c:axId val="2179247224"/>
-        <c:axId val="2179243736"/>
+        <c:axId val="31763576"/>
+        <c:axId val="31760088"/>
       </c:bubbleChart>
       <c:valAx>
-        <c:axId val="2179247224"/>
+        <c:axId val="31763576"/>
         <c:scaling>
           <c:orientation val="minMax"/>
         </c:scaling>
@@ -172,12 +172,12 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="2179243736"/>
+        <c:crossAx val="31760088"/>
         <c:crosses val="autoZero"/>
         <c:crossBetween val="midCat"/>
       </c:valAx>
       <c:valAx>
-        <c:axId val="2179243736"/>
+        <c:axId val="31760088"/>
         <c:scaling>
           <c:orientation val="minMax"/>
         </c:scaling>
@@ -188,7 +188,7 @@
         <c:majorTickMark val="out"/>
         <c:minorTickMark val="none"/>
         <c:tickLblPos val="nextTo"/>
-        <c:crossAx val="2179247224"/>
+        <c:crossAx val="31763576"/>
         <c:crosses val="autoZero"/>
         <c:crossBetween val="midCat"/>
       </c:valAx>

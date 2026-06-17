@@ -28,6 +28,17 @@ fix ships with a reproducing deck builder in
 Fixed
 ~~~~~
 
+- **Charts were rejected by Microsoft PowerPoint (every chart type).**
+  The chart axis ids (``c:axId`` / ``c:crossAx``) hardcoded in the chart XML
+  writer used values above ``2**31`` (e.g. ``2226939960``). ISO-29500 types
+  these as ``xsd:unsignedInt`` so they pass schema validation, python-pptx and
+  LibreOffice both open them — but PowerPoint parses ``axId`` as a *signed*
+  32-bit integer, so any value over ``2**31-1`` overflows to a negative number
+  and PowerPoint reports the deck as needing repair. All axis ids are now in
+  the valid signed-int32 range (``1 .. 2**31-1``). The ``schema-validation``
+  harness gained an explicit axis-id range check (the XSD cannot express it),
+  with a self-test that confirms it fires.
+
 - **Slide-transition duration emitted an invalid bare ``p14:dur``.**
   Setting ``slide.transition.duration`` wrote the PowerPoint-2010
   extension attribute ``p14:dur`` directly on a plain
