@@ -28,8 +28,9 @@ def _source_deck():
     c.line.fill.background()
     c.text_frame.text = "Imported slide A"
     s2 = blank(src)
-    s2.shapes.add_picture(str(ASSETS / "logo.png"), Inches(2), Inches(2),
-                          Inches(3), Inches(3)) if (ASSETS / "logo.png").exists() else None
+    if (ASSETS / "logo.png").exists():
+        s2.shapes.add_picture(str(ASSETS / "logo.png"), Inches(2), Inches(2),
+                              Inches(3), Inches(3))
     tb = s2.shapes.add_textbox(Inches(1), Inches(0.5), Inches(11), Inches(1))
     tb.text_frame.text = "Imported slide B"
     return src
