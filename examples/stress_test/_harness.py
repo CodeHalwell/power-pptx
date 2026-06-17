@@ -40,14 +40,19 @@ from zipfile import ZipFile
 
 from lxml import etree
 
-from power_pptx import Presentation
-from power_pptx.lint import LintSeverity
-
+# Make the suite runnable straight from a fresh source checkout (no install):
+# put the sibling helpers (HERE), the repo root (for `tests.schema...`), and the
+# src/ layout (for `import power_pptx`) on the path *before* importing the
+# package. An installed power-pptx still wins via normal resolution order.
 HERE = Path(__file__).parent
 OUT = HERE / "_out"
 REPO_ROOT = HERE.parents[1]
-sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(REPO_ROOT))
+for _p in (str(HERE), str(REPO_ROOT), str(REPO_ROOT / "src")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from power_pptx import Presentation  # noqa: E402
+from power_pptx.lint import LintSeverity  # noqa: E402
 
 # The ISO-29500 XSD validator ships with the test suite. It's the harness that
 # catches the "opens fine but PowerPoint repairs it" bug class, so we fold it in.
@@ -293,7 +298,9 @@ def main(argv: list[str]) -> int:
     print(f"{clean}/{len(results)} decks fully clean; "
           f"{bugs} hard bug signal(s) across the suite.")
     print("=" * 72)
-    return 0
+    # Non-zero exit on any hard bug signal so the harness is usable as a CI /
+    # scripted gate, not just a printed report.
+    return 1 if bugs else 0
 
 
 if __name__ == "__main__":

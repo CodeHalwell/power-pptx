@@ -603,6 +603,11 @@ class PresetMaterial(BaseXmlEnum):
     Maps to the ``prstMaterial`` attribute on ``<a:sp3d>``.
     """
 
+    # Read-only alias: power-pptx <= 2.8.0 emitted the camelCase "softMetal"
+    # (invalid per ISO ST_PresetMaterialType). Accept it on read so decks
+    # written by those versions still load; writing always uses "softmetal".
+    __xml_read_aliases__ = {"softMetal": "softmetal"}
+
     CLEAR = (1, "clear", "Clear (transparent) material.")
     """Clear (transparent) material."""
 

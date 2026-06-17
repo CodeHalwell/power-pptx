@@ -162,12 +162,12 @@ def _deck_chart_types() -> bytes:
     cat.categories = ["A", "B", "C"]
     cat.add_series("S1", (1, 2, 3))
     cat.add_series("S2", (3, 2, 1))
-    for i, ct in enumerate((
+    for ct in (
         XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.COLUMN_STACKED,
         XL_CHART_TYPE.BAR_CLUSTERED, XL_CHART_TYPE.LINE, XL_CHART_TYPE.LINE_MARKERS,
         XL_CHART_TYPE.AREA, XL_CHART_TYPE.AREA_STACKED, XL_CHART_TYPE.RADAR,
         XL_CHART_TYPE.RADAR_MARKERS,
-    )):
+    ):
         s.shapes.add_chart(ct, Inches(0.5), Inches(0.5), Inches(3), Inches(2), cat)
     xy = XyChartData()
     xs = xy.add_series("xy")
@@ -327,8 +327,6 @@ class DescribeGeneratedDeckSchemaValidity:
         # above 2**31 (valid per XSD unsignedInt, but PowerPoint repairs it) and
         # confirm the validator flags it.
         import io as _io
-
-        from lxml import etree
 
         from power_pptx.chart.data import CategoryChartData
         from power_pptx.enum.chart import XL_CHART_TYPE
