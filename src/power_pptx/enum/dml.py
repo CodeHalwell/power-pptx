@@ -642,8 +642,13 @@ class PresetMaterial(BaseXmlEnum):
     SOFT_EDGE = (13, "softEdge", "Soft-edge material.")
     """Soft-edge material."""
 
-    SOFT_METAL = (14, "softMetal", "Soft-metal material.")
-    """Soft-metal material."""
+    SOFT_METAL = (14, "softmetal", "Soft-metal material.")
+    """Soft-metal material.
+
+    The ISO/IEC 29500 ``ST_PresetMaterialType`` enumeration spells this value
+    all-lowercase (``softmetal``); every other material is camelCase. Emitting
+    ``softMetal`` fails schema validation and PowerPoint repairs the file.
+    """
 
     TRANSLUCENT_POWDER = (15, "translucentPowder", "Translucent powder material.")
     """Translucent powder material."""

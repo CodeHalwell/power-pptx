@@ -149,6 +149,67 @@ def _deck_recipes() -> bytes:
     return _saved(prs)
 
 
+def _deck_radar_chart() -> bytes:
+    # Regression: radar series must not emit <c:smooth> (invalid in CT_RadarSer).
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    data = CategoryChartData()
+    data.categories = ["A", "B", "C"]
+    data.add_series("S1", [1, 2, 3])
+    data.add_series("S2", [3, 2, 1])
+    for ct in (XL_CHART_TYPE.RADAR, XL_CHART_TYPE.RADAR_MARKERS, XL_CHART_TYPE.RADAR_FILLED):
+        s.shapes.add_chart(ct, Inches(1), Inches(1), Inches(4), Inches(3), data)
+    return _saved(prs)
+
+
+def _deck_soft_metal_material() -> bytes:
+    # Regression: PresetMaterial.SOFT_METAL must emit the schema's "softmetal".
+    from power_pptx.dml.color import RGBColor
+    from power_pptx.enum.dml import PresetMaterial
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    sh = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(2), Inches(2), Inches(2), Inches(2))
+    sh.fill.solid()
+    sh.fill.fore_color.rgb = RGBColor(0x4F, 0x9D, 0xFF)
+    sh.three_d.extrusion_height = Pt(12)
+    sh.three_d.preset_material = PresetMaterial.SOFT_METAL
+    return _saved(prs)
+
+
+def _deck_picture_washout() -> bytes:
+    # Regression: recolor "washout" must write the required <a:biLevel thresh="…">.
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+        "0049454e44ae426082"
+    )
+    prs = Presentation()
+    s = _blank_slide(prs)
+    pic = s.shapes.add_picture(io.BytesIO(png), Inches(1), Inches(1), Inches(2), Inches(2))
+    pic.effects.recolor = "washout"
+    return _saved(prs)
+
+
+def _deck_transition_duration() -> bytes:
+    # Regression: a duration writes p14:dur, which is only schema-valid inside an
+    # mc:AlternateContent wrapper — even for a classic (non-p14) transition kind.
+    from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    s.transition.kind = MSO_TRANSITION_TYPE.FADE
+    s.transition.duration = 800
+    s2 = _blank_slide(prs)
+    s2.transition.kind = MSO_TRANSITION_TYPE.MORPH  # p14 kind + duration
+    s2.transition.duration = 1200
+    return _saved(prs)
+
+
 def _deck_diagrams() -> bytes:
     from power_pptx.diagrams import cycle, decision_tree, horizontal_pipeline
     from power_pptx.geometry import BBox
@@ -174,6 +235,10 @@ _DECK_BUILDERS = {
     "chart": _deck_chart,
     "animations": _deck_animations,
     "morph_transition": _deck_morph_transition,
+    "transition_duration": _deck_transition_duration,
+    "radar_chart": _deck_radar_chart,
+    "soft_metal_material": _deck_soft_metal_material,
+    "picture_washout": _deck_picture_washout,
     "recipes": _deck_recipes,
     "diagrams": _deck_diagrams,
 }

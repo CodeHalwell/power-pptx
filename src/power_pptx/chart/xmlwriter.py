@@ -1078,7 +1078,9 @@ class _RadarChartXmlWriter(_BaseChartXmlWriter):
                 "{marker_xml}"
                 "{cat_xml}"
                 "{val_xml}"
-                '          <c:smooth val="0"/>\n'
+                # NB: no <c:smooth/> — CT_RadarSer does not admit it (it is a
+                # line/scatter-series element). Emitting it here failed schema
+                # validation and PowerPoint repaired the file.
                 "        </c:ser>\n"
             ).format(
                 **{
