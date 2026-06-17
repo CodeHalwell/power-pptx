@@ -74,6 +74,16 @@ class DescribeBaseXmlEnum:
         with pytest.raises(ValueError, match="MSO_LINE_DASH_STYLE.DASH_STYLE_MIXED has no XML r"):
             MSO_LINE_DASH_STYLE.to_xml(-2)
 
+    def it_maps_a_read_only_xml_alias_to_its_canonical_member(self):
+        # PresetMaterial declares __xml_read_aliases__ = {"softMetal": "softmetal"}
+        # so decks written by power-pptx <= 2.8.0 (which emitted the invalid
+        # camelCase value) still load; writing always uses the canonical value.
+        from power_pptx.enum.dml import PresetMaterial
+
+        assert PresetMaterial.from_xml("softMetal") is PresetMaterial.SOFT_METAL
+        assert PresetMaterial.from_xml("softmetal") is PresetMaterial.SOFT_METAL
+        assert PresetMaterial.to_xml(PresetMaterial.SOFT_METAL) == "softmetal"
+
 
 class DescribeDeprecatedAliases:
     """Verify the `_DeprecatingEnumMeta` opt-in alias mechanism."""

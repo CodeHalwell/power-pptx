@@ -104,6 +104,18 @@ class BaseXmlEnum(int, enum.Enum, metaclass=_DeprecatingEnumMeta):
             else None
         )
 
+        # -- legacy/alternate spellings: map a read-only alias to its canonical
+        # -- xml_value so files written by older versions still load.  Opt in by
+        # -- declaring `__xml_read_aliases__ = {"legacyValue": "canonicalValue"}`
+        # -- on the enum.  Aliases are read-only; `to_xml` always emits canonical.
+        if member is None and xml_value:
+            aliases = getattr(cls, "__xml_read_aliases__", None)
+            if aliases and xml_value in aliases:
+                canonical = aliases[xml_value]
+                member = next(
+                    (m for m in cls if m.xml_value == canonical), None
+                )
+
         if member is None:
             raise ValueError(f"{cls.__name__} has no XML mapping for {repr(xml_value)}")
 
