@@ -421,3 +421,39 @@ class DescribeLegacyLayoutTokenUpgrade:
         slide = prs.slides[0]
         # Legacy path keeps the placeholder layout.
         assert len(slide.placeholders) > 0
+
+
+class DescribeDidYouMeanHints:
+    """Typo'd spec keys / values get a closest-match suggestion."""
+
+    def it_suggests_the_closest_top_level_key(self):
+        with pytest.raises(ValueError, match=r"did you mean 'slides'\?"):
+            from_spec({"slidez": []})
+
+    def it_suggests_the_closest_recipe_kwarg(self):
+        spec = {
+            "slides": [
+                {
+                    "layout": "kpi",
+                    "title": "Q4",
+                    "kpis": [{"value": "1", "label": "x"}],
+                    "titel": "typo",
+                }
+            ]
+        }
+        with pytest.raises(ValueError, match=r"did you mean 'title'\?"):
+            from_spec(spec)
+
+    def it_suggests_the_closest_transition(self):
+        with pytest.raises(ValueError, match=r"did you mean 'fade'\?"):
+            from_spec({"slides": [{"layout": "blank", "transition": "fadee"}]})
+
+    def it_suggests_the_closest_slide_size(self):
+        with pytest.raises(ValueError, match=r"did you mean 'widescreen'\?"):
+            from_spec({"slide_size": "widescreeen", "slides": []})
+
+    def it_omits_the_hint_when_nothing_is_close(self):
+        # A wildly different key has no close match: no "did you mean" suffix.
+        with pytest.raises(ValueError, match="Unknown spec keys") as exc:
+            from_spec({"zzzzzzzz": 1})
+        assert "did you mean" not in str(exc.value)

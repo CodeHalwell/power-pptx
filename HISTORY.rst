@@ -65,6 +65,14 @@ Added
   CI gate) to decide what to fix, e.g. ``if audit(prs).to_dict()
   ["has_errors"]: ...``.
 
+- **"Did you mean …?" for typo'd spec keys.** ``from_spec`` /
+  ``from_yaml`` already fail closed on unknown keys; the error now names
+  the closest valid candidate (via ``difflib``) for unknown top-level
+  keys, unknown recipe kwargs, unknown ``transition`` names, and unknown
+  ``slide_size`` shorthands — e.g. ``Unknown spec keys: 'slidez' (did
+  you mean 'slides'?)``. Makes a spec typo recoverable in a single
+  follow-up, which matters most for an LLM authoring the spec.
+
 These additions ship with unit tests, a round-trip test, and an
 ISO-29500 schema-validity test for the new group-fill XML.
 
