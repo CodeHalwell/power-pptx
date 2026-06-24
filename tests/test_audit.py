@@ -64,3 +64,42 @@ class DescribeAudit:
         )
         report = audit(prs)
         assert 0 in report.empty_slides
+
+
+class DescribeAuditMachineReadable:
+    """``AuditReport.to_dict`` / ``to_json``."""
+
+    def it_serializes_a_clean_deck(self, prs):
+        import json
+
+        prs.slides.add_slide(prs.slide_layouts[6])
+        payload = json.loads(audit(prs).to_json())
+
+        assert payload["total_slides"] == 1
+        assert payload["has_errors"] is False
+        assert payload["lint_issues"] == []
+        assert payload["empty_slides"] == [0]
+
+    def it_expands_lint_issues_with_slide_index(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(15), Inches(10), Inches(2), Inches(1))
+
+        d = audit(prs).to_dict()
+
+        assert d["has_errors"] is True
+        assert any(
+            issue["slide"] == 0 and issue["code"] == "OffSlide"
+            for issue in d["lint_issues"]
+        )
+
+    def it_is_json_serializable_for_a_rich_deck(self, prs):
+        import json
+
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_text(
+            BBox.from_inches(1, 1, 4, 1),
+            text="Hi",
+            font="Definitely-Not-A-Real-Font-Name",
+        )
+        # must not raise and must round-trip through json
+        assert json.loads(audit(prs).to_json()) == audit(prs).to_dict()

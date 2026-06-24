@@ -123,6 +123,48 @@ class AuditReport:
                 )
         return "\n".join(lines)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict of the whole audit.
+
+        This is the machine-readable counterpart to :meth:`markdown` — built
+        for the agent loop that generates a deck, audits it, and feeds the
+        result back to a model (or a CI gate) to decide what to fix. Every
+        lint issue is expanded via :meth:`~power_pptx.lint.LintIssue.to_dict`,
+        and slide-relative shape references are reduced to names::
+
+            report = audit(prs)
+            if report.to_dict()["has_errors"]:
+                ...
+
+        Top-level keys: ``total_slides``, ``has_errors``, ``lint_issues``,
+        ``broken_pictures``, ``empty_slides``, ``font_warnings``,
+        ``size_warnings``.
+        """
+        return {
+            "total_slides": self.total_slides,
+            "has_errors": self.has_errors,
+            "lint_issues": [
+                {"slide": idx, **issue.to_dict()} for idx, issue in self.lint_issues
+            ],
+            "broken_pictures": [
+                {"slide": idx, "shape": shape.name} for idx, shape in self.broken_pictures
+            ],
+            "empty_slides": list(self.empty_slides),
+            "font_warnings": [
+                {"slide": idx, "font": font} for idx, font in self.font_warnings
+            ],
+            "size_warnings": [
+                {"slide": idx, "shape": name, "bytes": size_bytes}
+                for idx, name, size_bytes in self.size_warnings
+            ],
+        }
+
+    def to_json(self, *, indent: int | None = 2) -> str:
+        """Return :meth:`to_dict` serialized as a JSON string."""
+        import json
+
+        return json.dumps(self.to_dict(), indent=indent)
+
     def __str__(self) -> str:
         return self.markdown()
 

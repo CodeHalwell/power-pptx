@@ -1028,3 +1028,56 @@ class DescribeFingerprints:
         s2.name = "shape-B"
         fps = slide.lint().fingerprints()
         assert len(fps) == len(set(fps))
+
+
+class DescribeMachineReadableOutput:
+    """``LintIssue.to_dict`` / ``SlideLintReport.to_dict`` / ``to_json``."""
+
+    def it_serializes_an_issue_to_a_jsonable_dict(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        issue = next(i for i in slide.lint().issues if isinstance(i, OffSlide))
+
+        d = issue.to_dict()
+
+        assert d["code"] == "OffSlide"
+        assert d["severity"] == "error"
+        assert d["shapes"] == ["Rectangle 1"]
+        # subclass-specific field is carried through automatically
+        assert d["side"] in {"right", "bottom"}
+
+    def it_includes_collision_scoring_fields(self):
+        _, slide = _new_blank_slide()
+        _add_overlapping_rects(slide, 2)
+        issue = _collisions(slide)[0]
+
+        d = issue.to_dict()
+
+        assert d["code"] == "ShapeCollision"
+        assert "intersection_area" in d
+        assert "score" in d
+        assert "kind" in d
+        # the (group_a, group_b) tuple is normalized to a list for JSON
+        assert isinstance(d["groups"], list)
+
+    def it_serializes_the_report_to_json(self):
+        import json
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        payload = json.loads(report.to_json())
+
+        assert payload["has_errors"] is True
+        assert payload["issue_count"] == len(report.issues)
+        assert isinstance(payload["issues"], list)
+        assert payload["issues"][0]["code"] == "OffSlide"
+
+    def it_serializes_a_clean_slide_to_an_empty_report(self):
+        import json
+
+        _, slide = _new_blank_slide()
+        payload = json.loads(slide.lint().to_json())
+
+        assert payload == {"has_errors": False, "issue_count": 0, "issues": []}

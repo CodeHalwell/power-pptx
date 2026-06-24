@@ -66,6 +66,39 @@ What's currently fixable:
 - **`ShapeCollision`** → reported only. Auto-nudging would almost
   always break the design.
 
+## Machine-readable output (for agents / CI)
+
+`summary()` is for humans; `to_dict()` / `to_json()` are for code. Use
+them to feed lint results back into an LLM auto-fix loop or a CI gate
+instead of regex-parsing the summary string.
+
+```python
+report = slide.lint()
+report.to_dict()    # {"has_errors", "issue_count", "issues": [...]}
+report.to_json()    # same, as a JSON string (indent=2 default)
+```
+
+Each issue is self-describing — it carries `code`, `severity`,
+`message`, the names of the `shapes` involved, and every
+detector-specific field (`OffSlide.side`, `TextOverflow.ratio`, the
+`ShapeCollision` scoring, …):
+
+```json
+{"code": "OffSlide", "severity": "error",
+ "message": "Shape 'Rectangle 1' extends beyond the right edge of the slide.",
+ "shapes": ["Rectangle 1"], "side": "right"}
+```
+
+The whole-deck `audit()` report has the same pair:
+
+```python
+from power_pptx import audit
+
+data = audit(prs).to_dict()   # adds a "slide" index to every lint issue
+if data["has_errors"]:
+    ...                        # hand `data` straight to the model to fix
+```
+
 ## Save-time hooks (via `from_spec`)
 
 If you build the deck through `power_pptx.compose.from_spec`, the spec dict

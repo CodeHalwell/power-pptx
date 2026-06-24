@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from enum import Enum
 from typing import TYPE_CHECKING, Sequence
 
@@ -56,6 +57,31 @@ class LintIssue:
 
     def __str__(self) -> str:
         return f"[{self.severity.value.upper()}] {self.code}: {self.message}"
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable dict describing this issue.
+
+        Shapes are represented by name (the full shape objects aren't
+        serializable). Every subclass-specific field — ``ratio`` on
+        :class:`TextOverflow`, ``side`` on :class:`OffSlide`, the collision
+        scoring on :class:`ShapeCollision`, etc. — is included automatically,
+        so the payload is self-describing for an LLM auto-fix loop or a CI
+        dashboard consuming ``report.to_json()``.
+        """
+        skip = {"severity", "code", "message", "shapes"}
+        payload: dict[str, object] = {
+            "code": self.code,
+            "severity": self.severity.value,
+            "message": self.message,
+            "shapes": [s.name for s in self.shapes],
+        }
+        for f in dataclass_fields(self):
+            if f.name in skip:
+                continue
+            value = getattr(self, f.name)
+            # Normalize tuples (e.g. ShapeCollision.groups) to lists for JSON.
+            payload[f.name] = list(value) if isinstance(value, tuple) else value
+        return payload
 
 
 @dataclass
@@ -394,6 +420,25 @@ class SlideLintReport:
         for issue in self._issues:
             lines.append(f"  {issue}")
         return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable dict of this slide's lint result.
+
+        Shape: ``{"has_errors": bool, "issue_count": int, "issues": [...]}``
+        where each issue is :meth:`LintIssue.to_dict`. Feed it to an LLM or a
+        CI gate instead of parsing :meth:`summary`.
+        """
+        return {
+            "has_errors": self.has_errors,
+            "issue_count": len(self._issues),
+            "issues": [issue.to_dict() for issue in self._issues],
+        }
+
+    def to_json(self, *, indent: int | None = 2) -> str:
+        """Return :meth:`to_dict` serialized as a JSON string."""
+        import json
+
+        return json.dumps(self.to_dict(), indent=indent)
 
     def auto_fix(self, *, dry_run: bool = False) -> list[str]:
         """Apply automatic fixes for issues that can be resolved without designer judgment.

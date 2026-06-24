@@ -53,6 +53,18 @@ Added
   ``ValueError`` for a rotated or flipped group, where baking the
   transform into each child is ambiguous.
 
+- **Machine-readable lint / audit output.** ``SlideLintReport.to_dict()``
+  / ``.to_json()`` and ``AuditReport.to_dict()`` / ``.to_json()`` return
+  a self-describing payload — each issue carries its ``code``,
+  ``severity``, ``message``, the names of the shapes involved, and every
+  detector-specific field (``TextOverflow.ratio``, ``OffSlide.side``,
+  the ``ShapeCollision`` scoring, …) picked up automatically from the
+  issue dataclass. This is the counterpart to the existing human-readable
+  ``summary()`` / ``markdown()`` and is built for the agent loop that
+  generates a deck, audits it, and feeds the result back to a model (or a
+  CI gate) to decide what to fix, e.g. ``if audit(prs).to_dict()
+  ["has_errors"]: ...``.
+
 These additions ship with unit tests, a round-trip test, and an
 ISO-29500 schema-validity test for the new group-fill XML.
 
