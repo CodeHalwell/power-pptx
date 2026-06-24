@@ -53,7 +53,7 @@ YAML usage::
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 # ---------------------------------------------------------------------------
 # Built-in layout aliases — map friendly names to the PowerPoint blank
@@ -263,10 +263,32 @@ _RECIPE_LAYOUTS: dict[str, tuple[str, frozenset[str]]] = {
 }
 
 
+def _did_you_mean(word: str, candidates: Iterable[str]) -> str:
+    """Return a ``" (did you mean 'x'?)"`` suffix for the closest candidate.
+
+    Returns an empty string when nothing is close enough. Used to make typo'd
+    spec keys / values recoverable in a single follow-up — particularly for an
+    LLM authoring a spec, which can act on the suggestion without a round-trip.
+    """
+    import difflib
+
+    matches = difflib.get_close_matches(word, list(candidates), n=1, cutoff=0.6)
+    return f" (did you mean {matches[0]!r}?)" if matches else ""
+
+
+def _format_unknown(unknown: Iterable[str], candidates: Iterable[str]) -> str:
+    """Render unknown keys/values, each annotated with its closest candidate."""
+    candidates = list(candidates)
+    return "; ".join(f"{u!r}{_did_you_mean(u, candidates)}" for u in sorted(unknown))
+
+
 def _validate_spec_keys(spec: dict[str, Any]) -> None:
     unknown = set(spec) - _VALID_TOP_KEYS
     if unknown:
-        raise ValueError(f"Unknown spec keys: {sorted(unknown)}")
+        raise ValueError(
+            f"Unknown spec keys: {_format_unknown(unknown, _VALID_TOP_KEYS)}. "
+            f"Valid keys: {sorted(_VALID_TOP_KEYS)}"
+        )
     lint = spec.get("lint", "off")
     if lint not in _VALID_LINT_VALUES:
         raise ValueError(f"lint must be one of {sorted(_VALID_LINT_VALUES)!r}, got {lint!r}")
@@ -393,9 +415,11 @@ def _add_recipe_slide(
         accepted = set(sig.parameters)
         unknown = sorted(set(kwargs) - accepted)
         if unknown:
+            accepted_public = sorted(accepted - {"prs"})
             raise ValueError(
-                f"layout {layout_name!r}: unknown spec keys {unknown}. "
-                f"Accepted: {sorted(accepted - {'prs'})}."
+                f"layout {layout_name!r}: unknown spec keys "
+                f"{_format_unknown(unknown, accepted_public)}. "
+                f"Accepted: {accepted_public}."
             )
 
     return recipe(prs, **kwargs)
@@ -459,7 +483,7 @@ def _set_transition(slide: Any, transition: str | None) -> None:
     member_name = _TRANSITION_NAMES.get(key)
     if member_name is None:
         raise ValueError(
-            f"Unknown transition {transition!r}. "
+            f"Unknown transition {transition!r}{_did_you_mean(key, _TRANSITION_NAMES)}. "
             f"Valid values: {sorted(_TRANSITION_NAMES)}"
         )
     from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
@@ -622,7 +646,8 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
         preset = _SLIDE_SIZE_PRESETS.get(key)
         if preset is None:
             raise ValueError(
-                f"Unknown slide_size {slide_size!r}. Valid shorthands: "
+                f"Unknown slide_size {slide_size!r}"
+                f"{_did_you_mean(key, _SLIDE_SIZE_PRESETS)}. Valid shorthands: "
                 f"{sorted(_SLIDE_SIZE_PRESETS)}, or pass (width, height)."
             )
         width_in, height_in = preset
