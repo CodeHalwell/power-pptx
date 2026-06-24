@@ -65,6 +65,18 @@ Added
   CI gate) to decide what to fix, e.g. ``if audit(prs).to_dict()
   ["has_errors"]: ...``.
 
+- **Run-property typography on ``Font``.** New tri-state properties on
+  ``run.font`` / ``paragraph.font`` close the ``<a:rPr>`` gap that
+  separates "looks branded" from "looks generated":
+  ``all_caps`` / ``small_caps`` (the ``cap`` attribute — mutually
+  exclusive), ``letter_spacing`` (tracking, a ``Length`` via the ``spc``
+  attribute, negative tightens), ``strikethrough`` (``strike``), and
+  ``superscript`` / ``subscript`` (the shared ``baseline`` shift). Each
+  reads back ``None`` when inherited and round-trips / schema-validates.
+  Backed by new ``ST_TextPoint`` / ``ST_TextCapsType`` /
+  ``ST_TextStrikeType`` simple types wired onto
+  ``CT_TextCharacterProperties``.
+
 - **"Did you mean …?" for typo'd spec keys.** ``from_spec`` /
   ``from_yaml`` already fail closed on unknown keys; the error now names
   the closest valid candidate (via ``difflib``) for unknown top-level

@@ -531,6 +531,51 @@ class DescribeFont(object):
     def it_provides_access_to_its_fill(self, font):
         assert isinstance(font.fill, FillFormat)
 
+    def it_knows_its_all_caps_setting(self, all_caps_get_fixture):
+        font, expected_value = all_caps_get_fixture
+        assert font.all_caps == expected_value
+
+    def it_can_change_its_all_caps_setting(self, all_caps_set_fixture):
+        font, new_value, expected_xml = all_caps_set_fixture
+        font.all_caps = new_value
+        assert font._element.xml == expected_xml
+
+    def it_treats_small_caps_as_mutually_exclusive_with_all_caps(self):
+        font = Font(element("a:rPr{cap=all}"))
+        assert font.all_caps is True
+        assert font.small_caps is False
+        font.small_caps = True
+        assert font.all_caps is False
+        assert font.small_caps is True
+
+    def it_knows_its_letter_spacing(self, letter_spacing_get_fixture):
+        font, expected_value = letter_spacing_get_fixture
+        assert font.letter_spacing == expected_value
+
+    def it_can_change_its_letter_spacing(self, letter_spacing_set_fixture):
+        font, new_value, expected_xml = letter_spacing_set_fixture
+        font.letter_spacing = new_value
+        assert font._element.xml == expected_xml
+
+    def it_knows_its_strikethrough_setting(self, strike_get_fixture):
+        font, expected_value = strike_get_fixture
+        assert font.strikethrough == expected_value
+
+    def it_can_change_its_strikethrough_setting(self, strike_set_fixture):
+        font, new_value, expected_xml = strike_set_fixture
+        font.strikethrough = new_value
+        assert font._element.xml == expected_xml
+
+    def it_handles_superscript_and_subscript(self):
+        font = Font(element("a:rPr"))
+        assert font.superscript is None and font.subscript is None
+        font.superscript = True
+        assert font.superscript is True and font.subscript is False
+        font.subscript = True
+        assert font.superscript is False and font.subscript is True
+        font.subscript = None
+        assert font.superscript is None and font.subscript is None
+
     # fixtures ---------------------------------------------
 
     @pytest.fixture(params=[("a:rPr", None), ("a:rPr{b=0}", False), ("a:rPr{b=1}", True)])
@@ -551,6 +596,73 @@ class DescribeFont(object):
         font = Font(element(rPr_cxml))
         expected_xml = xml(expected_rPr_cxml)
         return font, new_value, expected_xml
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", None),
+            ("a:rPr{cap=none}", False),
+            ("a:rPr{cap=all}", True),
+            ("a:rPr{cap=small}", False),
+        ]
+    )
+    def all_caps_get_fixture(self, request):
+        rPr_cxml, expected_value = request.param
+        return Font(element(rPr_cxml)), expected_value
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", True, "a:rPr{cap=all}"),
+            ("a:rPr{cap=all}", False, "a:rPr{cap=none}"),
+            ("a:rPr{cap=small}", None, "a:rPr"),
+        ]
+    )
+    def all_caps_set_fixture(self, request):
+        rPr_cxml, new_value, expected_rPr_cxml = request.param
+        return Font(element(rPr_cxml)), new_value, xml(expected_rPr_cxml)
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", None),
+            ("a:rPr{spc=200}", Pt(2)),
+            ("a:rPr{spc=-150}", Pt(-1.5)),
+        ]
+    )
+    def letter_spacing_get_fixture(self, request):
+        rPr_cxml, expected_value = request.param
+        return Font(element(rPr_cxml)), expected_value
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", Pt(2), "a:rPr{spc=200}"),
+            ("a:rPr{spc=200}", None, "a:rPr"),
+        ]
+    )
+    def letter_spacing_set_fixture(self, request):
+        rPr_cxml, new_value, expected_rPr_cxml = request.param
+        return Font(element(rPr_cxml)), new_value, xml(expected_rPr_cxml)
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", None),
+            ("a:rPr{strike=noStrike}", False),
+            ("a:rPr{strike=sngStrike}", True),
+            ("a:rPr{strike=dblStrike}", True),
+        ]
+    )
+    def strike_get_fixture(self, request):
+        rPr_cxml, expected_value = request.param
+        return Font(element(rPr_cxml)), expected_value
+
+    @pytest.fixture(
+        params=[
+            ("a:rPr", True, "a:rPr{strike=sngStrike}"),
+            ("a:rPr{strike=sngStrike}", False, "a:rPr{strike=noStrike}"),
+            ("a:rPr{strike=sngStrike}", None, "a:rPr"),
+        ]
+    )
+    def strike_set_fixture(self, request):
+        rPr_cxml, new_value, expected_rPr_cxml = request.param
+        return Font(element(rPr_cxml)), new_value, xml(expected_rPr_cxml)
 
     @pytest.fixture(params=[("a:rPr", None), ("a:rPr{i=0}", False), ("a:rPr{i=1}", True)])
     def italic_get_fixture(self, request):
