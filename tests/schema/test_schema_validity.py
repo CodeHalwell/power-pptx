@@ -260,8 +260,25 @@ def _deck_diagrams() -> bytes:
     return _saved(prs)
 
 
+def _deck_group_fill() -> bytes:
+    # A group with a solid fill exercises EG_FillProperties on `p:grpSpPr`,
+    # which the schema permits but `a:ln` (line) on a group does not.
+    from power_pptx.dml.color import RGBColor
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    group = s.shapes.add_group_shape()
+    group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
+    group.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(2), Inches(1), Inches(1))
+    group.fill.solid()
+    group.fill.fore_color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
+    "group_fill": _deck_group_fill,
     "effects_and_3d": _deck_effects_and_3d,
     "gradient": _deck_gradient,
     "table": _deck_table,

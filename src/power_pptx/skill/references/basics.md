@@ -157,6 +157,35 @@ Both `center` / `centre` spellings are accepted. `container` is the
 slide by default; pass any shape (or anything exposing
 `.width` / `.height`) to anchor inside a card / group / placeholder.
 
+## Grouping shapes
+
+`slide.shapes.add_group_shape()` returns a `GroupShape` whose
+`.shapes` collection has the same `add_*` methods as a slide. The
+group's offset/extent shrink-wrap to its members as you add them.
+
+```python
+group = slide.shapes.add_group_shape()
+group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
+group.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(2), Inches(1), Inches(1))
+
+group.fill.solid()                 # tint the whole group (members paint on top)
+group.fill.fore_color.rgb = "1F4E79"
+group.move(Inches(0.5), Inches(0)) # translate group + every member, O(1)
+
+for shape in group.walk():         # depth-first, recurses into nested groups
+    ...                            # filter shape.shape_type for leaves only
+
+group.fit_to_children()            # re-tighten bbox after editing members directly
+promoted = group.ungroup()         # dissolve; members keep their on-screen geometry
+```
+
+- A group admits a **fill** but not a **line** — the OOXML schema has
+  no `a:ln` on `p:grpSpPr`, so there is intentionally no `group.line`.
+  (Outline a group by outlining a backing rectangle inside it.)
+- `ungroup()` returns the promoted shapes and preserves z-order. It
+  raises `ValueError` on a rotated/flipped group; reset rotation and
+  flip to 0 first.
+
 ## Tables
 
 ```python

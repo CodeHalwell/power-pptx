@@ -14,6 +14,49 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+2.9.0 (unreleased)
+++++++++++++++++++
+
+Minor release filling out the **group-shape surface**, previously the
+smallest and least-ergonomic corner of the shape API. Groups gained a
+fill, an atomic move, recursive traversal, shrink-wrap, and — the
+headline — a real ``ungroup()``. All additions are drop-in compatible.
+
+Added
+~~~~~
+
+- ``group.fill`` — a |FillFormat| on the group's ``p:grpSpPr``, so a
+  whole group can be tinted in one call (``group.fill.solid();
+  group.fill.fore_color.rgb = "1F4E79"``). Member shapes that declare
+  their own fill paint on top, unaffected. Note the OOXML schema admits
+  a fill but *not* a line (``a:ln``) on a group, so there is
+  deliberately no ``group.line`` — emitting one would produce a file
+  PowerPoint reports as broken.
+
+- ``group.move(dx, dy)`` — translate an entire group (and every shape
+  it contains) by an offset in one O(1) operation, instead of walking
+  and nudging each child.
+
+- ``group.walk()`` — generate every descendant shape depth-first,
+  recursing into nested groups, so whole-tree layout, measurement, and
+  lint passes no longer need hand-rolled recursion.
+
+- ``group.fit_to_children()`` — shrink-wrap the group's offset/extent to
+  tightly bound its members (the same recalculation that runs when a
+  shape is added through ``group.shapes.add_*``), keeping ``group.bbox``
+  accurate after member shapes are edited directly.
+
+- ``group.ungroup()`` — dissolve a group, promoting its members to the
+  parent shape tree with their position and size transformed out of the
+  group's child coordinate space so nothing moves or resizes visually.
+  Z-order is preserved and the promoted shapes are returned. Raises
+  ``ValueError`` for a rotated or flipped group, where baking the
+  transform into each child is ambiguous.
+
+These additions ship with unit tests, a round-trip test, and an
+ISO-29500 schema-validity test for the new group-fill XML.
+
+
 2.8.1 (2026-06-17)
 ++++++++++++++++++
 
