@@ -76,6 +76,15 @@ class DescribeRoundTrip:
         group.fill.fore_color.rgb = RGBColor(0x1F, 0x4E, 0x79)
         assert_round_trip(prs)
 
+    def it_round_trips_a_group_containing_a_table(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        gf = group.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(1.5))
+        gf.table.cell(0, 0).text = "A"
+        group.shapes.add_shape(1, Inches(1), Inches(0.5), Inches(3), Inches(0.4))
+        assert_round_trip(prs)
+
 
 class DescribeNonMutatingColorReadsRoundTrip:
     """Reading `Font.color` properties must not corrupt the round-trip."""

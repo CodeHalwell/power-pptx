@@ -58,6 +58,11 @@ strand the deck on default placeholder styling.  Pass an explicit
 recipe layout name (e.g. `"kpi"`, `"chart"`, `"table"`, `"quote"`)
 to skip the alias step and reach the styled recipe directly.
 
+An unrecognized `"layout"` name raises `ValueError` (with the closest
+valid layout suggested) rather than silently producing a blank slide —
+so a typo like `"titel"` fails loudly. Use `"layout": "blank"`
+explicitly when you actually want a blank slide.
+
 `tokens` accepts five shapes:
 
 - A preset by name: `{"preset": "modern_light"}` (optionally with

@@ -299,9 +299,13 @@ def _validate_spec_keys(spec: dict[str, Any]) -> None:
 def _resolve_layout(prs: Any, layout_name: str) -> Any:
     """Return the SlideLayout for *layout_name*.
 
-    First tries the built-in alias table, then falls back to an exact
-    case-insensitive match against the presentation's own layout names,
-    then falls back to the Blank layout.
+    First tries the built-in alias table, then an exact case-insensitive
+    match against the presentation's own layout names (so custom
+    templates work). An unrecognized name raises :class:`ValueError`
+    rather than silently substituting the Blank layout — a silent
+    fallback reads as "my styled layout just didn't apply" and is the
+    same fail-closed-on-typos contract the spec-key validation uses. Use
+    ``"blank"`` explicitly for a deliberately blank slide.
     """
     canonical = _LAYOUT_ALIASES.get(layout_name.lower())
     if canonical:
@@ -314,9 +318,16 @@ def _resolve_layout(prs: Any, layout_name: str) -> Any:
         if sl.name.lower() == layout_name.lower():
             return sl
 
-    # Last resort: first available layout (index 0 is always safe)
-    blank = prs.slide_layouts.get_by_name("Blank")
-    return blank if blank is not None else prs.slide_layouts[0]
+    candidates = sorted(
+        set(_LAYOUT_ALIASES)
+        | set(_RECIPE_LAYOUTS)
+        | set(_LEGACY_TO_RECIPE)
+        | {sl.name.lower() for sl in prs.slide_layouts}
+    )
+    raise ValueError(
+        f"Unknown layout {layout_name!r}{_did_you_mean(layout_name.lower(), candidates)}. "
+        f"Valid layouts: {candidates}"
+    )
 
 
 def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:

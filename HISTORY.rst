@@ -53,6 +53,15 @@ Added
   ``ValueError`` for a rotated or flipped group, where baking the
   transform into each child is ambiguous.
 
+- **``add_table`` / ``add_movie`` on group shape-trees.** Both lived
+  only on the slide shape-tree even though ``p:graphicFrame`` /
+  ``p:pic`` are schema-valid inside a ``p:grpSp``. They now sit on the
+  shared base, so ``group.shapes.add_table(...)`` /
+  ``group.shapes.add_movie(...)`` work — a table or video can be bundled
+  into a group with a caption or badge, and the group's extent
+  shrink-wraps to include it. Video play-controls timing is still
+  registered on the enclosing slide. Slide-level usage is unchanged.
+
 - **Machine-readable lint / audit output.** ``SlideLintReport.to_dict()``
   / ``.to_json()`` and ``AuditReport.to_dict()`` / ``.to_json()`` return
   a self-describing payload — each issue carries its ``code``,
@@ -85,8 +94,21 @@ Added
   you mean 'slides'?)``. Makes a spec typo recoverable in a single
   follow-up, which matters most for an LLM authoring the spec.
 
-These additions ship with unit tests, a round-trip test, and an
-ISO-29500 schema-validity test for the new group-fill XML.
+Fixed
+~~~~~
+
+- **``from_spec`` no longer silently swallows an unknown layout name.**
+  A typo'd / unrecognized ``"layout"`` used to fall back to the Blank
+  layout silently, so a misspelled ``"titel"`` produced a blank slide
+  that looked like the styled layout simply hadn't applied. It now
+  raises ``ValueError`` with the closest valid layout suggested — the
+  same fail-closed-on-typos contract already used for unknown spec
+  keys. Pass ``"layout": "blank"`` explicitly for a deliberately blank
+  slide.
+
+These additions ship with unit tests, a round-trip test, and
+ISO-29500 schema-validity tests for the new group-fill and run-property
+XML.
 
 
 2.8.1 (2026-06-17)

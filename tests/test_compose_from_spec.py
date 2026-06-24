@@ -457,3 +457,15 @@ class DescribeDidYouMeanHints:
         with pytest.raises(ValueError, match="Unknown spec keys") as exc:
             from_spec({"zzzzzzzz": 1})
         assert "did you mean" not in str(exc.value)
+
+    def it_fails_closed_on_an_unknown_layout_name(self):
+        # An unrecognized layout used to silently produce a Blank slide; it
+        # now raises with the closest valid layout suggested.
+        with pytest.raises(ValueError, match=r"Unknown layout 'titel'.*did you mean 'title'"):
+            from_spec({"slides": [{"layout": "titel", "title": "X"}]})
+
+    def it_still_honors_an_explicit_blank_layout(self):
+        # The deliberately-blank path keeps working — it is the escape hatch
+        # now that unknown names raise.
+        prs = from_spec({"slides": [{"layout": "blank"}]})
+        assert len(prs.slides) == 1
