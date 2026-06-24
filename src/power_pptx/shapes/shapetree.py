@@ -1276,6 +1276,123 @@ class _BaseGroupShapes(_BaseShapes):
         sp = self._spTree.add_textbox(id_, name, x, y, cx, cy)
         return sp
 
+    def add_table(
+        self,
+        rows: int,
+        cols: int,
+        left: Length,
+        top: Length,
+        width: Length,
+        height: Length,
+        *,
+        style: str = "default",
+    ) -> GraphicFrame:
+        """Add a |GraphicFrame| object containing a table.
+
+        The table has the specified number of `rows` and `cols` and the specified position and
+        size. `width` is evenly distributed between the columns of the new table. Likewise,
+        `height` is evenly distributed between the rows. Note that the `.table` property on the
+        returned |GraphicFrame| shape must be used to access the enclosed |Table| object.
+
+        Available on a slide's shape tree and on a group's, so a table can be bundled into a
+        group alongside a caption or badge.
+
+        ``style`` controls the inherited table-style flags applied at
+        construction time:
+
+        * ``"default"`` (back-compat) — leave PowerPoint's
+          inherited-style flags alone. Behaves as before this argument
+          existed.
+        * ``"clean"`` — disable every inherited style flag
+          (``first_row``, ``first_col``, ``last_row``, ``last_col``,
+          ``horz_banding``, ``vert_banding``). Use when applying custom
+          cell borders or fills, since the inherited style otherwise
+          overlays them and renders inconsistently across PowerPoint
+          and LibreOffice.
+        """
+        if style not in ("default", "clean"):
+            raise ValueError(f"style must be 'default' or 'clean'; got {style!r}")
+        left, top = _coerce_emu(left), _coerce_emu(top)
+        width, height = _coerce_emu(width), _coerce_emu(height)
+        graphicFrame = self._add_graphicFrame_containing_table(rows, cols, left, top, width, height)
+        self._recalculate_extents()
+        shape = cast(GraphicFrame, self._shape_factory(graphicFrame))
+        if style == "clean":
+            tbl = shape.table
+            tbl.first_row = False
+            tbl.first_col = False
+            tbl.last_row = False
+            tbl.last_col = False
+            tbl.horz_banding = False
+            tbl.vert_banding = False
+        return shape
+
+    def add_movie(
+        self,
+        movie_file: str | IO[bytes],
+        left: Length,
+        top: Length,
+        width: Length,
+        height: Length,
+        poster_frame_image: str | IO[bytes] | None = None,
+        mime_type: str = CT.VIDEO,
+    ) -> GraphicFrame:
+        """Return newly added movie shape displaying video in `movie_file`.
+
+        **EXPERIMENTAL.** This method has important limitations:
+
+        * The size must be specified; no auto-scaling such as that provided by :meth:`add_picture`
+          is performed.
+        * The MIME type of the video file should be specified, e.g. 'video/mp4'. The provided
+          video file is not interrogated for its type. The MIME type `video/unknown` is used by
+          default (and works fine in tests as of this writing).
+        * A poster frame image must be provided, it cannot be automatically extracted from the
+          video file. If no poster frame is provided, the default "media loudspeaker" image will
+          be used.
+
+        Return a newly added movie shape, positioned at (`left`, `top`), having size
+        (`width`, `height`), and containing `movie_file`. Before the video is started,
+        `poster_frame_image` is displayed as a placeholder for the video. The video play-controls
+        timing is registered on the enclosing slide even when the movie is added to a group.
+        """
+        left, top = _coerce_emu(left), _coerce_emu(top)
+        width, height = _coerce_emu(width), _coerce_emu(height)
+        movie_pic = _MoviePicElementCreator.new_movie_pic(
+            self,
+            self._next_shape_id,
+            movie_file,
+            left,
+            top,
+            width,
+            height,
+            poster_frame_image,
+            mime_type,
+        )
+        self._spTree.append(movie_pic)
+        self._add_video_timing(movie_pic)
+        self._recalculate_extents()
+        return cast(GraphicFrame, self._shape_factory(movie_pic))
+
+    def _add_graphicFrame_containing_table(
+        self, rows: int, cols: int, x: Length, y: Length, cx: Length, cy: Length
+    ) -> CT_GraphicalObjectFrame:
+        """Return a newly added `p:graphicFrame` element containing a table as specified."""
+        _id = self._next_shape_id
+        name = "Table %d" % (_id - 1)
+        graphicFrame = self._spTree.add_table(_id, name, rows, cols, x, y, cx, cy)
+        return graphicFrame
+
+    def _add_video_timing(self, pic: CT_Picture) -> None:
+        """Add a `p:video` element under `p:sld/p:timing`.
+
+        The element will refer to the specified `pic` element by its shape id, and cause the video
+        play controls to appear for that video. Resolved via an absolute XPath so it also works
+        when the movie lives inside a group on the slide.
+        """
+        sld = self._spTree.xpath("/p:sld")[0]
+        childTnLst = sld.get_or_add_childTnLst()
+        childTnLst.add_video(pic.shape_id)
+
     def _recalculate_extents(self) -> None:
         """Adjust position and size to incorporate all contained shapes.
 
@@ -1312,99 +1429,6 @@ class SlideShapes(_BaseGroupShapes):
 
     parent: Slide  # pyright: ignore[reportIncompatibleMethodOverride]
 
-    def add_movie(
-        self,
-        movie_file: str | IO[bytes],
-        left: Length,
-        top: Length,
-        width: Length,
-        height: Length,
-        poster_frame_image: str | IO[bytes] | None = None,
-        mime_type: str = CT.VIDEO,
-    ) -> GraphicFrame:
-        """Return newly added movie shape displaying video in `movie_file`.
-
-        **EXPERIMENTAL.** This method has important limitations:
-
-        * The size must be specified; no auto-scaling such as that provided by :meth:`add_picture`
-          is performed.
-        * The MIME type of the video file should be specified, e.g. 'video/mp4'. The provided
-          video file is not interrogated for its type. The MIME type `video/unknown` is used by
-          default (and works fine in tests as of this writing).
-        * A poster frame image must be provided, it cannot be automatically extracted from the
-          video file. If no poster frame is provided, the default "media loudspeaker" image will
-          be used.
-
-        Return a newly added movie shape to the slide, positioned at (`left`, `top`), having size
-        (`width`, `height`), and containing `movie_file`. Before the video is started,
-        `poster_frame_image` is displayed as a placeholder for the video.
-        """
-        left, top = _coerce_emu(left), _coerce_emu(top)
-        width, height = _coerce_emu(width), _coerce_emu(height)
-        movie_pic = _MoviePicElementCreator.new_movie_pic(
-            self,
-            self._next_shape_id,
-            movie_file,
-            left,
-            top,
-            width,
-            height,
-            poster_frame_image,
-            mime_type,
-        )
-        self._spTree.append(movie_pic)
-        self._add_video_timing(movie_pic)
-        return cast(GraphicFrame, self._shape_factory(movie_pic))
-
-    def add_table(
-        self,
-        rows: int,
-        cols: int,
-        left: Length,
-        top: Length,
-        width: Length,
-        height: Length,
-        *,
-        style: str = "default",
-    ) -> GraphicFrame:
-        """Add a |GraphicFrame| object containing a table.
-
-        The table has the specified number of `rows` and `cols` and the specified position and
-        size. `width` is evenly distributed between the columns of the new table. Likewise,
-        `height` is evenly distributed between the rows. Note that the `.table` property on the
-        returned |GraphicFrame| shape must be used to access the enclosed |Table| object.
-
-        ``style`` controls the inherited table-style flags applied at
-        construction time:
-
-        * ``"default"`` (back-compat) — leave PowerPoint's
-          inherited-style flags alone. Behaves as before this argument
-          existed.
-        * ``"clean"`` — disable every inherited style flag
-          (``first_row``, ``first_col``, ``last_row``, ``last_col``,
-          ``horz_banding``, ``vert_banding``). Use when applying custom
-          cell borders or fills, since the inherited style otherwise
-          overlays them and renders inconsistently across PowerPoint
-          and LibreOffice.
-        """
-        if style not in ("default", "clean"):
-            raise ValueError(
-                f"style must be 'default' or 'clean'; got {style!r}"
-            )
-        left, top = _coerce_emu(left), _coerce_emu(top)
-        width, height = _coerce_emu(width), _coerce_emu(height)
-        graphicFrame = self._add_graphicFrame_containing_table(rows, cols, left, top, width, height)
-        shape = cast(GraphicFrame, self._shape_factory(graphicFrame))
-        if style == "clean":
-            tbl = shape.table
-            tbl.first_row = False
-            tbl.first_col = False
-            tbl.last_row = False
-            tbl.last_col = False
-            tbl.horz_banding = False
-            tbl.vert_banding = False
-        return shape
-
     def clone_layout_placeholders(self, slide_layout: SlideLayout) -> None:
         """Add placeholder shapes based on those in `slide_layout`.
 
@@ -1429,25 +1453,6 @@ class SlideShapes(_BaseGroupShapes):
             if elm.ph_idx == 0:
                 return cast(Shape, self._shape_factory(elm))
         return None
-
-    def _add_graphicFrame_containing_table(
-        self, rows: int, cols: int, x: Length, y: Length, cx: Length, cy: Length
-    ) -> CT_GraphicalObjectFrame:
-        """Return a newly added `p:graphicFrame` element containing a table as specified."""
-        _id = self._next_shape_id
-        name = "Table %d" % (_id - 1)
-        graphicFrame = self._spTree.add_table(_id, name, rows, cols, x, y, cx, cy)
-        return graphicFrame
-
-    def _add_video_timing(self, pic: CT_Picture) -> None:
-        """Add a `p:video` element under `p:sld/p:timing`.
-
-        The element will refer to the specified `pic` element by its shape id, and cause the video
-        play controls to appear for that video.
-        """
-        sld = self._spTree.xpath("/p:sld")[0]
-        childTnLst = sld.get_or_add_childTnLst()
-        childTnLst.add_video(pic.shape_id)
 
     def _shape_factory(self, shape_elm: ShapeElement) -> BaseShape:
         """Return an instance of the appropriate shape proxy class for `shape_elm`."""
@@ -1684,7 +1689,7 @@ class _MoviePicElementCreator(object):
 
     def __init__(
         self,
-        shapes: SlideShapes,
+        shapes: _BaseGroupShapes,
         shape_id: int,
         movie_file: str | IO[bytes],
         x: Length,
@@ -1705,7 +1710,7 @@ class _MoviePicElementCreator(object):
     @classmethod
     def new_movie_pic(
         cls,
-        shapes: SlideShapes,
+        shapes: _BaseGroupShapes,
         shape_id: int,
         movie_file: str | IO[bytes],
         x: Length,

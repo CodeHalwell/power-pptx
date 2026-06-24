@@ -158,6 +158,34 @@ class DescribeGroupShapeSurface(object):
         with pytest.raises(ValueError, match="rotated or flipped"):
             group.ungroup()
 
+    def it_can_add_a_table_to_the_group(self, slide):
+        group = slide.shapes.add_group_shape()
+
+        gf = group.shapes.add_table(2, 3, Inches(1), Inches(1), Inches(4), Inches(1.5))
+
+        assert gf.has_table
+        assert gf.shape_type == MSO_SHAPE_TYPE.TABLE
+        # the group's extent grows to bound the new table
+        assert int(group.width) == Inches(4)
+        assert int(group.height) == Inches(1.5)
+        assert list(group.shapes)[0].shape_type == MSO_SHAPE_TYPE.TABLE
+
+    def it_can_add_a_movie_to_the_group(self, slide):
+        from ..unitutil.file import absjoin, test_file_dir
+
+        group = slide.shapes.add_group_shape()
+
+        movie = group.shapes.add_movie(
+            absjoin(test_file_dir, "dummy.mp4"),
+            Inches(1), Inches(1), Inches(4), Inches(3),
+            poster_frame_image=absjoin(test_file_dir, "monty-truth.png"),
+            mime_type="video/mp4",
+        )
+
+        assert movie.shape_type == MSO_SHAPE_TYPE.MEDIA
+        # video play-controls timing is registered on the enclosing slide
+        assert slide._element.xpath(".//p:timing//p:video")
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture
