@@ -52,6 +52,16 @@ class DescribeRoundTrip:
         shape.line.color.rgb = RGBColor(0x10, 0xA0, 0x10)
         assert_round_trip(prs)
 
+    def it_round_trips_a_group_with_a_fill(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        group.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        group.shapes.add_shape(1, Inches(4), Inches(2), Inches(1), Inches(1))
+        group.fill.solid()
+        group.fill.fore_color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+        assert_round_trip(prs)
+
 
 class DescribeNonMutatingColorReadsRoundTrip:
     """Reading `Font.color` properties must not corrupt the round-trip."""

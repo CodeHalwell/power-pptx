@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Iterator
 
+from power_pptx.dml.fill import CT_GradientFillProperties
 from power_pptx.enum.shapes import MSO_CONNECTOR_TYPE
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls, qn
@@ -12,7 +13,13 @@ from power_pptx.oxml.shapes.connector import CT_Connector
 from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectFrame
 from power_pptx.oxml.shapes.picture import CT_Picture
 from power_pptx.oxml.shapes.shared import BaseShapeElement
-from power_pptx.oxml.xmlchemy import BaseOxmlElement, OneAndOnlyOne, ZeroOrOne
+from power_pptx.oxml.xmlchemy import (
+    BaseOxmlElement,
+    Choice,
+    OneAndOnlyOne,
+    ZeroOrOne,
+    ZeroOrOneChoice,
+)
 from power_pptx.util import Emu
 
 if TYPE_CHECKING:
@@ -304,5 +311,19 @@ class CT_GroupShapeProperties(BaseOxmlElement):
     xfrm: CT_Transform2D | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "a:xfrm", successors=_tag_seq[1:]
     )
+    eg_fillProperties = ZeroOrOneChoice(
+        (
+            Choice("a:noFill"),
+            Choice("a:solidFill"),
+            Choice("a:gradFill"),
+            Choice("a:blipFill"),
+            Choice("a:pattFill"),
+            Choice("a:grpFill"),
+        ),
+        successors=_tag_seq[7:],
+    )
     effectLst = ZeroOrOne("a:effectLst", successors=_tag_seq[8:])
     del _tag_seq
+
+    def _new_gradFill(self):
+        return CT_GradientFillProperties.new_gradFill()
