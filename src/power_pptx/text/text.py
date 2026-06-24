@@ -430,6 +430,109 @@ class Font(object):
         self._rPr.i = value
 
     @property
+    def caps(self) -> str | None:
+        """Capitalization effect: ``"none"``, ``"small"``, ``"all"``, or |None|.
+
+        |None| means the setting is inherited (no ``cap`` attribute is written).
+        Most callers want the :attr:`all_caps` / :attr:`small_caps` booleans;
+        this is the raw accessor.
+        """
+        return self._rPr.cap
+
+    @caps.setter
+    def caps(self, value: str | None):
+        self._rPr.cap = value
+
+    @property
+    def all_caps(self) -> bool | None:
+        """Whether the text renders in all capitals (``<a:rPr cap="all">``).
+
+        Returns |None| when no capitalization is set (inherited). Setting
+        ``False`` writes ``cap="none"`` (an explicit override); setting |None|
+        clears the attribute. ``all_caps`` and :attr:`small_caps` share the one
+        ``cap`` attribute, so they are mutually exclusive.
+        """
+        cap = self._rPr.cap
+        return None if cap is None else cap == "all"
+
+    @all_caps.setter
+    def all_caps(self, value: bool | None):
+        self._rPr.cap = None if value is None else ("all" if value else "none")
+
+    @property
+    def small_caps(self) -> bool | None:
+        """Whether the text renders in small capitals (``<a:rPr cap="small">``).
+
+        Same inheritance / mutual-exclusion semantics as :attr:`all_caps`.
+        """
+        cap = self._rPr.cap
+        return None if cap is None else cap == "small"
+
+    @small_caps.setter
+    def small_caps(self, value: bool | None):
+        self._rPr.cap = None if value is None else ("small" if value else "none")
+
+    @property
+    def letter_spacing(self) -> Length | None:
+        """Inter-character spacing (tracking) as a |Length|, e.g. ``Pt(1.5)``.
+
+        Positive values spread the text out, negative values tighten it.
+        Returns |None| when inherited. Assign a |Length| (``Pt(...)``,
+        ``Centipoints(...)``) or |None| to clear.
+        """
+        return self._rPr.spc
+
+    @letter_spacing.setter
+    def letter_spacing(self, value: Length | None):
+        self._rPr.spc = value
+
+    @property
+    def strikethrough(self) -> bool | None:
+        """Whether a strikethrough line is drawn through the text.
+
+        Returns |None| when inherited, |True| for either single or double
+        strike, |False| for an explicit no-strike. Setting |True| writes a
+        single strike (``strike="sngStrike"``); use :attr:`caps`-style raw
+        access via the XML for the double variant.
+        """
+        strike = self._rPr.strike
+        return None if strike is None else strike != "noStrike"
+
+    @strikethrough.setter
+    def strikethrough(self, value: bool | None):
+        self._rPr.strike = None if value is None else ("sngStrike" if value else "noStrike")
+
+    @property
+    def superscript(self) -> bool | None:
+        """Whether the text is raised as superscript (``<a:rPr baseline="...">`` > 0).
+
+        Returns |None| when no baseline shift is set. Setting |True| raises the
+        run by 30%; |False| / |None| clears the shift. :attr:`superscript` and
+        :attr:`subscript` share the one ``baseline`` attribute and so are
+        mutually exclusive.
+        """
+        baseline = self._rPr.baseline
+        return None if baseline is None else baseline > 0
+
+    @superscript.setter
+    def superscript(self, value: bool | None):
+        self._rPr.baseline = 0.30 if value else None
+
+    @property
+    def subscript(self) -> bool | None:
+        """Whether the text is lowered as subscript (``<a:rPr baseline="...">`` < 0).
+
+        Same semantics as :attr:`superscript`; setting |True| lowers the run by
+        25%.
+        """
+        baseline = self._rPr.baseline
+        return None if baseline is None else baseline < 0
+
+    @subscript.setter
+    def subscript(self, value: bool | None):
+        self._rPr.baseline = -0.25 if value else None
+
+    @property
     def language_id(self) -> MSO_LANGUAGE_ID | None:
         """Get or set the language id of this |Font| instance.
 

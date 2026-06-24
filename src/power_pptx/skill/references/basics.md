@@ -70,6 +70,23 @@ p2.text = "Subtitle goes here"
 p2.font.size = Pt(18)
 ```
 
+### Run-level type styling
+
+`font` exposes the run-property knobs that separate "looks branded" from
+"looks generated" — set them on a paragraph's `font` or a specific run's
+`font`:
+
+```python
+eyebrow.font.all_caps = True          # or .small_caps = True (mutually exclusive)
+eyebrow.font.letter_spacing = Pt(2)   # tracking; negative tightens
+old.font.strikethrough = True
+units.font.superscript = True         # or .subscript (share one baseline)
+```
+
+All are tri-state: `None` (the default) inherits from the theme/master,
+`True`/`False` write an explicit override. They round-trip and validate
+against the OOXML schema.
+
 ## Auto shapes
 
 ```python

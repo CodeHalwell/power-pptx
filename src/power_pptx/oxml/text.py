@@ -18,11 +18,15 @@ from power_pptx.oxml.dml.fill import CT_GradientFillProperties
 from power_pptx.oxml.ns import nsdecls
 from power_pptx.oxml.simpletypes import (
     ST_Coordinate32,
+    ST_Percentage,
+    ST_TextCapsType,
     ST_TextFontScalePercentOrPercentString,
     ST_TextFontSize,
     ST_TextIndentLevelType,
+    ST_TextPoint,
     ST_TextSpacingPercentOrPercentString,
     ST_TextSpacingPoint,
+    ST_TextStrikeType,
     ST_TextTypeface,
     ST_TextWrappingType,
     XsdBoolean,
@@ -330,6 +334,14 @@ class CT_TextCharacterProperties(BaseOxmlElement):
     i: bool | None = OptionalAttribute("i", XsdBoolean)  # pyright: ignore[reportAssignmentType]
     u: MSO_TEXT_UNDERLINE_TYPE | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "u", MSO_TEXT_UNDERLINE_TYPE
+    )
+    strike: str | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "strike", ST_TextStrikeType
+    )
+    cap: str | None = OptionalAttribute("cap", ST_TextCapsType)  # pyright: ignore[reportAssignmentType]
+    spc: Length | None = OptionalAttribute("spc", ST_TextPoint)  # pyright: ignore[reportAssignmentType]
+    baseline: float | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "baseline", ST_Percentage
     )
 
     def _new_gradFill(self):

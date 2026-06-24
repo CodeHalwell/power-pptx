@@ -718,6 +718,46 @@ class ST_TextSpacingPoint(BaseIntType):
         cls.validate_int_in_range(value, 0, 20116800)
 
 
+class ST_TextPoint(BaseIntType):
+    """Letter-spacing (tracking) value, `<a:rPr spc="">`.
+
+    Stored in the XML as signed integer centipoints (1/100 pt), in the range
+    -400000..400000 (i.e. -4000pt..4000pt). Exposed to Python as a |Length|.
+    """
+
+    @classmethod
+    def convert_from_xml(cls, str_value):
+        return Centipoints(int(str_value))
+
+    @classmethod
+    def convert_to_xml(cls, value):
+        return str(Emu(value).centipoints)
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_int_in_range(Emu(value).centipoints, -400000, 400000)
+
+
+class ST_TextCapsType(XsdTokenEnumeration):
+    """Valid values for `<a:rPr cap="">` (capitalization effect)."""
+
+    NONE = "none"
+    SMALL = "small"
+    ALL = "all"
+
+    _members = (NONE, SMALL, ALL)
+
+
+class ST_TextStrikeType(XsdTokenEnumeration):
+    """Valid values for `<a:rPr strike="">` (strikethrough effect)."""
+
+    NO_STRIKE = "noStrike"
+    SINGLE = "sngStrike"
+    DOUBLE = "dblStrike"
+
+    _members = (NO_STRIKE, SINGLE, DOUBLE)
+
+
 class ST_TextTypeface(XsdString):
     pass
 

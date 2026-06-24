@@ -276,9 +276,35 @@ def _deck_group_fill() -> bytes:
     return _saved(prs)
 
 
+def _deck_run_properties() -> bytes:
+    # Exercises the cap / spc / strike / baseline attributes on a:rPr.
+    prs = Presentation()
+    s = _blank_slide(prs)
+    tb = s.shapes.add_textbox(Inches(1), Inches(1), Inches(7), Inches(1))
+    p = tb.text_frame.paragraphs[0]
+    eyebrow = p.add_run()
+    eyebrow.text = "SECTION"
+    eyebrow.font.all_caps = True
+    eyebrow.font.letter_spacing = Pt(2)
+    struck = p.add_run()
+    struck.text = "was-99"
+    struck.font.strikethrough = True
+    sup = p.add_run()
+    sup.text = "2"
+    sup.font.superscript = True
+    sub = p.add_run()
+    sub.text = "x"
+    sub.font.subscript = True
+    small = p.add_run()
+    small.text = "Small Caps"
+    small.font.small_caps = True
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
+    "run_properties": _deck_run_properties,
     "effects_and_3d": _deck_effects_and_3d,
     "gradient": _deck_gradient,
     "table": _deck_table,
