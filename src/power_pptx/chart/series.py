@@ -162,7 +162,9 @@ class _AnalyticsMixin(object):
         plotArea = self._ser.xpath("ancestor::c:plotArea")[0]
         secondary = plotArea.secondary_value_axis
         if secondary is None:
-            plotArea.add_secondary_value_axis()
+            # Move THIS series' plot (not just the front-most one) onto the new
+            # secondary axis — critical for combo charts with multiple plots.
+            plotArea.add_secondary_value_axis(self._ser.getparent())
             return
         # -- a secondary axis already exists; re-point this series' plot onto
         # -- the secondary axis ids.

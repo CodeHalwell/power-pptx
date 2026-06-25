@@ -124,6 +124,24 @@ def _shape_type_name(shape: "BaseShape") -> str | None:
     return getattr(st, "name", None)
 
 
+def _iter_shapes_recursive(shapes: Any) -> "Any":
+    """Yield every shape, recursing into group members.
+
+    A meaningful image or text run inside a |GroupShape| still needs alt text
+    / adequate contrast, so the audit must look past the group container.
+    ``GroupShape.walk()`` already yields all descendants depth-first, so it is
+    only invoked on top-level groups (recursing on its output would
+    double-count nested groups).
+    """
+    for shape in shapes:
+        yield shape
+        if _shape_type_name(shape) == "GROUP":
+            try:
+                yield from shape.walk()
+            except Exception:
+                pass
+
+
 def _has_text(shape: "BaseShape") -> bool:
     try:
         if not getattr(shape, "has_text_frame", False):
@@ -332,7 +350,7 @@ def audit_accessibility(
                 )
             )
 
-        for shape in slide.shapes:
+        for shape in _iter_shapes_recursive(slide.shapes):
             report.issues.extend(_check_alt_text(idx, shape))
             if check_contrast:
                 report.issues.extend(_check_contrast(idx, shape, slide))

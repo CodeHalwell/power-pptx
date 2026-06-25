@@ -627,6 +627,17 @@ class DescribeFont(object):
         font.subscript = None
         assert font.superscript is None and font.subscript is None
 
+    def it_does_not_clear_the_sibling_when_disabling_super_or_subscript(self):
+        # super/subscript share the one `baseline` attribute; setting one False
+        # must not wipe the other (PR #39 review).
+        font = Font(element("a:rPr"))
+        font.subscript = True
+        font.superscript = False
+        assert font.subscript is True
+        font.superscript = True
+        font.subscript = False
+        assert font.superscript is True
+
     # -- text effects: outline / shadow / glow ------------------------
 
     def it_provides_access_to_its_outline(self, font):

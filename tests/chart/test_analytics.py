@@ -248,6 +248,31 @@ class DescribeSecondaryValueAxis(object):
         assert chart.series[0].axis_group == "secondary"
         assert len(chart._chartSpace.plotArea.xpath("c:valAx")) == 2
 
+    def it_repoints_the_targeted_plot_not_just_the_last(self):
+        # Combo chart: two plots sharing the primary axes. Moving the FIRST
+        # plot to secondary must repoint that plot, not the front-most one
+        # (PR #39 review).
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        xml = (
+            f"<c:plotArea {nsdecls('c')}>"
+            '<c:barChart><c:ser/><c:axId val="111"/><c:axId val="222"/></c:barChart>'
+            '<c:lineChart><c:ser/><c:axId val="111"/><c:axId val="222"/></c:lineChart>'
+            '<c:catAx><c:axId val="111"/></c:catAx>'
+            '<c:valAx><c:axId val="222"/></c:valAx>'
+            "</c:plotArea>"
+        )
+        plotArea = parse_xml(xml)
+        bar = plotArea.xpath("c:barChart")[0]
+
+        plotArea.add_secondary_value_axis(bar)
+
+        bar_ids = [a.get("val") for a in bar.xpath("c:axId")]
+        line_ids = [a.get("val") for a in plotArea.xpath("c:lineChart")[0].xpath("c:axId")]
+        assert bar_ids != ["111", "222"]  # the targeted plot was repointed
+        assert line_ids == ["111", "222"]  # the other plot was left alone
+
     def it_raises_for_a_chart_without_a_value_axis(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[5])

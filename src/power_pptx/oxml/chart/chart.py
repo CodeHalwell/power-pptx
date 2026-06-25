@@ -326,13 +326,14 @@ class CT_PlotArea(BaseOxmlElement):
         matches = self.xpath('c:valAx[c:axPos/@val="r"][c:delete/@val="0"]')
         return matches[0] if matches else None
 
-    def add_secondary_value_axis(self):
+    def add_secondary_value_axis(self, target_xChart=None):
         """Create a secondary value axis and return its ``c:valAx`` element.
 
         Allocates two fresh signed-int32 axId values, builds a secondary value
         axis (drawn on the right) plus a hidden secondary cross axis that it
-        crosses, and re-points the front-most plot's two ``c:axId`` children to
-        the new ids so that plot is rendered against the secondary axes.
+        crosses, and re-points *target_xChart*'s two ``c:axId`` children to the
+        new ids so that plot is rendered against the secondary axes. When
+        *target_xChart* is ``None`` the front-most plot is used (back-compat).
 
         Returns the existing secondary ``c:valAx`` if one is already present,
         making this method idempotent.
@@ -347,9 +348,17 @@ class CT_PlotArea(BaseOxmlElement):
         cross2_id = self._next_axId(used)
         used.add(cross2_id)
 
-        # -- determine whether the existing "category" axis is a real catAx
-        # -- (bar/line/area) or a valAx (scatter/bubble), and mirror it.
-        cross_is_val = not bool(self.xpath("c:catAx"))
+        # -- mirror the primary horizontal axis kind: a real catAx
+        # -- (bar/line/area), a dateAx (date-category charts), or a valAx
+        # -- (scatter/bubble).  Getting this wrong (e.g. emitting a valAx cross
+        # -- axis for a date-category chart) detaches the secondary plot from
+        # -- the deck's real category axis.
+        if self.xpath("c:catAx"):
+            cross_kind = "cat"
+        elif self.xpath("c:dateAx"):
+            cross_kind = "date"
+        else:
+            cross_kind = "val"
 
         c = nsdecls("c")
         valAx_xml = (
@@ -367,7 +376,7 @@ class CT_PlotArea(BaseOxmlElement):
             '  <c:crossBetween val="between"/>\n'
             "</c:valAx>\n"
         )
-        if cross_is_val:
+        if cross_kind == "val":
             cross_xml = (
                 f"<c:valAx {c}>\n"
                 f'  <c:axId val="{cross2_id}"/>\n'
@@ -380,8 +389,26 @@ class CT_PlotArea(BaseOxmlElement):
                 '  <c:tickLblPos val="nextTo"/>\n'
                 f'  <c:crossAx val="{val2_id}"/>\n'
                 '  <c:crosses val="autoZero"/>\n'
-                '  <c:crossBetween val="midCat"/>\n'
+                '  <c:crossBetween val="between"/>\n'
                 "</c:valAx>\n"
+            )
+        elif cross_kind == "date":
+            cross_xml = (
+                f"<c:dateAx {c}>\n"
+                f'  <c:axId val="{cross2_id}"/>\n'
+                '  <c:scaling><c:orientation val="minMax"/></c:scaling>\n'
+                '  <c:delete val="1"/>\n'
+                '  <c:axPos val="b"/>\n'
+                '  <c:numFmt formatCode="General" sourceLinked="1"/>\n'
+                '  <c:majorTickMark val="out"/>\n'
+                '  <c:minorTickMark val="none"/>\n'
+                '  <c:tickLblPos val="nextTo"/>\n'
+                f'  <c:crossAx val="{val2_id}"/>\n'
+                '  <c:crosses val="autoZero"/>\n'
+                '  <c:auto val="1"/>\n'
+                '  <c:lblOffset val="100"/>\n'
+                '  <c:baseTimeUnit val="days"/>\n'
+                "</c:dateAx>\n"
             )
         else:
             cross_xml = (
@@ -416,18 +443,20 @@ class CT_PlotArea(BaseOxmlElement):
         anchor.addnext(cross_ax)
         anchor.addnext(valAx)
 
-        # -- re-point the front-most plot onto the new axis ids.
-        self._repoint_front_plot_axes(val2_id, cross2_id)
+        # -- re-point the target plot (front-most by default) onto the new ids.
+        self._repoint_front_plot_axes(val2_id, cross2_id, target_xChart)
         return valAx
 
-    def _repoint_front_plot_axes(self, val2_id, cross2_id):
-        """Re-point the last xChart's two ``c:axId`` children to the new ids.
+    def _repoint_front_plot_axes(self, val2_id, cross2_id, xChart=None):
+        """Re-point a plot's two ``c:axId`` children to the new ids.
 
         The category-side id is set to *cross2_id* and the value-side id to
         *val2_id*, matching how the new secondary axes cross-reference each
-        other.
+        other.  *xChart* defaults to the front-most plot; pass a specific
+        ``c:*Chart`` element to move that plot (combo charts have several).
         """
-        xChart = self._last_xChart
+        if xChart is None:
+            xChart = self._last_xChart
         if xChart is None:
             return
         axIds = xChart.xpath("c:axId")

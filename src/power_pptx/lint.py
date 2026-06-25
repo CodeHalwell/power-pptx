@@ -69,11 +69,20 @@ class LintIssue:
         dashboard consuming ``report.to_json()``.
         """
         skip = {"severity", "code", "message", "shapes"}
+        # Reading a shape name dereferences its XML; guard so a single
+        # orphaned/malformed shape can't crash the whole serialization
+        # (this payload feeds automated agent / CI loops).
+        shape_names: list[str] = []
+        for s in self.shapes:
+            try:
+                shape_names.append(s.name or "")
+            except Exception:
+                shape_names.append("")
         payload: dict[str, object] = {
             "code": self.code,
             "severity": self.severity.value,
             "message": self.message,
-            "shapes": [s.name for s in self.shapes],
+            "shapes": shape_names,
         }
         for f in dataclass_fields(self):
             if f.name in skip:
