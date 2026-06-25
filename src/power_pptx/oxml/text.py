@@ -46,6 +46,8 @@ from power_pptx.util import Emu, Length
 
 if TYPE_CHECKING:
     from power_pptx.oxml.action import CT_Hyperlink
+    from power_pptx.oxml.dml.effect import CT_EffectList
+    from power_pptx.oxml.shapes.shared import CT_LineProperties
 
 
 class CT_RegularTextRun(BaseOxmlElement):
@@ -278,9 +280,44 @@ class CT_TextCharacterProperties(BaseOxmlElement):
 
     get_or_add_hlinkClick: Callable[[], CT_Hyperlink]
     get_or_add_latin: Callable[[], CT_TextFont]
+    get_or_add_ln: Callable[[], CT_LineProperties]
+    get_or_add_effectLst: Callable[[], CT_EffectList]
     _remove_latin: Callable[[], None]
     _remove_hlinkClick: Callable[[], None]
+    _remove_ln: Callable[[], None]
+    _remove_effectLst: Callable[[], None]
 
+    # -- Per ISO-IEC-29500-1 `CT_TextCharacterProperties`, the child element
+    # -- order is: ln, EG_FillProperties, EG_EffectProperties (effectLst /
+    # -- effectDag), highlight, EG_TextUnderlineLine (uLnTx / uLn),
+    # -- EG_TextUnderlineFill (uFillTx / uFill), latin, ea, cs, sym, hlinkClick,
+    # -- hlinkMouseOver, rtl, extLst.
+    ln: CT_LineProperties | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:ln",
+        successors=(
+            "a:noFill",
+            "a:solidFill",
+            "a:gradFill",
+            "a:blipFill",
+            "a:pattFill",
+            "a:grpFill",
+            "a:effectLst",
+            "a:effectDag",
+            "a:highlight",
+            "a:uLnTx",
+            "a:uLn",
+            "a:uFillTx",
+            "a:uFill",
+            "a:latin",
+            "a:ea",
+            "a:cs",
+            "a:sym",
+            "a:hlinkClick",
+            "a:hlinkMouseOver",
+            "a:rtl",
+            "a:extLst",
+        ),
+    )
     eg_fillProperties = ZeroOrOneChoice(
         (
             Choice("a:noFill"),
@@ -292,6 +329,25 @@ class CT_TextCharacterProperties(BaseOxmlElement):
         ),
         successors=(
             "a:effectLst",
+            "a:effectDag",
+            "a:highlight",
+            "a:uLnTx",
+            "a:uLn",
+            "a:uFillTx",
+            "a:uFill",
+            "a:latin",
+            "a:ea",
+            "a:cs",
+            "a:sym",
+            "a:hlinkClick",
+            "a:hlinkMouseOver",
+            "a:rtl",
+            "a:extLst",
+        ),
+    )
+    effectLst: CT_EffectList | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:effectLst",
+        successors=(
             "a:effectDag",
             "a:highlight",
             "a:uLnTx",

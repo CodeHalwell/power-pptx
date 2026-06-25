@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from power_pptx.enum.dml import MSO_PRESET_SHADOW
 from power_pptx.oxml.ns import qn
 from power_pptx.oxml.simpletypes import (
     ST_Angle,
@@ -16,6 +17,7 @@ from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
     Choice,
     OptionalAttribute,
+    RequiredAttribute,
     ZeroOrOne,
     ZeroOrOneChoice,
 )
@@ -39,6 +41,7 @@ class ST_RectAlignment(XsdStringEnumeration):
     BR = "br"
 
     _members = (TL, T, TR, L, CTR, R, BL, B, BR)
+
 
 _COLOR_TAGS = frozenset(
     qn(t)
@@ -86,6 +89,9 @@ class CT_EffectList(BaseOxmlElement):
     )
     outerShdw: CT_OuterShadowEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "a:outerShdw", successors=_tag_seq[5:]
+    )
+    prstShdw: CT_PresetShadowEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:prstShdw", successors=_tag_seq[6:]
     )
     reflection: CT_ReflectionEffect | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "a:reflection", successors=_tag_seq[7:]
@@ -155,6 +161,22 @@ class CT_InnerShadowEffect(BaseOxmlElement):
     dir = OptionalAttribute("dir", ST_PositiveFixedAngle)
 
 
+class CT_PresetShadowEffect(BaseOxmlElement):
+    """`<a:prstShdw>` custom element class.
+
+    Preset shadow effect.  The ``prst`` attribute (one of ``shdw1`` ..
+    ``shdw20``) is *required* by the OOXML schema, so it is declared as a
+    ``RequiredAttribute`` — omitting it (or writing the element without it)
+    makes PowerPoint flag the deck as broken.  ``dist`` / ``dir`` are optional
+    and a single ``EG_ColorChoice`` child is required.
+    """
+
+    eg_colorChoice = ZeroOrOneChoice(_COLOR_CHOICES, successors=())
+    prst = RequiredAttribute("prst", MSO_PRESET_SHADOW)
+    dist = OptionalAttribute("dist", ST_PositiveCoordinate)
+    dir = OptionalAttribute("dir", ST_PositiveFixedAngle)
+
+
 class CT_ReflectionEffect(BaseOxmlElement):
     """`<a:reflection>` custom element class.
 
@@ -178,3 +200,14 @@ class CT_ReflectionEffect(BaseOxmlElement):
     ky = OptionalAttribute("ky", ST_Angle)
     algn = OptionalAttribute("algn", ST_RectAlignment)
     rotWithShape = OptionalAttribute("rotWithShape", XsdBoolean)
+
+
+# `<a:prstShdw>` is a post-fork addition; register its custom element class here
+# (rather than in `power_pptx.oxml.__init__`) so the lxml parser maps the tag to
+# `CT_PresetShadowEffect` and the `CT_EffectList.prstShdw` accessor returns a
+# typed element with a working `prst` attribute.  `register_element_cls` is
+# defined before this module is imported by `power_pptx.oxml.__init__`, so this
+# is safe despite the partial-import ordering.
+from power_pptx.oxml import register_element_cls  # noqa: E402
+
+register_element_cls("a:prstShdw", CT_PresetShadowEffect)

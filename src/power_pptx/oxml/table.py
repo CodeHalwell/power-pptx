@@ -8,7 +8,13 @@ from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.dml.fill import CT_GradientFillProperties
 from power_pptx.oxml.ns import nsdecls
-from power_pptx.oxml.simpletypes import ST_Coordinate, ST_Coordinate32, XsdBoolean, XsdInt
+from power_pptx.oxml.simpletypes import (
+    ST_Coordinate,
+    ST_Coordinate32,
+    ST_TextVerticalType,
+    XsdBoolean,
+    XsdInt,
+)
 from power_pptx.oxml.text import CT_TextBody
 from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
@@ -400,6 +406,9 @@ class CT_TableCellProperties(BaseOxmlElement):
     del _tag_seq
     anchor: MSO_VERTICAL_ANCHOR | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "anchor", MSO_VERTICAL_ANCHOR
+    )
+    vert: str | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "vert", ST_TextVerticalType
     )
     marL: Length | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "marL", ST_Coordinate32

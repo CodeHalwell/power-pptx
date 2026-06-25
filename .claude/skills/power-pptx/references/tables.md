@@ -122,3 +122,17 @@ if not cell.borders.bottom.width:        # Emu(0) when unset
 ```
 
 `color.rgb` on an unset edge does read back as `None`.
+
+## Rotated / stacked cell text
+
+Use `cell.text_direction` for matrix-style or rotated column headers:
+
+```python
+cell.text_direction = "rotate90"    # "horizontal" (default), "rotate90",
+cell.text_direction = "stacked"     # "rotate270", "stacked"
+cell.vertical_anchor = MSO_ANCHOR.MIDDLE   # t / ctr / b within the cell
+```
+
+Reading returns the friendly string (`"horizontal"` when unset); assigning
+`"horizontal"` or `None` clears it. Maps to `<a:tcPr vert="…">` /
+`anchor="…"` — schema-valid and round-trip clean.

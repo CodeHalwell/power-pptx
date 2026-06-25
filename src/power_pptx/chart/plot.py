@@ -202,11 +202,53 @@ class DoughnutPlot(_BasePlot):
     An doughnut plot.
     """
 
+    @property
+    def hole_size(self):
+        """
+        Read/write int in range 10..90 specifying the size of the doughnut
+        hole as a percentage of the chart radius. The PowerPoint default for a
+        new doughnut chart is 50, which is what this property reports when no
+        explicit ``<c:holeSize>`` element is present.
+        """
+        holeSize = self._element.holeSize
+        if holeSize is None:
+            return 50
+        return holeSize.val
+
+    @hole_size.setter
+    def hole_size(self, value):
+        holeSize = self._element.get_or_add_holeSize()
+        holeSize.val = value
+
 
 class LinePlot(_BasePlot):
     """
     A line chart-style plot.
     """
+
+    @property
+    def smooth(self):
+        """
+        Read/write bool specifying whether the lines in this plot are smoothed
+        (curve-fitted) rather than drawn as straight segments between points.
+        Reading returns |True| only when *every* series in the plot is
+        smoothed. Assigning a value sets the ``<c:smooth>`` element on each
+        line series in the plot.
+        """
+        sers = self._element.sers
+        if not sers:
+            return False
+        for ser in sers:
+            smooth = ser.smooth
+            if smooth is None or not smooth.val:
+                return False
+        return True
+
+    @smooth.setter
+    def smooth(self, value):
+        value = bool(value)
+        for ser in self._element.sers:
+            ser.get_or_add_smooth().val = value
 
 
 class PiePlot(_BasePlot):

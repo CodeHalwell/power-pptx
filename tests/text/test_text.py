@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from power_pptx.dml.color import ColorFormat
+from power_pptx.dml.effect import GlowFormat, ShadowFormat
 from power_pptx.dml.fill import FillFormat
+from power_pptx.dml.line import LineFormat
 from power_pptx.enum.lang import MSO_LANGUAGE_ID
 from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, MSO_UNDERLINE, PP_ALIGN
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
+from power_pptx.oxml.ns import qn
 from power_pptx.shapes.autoshape import Shape
 from power_pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
 from power_pptx.util import Inches, Pt
@@ -575,6 +578,65 @@ class DescribeFont(object):
         assert font.superscript is False and font.subscript is True
         font.subscript = None
         assert font.superscript is None and font.subscript is None
+
+    # -- text effects: outline / shadow / glow ------------------------
+
+    def it_provides_access_to_its_outline(self, font):
+        assert isinstance(font.outline, LineFormat)
+
+    def it_provides_access_to_its_shadow(self, font):
+        assert isinstance(font.shadow, ShadowFormat)
+
+    def it_provides_access_to_its_glow(self, font):
+        assert isinstance(font.glow, GlowFormat)
+
+    def it_does_not_write_outline_xml_on_read(self, font):
+        # -- reading the outline must not inject an <a:ln> element --
+        _ = font.outline.width
+        assert font._element.xml == xml("a:rPr")
+
+    def it_can_set_and_read_its_outline_color_and_width(self):
+        font = Font(element("a:rPr"))
+        font.outline.color.rgb = "FF0000"
+        font.outline.width = Pt(1)
+        assert str(font.outline.color.rgb) == "FF0000"
+        assert font.outline.width == Pt(1)
+        # -- <a:ln> must precede the fill/latin children per the schema --
+        assert font._rPr.find(qn("a:ln")) is not None
+
+    def it_can_set_and_read_its_shadow(self):
+        font = Font(element("a:rPr"))
+        font.shadow.color.rgb = "808080"
+        font.shadow.blur_radius = Pt(3)
+        assert str(font.shadow.color.rgb) == "808080"
+        assert font.shadow.blur_radius == Pt(3)
+        assert font._rPr.effectLst is not None
+
+    def it_does_not_write_shadow_xml_on_read(self, font):
+        assert font.shadow.blur_radius is None
+        assert font._element.xml == xml("a:rPr")
+
+    def it_can_set_and_read_its_glow(self):
+        font = Font(element("a:rPr"))
+        font.glow.color.rgb = "00B0F0"
+        font.glow.radius = Pt(6)
+        assert str(font.glow.color.rgb) == "00B0F0"
+        assert font.glow.radius == Pt(6)
+        assert font._rPr.effectLst is not None
+
+    def it_does_not_write_glow_xml_on_read(self, font):
+        assert font.glow.radius is None
+        assert font._element.xml == xml("a:rPr")
+
+    def it_emits_outline_and_effects_in_schema_order(self):
+        # -- exercising all three together must keep <a:ln> before
+        # -- <a:effectLst>, which must precede any fill/latin children --
+        font = Font(element("a:rPr"))
+        font.outline.color.rgb = "FF0000"
+        font.glow.color.rgb = "00B0F0"
+        font.shadow.color.rgb = "000000"
+        children = [child.tag for child in font._rPr]
+        assert children.index(qn("a:ln")) < children.index(qn("a:effectLst"))
 
     # fixtures ---------------------------------------------
 
@@ -1371,3 +1433,47 @@ class Describe_Run(object):
     @pytest.fixture
     def hlink_(self, request):
         return instance_mock(request, _Hyperlink)
+
+
+def _build_font_effects_deck():
+    """Return a `Presentation` with a textbox run carrying outline/shadow/glow."""
+    from power_pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    run = textbox.text_frame.paragraphs[0].add_run()
+    run.text = "Styled"
+    run.font.size = Pt(40)
+    run.font.outline.color.rgb = "FF0000"
+    run.font.outline.width = Pt(1)
+    run.font.shadow.color.rgb = "808080"
+    run.font.shadow.blur_radius = Pt(3)
+    run.font.glow.color.rgb = "00B0F0"
+    run.font.glow.radius = Pt(6)
+    return prs
+
+
+class DescribeFontEffectsIntegration(object):
+    """Round-trip and schema-validity checks for run-level text effects."""
+
+    def it_round_trips_a_deck_with_text_effects(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_build_font_effects_deck())
+
+    def it_emits_schema_valid_text_effects(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        prs = _build_font_effects_deck()
+        buf = io.BytesIO()
+        prs.save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []

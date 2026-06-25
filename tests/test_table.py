@@ -433,6 +433,54 @@ class Describe_Cell(object):
         expected_xml = xml(expected_tc_cxml)
         return cell, new_value, expected_xml
 
+    def it_knows_its_text_direction(self, text_direction_get_fixture):
+        cell, expected_value = text_direction_get_fixture
+        assert cell.text_direction == expected_value
+
+    def it_can_change_its_text_direction(self, text_direction_set_fixture):
+        cell, new_value, expected_xml = text_direction_set_fixture
+        cell.text_direction = new_value
+        assert cell._tc.xml == expected_xml
+
+    def it_raises_on_unknown_text_direction(self):
+        cell = _Cell(element("a:tc"), None)
+        with pytest.raises(ValueError):
+            cell.text_direction = "sideways"
+
+    @pytest.fixture(
+        params=[
+            ("a:tc", "horizontal"),
+            ("a:tc/a:tcPr", "horizontal"),
+            ("a:tc/a:tcPr{vert=horz}", "horizontal"),
+            ("a:tc/a:tcPr{vert=vert}", "rotate90"),
+            ("a:tc/a:tcPr{vert=vert270}", "rotate270"),
+            ("a:tc/a:tcPr{vert=wordArtVert}", "stacked"),
+            ("a:tc/a:tcPr{vert=eaVert}", "eaVert"),
+        ]
+    )
+    def text_direction_get_fixture(self, request):
+        tc_cxml, expected_value = request.param
+        cell = _Cell(element(tc_cxml), None)
+        return cell, expected_value
+
+    @pytest.fixture(
+        params=[
+            ("a:tc", "horizontal", "a:tc"),
+            ("a:tc", "rotate90", "a:tc/a:tcPr{vert=vert}"),
+            ("a:tc", "rotate270", "a:tc/a:tcPr{vert=vert270}"),
+            ("a:tc", "stacked", "a:tc/a:tcPr{vert=wordArtVert}"),
+            ("a:tc/a:tcPr{vert=vert}", "rotate270", "a:tc/a:tcPr{vert=vert270}"),
+            ("a:tc/a:tcPr{vert=vert}", "horizontal", "a:tc/a:tcPr"),
+            ("a:tc/a:tcPr{vert=vert}", None, "a:tc/a:tcPr"),
+            ("a:tc", None, "a:tc"),
+        ]
+    )
+    def text_direction_set_fixture(self, request):
+        tc_cxml, new_value, expected_tc_cxml = request.param
+        cell = _Cell(element(tc_cxml), None)
+        expected_xml = xml(expected_tc_cxml)
+        return cell, new_value, expected_xml
+
     @pytest.fixture
     def fill_fixture(self, cell):
         return cell
@@ -1017,3 +1065,44 @@ class Describe_BorderEdge(object):
 
         assert first is second
         assert edge.ln is first
+
+
+class DescribeCellTextDirectionIntegration(object):
+    """Round-trip and schema-validity checks for the new cell properties."""
+
+    def _build_deck(self):
+        from power_pptx.api import Presentation
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        table = slide.shapes.add_table(
+            2, 2, Inches(1), Inches(1), Inches(6), Inches(3)
+        ).table
+        table.cell(0, 0).text = "Header A"
+        table.cell(0, 1).text = "Header B"
+        table.cell(0, 0).text_direction = "rotate90"
+        table.cell(0, 1).text_direction = "stacked"
+        table.cell(1, 0).vertical_anchor = MSO_ANCHOR.MIDDLE
+        table.cell(1, 1).text_direction = "rotate270"
+        return prs
+
+    def it_round_trips_cleanly(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(self._build_deck())
+
+    def it_emits_schema_valid_xml(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        prs = self._build_deck()
+        buf = io.BytesIO()
+        prs.save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []

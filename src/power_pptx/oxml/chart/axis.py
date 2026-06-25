@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from power_pptx.enum.chart import XL_AXIS_CROSSES, XL_TICK_LABEL_POSITION, XL_TICK_MARK
 from power_pptx.oxml.chart.shared import CT_Title
-from power_pptx.oxml.simpletypes import ST_AxisUnit, ST_LblOffset, ST_Orientation
+from power_pptx.oxml.simpletypes import ST_AxisUnit, ST_LblOffset, ST_LogBase, ST_Orientation
 from power_pptx.oxml.text import CT_TextBody
 from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
@@ -172,6 +172,15 @@ class CT_LblOffset(BaseOxmlElement):
     val = OptionalAttribute("val", ST_LblOffset, default=100)
 
 
+class CT_LogBase(BaseOxmlElement):
+    """`c:logBase` child of `c:scaling`, specifying a logarithmic axis scale.
+
+    The `val` attribute is the base of the logarithm, a float in range 2-1000.
+    """
+
+    val = RequiredAttribute("val", ST_LogBase)
+
+
 class CT_Orientation(BaseOxmlElement):
     """`c:xAx/c:scaling/c:orientation` element, defining category order.
 
@@ -190,10 +199,33 @@ class CT_Scaling(BaseOxmlElement):
     """
 
     _tag_seq = ("c:logBase", "c:orientation", "c:max", "c:min", "c:extLst")
+    logBase = ZeroOrOne("c:logBase", successors=_tag_seq[1:])
     orientation = ZeroOrOne("c:orientation", successors=_tag_seq[2:])
     max = ZeroOrOne("c:max", successors=_tag_seq[3:])
     min = ZeroOrOne("c:min", successors=_tag_seq[4:])
     del _tag_seq
+
+    @property
+    def log_base(self):
+        """
+        The float value of the ``<c:logBase>`` child element, or |None| if no
+        logBase element is present (i.e. the axis uses a linear scale).
+        """
+        logBase = self.logBase
+        if logBase is None:
+            return None
+        return logBase.val
+
+    @log_base.setter
+    def log_base(self, value):
+        """
+        Set the value of the ``<c:logBase>`` child element to the float
+        *value*, or remove the logBase element if *value* is |None|.
+        """
+        self._remove_logBase()
+        if value is None:
+            return
+        self._add_logBase(val=value)
 
     @property
     def maximum(self):
@@ -295,3 +327,11 @@ class CT_ValAx(BaseAxisElement):
     majorUnit = ZeroOrOne("c:majorUnit", successors=_tag_seq[18:])
     minorUnit = ZeroOrOne("c:minorUnit", successors=_tag_seq[19:])
     del _tag_seq
+
+
+# -- element-class registration for `c:logBase`, which is not registered from
+# -- `power_pptx.oxml.__init__`. The import is local to avoid a circular import
+# -- at package-initialization time.
+from power_pptx.oxml import register_element_cls  # noqa: E402
+
+register_element_cls("c:logBase", CT_LogBase)

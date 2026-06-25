@@ -16,8 +16,7 @@ from power_pptx.oxml.ns import qn
 # as an empty `<a:scene3d>`).  Geometry-only setters such as
 # ``shadow.blur_radius`` must therefore guarantee a colour child exists.
 _EFFECT_COLOR_TAGS = frozenset(
-    qn(t)
-    for t in ("a:scrgbClr", "a:srgbClr", "a:hslClr", "a:sysClr", "a:schemeClr", "a:prstClr")
+    qn(t) for t in ("a:scrgbClr", "a:srgbClr", "a:hslClr", "a:sysClr", "a:schemeClr", "a:prstClr")
 )
 
 
@@ -34,19 +33,28 @@ def _ensure_effect_color(el) -> None:
 
     ColorFormat.from_colorchoice_parent(el).rgb = RGBColor(0x00, 0x00, 0x00)
 
+
 if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
-    from power_pptx.enum.dml import MSO_COLOR_TYPE
+    from power_pptx.enum.dml import MSO_COLOR_TYPE, MSO_PRESET_SHADOW
     from power_pptx.oxml.dml.effect import (
         CT_BlurEffect,
         CT_EffectList,
         CT_GlowEffect,
+        CT_InnerShadowEffect,
         CT_OuterShadowEffect,
+        CT_PresetShadowEffect,
         CT_ReflectionEffect,
         CT_SoftEdgesEffect,
     )
     from power_pptx.oxml.shapes.shared import CT_ShapeProperties
     from power_pptx.util import Length
+
+    # Effect elements that carry exactly one EG_ColorChoice child and can back a
+    # `_LazyEffectColorFormat` (outer/inner/preset shadow, glow).
+    _EffectColorParent = (
+        CT_OuterShadowEffect | CT_InnerShadowEffect | CT_PresetShadowEffect | CT_GlowEffect
+    )
 
 
 class _LazyEffectColorFormat:
@@ -65,8 +73,8 @@ class _LazyEffectColorFormat:
 
     def __init__(
         self,
-        peek: Callable[[], CT_OuterShadowEffect | CT_GlowEffect | None],
-        ensure: Callable[[], CT_OuterShadowEffect | CT_GlowEffect],
+        peek: Callable[[], _EffectColorParent | None],
+        ensure: Callable[[], _EffectColorParent],
     ):
         self._peek = peek
         self._ensure = ensure
@@ -104,8 +112,7 @@ class _LazyEffectColorFormat:
         cf = self._existing_cf()
         if cf is None:
             raise ValueError(
-                "can't set brightness when color.type is None."
-                " Set color.rgb or .theme_color first."
+                "can't set brightness when color.type is None. Set color.rgb or .theme_color first."
             )
         cf.brightness = value
 
@@ -274,6 +281,219 @@ class ShadowFormat(object):
         # geometry-only shadow doesn't make PowerPoint flag the deck as broken.
         _ensure_effect_color(outerShdw)
         return outerShdw
+
+
+class InnerShadowFormat(object):
+    """Provides access to the inner-shadow effect on a shape.
+
+    Inner shadow (``<a:innerShdw>``) is the sibling of the outer shadow that
+    casts *into* the shape rather than behind it.  Its API mirrors
+    :class:`ShadowFormat` — ``blur_radius``, ``distance``, ``direction``, and
+    ``color`` — minus the outer-only ``rotWithShape``/alignment attributes the
+    inner element doesn't have.
+
+    All property reads are non-mutating: when no explicit inner shadow is set,
+    each property returns ``None`` (or a "no color" sentinel) rather than
+    writing a default into the XML.  Assigning to any property lazily creates
+    the ``<a:effectLst>``/``<a:innerShdw>`` hierarchy and guarantees the
+    schema-required colour child.
+    """
+
+    def __init__(self, spPr: CT_ShapeProperties):
+        self._element = spPr
+
+    @property
+    def blur_radius(self) -> Length | None:
+        """Blur radius of the inner shadow in EMU, or None if not set."""
+        innerShdw = self._innerShdw
+        return None if innerShdw is None else innerShdw.blurRad
+
+    @blur_radius.setter
+    def blur_radius(self, value: Length | None):
+        if value is None:
+            if self._innerShdw is not None:
+                self._innerShdw.blurRad = None  # type: ignore[assignment]
+        else:
+            self._get_or_add_innerShdw().blurRad = value  # type: ignore[assignment]
+
+    @property
+    def distance(self) -> Length | None:
+        """Inner-shadow offset distance in EMU, or None if not set."""
+        innerShdw = self._innerShdw
+        return None if innerShdw is None else innerShdw.dist
+
+    @distance.setter
+    def distance(self, value: Length | None):
+        if value is None:
+            if self._innerShdw is not None:
+                self._innerShdw.dist = None  # type: ignore[assignment]
+        else:
+            self._get_or_add_innerShdw().dist = value  # type: ignore[assignment]
+
+    @property
+    def direction(self) -> float | None:
+        """Inner-shadow direction in degrees (0–360), or None if not set."""
+        innerShdw = self._innerShdw
+        return None if innerShdw is None else innerShdw.dir
+
+    @direction.setter
+    def direction(self, value: float | None):
+        if value is None:
+            if self._innerShdw is not None:
+                self._innerShdw.dir = None  # type: ignore[assignment]
+        else:
+            self._get_or_add_innerShdw().dir = value  # type: ignore[assignment]
+
+    @property
+    def color(self) -> _LazyEffectColorFormat:
+        """Non-mutating color accessor for the inner-shadow color.
+
+        Reading any sub-property (``type``, ``rgb``, ``theme_color``) on a
+        shape with no explicit inner shadow returns the appropriate "no color"
+        sentinel without touching the XML.  Writing to ``color.rgb`` or
+        ``color.theme_color`` lazily creates the ``<a:innerShdw>`` hierarchy.
+        """
+        return _LazyEffectColorFormat(lambda: self._innerShdw, self._get_or_add_innerShdw)
+
+    @color.setter
+    def color(self, value: RGBColor) -> None:
+        # Convenience setter so ``shape.inner_shadow.color = RGBColor(...)``
+        # works in addition to ``shape.inner_shadow.color.rgb = RGBColor(...)``.
+        self.color.rgb = value
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    @property
+    def _innerShdw(self) -> CT_InnerShadowEffect | None:
+        effectLst: CT_EffectList | None = self._element.effectLst
+        if effectLst is None:
+            return None
+        return effectLst.innerShdw
+
+    def _get_or_add_innerShdw(self) -> CT_InnerShadowEffect:
+        effectLst: CT_EffectList = self._element.get_or_add_effectLst()
+        innerShdw = effectLst.innerShdw
+        if innerShdw is None:
+            innerShdw = effectLst.get_or_add_innerShdw()
+        # <a:innerShdw> requires exactly one EG_ColorChoice child; guarantee one
+        # so a geometry-only inner shadow stays schema-valid (PowerPoint flags a
+        # colour-less shadow as broken).
+        _ensure_effect_color(innerShdw)
+        return innerShdw
+
+
+class PresetShadowFormat(object):
+    """Provides access to the preset-shadow effect on a shape.
+
+    Preset shadow (``<a:prstShdw>``) selects one of twenty canned shadow looks
+    (``shdw1`` .. ``shdw20``) via the schema-*required* ``prst`` attribute,
+    with optional ``distance``/``direction`` overrides and a colour.
+
+    The ``prst`` attribute is mandatory, so this proxy never materialises a
+    ``<a:prstShdw>`` element without one: setting ``distance``/``direction``/
+    ``color`` before a preset defaults the preset to ``shdw1``.  All reads are
+    non-mutating and return ``None`` (or the "no color" sentinel) when no
+    explicit preset shadow is present.
+    """
+
+    def __init__(self, spPr: CT_ShapeProperties):
+        self._element = spPr
+
+    @property
+    def preset(self) -> MSO_PRESET_SHADOW | None:
+        """The preset-shadow style as an :class:`MSO_PRESET_SHADOW` member, or None."""
+        prstShdw = self._prstShdw
+        return None if prstShdw is None else prstShdw.prst
+
+    @preset.setter
+    def preset(self, value: MSO_PRESET_SHADOW | str | None):
+        if value is None:
+            # The whole element hinges on `prst`; clearing the preset removes
+            # the element so theme inheritance is restored.
+            effectLst: CT_EffectList | None = self._element.effectLst
+            if effectLst is not None and effectLst.prstShdw is not None:
+                effectLst._remove_prstShdw()  # pyright: ignore[reportPrivateUsage]
+            return
+        self._get_or_add_prstShdw().prst = self._coerce_preset(value)  # type: ignore[assignment]
+
+    @property
+    def distance(self) -> Length | None:
+        """Preset-shadow offset distance in EMU, or None if not set."""
+        prstShdw = self._prstShdw
+        return None if prstShdw is None else prstShdw.dist
+
+    @distance.setter
+    def distance(self, value: Length | None):
+        if value is None:
+            if self._prstShdw is not None:
+                self._prstShdw.dist = None  # type: ignore[assignment]
+        else:
+            self._get_or_add_prstShdw().dist = value  # type: ignore[assignment]
+
+    @property
+    def direction(self) -> float | None:
+        """Preset-shadow direction in degrees (0–360), or None if not set."""
+        prstShdw = self._prstShdw
+        return None if prstShdw is None else prstShdw.dir
+
+    @direction.setter
+    def direction(self, value: float | None):
+        if value is None:
+            if self._prstShdw is not None:
+                self._prstShdw.dir = None  # type: ignore[assignment]
+        else:
+            self._get_or_add_prstShdw().dir = value  # type: ignore[assignment]
+
+    @property
+    def color(self) -> _LazyEffectColorFormat:
+        """Non-mutating color accessor for the preset-shadow color.
+
+        Reading any sub-property on a shape with no explicit preset shadow
+        returns the appropriate "no color" sentinel without touching the XML.
+        Writing to ``color.rgb`` or ``color.theme_color`` lazily creates the
+        ``<a:prstShdw>`` hierarchy (defaulting the preset to ``shdw1``).
+        """
+        return _LazyEffectColorFormat(lambda: self._prstShdw, self._get_or_add_prstShdw)
+
+    @color.setter
+    def color(self, value: RGBColor) -> None:
+        self.color.rgb = value
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _coerce_preset(value: MSO_PRESET_SHADOW | str) -> MSO_PRESET_SHADOW:
+        """Accept an :class:`MSO_PRESET_SHADOW` member or a ``"shdw1".."shdw20"`` string."""
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        if isinstance(value, str):
+            return MSO_PRESET_SHADOW.from_xml(value)
+        return value
+
+    @property
+    def _prstShdw(self) -> CT_PresetShadowEffect | None:
+        effectLst: CT_EffectList | None = self._element.effectLst
+        if effectLst is None:
+            return None
+        return effectLst.prstShdw
+
+    def _get_or_add_prstShdw(self) -> CT_PresetShadowEffect:
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        effectLst: CT_EffectList = self._element.get_or_add_effectLst()
+        prstShdw = effectLst.prstShdw
+        if prstShdw is None:
+            prstShdw = effectLst.get_or_add_prstShdw()
+        # `prst` is schema-REQUIRED; never let the element exist without it.
+        if prstShdw.get("prst") is None:
+            prstShdw.prst = MSO_PRESET_SHADOW.SHADOW_1  # type: ignore[assignment]
+        # <a:prstShdw> also requires exactly one EG_ColorChoice child.
+        _ensure_effect_color(prstShdw)
+        return prstShdw
 
 
 class GlowFormat(object):
