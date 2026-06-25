@@ -273,6 +273,171 @@ class CT_PlotArea(BaseOxmlElement):
         """
         return tuple(self.iter_xCharts())
 
+    # -- secondary-axis support -----------------------------------------
+
+    def iter_axIds(self):
+        """Generate every ``c:axId`` value defined anywhere in the plot area.
+
+        Includes both the axId references inside each xChart and the axId of
+        each axis element, so a freshly-allocated id can be checked against
+        the complete set already in use.
+        """
+        for axId in self.xpath(".//c:axId"):
+            yield int(axId.get("val"))
+
+    def _next_axId(self, used):
+        """Return a fresh ``c:axId`` value not present in *used*.
+
+        Stays within the signed-int32 range ``1..2**31-1`` — ids at or above
+        ``2**31`` make PowerPoint flag the file for repair, a release-blocking
+        bug this allocator deliberately avoids.
+        """
+        # -- start just past the current max so the new ids read as "later"
+        # -- axes in document order, but cap into signed-int32 range and fall
+        # -- back to a linear scan if we'd overflow.
+        _INT32_MAX = 2**31 - 1
+        candidate = (max(used) + 1) if used else 1
+        if candidate > _INT32_MAX:
+            candidate = 1
+        while candidate in used or candidate < 1:
+            candidate += 1
+            if candidate > _INT32_MAX:
+                # -- wrap and scan from the bottom; the used-set is tiny so a
+                # -- free slot is guaranteed to exist far below the cap.
+                candidate = 1
+        return candidate
+
+    @property
+    def _last_xChart(self):
+        xCharts = self.xCharts
+        return xCharts[-1] if xCharts else None
+
+    @property
+    def secondary_value_axis(self):
+        """The secondary ``c:valAx`` element, or |None| if none has been added.
+
+        The secondary value axis is the (single) visible value axis drawn on
+        the right (``axPos="r"``) — the orientation :meth:`add_secondary_value_axis`
+        always gives it. Detecting by ``axPos`` is robust for scatter / bubble
+        charts, which natively carry two value axes on a single plot, so a mere
+        count of ``c:valAx`` elements is not a reliable signal there. (Primary
+        value axes are emitted with ``axPos="l"``.)
+        """
+        matches = self.xpath('c:valAx[c:axPos/@val="r"][c:delete/@val="0"]')
+        return matches[0] if matches else None
+
+    def add_secondary_value_axis(self):
+        """Create a secondary value axis and return its ``c:valAx`` element.
+
+        Allocates two fresh signed-int32 axId values, builds a secondary value
+        axis (drawn on the right) plus a hidden secondary cross axis that it
+        crosses, and re-points the front-most plot's two ``c:axId`` children to
+        the new ids so that plot is rendered against the secondary axes.
+
+        Returns the existing secondary ``c:valAx`` if one is already present,
+        making this method idempotent.
+        """
+        existing_secondary = self.secondary_value_axis
+        if existing_secondary is not None:
+            return existing_secondary
+
+        used = set(self.iter_axIds())
+        val2_id = self._next_axId(used)
+        used.add(val2_id)
+        cross2_id = self._next_axId(used)
+        used.add(cross2_id)
+
+        # -- determine whether the existing "category" axis is a real catAx
+        # -- (bar/line/area) or a valAx (scatter/bubble), and mirror it.
+        cross_is_val = not bool(self.xpath("c:catAx"))
+
+        c = nsdecls("c")
+        valAx_xml = (
+            f"<c:valAx {c}>\n"
+            f'  <c:axId val="{val2_id}"/>\n'
+            '  <c:scaling><c:orientation val="minMax"/></c:scaling>\n'
+            '  <c:delete val="0"/>\n'
+            '  <c:axPos val="r"/>\n'
+            '  <c:numFmt formatCode="General" sourceLinked="1"/>\n'
+            '  <c:majorTickMark val="out"/>\n'
+            '  <c:minorTickMark val="none"/>\n'
+            '  <c:tickLblPos val="nextTo"/>\n'
+            f'  <c:crossAx val="{cross2_id}"/>\n'
+            '  <c:crosses val="max"/>\n'
+            '  <c:crossBetween val="between"/>\n'
+            "</c:valAx>\n"
+        )
+        if cross_is_val:
+            cross_xml = (
+                f"<c:valAx {c}>\n"
+                f'  <c:axId val="{cross2_id}"/>\n'
+                '  <c:scaling><c:orientation val="minMax"/></c:scaling>\n'
+                '  <c:delete val="1"/>\n'
+                '  <c:axPos val="b"/>\n'
+                '  <c:numFmt formatCode="General" sourceLinked="1"/>\n'
+                '  <c:majorTickMark val="out"/>\n'
+                '  <c:minorTickMark val="none"/>\n'
+                '  <c:tickLblPos val="nextTo"/>\n'
+                f'  <c:crossAx val="{val2_id}"/>\n'
+                '  <c:crosses val="autoZero"/>\n'
+                '  <c:crossBetween val="midCat"/>\n'
+                "</c:valAx>\n"
+            )
+        else:
+            cross_xml = (
+                f"<c:catAx {c}>\n"
+                f'  <c:axId val="{cross2_id}"/>\n'
+                '  <c:scaling><c:orientation val="minMax"/></c:scaling>\n'
+                '  <c:delete val="1"/>\n'
+                '  <c:axPos val="b"/>\n'
+                '  <c:numFmt formatCode="General" sourceLinked="1"/>\n'
+                '  <c:majorTickMark val="out"/>\n'
+                '  <c:minorTickMark val="none"/>\n'
+                '  <c:tickLblPos val="nextTo"/>\n'
+                f'  <c:crossAx val="{val2_id}"/>\n'
+                '  <c:crosses val="autoZero"/>\n'
+                '  <c:auto val="1"/>\n'
+                '  <c:lblAlgn val="ctr"/>\n'
+                '  <c:lblOffset val="100"/>\n'
+                '  <c:noMultiLvlLbl val="0"/>\n'
+                "</c:catAx>\n"
+            )
+
+        valAx = parse_xml(valAx_xml)
+        cross_ax = parse_xml(cross_xml)
+
+        # -- insert the new axes after the last existing axis (or after the
+        # -- last xChart when no axes exist), preserving plotArea child order:
+        # -- ...xCharts, axes..., (dTable?, spPr?, extLst?).
+        axes = self.xpath("c:valAx | c:catAx | c:dateAx | c:serAx")
+        anchor = axes[-1] if axes else self._last_xChart
+        # -- valAx first then the (hidden) cross axis, matching PowerPoint's
+        # -- own ordering for a secondary axis.
+        anchor.addnext(cross_ax)
+        anchor.addnext(valAx)
+
+        # -- re-point the front-most plot onto the new axis ids.
+        self._repoint_front_plot_axes(val2_id, cross2_id)
+        return valAx
+
+    def _repoint_front_plot_axes(self, val2_id, cross2_id):
+        """Re-point the last xChart's two ``c:axId`` children to the new ids.
+
+        The category-side id is set to *cross2_id* and the value-side id to
+        *val2_id*, matching how the new secondary axes cross-reference each
+        other.
+        """
+        xChart = self._last_xChart
+        if xChart is None:
+            return
+        axIds = xChart.xpath("c:axId")
+        if len(axIds) < 2:
+            return
+        # -- by convention the first axId is the category axis, the second the
+        # -- value axis (the writers emit them in that order).
+        axIds[0].set("val", str(cross2_id))
+        axIds[1].set("val", str(val2_id))
+
 
 class CT_Style(BaseOxmlElement):
     """

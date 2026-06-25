@@ -249,9 +249,7 @@ class Chart(PartElementProxy):
         `palette` accepts the same forms as :meth:`apply_palette`.
         """
         if by not in ("auto", "series", "category"):
-            raise ValueError(
-                f"by must be 'auto', 'series', or 'category'; got {by!r}"
-            )
+            raise ValueError(f"by must be 'auto', 'series', or 'category'; got {by!r}")
         if by == "category" or (by == "auto" and self._is_single_series_chart()):
             self.color_by_category(palette)
         else:
@@ -555,6 +553,30 @@ class Chart(PartElementProxy):
 
         idx = 1 if len(valAx_lst) > 1 else 0
         return ValueAxis(valAx_lst[idx])
+
+    @property
+    def secondary_value_axis(self):
+        """A |ValueAxis| for the chart's secondary (right-hand) value axis.
+
+        Accessing this property is *destructive*: if the chart has only a
+        single value axis it adds a secondary value axis (plus a hidden
+        secondary category axis it crosses), then re-points the front-most
+        plot — ``chart.plots[1]`` in a two-plot combo chart — onto the new
+        axes so that plot is measured against the secondary scale. If a
+        secondary value axis already exists it is returned unchanged.
+
+        Newly-allocated axis ids stay within the signed-int32 range
+        (``1..2**31-1``); ids at or above ``2**31`` make PowerPoint flag the
+        file for repair.
+
+        Raises |ValueError| if the chart type has no value axis (e.g. a pie
+        chart).
+        """
+        plotArea = self._chartSpace.plotArea
+        if not plotArea.xpath("c:valAx"):
+            raise ValueError("chart has no value axis")
+        valAx = plotArea.add_secondary_value_axis()
+        return ValueAxis(valAx)
 
     @property
     def _workbook(self):

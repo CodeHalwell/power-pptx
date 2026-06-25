@@ -149,7 +149,7 @@ class XsdBoolean(BaseSimpleType):
     def validate(cls, value):
         if value not in (True, False):
             raise TypeError(
-                "only True or False (and possibly None) may be assigned, got" " '%s'" % value
+                "only True or False (and possibly None) may be assigned, got '%s'" % value
             )
 
 
@@ -480,7 +480,7 @@ class ST_LineWidth(XsdInt):
         super(ST_LineWidth, cls).validate(value)
         if value < 0 or value > 20116800:
             raise ValueError(
-                "value must be in range 0-20116800 inclusive (0-1584 points)" ", got %d" % value
+                "value must be in range 0-20116800 inclusive (0-1584 points), got %d" % value
             )
 
 
@@ -646,7 +646,7 @@ class ST_SlideSizeCoordinate(BaseIntType):
         cls.validate_int(value)
         if value < 914400 or value > 51206400:
             raise ValueError(
-                "value must be in range(914400, 51206400) (1-56 inches), got" " %d" % value
+                "value must be in range(914400, 51206400) (1-56 inches), got %d" % value
             )
 
 
@@ -702,6 +702,148 @@ class ST_TextIndentLevelType(BaseIntType):
     @classmethod
     def validate(cls, value):
         cls.validate_int_in_range(value, 0, 8)
+
+
+class ST_PositiveCoordinate32(BaseSimpleType):
+    """Non-negative ST_Coordinate32 (xsd:int EMU >= 0).
+
+    Used for the `spcCol` attribute on `<a:bodyPr>` (inter-column spacing).
+    """
+
+    @classmethod
+    def convert_from_xml(cls, str_value):
+        if "i" in str_value or "m" in str_value or "p" in str_value:
+            return ST_UniversalMeasure.convert_from_xml(str_value)
+        return Emu(int(str_value))
+
+    @classmethod
+    def convert_to_xml(cls, value):
+        return str(int(value))
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_int_in_range(value, 0, 2147483647)
+
+
+class ST_TextColumnCount(BaseIntType):
+    """Valid values for the `numCol` attribute on `<a:bodyPr>` (1..16)."""
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_int_in_range(value, 1, 16)
+
+
+class ST_TextBulletStartAtNum(BaseIntType):
+    """Valid values for `startAt` on `<a:buAutoNum>` (1..32767)."""
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_int_in_range(value, 1, 32767)
+
+
+class ST_TextTabAlignType(XsdTokenEnumeration):
+    """Valid values for the `algn` attribute on an `<a:tab>` tab stop."""
+
+    L = "l"
+    CTR = "ctr"
+    R = "r"
+    DEC = "dec"
+
+    _members = (L, CTR, R, DEC)
+
+
+class ST_TextAutonumberScheme(XsdTokenEnumeration):
+    """Valid values for the `type` attribute on `<a:buAutoNum>`.
+
+    The ISO/IEC 29500 ``ST_TextAutonumberScheme`` enumeration of numbered-list
+    numbering schemes (arabic, roman, alphabetic, etc.).
+    """
+
+    ALPHA_LC_PAREN_BOTH = "alphaLcParenBoth"
+    ALPHA_UC_PAREN_BOTH = "alphaUcParenBoth"
+    ALPHA_LC_PAREN_R = "alphaLcParenR"
+    ALPHA_UC_PAREN_R = "alphaUcParenR"
+    ALPHA_LC_PERIOD = "alphaLcPeriod"
+    ALPHA_UC_PERIOD = "alphaUcPeriod"
+    ARABIC_PAREN_BOTH = "arabicParenBoth"
+    ARABIC_PAREN_R = "arabicParenR"
+    ARABIC_PERIOD = "arabicPeriod"
+    ARABIC_PLAIN = "arabicPlain"
+    ROMAN_LC_PAREN_BOTH = "romanLcParenBoth"
+    ROMAN_UC_PAREN_BOTH = "romanUcParenBoth"
+    ROMAN_LC_PAREN_R = "romanLcParenR"
+    ROMAN_UC_PAREN_R = "romanUcParenR"
+    ROMAN_LC_PERIOD = "romanLcPeriod"
+    ROMAN_UC_PERIOD = "romanUcPeriod"
+    CIRCLE_NUM_DB_PLAIN = "circleNumDbPlain"
+    CIRCLE_NUM_WD_BLACK_PLAIN = "circleNumWdBlackPlain"
+    CIRCLE_NUM_WD_WHITE_PLAIN = "circleNumWdWhitePlain"
+    ARABIC_DB_PERIOD = "arabicDbPeriod"
+    ARABIC_DB_PLAIN = "arabicDbPlain"
+    EA_1_CHS_PERIOD = "ea1ChsPeriod"
+    EA_1_CHS_PLAIN = "ea1ChsPlain"
+    EA_1_CHT_PERIOD = "ea1ChtPeriod"
+    EA_1_CHT_PLAIN = "ea1ChtPlain"
+    EA_1_JPN_CHS_DB_PERIOD = "ea1JpnChsDbPeriod"
+    EA_1_JPN_KOR_PLAIN = "ea1JpnKorPlain"
+    EA_1_JPN_KOR_PERIOD = "ea1JpnKorPeriod"
+    ARABIC_1_MINUS = "arabic1Minus"
+    ARABIC_2_MINUS = "arabic2Minus"
+    HEBREW_2_MINUS = "hebrew2Minus"
+    THAI_ALPHA_PERIOD = "thaiAlphaPeriod"
+    THAI_ALPHA_PAREN_R = "thaiAlphaParenR"
+    THAI_ALPHA_PAREN_BOTH = "thaiAlphaParenBoth"
+    THAI_NUM_PERIOD = "thaiNumPeriod"
+    THAI_NUM_PAREN_R = "thaiNumParenR"
+    THAI_NUM_PAREN_BOTH = "thaiNumParenBoth"
+    HINDI_ALPHA_PERIOD = "hindiAlphaPeriod"
+    HINDI_NUM_PERIOD = "hindiNumPeriod"
+    HINDI_NUM_PAREN_R = "hindiNumParenR"
+    HINDI_ALPHA_1_PERIOD = "hindiAlpha1Period"
+
+    _members = (
+        ALPHA_LC_PAREN_BOTH,
+        ALPHA_UC_PAREN_BOTH,
+        ALPHA_LC_PAREN_R,
+        ALPHA_UC_PAREN_R,
+        ALPHA_LC_PERIOD,
+        ALPHA_UC_PERIOD,
+        ARABIC_PAREN_BOTH,
+        ARABIC_PAREN_R,
+        ARABIC_PERIOD,
+        ARABIC_PLAIN,
+        ROMAN_LC_PAREN_BOTH,
+        ROMAN_UC_PAREN_BOTH,
+        ROMAN_LC_PAREN_R,
+        ROMAN_UC_PAREN_R,
+        ROMAN_LC_PERIOD,
+        ROMAN_UC_PERIOD,
+        CIRCLE_NUM_DB_PLAIN,
+        CIRCLE_NUM_WD_BLACK_PLAIN,
+        CIRCLE_NUM_WD_WHITE_PLAIN,
+        ARABIC_DB_PERIOD,
+        ARABIC_DB_PLAIN,
+        EA_1_CHS_PERIOD,
+        EA_1_CHS_PLAIN,
+        EA_1_CHT_PERIOD,
+        EA_1_CHT_PLAIN,
+        EA_1_JPN_CHS_DB_PERIOD,
+        EA_1_JPN_KOR_PLAIN,
+        EA_1_JPN_KOR_PERIOD,
+        ARABIC_1_MINUS,
+        ARABIC_2_MINUS,
+        HEBREW_2_MINUS,
+        THAI_ALPHA_PERIOD,
+        THAI_ALPHA_PAREN_R,
+        THAI_ALPHA_PAREN_BOTH,
+        THAI_NUM_PERIOD,
+        THAI_NUM_PAREN_R,
+        THAI_NUM_PAREN_BOTH,
+        HINDI_ALPHA_PERIOD,
+        HINDI_NUM_PERIOD,
+        HINDI_NUM_PAREN_R,
+        HINDI_ALPHA_1_PERIOD,
+    )
 
 
 class ST_TextSpacingPercentOrPercentString(BaseFloatType):

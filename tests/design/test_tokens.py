@@ -217,3 +217,80 @@ class DescribeNestedDictOverrides:
         })
         assert str(result.palette["primary"]) == "AA00BB"
         assert result.typography["heading"].size == Pt(28)
+
+
+# ---------------------------------------------------------------------------
+# DesignTokens.from_seed
+# ---------------------------------------------------------------------------
+
+_FROM_SEED_KEYS = {
+    "primary", "secondary", "accent", "neutral", "muted", "surface",
+    "background", "text", "on_primary", "lt1", "lt2",
+    "positive", "negative", "success", "danger",
+}
+
+
+class DescribeDesignTokensFromSeed:
+    @pytest.mark.parametrize(
+        "harmony",
+        ["complementary", "analogous", "triadic", "monochromatic"],
+    )
+    def it_returns_all_expected_palette_keys(self, harmony):
+        tokens = DesignTokens.from_seed("#3B5BDB", harmony=harmony)
+        assert set(tokens.palette) == _FROM_SEED_KEYS
+        for value in tokens.palette.values():
+            assert isinstance(value, RGBColor)
+
+    @pytest.mark.parametrize(
+        "harmony",
+        ["complementary", "analogous", "triadic", "monochromatic"],
+    )
+    def it_is_deterministic(self, harmony):
+        a = DesignTokens.from_seed("#3B5BDB", harmony=harmony)
+        b = DesignTokens.from_seed("#3B5BDB", harmony=harmony)
+        assert a.palette == b.palette
+
+    def it_accepts_rgbcolor_and_tuple_and_hex_alike(self):
+        ref = DesignTokens.from_seed("#3B5BDB").palette
+        assert DesignTokens.from_seed(RGBColor(0x3B, 0x5B, 0xDB)).palette == ref
+        assert DesignTokens.from_seed((0x3B, 0x5B, 0xDB)).palette == ref
+
+    def it_keeps_primary_equal_to_the_seed(self):
+        tokens = DesignTokens.from_seed("#3B5BDB")
+        assert tokens.palette["primary"] == RGBColor(0x3B, 0x5B, 0xDB)
+
+    def it_rejects_an_unknown_harmony(self):
+        with pytest.raises(ValueError):
+            DesignTokens.from_seed("#3B5BDB", harmony="bogus")
+
+    def it_differs_between_harmonies(self):
+        comp = DesignTokens.from_seed("#3B5BDB", harmony="complementary")
+        tri = DesignTokens.from_seed("#3B5BDB", harmony="triadic")
+        assert comp.palette["secondary"] != tri.palette["secondary"]
+
+
+class DescribeValidateColorBlindness:
+    @pytest.mark.parametrize(
+        "kind", ["deuteranopia", "protanopia", "tritanopia"]
+    )
+    def it_returns_a_list_of_pairs(self, kind):
+        tokens = DesignTokens.from_seed("#3B5BDB")
+        result = tokens.validate_color_blindness(kind)
+        assert isinstance(result, list)
+        for pair in result:
+            assert isinstance(pair, tuple)
+            assert len(pair) == 2
+            assert pair[0] < pair[1]  # alphabetically ordered, distinct
+
+    def it_flags_a_known_red_green_confusion(self):
+        # A saturated red and a saturated green — distinct to typical
+        # vision, classically confusable under deuteranopia.
+        tokens = DesignTokens.from_dict(
+            {"palette": {"go": "#22AA22", "stop": "#CC2222"}}
+        )
+        pairs = tokens.validate_color_blindness("deuteranopia")
+        assert ("go", "stop") in pairs
+
+    def it_rejects_an_unknown_kind(self):
+        with pytest.raises(ValueError):
+            DesignTokens.from_seed("#3B5BDB").validate_color_blindness("x")

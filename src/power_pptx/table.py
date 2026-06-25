@@ -274,6 +274,54 @@ class Table(object):
     def vert_banding(self, value: bool):
         self._tbl.bandCol = value
 
+    @property
+    def style(self) -> str | None:
+        """Built-in table style applied to this table, or |None|.
+
+        Read/write.  PowerPoint ships a fixed gallery of named built-in
+        table styles ("Table Grid", "Medium Style 2 - Accent 1", "No Style,
+        No Grid", …); each is identified by a GUID stored in
+        ``<a:tblPr><a:tableStyleId>``.
+
+        Reading returns the friendly name when the GUID is a recognized
+        built-in (see :data:`power_pptx.table_styles.TABLE_STYLES`), the raw
+        ``{GUID}`` string when it isn't, or |None| when no style id is
+        present.
+
+        Assigning accepts either a friendly name *or* a raw ``{GUID}``
+        string.  An unknown friendly name raises :class:`ValueError` with a
+        "did you mean" hint.  Assigning |None| detaches the table from any
+        built-in style (equivalent to :meth:`clear_style`)::
+
+            table.style = "Medium Style 2 - Accent 1"
+            table.style = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
+            table.style = None
+        """
+        tblPr = self._tbl.tblPr
+        if tblPr is None:
+            return None
+        guid = tblPr.tableStyleId_val
+        if guid is None:
+            return None
+        from power_pptx.table_styles import name_for_guid
+
+        return name_for_guid(guid) or guid
+
+    @style.setter
+    def style(self, value: str | None) -> None:
+        if value is None:
+            self.clear_style()
+            return
+
+        from power_pptx.table_styles import guid_for_name
+
+        text = value.strip()
+        is_raw_guid = text.startswith("{") and text.endswith("}")
+        guid = text if is_raw_guid else guid_for_name(text)
+
+        tblPr = self._tbl.get_or_add_tblPr()
+        tblPr.tableStyleId_val = guid
+
     def clear_style(self) -> None:
         """Detach this table from any built-in table style.
 

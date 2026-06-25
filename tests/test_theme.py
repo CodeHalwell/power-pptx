@@ -139,3 +139,81 @@ class DescribeThemeAccessor:
     def it_exposes_colors_and_fonts(self, theme):
         assert isinstance(theme.colors, ThemeColors)
         assert isinstance(theme.fonts, ThemeFonts)
+
+
+# ---------------------------------------------------------------------------
+# to_dark_mode
+# ---------------------------------------------------------------------------
+
+
+def _relative_luminance(rgb) -> float:
+    r, g, b = (int(rgb[0]) / 255.0, int(rgb[1]) / 255.0, int(rgb[2]) / 255.0)
+
+    def _ch(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+
+def _contrast(a, b) -> float:
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    light, dark = (la, lb) if la >= lb else (lb, la)
+    return (light + 0.05) / (dark + 0.05)
+
+
+class DescribeThemeToDarkMode:
+    def it_swaps_the_dark_light_background_text_pairs(self, theme):
+        before_dk1 = theme.colors[MSO_THEME_COLOR.DARK_1]
+        before_lt1 = theme.colors[MSO_THEME_COLOR.LIGHT_1]
+        before_dk2 = theme.colors[MSO_THEME_COLOR.DARK_2]
+        before_lt2 = theme.colors[MSO_THEME_COLOR.LIGHT_2]
+
+        theme.to_dark_mode()
+
+        assert theme.colors[MSO_THEME_COLOR.LIGHT_1] == before_dk1
+        assert theme.colors[MSO_THEME_COLOR.DARK_1] == before_lt1
+        assert theme.colors[MSO_THEME_COLOR.LIGHT_2] == before_dk2
+        assert theme.colors[MSO_THEME_COLOR.DARK_2] == before_lt2
+
+    def it_returns_self_for_chaining(self, theme):
+        assert theme.to_dark_mode() is theme
+
+    def it_keeps_accents_above_aa_contrast_on_the_new_background(self, theme):
+        # A deliberately low-contrast (near-black) accent must be lifted.
+        theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x0A, 0x0A, 0x0A)
+        theme.to_dark_mode()
+        bg = theme.colors[MSO_THEME_COLOR.LIGHT_1]
+        for slot in (
+            MSO_THEME_COLOR.ACCENT_1,
+            MSO_THEME_COLOR.ACCENT_2,
+            MSO_THEME_COLOR.ACCENT_3,
+        ):
+            accent = theme.colors[slot]
+            assert _contrast(accent, bg) >= 4.5 - 1e-6
+
+    def it_round_trips_after_dark_mode(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        prs = Presentation()
+        prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x12, 0x80, 0xC0)
+        prs.theme.to_dark_mode()
+        assert_round_trip(prs)
+
+    def it_stays_schema_valid_after_dark_mode(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable (no lxml/XSDs)")
+
+        prs = Presentation()
+        prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x0A, 0x0A, 0x0A)
+        prs.theme.to_dark_mode()
+        buf = io.BytesIO()
+        prs.save(buf)
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert not violations, violations

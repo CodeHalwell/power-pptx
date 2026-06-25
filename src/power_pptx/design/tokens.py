@@ -247,6 +247,162 @@ class DesignTokens:
         return cls.from_dict(spec)
 
     @classmethod
+    def from_seed(
+        cls, seed: ColorSpec, harmony: str = "complementary"
+    ) -> "DesignTokens":
+        """Generate a full palette from a single *seed* color.
+
+        Uses HSL color-wheel harmony math to derive a coherent set of
+        brand colors from one seed, so brand onboarding needs only a
+        single hex value.  The output is **deterministic** — the same
+        seed and harmony always yield the same palette.
+
+        *seed* accepts the same forms as every color input in this
+        module (``RGBColor`` / ``"#RRGGBB"`` / ``(r, g, b)``).
+
+        *harmony* selects how the secondary/accent hues relate to the
+        seed on the color wheel:
+
+        * ``"complementary"`` — secondary at +180°, accent at +150°.
+        * ``"analogous"``     — secondary at +30°, accent at -30°.
+        * ``"triadic"``       — secondary at +120°, accent at +240°.
+        * ``"monochromatic"`` — same hue throughout; secondary/accent
+          differ only in lightness.
+
+        The returned :class:`DesignTokens` populates the same ``palette``
+        keys the built-in presets use (``primary``, ``secondary``,
+        ``accent``, ``neutral``, ``muted``, ``surface``, ``background``,
+        ``text``, ``on_primary``, ``lt1``, ``lt2``, ``positive``,
+        ``negative``, ``success``, ``danger``), so it drops into recipes
+        that expect a preset.  Typography, radii, spacings, and shadows
+        are left empty for the caller to layer in.
+        """
+        import colorsys
+
+        valid = ("complementary", "analogous", "triadic", "monochromatic")
+        if harmony not in valid:
+            raise ValueError(
+                f"unknown harmony {harmony!r}; choose from {list(valid)}"
+            )
+
+        seed_rgb = _coerce_color(seed)
+        h, light, s = colorsys.rgb_to_hls(
+            seed_rgb[0] / 255.0, seed_rgb[1] / 255.0, seed_rgb[2] / 255.0
+        )
+
+        def from_hsl(hue: float, lightness: float, sat: float) -> RGBColor:
+            r, g, b = colorsys.hls_to_rgb(
+                hue % 1.0, _clamp01(lightness), _clamp01(sat)
+            )
+            return RGBColor(round(r * 255), round(g * 255), round(b * 255))
+
+        def shift(deg: float, lightness: float, sat: float) -> RGBColor:
+            return from_hsl(h + deg / 360.0, lightness, sat)
+
+        if harmony == "complementary":
+            sec_off, acc_off = 180.0, 150.0
+        elif harmony == "analogous":
+            sec_off, acc_off = 30.0, -30.0
+        elif harmony == "triadic":
+            sec_off, acc_off = 120.0, 240.0
+        else:  # monochromatic
+            sec_off, acc_off = 0.0, 0.0
+
+        primary = seed_rgb
+        if harmony == "monochromatic":
+            secondary = from_hsl(h, light + 0.18, s)
+            accent = from_hsl(h, light - 0.18, s)
+        else:
+            secondary = shift(sec_off, light, s)
+            accent = shift(acc_off, light, s)
+
+        # Neutral / muted: desaturate the seed hue toward grey.
+        neutral = from_hsl(h, 0.16, s * 0.18)
+        muted = from_hsl(h, 0.55, s * 0.25)
+        # Surfaces: a near-white tint and a slightly darker band.
+        surface = from_hsl(h, 0.97, s * 0.10)
+        lt1 = RGBColor(0xFF, 0xFF, 0xFF)
+        lt2 = from_hsl(h, 0.92, s * 0.15)
+        background = lt1
+        text = neutral
+
+        # Foreground over the primary: white over a dark seed, near-black
+        # over a light one.
+        on_primary = (
+            RGBColor(0xFF, 0xFF, 0xFF)
+            if _luminance(primary) < 0.5
+            else RGBColor(0x10, 0x10, 0x10)
+        )
+
+        # Semantic colors are hue-anchored (green / red) so meaning stays
+        # legible regardless of brand hue.
+        positive = from_hsl(120.0 / 360.0, 0.40, 0.55)
+        negative = from_hsl(0.0, 0.48, 0.65)
+
+        palette: dict[str, RGBColor] = {
+            "primary": primary,
+            "secondary": secondary,
+            "accent": accent,
+            "neutral": neutral,
+            "muted": muted,
+            "surface": surface,
+            "background": background,
+            "text": text,
+            "on_primary": on_primary,
+            "lt1": lt1,
+            "lt2": lt2,
+            "positive": positive,
+            "negative": negative,
+            "success": positive,
+            "danger": negative,
+        }
+        return cls(palette=palette)
+
+    def validate_color_blindness(self, kind: str) -> list[tuple[str, str]]:
+        """Return palette color pairs likely confusable under *kind*.
+
+        Simulates one of the common color-vision deficiencies and reports
+        every pair of *named* palette colors that the deficiency
+        *collapses together* — distinguishable to typical vision, but
+        whose sRGB separation drops to under half (and small in absolute
+        terms) once the simulation is applied.
+
+        *kind* is one of ``"deuteranopia"``, ``"protanopia"``, or
+        ``"tritanopia"``.  The returned list contains ``(name_a, name_b)``
+        tuples (each pair once, alphabetically ordered) — an empty list
+        means no confusable pairs were found.  A heuristic aid, not a
+        clinical tool.
+        """
+        valid = ("deuteranopia", "protanopia", "tritanopia")
+        if kind not in valid:
+            raise ValueError(
+                f"unknown kind {kind!r}; choose from {list(valid)}"
+            )
+
+        names = sorted(self.palette)
+        confusable: list[tuple[str, str]] = []
+        for i, a in enumerate(names):
+            for b in names[i + 1 :]:
+                ra, rb = self.palette[a], self.palette[b]
+                normal = _rgb_distance(ra, rb)
+                # Skip pairs already near-identical to normal vision —
+                # they're "confusable" by being the same color, not the CVD.
+                if normal < 24.0:
+                    continue
+                sim = _rgb_distance(
+                    _simulate_cvd(ra, kind), _simulate_cvd(rb, kind)
+                )
+                # Flag the pair when the deficiency *collapses* their
+                # separation: the simulated distance drops to under half
+                # the normal-vision distance and is itself small in
+                # absolute terms.  Both conditions matter — a large
+                # well-separated pair that merely shrinks proportionally
+                # is still distinguishable.
+                if sim <= 0.5 * normal and sim < 120.0:
+                    confusable.append((a, b))
+        return confusable
+
+    @classmethod
     def from_yaml(cls, path: str) -> "DesignTokens":
         """Load a token set from a YAML brand file.
 
@@ -493,6 +649,59 @@ def _flatten_overrides(
 def _is_token_value(value: Any) -> bool:
     """True if *value* is a typography/shadow/length token shouldn't be flattened."""
     return isinstance(value, (TypographyToken, ShadowToken, Length, RGBColor))
+
+
+def _clamp01(x: float) -> float:
+    """Clamp *x* into the inclusive [0.0, 1.0] range."""
+    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+
+def _luminance(rgb: RGBColor) -> float:
+    """Perceived relative luminance (0..1) of *rgb* — quick Rec.709 weighting."""
+    return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255.0
+
+
+def _rgb_distance(a: RGBColor, b: RGBColor) -> float:
+    """Euclidean distance between two colors in sRGB space (0..~441)."""
+    return (
+        (int(a[0]) - int(b[0])) ** 2
+        + (int(a[1]) - int(b[1])) ** 2
+        + (int(a[2]) - int(b[2])) ** 2
+    ) ** 0.5
+
+
+# Linearized-RGB confusion-line matrices (Brettel/Viénot-style approximations,
+# applied in plain sRGB for a fast heuristic).  Each maps an RGB triple to the
+# color a person with that deficiency is estimated to perceive.
+_CVD_MATRICES: dict[str, tuple[tuple[float, float, float], ...]] = {
+    "protanopia": (
+        (0.567, 0.433, 0.000),
+        (0.558, 0.442, 0.000),
+        (0.000, 0.242, 0.758),
+    ),
+    "deuteranopia": (
+        (0.625, 0.375, 0.000),
+        (0.700, 0.300, 0.000),
+        (0.000, 0.300, 0.700),
+    ),
+    "tritanopia": (
+        (0.950, 0.050, 0.000),
+        (0.000, 0.433, 0.567),
+        (0.000, 0.475, 0.525),
+    ),
+}
+
+
+def _simulate_cvd(rgb: RGBColor, kind: str) -> RGBColor:
+    """Return *rgb* as estimated to be perceived under deficiency *kind*."""
+    m = _CVD_MATRICES[kind]
+    r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+
+    def chan(row: tuple[float, float, float]) -> int:
+        v = row[0] * r + row[1] * g + row[2] * b
+        return int(max(0, min(255, round(v))))
+
+    return RGBColor(chan(m[0]), chan(m[1]), chan(m[2]))
 
 
 def _coerce_color(value: Any) -> RGBColor:

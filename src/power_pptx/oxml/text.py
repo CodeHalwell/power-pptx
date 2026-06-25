@@ -13,13 +13,17 @@ from power_pptx.enum.text import (
     PP_PARAGRAPH_ALIGNMENT,
 )
 from power_pptx.exc import InvalidXmlError
-from power_pptx.oxml import parse_xml
+from power_pptx.oxml import parse_xml, register_element_cls
 from power_pptx.oxml.dml.fill import CT_GradientFillProperties
-from power_pptx.oxml.ns import nsdecls
+from power_pptx.oxml.ns import nsdecls, qn
 from power_pptx.oxml.simpletypes import (
     ST_Coordinate32,
     ST_Percentage,
+    ST_PositiveCoordinate32,
+    ST_TextAutonumberScheme,
+    ST_TextBulletStartAtNum,
     ST_TextCapsType,
+    ST_TextColumnCount,
     ST_TextFontScalePercentOrPercentString,
     ST_TextFontSize,
     ST_TextIndentLevelType,
@@ -27,6 +31,7 @@ from power_pptx.oxml.simpletypes import (
     ST_TextSpacingPercentOrPercentString,
     ST_TextSpacingPoint,
     ST_TextStrikeType,
+    ST_TextTabAlignType,
     ST_TextTypeface,
     ST_TextWrappingType,
     XsdBoolean,
@@ -191,22 +196,16 @@ class CT_TextBody(BaseOxmlElement):
 
     @classmethod
     def _a_txBody_tmpl(cls):
-        return "<a:txBody %s>\n" "  <a:bodyPr/>\n" "  <a:p/>\n" "</a:txBody>\n" % (nsdecls("a"))
+        return "<a:txBody %s>\n  <a:bodyPr/>\n  <a:p/>\n</a:txBody>\n" % (nsdecls("a"))
 
     @classmethod
     def _p_txBody_tmpl(cls):
-        return (
-            "<p:txBody %s>\n" "  <a:bodyPr/>\n" "  <a:p/>\n" "</p:txBody>\n" % (nsdecls("p", "a"))
-        )
+        return "<p:txBody %s>\n  <a:bodyPr/>\n  <a:p/>\n</p:txBody>\n" % (nsdecls("p", "a"))
 
     @classmethod
     def _txBody_tmpl(cls):
-        return (
-            "<p:txBody %s>\n"
-            "  <a:bodyPr/>\n"
-            "  <a:lstStyle/>\n"
-            "  <a:p/>\n"
-            "</p:txBody>\n" % (nsdecls("a", "p"))
+        return "<p:txBody %s>\n  <a:bodyPr/>\n  <a:lstStyle/>\n  <a:p/>\n</p:txBody>\n" % (
+            nsdecls("a", "p")
         )
 
 
@@ -243,6 +242,12 @@ class CT_TextBodyProperties(BaseOxmlElement):
     )
     wrap: str | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "wrap", ST_TextWrappingType
+    )
+    numCol: int | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "numCol", ST_TextColumnCount
+    )
+    spcCol: Length | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "spcCol", ST_PositiveCoordinate32
     )
 
     @property
@@ -481,9 +486,7 @@ class CT_TextParagraph(BaseOxmlElement):
     )
     r = ZeroOrMore("a:r", successors=("a:endParaRPr",))
     br = ZeroOrMore("a:br", successors=("a:endParaRPr",))
-    endParaRPr: CT_TextCharacterProperties | None = ZeroOrOne(
-        "a:endParaRPr", successors=()
-    )  # pyright: ignore[reportAssignmentType]
+    endParaRPr: CT_TextCharacterProperties | None = ZeroOrOne("a:endParaRPr", successors=())  # pyright: ignore[reportAssignmentType]
 
     def add_br(self) -> CT_TextLineBreak:
         """Return a newly appended `a:br` element."""
@@ -537,6 +540,8 @@ class CT_TextParagraphProperties(BaseOxmlElement):
     """`a:pPr` custom element class."""
 
     get_or_add_defRPr: Callable[[], CT_TextCharacterProperties]
+    get_or_add_buAutoNum: Callable[[], CT_TextAutonumberBullet]
+    get_or_add_tabLst: Callable[[], CT_TextTabStopList]
     _add_lnSpc: Callable[[], CT_TextSpacing]
     _add_spcAft: Callable[[], CT_TextSpacing]
     _add_spcBef: Callable[[], CT_TextSpacing]
@@ -572,15 +577,22 @@ class CT_TextParagraphProperties(BaseOxmlElement):
     spcAft: CT_TextSpacing | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "a:spcAft", successors=_tag_seq[3:]
     )
+    buAutoNum: CT_TextAutonumberBullet | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:buAutoNum", successors=_tag_seq[12:]
+    )
+    tabLst: CT_TextTabStopList | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:tabLst", successors=_tag_seq[15:]
+    )
     defRPr: CT_TextCharacterProperties | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "a:defRPr", successors=_tag_seq[16:]
     )
     lvl: int = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
         "lvl", ST_TextIndentLevelType, default=0
     )
-    algn: PP_PARAGRAPH_ALIGNMENT | None = OptionalAttribute(
-        "algn", PP_PARAGRAPH_ALIGNMENT
-    )  # pyright: ignore[reportAssignmentType]
+    algn: PP_PARAGRAPH_ALIGNMENT | None = OptionalAttribute("algn", PP_PARAGRAPH_ALIGNMENT)  # pyright: ignore[reportAssignmentType]
+    rtl: bool | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "rtl", XsdBoolean
+    )
     del _tag_seq
 
     @property
@@ -642,6 +654,58 @@ class CT_TextParagraphProperties(BaseOxmlElement):
         if value is not None:
             self._add_spcBef().set_spcPts(value)
 
+    def get_or_add_buAutoNum_only(self) -> CT_TextAutonumberBullet:
+        """Return the `a:buAutoNum` child, adding it if not present.
+
+        The bullet element group (``buNone``/``buAutoNum``/``buChar``/``buBlip``) is an
+        XSD choice — at most one may be present — so any sibling bullet element is
+        removed first to keep the paragraph schema-valid.
+        """
+        if self.buAutoNum is None:
+            for tag in ("a:buNone", "a:buChar", "a:buBlip"):
+                for sib in self.findall(qn(tag)):
+                    self.remove(sib)
+        return self.get_or_add_buAutoNum()
+
+
+class CT_TextAutonumberBullet(BaseOxmlElement):
+    """`a:buAutoNum` element, an automatically-numbered list bullet."""
+
+    type: str = RequiredAttribute(  # pyright: ignore[reportAssignmentType]
+        "type", ST_TextAutonumberScheme
+    )
+    startAt: int | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "startAt", ST_TextBulletStartAtNum
+    )
+
+
+class CT_TextTabStop(BaseOxmlElement):
+    """`a:tab` element, a single tab stop in a `a:tabLst`."""
+
+    pos: Length | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "pos", ST_Coordinate32
+    )
+    algn: str | None = OptionalAttribute(  # pyright: ignore[reportAssignmentType]
+        "algn", ST_TextTabAlignType
+    )
+
+
+class CT_TextTabStopList(BaseOxmlElement):
+    """`a:tabLst` element, the ordered list of tab stops for a paragraph."""
+
+    _add_tab: Callable[[], CT_TextTabStop]
+    tab_lst: list[CT_TextTabStop]
+
+    tab = ZeroOrMore("a:tab", successors=())
+
+    def add_tab(self, pos: Length, algn: str | None = None) -> CT_TextTabStop:
+        """Append and return an `a:tab` child with the given position and alignment."""
+        tab = self._add_tab()
+        tab.pos = pos
+        if algn is not None:
+            tab.algn = algn
+        return tab
+
 
 class CT_TextSpacing(BaseOxmlElement):
     """Used for `a:lnSpc`, `a:spcBef`, and `a:spcAft` elements."""
@@ -690,3 +754,12 @@ class CT_TextSpacingPoint(BaseOxmlElement):
     val: Length = RequiredAttribute(  # pyright: ignore[reportAssignmentType]
         "val", ST_TextSpacingPoint
     )
+
+
+# -- These element classes are introduced by the power-pptx fork; the global
+# -- registry in `power_pptx.oxml.__init__` doesn't know about them, so register
+# -- them here (the `register_element_cls` callable is already defined by the
+# -- time this module is imported during `power_pptx.oxml` initialization). --
+register_element_cls("a:buAutoNum", CT_TextAutonumberBullet)
+register_element_cls("a:tabLst", CT_TextTabStopList)
+register_element_cls("a:tab", CT_TextTabStop)

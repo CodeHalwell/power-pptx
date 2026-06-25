@@ -309,3 +309,17 @@ shape.width = card_w   # setter coerces too
 Both ``/`` (true division → float) and ``//`` (floor division → int)
 work; pick whichever reads more cleanly. The coercion is round-half-
 to-even, so it's unbiased over long expression chains.
+
+### International & layout text properties
+
+```python
+p = tf.paragraphs[0]
+p.rtl = True                       # right-to-left (Hebrew / Arabic / Farsi)
+p.start_at = 5                     # numbered list starting at 5 (arabicPeriod)
+p.set_numbered("romanLcPeriod", 3) # i. ii. iii. starting at 3
+
+tf.column_count = 2                # two-column text body
+tf.column_spacing = Pt(18)         # gutter between columns
+
+p.tab_stops.add_tab_stop(Inches(1), "center")   # left | center | right | decimal
+```

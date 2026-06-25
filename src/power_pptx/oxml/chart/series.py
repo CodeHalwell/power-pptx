@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from power_pptx.enum.chart import (
+    XL_ERROR_BAR_DIRECTION,
+    XL_ERROR_BAR_INCLUDE,
+    XL_ERROR_BAR_TYPE,
+    XL_TRENDLINE_TYPE,
+)
+from power_pptx.oxml import parse_xml
 from power_pptx.oxml.chart.datalabel import CT_DLbls
+from power_pptx.oxml.ns import nsdecls
 from power_pptx.oxml.simpletypes import XsdUnsignedInt
 from power_pptx.oxml.xmlchemy import (
     BaseOxmlElement,
     OneAndOnlyOne,
+    OptionalAttribute,
     OxmlElement,
     RequiredAttribute,
     ZeroOrMore,
@@ -143,6 +152,8 @@ class CT_SeriesComposite(BaseOxmlElement):
     marker = ZeroOrOne("c:marker", successors=_tag_seq[7:])
     dPt = ZeroOrMore("c:dPt", successors=_tag_seq[9:])
     dLbls = ZeroOrOne("c:dLbls", successors=_tag_seq[10:])
+    trendline = ZeroOrMore("c:trendline", successors=_tag_seq[11:])
+    errBars = ZeroOrOne("c:errBars", successors=_tag_seq[12:])
     cat = ZeroOrOne("c:cat", successors=_tag_seq[13:])
     val = ZeroOrOne("c:val", successors=_tag_seq[14:])
     xVal = ZeroOrOne("c:xVal", successors=_tag_seq[15:])
@@ -236,6 +247,23 @@ class CT_SeriesComposite(BaseOxmlElement):
         """
         return CT_DPt.new_dPt()
 
+    def _new_errBars(self):
+        """Override metaclass method to create a schema-valid `c:errBars`.
+
+        A bare ``<c:errBars/>`` is invalid (the `errBarType` and `errValType`
+        children are schema-required); seed those defaults so the element is
+        valid the moment it is materialised.
+        """
+        return CT_ErrBars.new_errBars()
+
+    def _new_trendline(self):
+        """Override metaclass method to create a schema-valid `c:trendline`.
+
+        Seeds the required ``<c:trendlineType>`` child (defaulting to
+        ``linear``) so the element is schema-valid on creation.
+        """
+        return CT_Trendline.new_trendline()
+
 
 class CT_StrVal_NumVal_Composite(BaseOxmlElement):
     """
@@ -252,3 +280,146 @@ class CT_StrVal_NumVal_Composite(BaseOxmlElement):
         The float value of the text in the required ``<c:v>`` child.
         """
         return float(self.v.text)
+
+
+class CT_TrendlineType(BaseOxmlElement):
+    """``<c:trendlineType>`` element, the kind of trendline curve to fit."""
+
+    val = OptionalAttribute("val", XL_TRENDLINE_TYPE, default=XL_TRENDLINE_TYPE.LINEAR)
+
+
+class CT_Trendline(BaseOxmlElement):
+    """``<c:trendline>`` element, an analytical trend curve fitted to a series."""
+
+    _tag_seq = (
+        "c:name",
+        "c:spPr",
+        "c:trendlineType",
+        "c:order",
+        "c:period",
+        "c:forward",
+        "c:backward",
+        "c:intercept",
+        "c:dispRSqr",
+        "c:dispEq",
+        "c:trendlineLbl",
+        "c:extLst",
+    )
+    name = ZeroOrOne("c:name", successors=_tag_seq[1:])
+    spPr = ZeroOrOne("c:spPr", successors=_tag_seq[2:])
+    trendlineType = OneAndOnlyOne("c:trendlineType")
+    order = ZeroOrOne("c:order", successors=_tag_seq[4:])
+    period = ZeroOrOne("c:period", successors=_tag_seq[5:])
+    forward = ZeroOrOne("c:forward", successors=_tag_seq[6:])
+    backward = ZeroOrOne("c:backward", successors=_tag_seq[7:])
+    intercept = ZeroOrOne("c:intercept", successors=_tag_seq[8:])
+    dispRSqr = ZeroOrOne("c:dispRSqr", successors=_tag_seq[9:])
+    dispEq = ZeroOrOne("c:dispEq", successors=_tag_seq[10:])
+    del _tag_seq
+
+    @classmethod
+    def new_trendline(cls):
+        """Return a newly created "loose" `c:trendline` element.
+
+        Contains the single required `c:trendlineType` child, defaulting to
+        ``linear``, so the element is schema-valid the moment it is created.
+        """
+        return parse_xml(
+            '<c:trendline %s><c:trendlineType val="linear"/></c:trendline>' % nsdecls("c")
+        )
+
+
+class CT_TrendlineName(BaseOxmlElement):
+    """``<c:name>`` child of `c:trendline`, a plain-string legend label."""
+
+
+class CT_ErrBars(BaseOxmlElement):
+    """``<c:errBars>`` element, error bars drawn from each data point."""
+
+    _tag_seq = (
+        "c:errDir",
+        "c:errBarType",
+        "c:errValType",
+        "c:noEndCap",
+        "c:plus",
+        "c:minus",
+        "c:val",
+        "c:spPr",
+        "c:extLst",
+    )
+    errDir = ZeroOrOne("c:errDir", successors=_tag_seq[1:])
+    errBarType = ZeroOrOne("c:errBarType", successors=_tag_seq[2:])
+    errValType = ZeroOrOne("c:errValType", successors=_tag_seq[3:])
+    noEndCap = ZeroOrOne("c:noEndCap", successors=_tag_seq[4:])
+    plus = ZeroOrOne("c:plus", successors=_tag_seq[5:])
+    minus = ZeroOrOne("c:minus", successors=_tag_seq[6:])
+    val = ZeroOrOne("c:val", successors=_tag_seq[7:])
+    spPr = ZeroOrOne("c:spPr", successors=_tag_seq[8:])
+    del _tag_seq
+
+    @classmethod
+    def new_errBars(cls):
+        """Return a newly created "loose" `c:errBars` element.
+
+        The element contains the two schema-required children
+        (`c:errBarType` and `c:errValType`) so it is schema-valid the moment
+        it is created.
+        """
+        return parse_xml(
+            "<c:errBars %s>\n"
+            '  <c:errBarType val="both"/>\n'
+            '  <c:errValType val="fixedVal"/>\n'
+            "</c:errBars>\n" % nsdecls("c")
+        )
+
+
+class CT_ErrDir(BaseOxmlElement):
+    """``<c:errDir>`` element, the axis along which error bars are drawn."""
+
+    val = RequiredAttribute("val", XL_ERROR_BAR_DIRECTION)
+
+
+class CT_ErrBarType(BaseOxmlElement):
+    """``<c:errBarType>`` element, the direction error bars extend."""
+
+    val = OptionalAttribute("val", XL_ERROR_BAR_TYPE, default=XL_ERROR_BAR_TYPE.BOTH)
+
+
+class CT_ErrValType(BaseOxmlElement):
+    """``<c:errValType>`` element, how the error amount is calculated."""
+
+    val = OptionalAttribute("val", XL_ERROR_BAR_INCLUDE, default=XL_ERROR_BAR_INCLUDE.FIXED_VALUE)
+
+
+# -- element-class registration for the trendline / errBars subtree. These are
+# -- registered here (rather than from `power_pptx.oxml.__init__`) so the whole
+# -- analytics feature is self-contained within the chart oxml package. The
+# -- import is local to avoid a circular import at package-initialization time.
+from power_pptx.oxml import register_element_cls  # noqa: E402
+from power_pptx.oxml.chart.shared import (  # noqa: E402
+    CT_Boolean,
+    CT_Boolean_Explicit,
+    CT_Double,
+    CT_UnsignedInt,
+)
+
+# -- trendline + errBars container elements --
+register_element_cls("c:trendline", CT_Trendline)
+register_element_cls("c:trendlineType", CT_TrendlineType)
+register_element_cls("c:errBars", CT_ErrBars)
+register_element_cls("c:errDir", CT_ErrDir)
+register_element_cls("c:errBarType", CT_ErrBarType)
+register_element_cls("c:errValType", CT_ErrValType)
+register_element_cls("c:name", CT_TrendlineName)
+# -- custom error-bar plus/minus numeric data sources --
+register_element_cls("c:plus", CT_NumDataSource)
+register_element_cls("c:minus", CT_NumDataSource)
+# -- scalar trendline children (c:order is already registered globally as
+# -- CT_UnsignedInt for the series order element, which serves here too) --
+register_element_cls("c:period", CT_UnsignedInt)
+register_element_cls("c:forward", CT_Double)
+register_element_cls("c:backward", CT_Double)
+register_element_cls("c:intercept", CT_Double)
+register_element_cls("c:dispEq", CT_Boolean_Explicit)
+register_element_cls("c:dispRSqr", CT_Boolean_Explicit)
+register_element_cls("c:noEndCap", CT_Boolean)

@@ -212,3 +212,22 @@ plot.hole_size = 65            # doughnut
 plot.smooth = True            # line chart
 chart.value_axis.log_base = 10
 ```
+
+## Trendlines, error bars, dual axis (scientific decks)
+
+```python
+s = chart.series[0]
+s.trendlines.add("linear", show_equation=True, show_r_squared=True)
+s.trendlines.add("poly", order=3)            # polynomial
+s.trendlines.add("movingAvg", period=2)      # moving average
+
+s.error_bars.fixed(0.5)                       # or .percentage(5),
+s.error_bars.standard_deviation(1)            # .standard_error(), .custom(plus, minus)
+
+chart.secondary_value_axis                     # add right-hand value axis
+chart.series[1].axis_group = "secondary"       # move a series onto it
+```
+
+Trendlines / error bars are available on bar, line, scatter, area, and
+bubble series (not pie/radar). New axis ids stay signed-int32, so
+PowerPoint never prompts to repair the file.

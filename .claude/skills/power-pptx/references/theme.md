@@ -103,3 +103,25 @@ prs.save("rebranded.pptx")
 
 Anything in the deck that referenced `accent1` / `accent2` /
 `majorFont` / `minorFont` will pick up the new values automatically.
+
+## Dark mode & palette-from-seed
+
+Flip a deck to a dark palette in one call (backgrounds/text invert,
+accents stay AA-legible):
+
+```python
+prs.theme.to_dark_mode()                 # in place; returns the Theme
+prs.theme.to_dark_mode(min_contrast=7.0) # AAA accents
+```
+
+Bootstrap a whole palette from one brand colour:
+
+```python
+from power_pptx.design.tokens import DesignTokens
+
+tokens = DesignTokens.from_seed("#3B5BDB", harmony="triadic")
+tokens.palette["primary"]                          # == the seed
+tokens.validate_color_blindness("deuteranopia")    # -> [(name_a, name_b), ...]
+```
+
+`from_seed` is deterministic and accepts hex / `RGBColor` / `(r, g, b)`.
