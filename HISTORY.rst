@@ -24,8 +24,11 @@ inner/preset shadows**, **chart plot/axis toggles plus series
 trendlines, error bars, and a secondary value axis**, **table cell text
 direction and the built-in table-style gallery**, **international &
 multi-column text layout**, **theme dark-mode and palette-from-seed**,
-and **machine-readable lint/audit output**, plus a couple of fail-closed
-``from_spec`` ergonomics fixes. All additions are drop-in compatible.
+a **Sections API**, **slide reorder/move and first-class notes**,
+**accessibility (alt text + audit)**, and **machine-readable lint/audit
+output with SARIF export and baseline diff**, plus a couple of
+fail-closed ``from_spec`` ergonomics fixes. All additions are drop-in
+compatible.
 
 Added
 ~~~~~
@@ -165,6 +168,40 @@ Added
   analogous / triadic / monochromatic), and
   ``DesignTokens.validate_color_blindness(…)`` flags palette pairs
   confusable under deuteranopia / protanopia / tritanopia.
+
+- **Sections API.** ``prs.sections`` exposes the named slide groupings
+  shown in PowerPoint's outline / slide-sorter pane (stored as the
+  PowerPoint-2010 ``p14:sectionLst`` presentation extension). The
+  ``Sections`` collection supports ``len`` / indexing / iteration,
+  ``.add(name, start_slide_index=None)`` and ``.remove(section)``; each
+  ``Section`` exposes ``.name`` (read/write), ``.id`` (GUID),
+  ``.slides`` / ``.slide_ids``, and ``.delete()``.
+
+- **Slide reorder/move and first-class notes.** ``prs.slides.move(old,
+  new)`` relocates a single slide and ``prs.slides.reorder(order)``
+  applies a full permutation (indices or ``Slide`` objects) without raw
+  ``sldIdLst`` surgery. ``slide.notes`` is a read/write speaker-notes
+  accessor — reading returns ``""`` without creating a notes slide,
+  assigning a string writes the notes text frame (creating it on
+  demand). The LLM-friendly "deck + notes" path.
+
+- **Accessibility.** ``shape.alt_text`` maps to the ``descr`` attribute
+  of the shape's ``<p:cNvPr>`` (the alt-text slot screen readers
+  announce) and ``shape.title_text`` to the companion ``title``.
+  ``power_pptx.accessibility.audit_accessibility(prs)`` returns a
+  read-only report flagging pictures/meaningful shapes missing alt text,
+  text below WCAG AA contrast, and slides without a title — with
+  ``has_errors`` / ``markdown()`` / ``to_dict()`` / ``to_json()``.
+
+- **Lint CI extensions.** ``SlideLintReport.to_sarif()`` /
+  ``to_sarif_json()`` emit a SARIF v2.1.0 document (the GitHub
+  code-scanning interchange format) with a ``power-pptx-lint`` driver
+  and per-issue results (severity mapped error/warning/note);
+  ``lint_report_to_sarif(reports)`` aggregates a whole deck with slide
+  indices. ``SlideLintReport.diff(baseline)`` returns only
+  newly-introduced issues (matched by stable fingerprints, so a
+  moved-but-still-broken shape isn't flagged), and ``diff_detail()``
+  adds the fixed set.
 
 Fixed
 ~~~~~

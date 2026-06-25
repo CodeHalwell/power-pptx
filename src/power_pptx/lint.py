@@ -615,6 +615,84 @@ class SlideLintReport:
         """
         return [_issue_fingerprint(i) for i in self._issues]
 
+    def diff(self, baseline: "SlideLintReport") -> list[LintIssue]:
+        """Return issues present in *self* but not in *baseline*.
+
+        This is the CI-hookable "did my change add new problems?"
+        primitive.  Identity is the stable :meth:`fingerprints` digest, so
+        an issue that merely *moved* (a shape already off-slide that was
+        nudged but still off-slide) is treated as the same issue and is
+        *not* reported as new.  The returned list preserves ``self``'s
+        ordering (errors → warnings → info), and is empty when ``self`` is
+        a subset of (or identical to) *baseline*.
+
+        Use :meth:`diff_detail` if you also need the set of issues that
+        were *fixed* relative to the baseline.
+        """
+        baseline_fps = set(baseline.fingerprints())
+        return [
+            issue
+            for issue, fp in zip(self._issues, self.fingerprints())
+            if fp not in baseline_fps
+        ]
+
+    def diff_detail(self, baseline: "SlideLintReport") -> dict[str, list[LintIssue]]:
+        """Return a symmetric diff against *baseline*.
+
+        Shape: ``{"added": [...], "fixed": [...]}`` where ``added`` are
+        issues new in ``self`` (the same list :meth:`diff` returns) and
+        ``fixed`` are issues that were in ``baseline`` but are gone in
+        ``self``.  Both are matched by the stable :meth:`fingerprints`
+        digest.
+        """
+        self_fps = self.fingerprints()
+        base_fps = baseline.fingerprints()
+        self_fp_set = set(self_fps)
+        base_fp_set = set(base_fps)
+        added = [
+            issue
+            for issue, fp in zip(self._issues, self_fps)
+            if fp not in base_fp_set
+        ]
+        fixed = [
+            issue
+            for issue, fp in zip(baseline.issues, base_fps)
+            if fp not in self_fp_set
+        ]
+        return {"added": added, "fixed": fixed}
+
+    def to_sarif(self, *, slide_index: int | None = None) -> dict[str, object]:
+        """Return a SARIF v2.1.0 document describing this slide's issues.
+
+        SARIF (Static Analysis Results Interchange Format) is the format
+        GitHub code-scanning ingests, so a CI job can upload the result
+        and have lint issues surface as annotations on a PR.  The returned
+        value is a plain ``dict`` that is directly ``json.dumps``-able.
+
+        The document has a single ``run`` whose ``tool.driver`` is named
+        ``power-pptx-lint``; the driver's ``rules`` list is derived from
+        the distinct issue codes present, and each issue becomes one entry
+        under ``runs[0].results`` with a ``ruleId``, a ``level`` mapped
+        from :class:`LintSeverity` (ERROR→``error``, WARNING→``warning``,
+        INFO→``note``), a ``message.text``, and a ``locations`` entry
+        naming the involved shape(s).
+
+        When *slide_index* is given it is recorded on every result (as a
+        ``logicalLocation`` and a ``properties.slideIndex``) so a
+        per-slide SARIF can be merged or read with the slide it came from.
+        Prefer :func:`lint_report_to_sarif` to aggregate a whole deck into
+        a single document.
+        """
+        return _build_sarif([(slide_index, self._issues)])
+
+    def to_sarif_json(
+        self, *, slide_index: int | None = None, indent: int | None = 2
+    ) -> str:
+        """Return :meth:`to_sarif` serialized as a JSON string."""
+        import json
+
+        return json.dumps(self.to_sarif(slide_index=slide_index), indent=indent)
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -648,6 +726,187 @@ def _issue_fingerprint(issue: LintIssue) -> str:
             parts.append(f"{attr}={val}")
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
     return digest[:12]
+
+
+# ---------------------------------------------------------------------------
+# SARIF v2.1.0 export — the GitHub code-scanning interchange format.
+# ---------------------------------------------------------------------------
+
+#: SARIF schema URI / version constants. ``$schema`` is advisory but lets
+#: GitHub and other consumers validate the document.
+_SARIF_VERSION = "2.1.0"
+_SARIF_SCHEMA = (
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+    "Schemata/sarif-schema-2.1.0.json"
+)
+_SARIF_TOOL_NAME = "power-pptx-lint"
+
+#: LintSeverity → SARIF result level. SARIF defines exactly these four
+#: notification levels; ``info`` maps to ``note`` (its lowest).
+_SARIF_LEVEL_BY_SEVERITY: dict[LintSeverity, str] = {
+    LintSeverity.ERROR: "error",
+    LintSeverity.WARNING: "warning",
+    LintSeverity.INFO: "note",
+}
+
+#: One-line descriptions per known rule code, surfaced as the SARIF
+#: rule's ``shortDescription``. Unknown codes fall back to the code
+#: itself so a new issue type still produces a valid (if terse) rule.
+_RULE_DESCRIPTIONS: dict[str, str] = {
+    "TextOverflow": "Estimated text content exceeds the text frame's visible area.",
+    "OffSlide": "A shape extends beyond the slide boundary.",
+    "OffSlideShadow": "A shape's shadow bleed extends beyond the slide boundary.",
+    "ShapeCollision": "Two shapes' bounding boxes overlap.",
+    "ShapeCollisionShadow": "Two shapes' shadow-bleed regions overlap.",
+    "MinFontSize": "A text run is below the legibility threshold.",
+    "OffGridDrift": "A shape is slightly off a column/row grid its siblings hit cleanly.",
+    "LowContrast": "Text/background contrast is below the WCAG AA threshold.",
+    "ZOrderAnomaly": "A filled shape is drawn above a shape it visually contains.",
+    "MasterPlaceholderCollision": (
+        "A shape sits at the position of an inheritable layout placeholder."
+    ),
+}
+
+
+def _sarif_artifact_uri(slide_index: int | None) -> str:
+    """Return a stable artifact URI for *slide_index*.
+
+    A deck has no on-disk per-slide file, so we synthesize a logical
+    ``slide/<n>`` (or ``slide/unknown``) URI. GitHub keys annotations off
+    this; keeping it stable means re-runs land on the same logical file.
+    """
+    if slide_index is None:
+        return "slide/unknown"
+    return f"slide/{slide_index}"
+
+
+def _sarif_result(issue: LintIssue, slide_index: int | None) -> dict[str, object]:
+    """Return a single SARIF ``result`` object for *issue*."""
+    level = _SARIF_LEVEL_BY_SEVERITY.get(issue.severity, "warning")
+
+    shape_names: list[str] = []
+    for shape in issue.shapes:
+        try:
+            shape_names.append(shape.name or "")
+        except Exception:
+            shape_names.append("?")
+
+    locations: list[dict[str, object]] = []
+    artifact_uri = _sarif_artifact_uri(slide_index)
+    if shape_names:
+        for name in shape_names:
+            location: dict[str, object] = {
+                "physicalLocation": {
+                    "artifactLocation": {"uri": artifact_uri},
+                },
+                "logicalLocations": [
+                    {"name": name, "kind": "shape"},
+                ],
+            }
+            locations.append(location)
+    else:
+        # No shape attached (rare) — still anchor the result to the slide.
+        locations.append(
+            {"physicalLocation": {"artifactLocation": {"uri": artifact_uri}}}
+        )
+
+    if slide_index is not None:
+        for location in locations:
+            logical = location.setdefault("logicalLocations", [])
+            assert isinstance(logical, list)
+            logical.append(
+                {"fullyQualifiedName": f"slide[{slide_index}]", "kind": "slide"}
+            )
+
+    result: dict[str, object] = {
+        "ruleId": issue.code,
+        "level": level,
+        "message": {"text": issue.message},
+        "locations": locations,
+        "partialFingerprints": {"powerPptxLintFingerprint/v1": _issue_fingerprint(issue)},
+        "properties": {"shapes": shape_names},
+    }
+    if slide_index is not None:
+        props = result["properties"]
+        assert isinstance(props, dict)
+        props["slideIndex"] = slide_index
+    return result
+
+
+def _build_sarif(
+    grouped: Sequence[tuple[int | None, Sequence[LintIssue]]],
+) -> dict[str, object]:
+    """Assemble a SARIF v2.1.0 document from ``(slide_index, issues)`` groups.
+
+    Shared by :meth:`SlideLintReport.to_sarif` (one group) and
+    :func:`lint_report_to_sarif` (one group per slide). The driver's
+    ``rules`` list is the de-duplicated set of issue codes encountered,
+    in first-seen order.
+    """
+    results: list[dict[str, object]] = []
+    rule_ids: list[str] = []
+    seen_rules: set[str] = set()
+
+    for slide_index, issues in grouped:
+        for issue in issues:
+            if issue.code not in seen_rules:
+                seen_rules.add(issue.code)
+                rule_ids.append(issue.code)
+            results.append(_sarif_result(issue, slide_index))
+
+    rules: list[dict[str, object]] = []
+    for code in rule_ids:
+        rules.append(
+            {
+                "id": code,
+                "name": code,
+                "shortDescription": {"text": _RULE_DESCRIPTIONS.get(code, code)},
+            }
+        )
+
+    return {
+        "version": _SARIF_VERSION,
+        "$schema": _SARIF_SCHEMA,
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": _SARIF_TOOL_NAME,
+                        "informationUri": "https://github.com/power-pptx/power-pptx",
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+
+
+def lint_report_to_sarif(
+    reports: "SlideLintReport | Sequence[SlideLintReport]",
+    *,
+    start_index: int = 0,
+) -> dict[str, object]:
+    """Aggregate per-slide lint reports into one deck-level SARIF document.
+
+    Pass a single :class:`SlideLintReport` or a sequence of them (one per
+    slide, in deck order). Each result records the slide index it came
+    from (in ``properties.slideIndex`` and as a ``logicalLocation``), so a
+    whole-deck SARIF uploaded to GitHub code-scanning keeps the slide
+    provenance of every annotation. *start_index* sets the index assigned
+    to the first report (default ``0``).
+
+    The result is a plain, ``json.dumps``-able ``dict``::
+
+        reports = [s.lint() for s in prs.slides]
+        sarif = lint_report_to_sarif(reports)
+    """
+    if isinstance(reports, SlideLintReport):
+        reports = [reports]
+    grouped: list[tuple[int | None, Sequence[LintIssue]]] = [
+        (start_index + i, report.issues) for i, report in enumerate(reports)
+    ]
+    return _build_sarif(grouped)
 
 
 def _slide_dimensions(slide: Slide) -> tuple[Length | None, Length | None]:

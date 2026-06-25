@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import IO, TYPE_CHECKING, Literal, cast
 
+from power_pptx.section import Sections
 from power_pptx.shared import PartElementProxy
 from power_pptx.slide import SlideMasters, Slides
 from power_pptx.util import lazyproperty
@@ -146,6 +147,21 @@ class Presentation(PartElementProxy):
         sldIdLst = self._element.get_or_add_sldIdLst()
         self.part.rename_slide_parts([cast("CT_SlideId", sldId).rId for sldId in sldIdLst])
         return Slides(sldIdLst, self)
+
+    @property
+    def sections(self) -> Sections:
+        """|Sections| collection of named slide groupings in this presentation.
+
+        Sections appear in PowerPoint's outline / slide-sorter pane and are
+        stored as a PowerPoint-2010 extension on the presentation part. The
+        returned collection supports ``len()``, indexed access, iteration,
+        ``.add(name, start_slide_index=None)``, and ``.remove(section)``.
+
+        Accessing this property creates the (empty) section-list container if
+        the deck does not already have one.
+        """
+        sectionLst = self._element.get_or_add_sectionLst()
+        return Sections(sectionLst, self)
 
     def import_slide(
         self,

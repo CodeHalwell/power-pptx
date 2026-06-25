@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Callable, cast
 
+from power_pptx.oxml.ns import nsmap, qn
 from power_pptx.oxml.simpletypes import ST_SlideId, ST_SlideSizeCoordinate, XsdString
-from power_pptx.oxml.xmlchemy import BaseOxmlElement, RequiredAttribute, ZeroOrMore, ZeroOrOne
+from power_pptx.oxml.xmlchemy import (
+    BaseOxmlElement,
+    OxmlElement,
+    RequiredAttribute,
+    ZeroOrMore,
+    ZeroOrOne,
+)
 
 if TYPE_CHECKING:
     from power_pptx.util import Length
+
+# -- GUID identifying the PowerPoint 2010 sectionLst presentation extension. --
+SECTION_EXT_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
 
 
 class CT_Presentation(BaseOxmlElement):
@@ -17,6 +28,7 @@ class CT_Presentation(BaseOxmlElement):
     get_or_add_sldSz: Callable[[], CT_SlideSize]
     get_or_add_sldIdLst: Callable[[], CT_SlideIdList]
     get_or_add_sldMasterIdLst: Callable[[], CT_SlideMasterIdList]
+    get_or_add_extLst: Callable[[], BaseOxmlElement]
 
     sldMasterIdLst: CT_SlideMasterIdList | None = (
         ZeroOrOne(  # pyright: ignore[reportAssignmentType]
@@ -36,6 +48,57 @@ class CT_Presentation(BaseOxmlElement):
     sldSz: CT_SlideSize | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "p:sldSz", successors=("p:notesSz",)
     )
+    # -- `p:extLst` is the final child of `p:presentation` (no successors). --
+    extLst: BaseOxmlElement | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "p:extLst"
+    )
+
+    @property
+    def sectionLst(self) -> CT_SectionList | None:
+        """The `p14:sectionLst` element, or |None| if not present.
+
+        Reaches through `p:extLst/p:ext[@uri='{...}']` to find the
+        PowerPoint-2010 section-list extension.
+        """
+        ext = self._section_ext
+        if ext is None:
+            return None
+        return cast("CT_SectionList | None", ext.find(qn("p14:sectionLst")))
+
+    def get_or_add_sectionLst(self) -> CT_SectionList:
+        """Return the `p14:sectionLst` element, newly created if not present.
+
+        The wrapping `p:extLst/p:ext` are created as needed.
+        """
+        sectionLst = self.sectionLst
+        if sectionLst is not None:
+            return sectionLst
+        ext = self._get_or_add_section_ext()
+        sectionLst = cast("CT_SectionList", OxmlElement("p14:sectionLst", nsmap=nsmap("p14")))
+        ext.append(sectionLst)
+        return sectionLst
+
+    @property
+    def _section_ext(self) -> BaseOxmlElement | None:
+        """The `p:ext` element carrying the section-list extension, or |None|."""
+        extLst = self.extLst
+        if extLst is None:
+            return None
+        for ext in extLst.findall(qn("p:ext")):
+            if ext.get("uri") == SECTION_EXT_URI:
+                return cast("BaseOxmlElement", ext)
+        return None
+
+    def _get_or_add_section_ext(self) -> BaseOxmlElement:
+        """Return the section-list `p:ext`, newly created if not present."""
+        ext = self._section_ext
+        if ext is not None:
+            return ext
+        extLst = self.get_or_add_extLst()
+        ext = OxmlElement("p:ext")
+        ext.set("uri", SECTION_EXT_URI)
+        extLst.append(ext)
+        return ext
 
 
 class CT_SlideId(BaseOxmlElement):
@@ -128,3 +191,95 @@ class CT_SlideSize(BaseOxmlElement):
     cy: Length = RequiredAttribute(  # pyright: ignore[reportAssignmentType]
         "cy", ST_SlideSizeCoordinate
     )
+
+
+# ===========================================================================
+# PowerPoint 2010 section extension (`p14:sectionLst`).
+#
+# Stored inside `p:presentation/p:extLst/p:ext[@uri="{521415D9-...}"]`.  These
+# `p14:*` classes are registered at module-import time (see bottom of file) so
+# the off-limits `power_pptx.oxml.__init__` does not need editing.
+# ===========================================================================
+
+
+class CT_SectionList(BaseOxmlElement):
+    """`p14:sectionLst` element, container for the deck's `p14:section` children."""
+
+    section_lst: list[CT_Section]
+
+    _add_section: Callable[..., CT_Section]
+    section = ZeroOrMore("p14:section")
+
+    def add_section(self, name: str, section_id: str | None = None) -> CT_Section:
+        """Create, append, and return a new `p14:section` element.
+
+        `name` is the user-visible section label.  `section_id`, when supplied,
+        is the brace-wrapped GUID used as the section's `id`; a random one is
+        generated when omitted.
+        """
+        if section_id is None:
+            section_id = "{%s}" % str(uuid.uuid4()).upper()
+        section = self._add_section()
+        section.name = name
+        section.id = section_id
+        return section
+
+
+class CT_Section(BaseOxmlElement):
+    """`p14:section` element, a single named section referencing member slides."""
+
+    get_or_add_sldIdLst: Callable[[], CT_SectionSlideIdList]
+
+    name: str = RequiredAttribute("name", XsdString)  # pyright: ignore[reportAssignmentType]
+    id: str = RequiredAttribute("id", XsdString)  # pyright: ignore[reportAssignmentType]
+
+    sldIdLst: CT_SectionSlideIdList | None = (
+        ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+            "p14:sldIdLst"
+        )
+    )
+
+    @property
+    def sldId_lst(self) -> list[CT_SectionSlideId]:
+        """List of `p14:sldId` member references (possibly empty)."""
+        sldIdLst = self.sldIdLst
+        if sldIdLst is None:
+            return []
+        return sldIdLst.sldId_lst
+
+    def add_sldId(self, id: int) -> CT_SectionSlideId:
+        """Append a `p14:sldId` referencing the slide whose numeric id is `id`."""
+        sldIdLst = self.get_or_add_sldIdLst()
+        return sldIdLst.add_sldId(id)
+
+
+class CT_SectionSlideIdList(BaseOxmlElement):
+    """`p14:sldIdLst` element, child of `p14:section` listing member slide ids."""
+
+    sldId_lst: list[CT_SectionSlideId]
+
+    _add_sldId: Callable[..., CT_SectionSlideId]
+    sldId = ZeroOrMore("p14:sldId")
+
+    def add_sldId(self, id: int) -> CT_SectionSlideId:
+        """Create and return a new `p14:sldId` child with its `id` set to `id`."""
+        return self._add_sldId(id=id)
+
+
+class CT_SectionSlideId(BaseOxmlElement):
+    """`p14:sldId` element, references a slide by its numeric `p:sldId/@id` value."""
+
+    id: int = RequiredAttribute("id", ST_SlideId)  # pyright: ignore[reportAssignmentType]
+
+
+# -- Register the `p14:*` section element classes so the lxml parser maps these
+# -- tags to the custom classes above.  Done here (not in `oxml.__init__`) via
+# -- the public `register_element_cls` hook.  Imported at module bottom (E402)
+# -- to avoid the partial-import cycle with `power_pptx.oxml.__init__`, which
+# -- imports this module while it is still initializing.
+from power_pptx.oxml import register_element_cls  # noqa: E402
+
+register_element_cls("p14:sectionLst", CT_SectionList)
+register_element_cls("p14:section", CT_Section)
+register_element_cls("p14:sldIdLst", CT_SectionSlideIdList)
+register_element_cls("p14:sldId", CT_SectionSlideId)
