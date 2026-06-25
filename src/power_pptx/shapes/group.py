@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Iterator
 from power_pptx.dml.effect import (
     BlurFormat,
     GlowFormat,
+    InnerShadowFormat,
+    PresetShadowFormat,
     ReflectionFormat,
     ShadowFormat,
     SoftEdgeFormat,
@@ -78,6 +80,20 @@ class GroupShape(BaseShape):
         """|SoftEdgeFormat| object representing soft-edge effect for this group."""
         return SoftEdgeFormat(self._grpSp.grpSpPr)
 
+    @lazyproperty
+    def inner_shadow(self) -> InnerShadowFormat:
+        """|InnerShadowFormat| for this group (over ``p:grpSpPr``).
+
+        Overrides the |BaseShape| version, which targets ``spPr`` — a group
+        exposes ``grpSpPr`` instead, so the inherited accessor would raise.
+        """
+        return InnerShadowFormat(self._grpSp.grpSpPr)
+
+    @lazyproperty
+    def preset_shadow(self) -> PresetShadowFormat:
+        """|PresetShadowFormat| for this group (over ``p:grpSpPr``)."""
+        return PresetShadowFormat(self._grpSp.grpSpPr)
+
     @property
     def fill(self) -> FillFormat:
         """|FillFormat| instance for this group, providing access to fill properties.
@@ -116,16 +132,38 @@ class GroupShape(BaseShape):
         """Translate the entire group by (*dx*, *dy*) and return self.
 
         *dx* and *dy* are lengths (e.g. ``Inches(1)``, ``Emu(...)``, or a bare
-        EMU ``int``). The group's member shapes move with it — only the group's
-        own offset changes, so this is an O(1) operation regardless of how many
-        shapes the group contains::
+        EMU ``int``)::
 
             group.move(Inches(0.5), Inches(-0.25))
+
+        The group's offset, its child-coordinate origin, and every member are
+        shifted by the same translation. Shifting the members + ``chOff`` (not
+        just the group's own ``off``) is what makes the move *durable*: a later
+        ``recalculate_extents()`` — triggered by ``group.shapes.add_*`` or
+        ``fit_to_children()`` — recomputes ``off`` from the member geometry, so
+        a move that only touched ``off`` would silently snap back.
         """
-        x = int(self.left) if self.left is not None else 0
-        y = int(self.top) if self.top is not None else 0
-        self.left = Emu(x + int(_coerce_emu(dx)))
-        self.top = Emu(y + int(_coerce_emu(dy)))
+        grpSp = self._grpSp
+        edx = int(_coerce_emu(dx))
+        edy = int(_coerce_emu(dy))
+        # Express the translation in the group's child-coordinate space too, in
+        # case the group is scaled (ext != chExt); for the common unscaled
+        # group this is just (edx, edy).
+        ext_cx = int(self.width) if self.width is not None else 0
+        ext_cy = int(self.height) if self.height is not None else 0
+        chExt = grpSp.chExt
+        ch_cx, ch_cy = int(chExt.cx or 0), int(chExt.cy or 0)
+        cdx = round(edx * ch_cx / ext_cx) if ext_cx else edx
+        cdy = round(edy * ch_cy / ext_cy) if ext_cy else edy
+
+        self.left = Emu((int(self.left) if self.left is not None else 0) + edx)
+        self.top = Emu((int(self.top) if self.top is not None else 0) + edy)
+        chOff = grpSp.chOff
+        chOff.x = Emu(int(chOff.x or 0) + cdx)
+        chOff.y = Emu(int(chOff.y or 0) + cdy)
+        for elm in grpSp.iter_shape_elms():
+            elm.x = Emu(int(elm.x or 0) + cdx)
+            elm.y = Emu(int(elm.y or 0) + cdy)
         return self
 
     def walk(self) -> Iterator[BaseShape]:

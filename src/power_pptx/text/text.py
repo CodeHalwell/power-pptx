@@ -595,7 +595,12 @@ class Font(object):
 
     @superscript.setter
     def superscript(self, value: bool | None):
-        self._rPr.baseline = 0.30 if value else None
+        if value:
+            self._rPr.baseline = 0.30
+        elif value is None or self.superscript:
+            # Only clear when actually superscript so we don't wipe a
+            # sibling subscript (both share the one ``baseline`` attribute).
+            self._rPr.baseline = None
 
     @property
     def subscript(self) -> bool | None:
@@ -609,7 +614,12 @@ class Font(object):
 
     @subscript.setter
     def subscript(self, value: bool | None):
-        self._rPr.baseline = -0.25 if value else None
+        if value:
+            self._rPr.baseline = -0.25
+        elif value is None or self.subscript:
+            # Only clear when actually subscript so we don't wipe a
+            # sibling superscript (both share the one ``baseline`` attribute).
+            self._rPr.baseline = None
 
     @property
     def language_id(self) -> MSO_LANGUAGE_ID | None:

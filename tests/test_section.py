@@ -49,6 +49,18 @@ class DescribeSections:
         # -- four blank slides have ids 256..259 --
         assert section.slide_ids == [256, 257, 258, 259]
 
+    def it_keeps_sections_contiguous_and_non_overlapping(self):
+        # Adding a section that starts at slide 2 must take slides 2+ away from
+        # the earlier section (PowerPoint sections don't overlap) — PR #39.
+        prs = _deck(4)
+        intro = prs.sections.add("Intro", start_slide_index=0, id=GUID_A)
+        body = prs.sections.add("Body", start_slide_index=2, id=GUID_B)
+
+        assert intro.slide_ids == [256, 257]
+        assert body.slide_ids == [258, 259]
+        # no slide id appears in two sections
+        assert set(intro.slide_ids).isdisjoint(body.slide_ids)
+
     def it_can_add_an_empty_section(self):
         prs = _deck(2)
         section = prs.sections.add("Empty", id=GUID_A)

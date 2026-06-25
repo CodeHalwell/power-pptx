@@ -28,7 +28,7 @@ from power_pptx.util import lazyproperty
 
 if TYPE_CHECKING:
     from power_pptx.chart.chart import Chart
-    from power_pptx.dml.effect import ShadowFormat
+    from power_pptx.dml.effect import InnerShadowFormat, PresetShadowFormat, ShadowFormat
     from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectData, CT_GraphicalObjectFrame
     from power_pptx.parts.chart import ChartPart
     from power_pptx.parts.slide import BaseSlidePart
@@ -136,6 +136,21 @@ class GraphicFrame(BaseShape):
         ``if shape.shadow is None`` is the supported "no facade available"
         check.
         """
+        return None
+
+    @lazyproperty
+    def inner_shadow(self) -> InnerShadowFormat | None:
+        """Returns ``None``: inner-shadow access on a |GraphicFrame| is unsupported.
+
+        A graphic frame has no ``spPr``, so (like :attr:`shadow`) the unified
+        effect facade doesn't apply; ``None`` lets callers probe every shape
+        without a per-type ``try/except``.
+        """
+        return None
+
+    @lazyproperty
+    def preset_shadow(self) -> PresetShadowFormat | None:
+        """Returns ``None``: preset-shadow access on a |GraphicFrame| is unsupported."""
         return None
 
     @lazyproperty

@@ -252,6 +252,12 @@ class CT_Section(BaseOxmlElement):
         sldIdLst = self.get_or_add_sldIdLst()
         return sldIdLst.add_sldId(id)
 
+    def remove_sldId(self, id: int) -> None:
+        """Remove the `p14:sldId` member referencing `id`, if present."""
+        for sldId in list(self.sldId_lst):
+            if sldId.id == id:
+                sldId.getparent().remove(sldId)
+
 
 class CT_SectionSlideIdList(BaseOxmlElement):
     """`p14:sldIdLst` element, child of `p14:section` listing member slide ids."""

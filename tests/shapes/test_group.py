@@ -11,7 +11,7 @@ from power_pptx.enum.dml import MSO_FILL
 from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from power_pptx.shapes.group import GroupShape
 from power_pptx.shapes.shapetree import GroupShapes
-from power_pptx.util import Emu, Inches
+from power_pptx.util import Emu, Inches, Pt
 
 from ..unitutil.cxml import element
 from ..unitutil.mock import class_mock, initializer_mock, instance_mock
@@ -115,7 +115,11 @@ class DescribeGroupShapeSurface(object):
         assert len(leaves) == 3
 
     def it_fits_its_extent_to_its_children(self, group):
-        group.move(Inches(2), Inches(2))
+        # Perturb the group's stored offset/extent so it no longer matches its
+        # members, then prove fit_to_children() shrink-wraps back to them.
+        grpSp = group._element  # noqa: SLF001
+        grpSp.x = Emu(int(grpSp.x) + Inches(2))
+        grpSp.cx = Emu(int(grpSp.cx) + Inches(3))
 
         group.fit_to_children()
 
@@ -124,6 +128,29 @@ class DescribeGroupShapeSurface(object):
         assert int(group.top) == Inches(1)
         assert int(group.width) == Inches(4)
         assert int(group.height) == Inches(2)
+
+    def it_moves_durably_across_recalculation(self, group):
+        # A move must survive a later recalculate_extents() (triggered here by
+        # adding a shape) — it shifts the members + chOff, not just `off`.
+        first = list(group.shapes)[0]
+        left0 = int(first.left)
+
+        group.move(Inches(2), 0)
+        group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(1), Inches(1), Inches(1))
+
+        assert int(list(group.shapes)[0].left) == left0 + Inches(2)
+
+    def it_exposes_inner_and_preset_shadow_over_grpSpPr(self, group):
+        # BaseShape routes these through spPr; a group has grpSpPr, so without
+        # the override they'd raise AttributeError (PR #39 review).
+        from power_pptx.dml.effect import InnerShadowFormat, PresetShadowFormat
+
+        assert isinstance(group.inner_shadow, InnerShadowFormat)
+        assert isinstance(group.preset_shadow, PresetShadowFormat)
+        group.inner_shadow.blur_radius = Pt(3)
+        group.preset_shadow.preset = "shdw5"
+        assert int(group.inner_shadow.blur_radius) == Pt(3)
+        assert group.preset_shadow.preset is not None
 
     def it_ungroups_preserving_child_geometry(self, slide, group):
         before = [(int(s.left), int(s.top), int(s.width), int(s.height)) for s in group.shapes]

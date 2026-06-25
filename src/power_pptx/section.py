@@ -72,7 +72,11 @@ class Sections(ParentedElementProxy):
         When `start_slide_index` is given, every slide from that zero-based
         position to the end of the deck becomes a member of the new section
         (the natural PowerPoint behaviour for a section that begins at a given
-        slide).  When omitted, the section is created empty.
+        slide).  PowerPoint sections are contiguous and non-overlapping, so
+        those slides are also *removed* from any earlier section that claimed
+        them — a new section beginning at slide N truncates the prior section
+        at N-1.  When `start_slide_index` is omitted, the section is created
+        empty.
 
         `id` optionally fixes the section's brace-wrapped GUID; supplying it
         keeps output deterministic for tests.  A random GUID is generated
@@ -81,8 +85,15 @@ class Sections(ParentedElementProxy):
         section_elm = self._sectionLst.add_section(name, section_id=id)
         section = Section(section_elm, self._prs)
         if start_slide_index is not None:
-            slides = self._prs.slides
-            for slide in list(slides)[start_slide_index:]:
+            claimed = list(self._prs.slides)[start_slide_index:]
+            # Sections don't overlap: take the claimed slides away from any
+            # earlier section before assigning them to the new one.
+            for other in self:
+                if other._element is section_elm:
+                    continue
+                for slide in claimed:
+                    other.remove_slide(slide)
+            for slide in claimed:
                 section.add_slide(slide)
         return section
 
@@ -144,6 +155,10 @@ class Section(ParentedElementProxy):
         if slide_id in self.slide_ids:
             return
         self._section.add_sldId(slide_id)
+
+    def remove_slide(self, slide: Slide) -> None:
+        """Remove `slide` from this section's membership (no-op if absent)."""
+        self._section.remove_sldId(slide.slide_id)
 
     def delete(self) -> None:
         """Remove this section from the presentation.

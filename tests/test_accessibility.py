@@ -112,6 +112,17 @@ class DescribeAuditAccessibility:
         assert alt_issues[0].severity == AccessibilitySeverity.ERROR
         assert report.has_errors
 
+    def it_flags_a_picture_missing_alt_text_inside_a_group(self, prs):
+        # The audit must recurse into groups, not just the top-level container
+        # (PR #39 review).
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        pic = group.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
+        pic.alt_text = ""
+        report = audit_accessibility(prs)
+        alt_issues = [i for i in report.issues if i.code == "MissingAltText"]
+        assert alt_issues
+
     def it_does_not_flag_a_picture_with_alt_text(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         pic = slide.shapes.add_picture(
