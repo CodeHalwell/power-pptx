@@ -156,3 +156,20 @@ cell.vertical_anchor = MSO_ANCHOR.MIDDLE   # t / ctr / b within the cell
 Reading returns the friendly string (`"horizontal"` when unset); assigning
 `"horizontal"` or `None` clears it. Maps to `<a:tcPr vert="…">` /
 `anchor="…"` — schema-valid and round-trip clean.
+
+## Built-in table styles
+
+Apply any of PowerPoint's ~70 built-in table styles by name or GUID:
+
+```python
+table.style = "Medium Style 2 - Accent 1"      # friendly name
+table.style = "Table Grid"
+table.style = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"  # raw GUID also OK
+print(table.style)        # -> friendly name (or raw GUID / None)
+table.style = None        # detach (same as table.clear_style())
+```
+
+Discover valid names via `from power_pptx.table_styles import TABLE_STYLES`.
+An unknown name raises `ValueError` with a "did you mean" suggestion.
+Writing just the style GUID is schema-valid — nothing is added to
+`tableStyles.xml`.

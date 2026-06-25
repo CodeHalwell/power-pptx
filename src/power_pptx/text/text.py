@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         CT_TextCharacterProperties,
         CT_TextParagraph,
         CT_TextParagraphProperties,
+        CT_TextTabStop,
     )
     from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import Slide
@@ -257,6 +258,36 @@ class TextFrame(Subshape):
             _apply_to_font(paragraph.font)
             for run in paragraph.runs:
                 _apply_to_font(run.font)
+
+    @property
+    def column_count(self) -> int:
+        """Number of text columns laid out within this text frame.
+
+        Read/write. Corresponds to the ``numCol`` attribute on ``<a:bodyPr>``. A value of
+        ``1`` (the default) means a single column. Valid values are integers in the range
+        1..16. Reading returns ``1`` when no explicit value is set (the inherited default);
+        assigning ``1`` removes any explicit setting.
+        """
+        numCol = self._bodyPr.numCol
+        return 1 if numCol is None else numCol
+
+    @column_count.setter
+    def column_count(self, value: int):
+        self._bodyPr.numCol = None if value == 1 else value
+
+    @property
+    def column_spacing(self) -> Length | None:
+        """Spacing between adjacent text columns as a |Length|.
+
+        Read/write. Corresponds to the ``spcCol`` attribute on ``<a:bodyPr>``, the gutter
+        between columns when :attr:`column_count` is greater than 1. |None| indicates no
+        explicit value is set; assigning |None| removes any explicit value.
+        """
+        return self._bodyPr.spcCol
+
+    @column_spacing.setter
+    def column_spacing(self, value: Length | None):
+        self._bodyPr.spcCol = value
 
     @property
     def vertical_anchor(self) -> MSO_VERTICAL_ANCHOR | None:
@@ -813,6 +844,78 @@ class _Paragraph(Subshape):
         self._pPr.lvl = level
 
     @property
+    def rtl(self) -> bool | None:
+        """Right-to-left paragraph direction, e.g. for Hebrew, Arabic, or Farsi text.
+
+        Read/write tri-state, like :attr:`Font.bold`. Corresponds to the ``rtl`` attribute on
+        ``<a:pPr>``. |True| lays the paragraph out right-to-left, |False| forces
+        left-to-right, and |None| (the default) removes any explicit setting so the effective
+        value is inherited from the style hierarchy.
+        """
+        pPr = self._p.pPr
+        if pPr is None:
+            return None
+        return pPr.rtl
+
+    @rtl.setter
+    def rtl(self, value: bool | None):
+        self._pPr.rtl = value
+
+    @property
+    def start_at(self) -> int | None:
+        """Starting number of an auto-numbered (ordered) list paragraph.
+
+        Read/write. Corresponds to the ``startAt`` attribute on ``<a:buAutoNum>``. Returns
+        |None| when this paragraph is not an auto-number list, or when the numbering starts at
+        the default of ``1`` (no explicit ``startAt``).
+
+        Assigning an integer turns this paragraph into an auto-numbered list if it isn't one
+        already, defaulting the numbering scheme to ``"arabicPeriod"`` (e.g. ``1.``, ``2.``).
+        Use :meth:`set_numbered` to choose a different scheme. Assigning |None| removes the
+        explicit ``startAt`` (numbering resumes from ``1``) but leaves the list auto-numbered.
+        """
+        buAutoNum = self._p.pPr.buAutoNum if self._p.pPr is not None else None
+        if buAutoNum is None:
+            return None
+        return buAutoNum.startAt
+
+    @start_at.setter
+    def start_at(self, value: int | None):
+        existing = self._p.pPr.buAutoNum if self._p.pPr is not None else None
+        if value is None:
+            if existing is not None:
+                existing.startAt = None
+            return
+        if existing is not None:
+            # -- already a numbered list: just update startAt, preserving the scheme --
+            existing.startAt = value
+        else:
+            self.set_numbered(start_at=value)
+
+    def set_numbered(self, scheme: str = "arabicPeriod", start_at: int | None = None):
+        """Make this paragraph an auto-numbered list item.
+
+        ``scheme`` is an ``ST_TextAutonumberScheme`` token such as ``"arabicPeriod"`` (the
+        default, ``1.`` ``2.`` ``3.``), ``"romanLcPeriod"`` (``i.`` ``ii.``), or
+        ``"alphaUcParenR"`` (``A)`` ``B)``).  ``start_at`` optionally sets the first number
+        (1..32767); when |None| the list starts at ``1``.  Replaces any existing bullet on the
+        paragraph (the bullet element group is an XSD choice).
+        """
+        buAutoNum = self._pPr.get_or_add_buAutoNum_only()
+        buAutoNum.type = scheme
+        buAutoNum.startAt = start_at
+
+    @lazyproperty
+    def tab_stops(self) -> TabStops:
+        """|TabStops| collection of the explicit tab stops for this paragraph.
+
+        Tab stops are stored in the ``<a:tabLst>`` child of ``<a:pPr>``.  The collection is
+        iterable, supports ``len()``, and exposes :meth:`TabStops.add_tab_stop` to append a
+        stop at a given position and alignment.
+        """
+        return TabStops(self._pPr)
+
+    @property
     def line_spacing(self) -> int | float | Length | None:
         """The space between baselines in successive lines of this paragraph.
 
@@ -915,6 +1018,101 @@ class _Paragraph(Subshape):
         Causes the element to be added if not present.
         """
         return self._p.get_or_add_pPr()
+
+
+# -- mapping between the friendly tab-stop alignment names accepted by the API
+# -- and the `ST_TextTabAlignType` tokens emitted to the XML `algn` attribute. --
+_TAB_ALIGNMENTS = {
+    "left": "l",
+    "center": "ctr",
+    "right": "r",
+    "decimal": "dec",
+}
+_TAB_ALIGNMENTS_INV = {v: k for k, v in _TAB_ALIGNMENTS.items()}
+
+
+class TabStops(object):
+    """A sequence of |TabStop| objects providing access to a paragraph's tab stops.
+
+    Wraps the ``<a:tabLst>`` element of an ``<a:pPr>``. The collection is created on demand and
+    is iterable and sized (``len()``); indexing returns a |TabStop|.
+    """
+
+    def __init__(self, pPr: CT_TextParagraphProperties):
+        super(TabStops, self).__init__()
+        self._pPr = pPr
+
+    def __getitem__(self, idx: int) -> TabStop:
+        tabLst = self._pPr.tabLst
+        if tabLst is None:
+            raise IndexError("TabStops object has no tab stops")
+        return TabStop(tabLst.tab_lst[idx])
+
+    def __iter__(self) -> Iterator[TabStop]:
+        tabLst = self._pPr.tabLst
+        if tabLst is None:
+            return iter(())
+        return (TabStop(tab) for tab in tabLst.tab_lst)
+
+    def __len__(self) -> int:
+        tabLst = self._pPr.tabLst
+        if tabLst is None:
+            return 0
+        return len(tabLst.tab_lst)
+
+    def add_tab_stop(self, position: Length, alignment: str = "left") -> TabStop:
+        """Append and return a new |TabStop| at horizontal `position`.
+
+        `position` is a |Length| measured from the left edge of the text frame. `alignment` is
+        one of ``"left"`` (default), ``"center"``, ``"right"``, or ``"decimal"``, controlling
+        how text aligns to the tab stop.
+        """
+        if alignment not in _TAB_ALIGNMENTS:
+            raise ValueError(
+                "alignment must be one of %s, got %r"
+                % (", ".join(repr(k) for k in _TAB_ALIGNMENTS), alignment)
+            )
+        tabLst = self._pPr.get_or_add_tabLst()
+        tab = tabLst.add_tab(position, _TAB_ALIGNMENTS[alignment])
+        return TabStop(tab)
+
+
+class TabStop(object):
+    """An individual tab stop, an `<a:tab>` element within a paragraph's `<a:tabLst>`."""
+
+    def __init__(self, tab: CT_TextTabStop):
+        super(TabStop, self).__init__()
+        self._tab = tab
+
+    @property
+    def position(self) -> Length | None:
+        """The horizontal offset of this tab stop from the text frame's left edge, a |Length|."""
+        return self._tab.pos
+
+    @position.setter
+    def position(self, value: Length):
+        self._tab.pos = value
+
+    @property
+    def alignment(self) -> str:
+        """Alignment of text at this tab stop.
+
+        One of ``"left"``, ``"center"``, ``"right"``, or ``"decimal"``. Defaults to ``"left"``
+        when the underlying ``algn`` attribute is absent.
+        """
+        algn = self._tab.algn
+        if algn is None:
+            return "left"
+        return _TAB_ALIGNMENTS_INV[algn]
+
+    @alignment.setter
+    def alignment(self, value: str):
+        if value not in _TAB_ALIGNMENTS:
+            raise ValueError(
+                "alignment must be one of %s, got %r"
+                % (", ".join(repr(k) for k in _TAB_ALIGNMENTS), value)
+            )
+        self._tab.algn = _TAB_ALIGNMENTS[value]
 
 
 class _Run(Subshape):

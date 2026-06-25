@@ -131,6 +131,54 @@ class DescribeTextFrame(object):
         text_frame.vertical_anchor = new_value
         assert text_frame._element.xml == xml(expected_cxml)
 
+    @pytest.mark.parametrize(
+        ("txBody_cxml", "expected_value"),
+        [
+            ("p:txBody/a:bodyPr", 1),
+            ("p:txBody/a:bodyPr{numCol=2}", 2),
+            ("p:txBody/a:bodyPr{numCol=4}", 4),
+        ],
+    )
+    def it_knows_its_column_count(self, txBody_cxml: str, expected_value: int):
+        text_frame = TextFrame(cast("CT_TextBody", element(txBody_cxml)), None)
+        assert text_frame.column_count == expected_value
+
+    @pytest.mark.parametrize(
+        ("txBody_cxml", "new_value", "expected_cxml"),
+        [
+            ("p:txBody/a:bodyPr", 3, "p:txBody/a:bodyPr{numCol=3}"),
+            ("p:txBody/a:bodyPr{numCol=2}", 4, "p:txBody/a:bodyPr{numCol=4}"),
+            ("p:txBody/a:bodyPr{numCol=2}", 1, "p:txBody/a:bodyPr"),
+        ],
+    )
+    def it_can_change_its_column_count(self, txBody_cxml: str, new_value: int, expected_cxml: str):
+        text_frame = TextFrame(cast("CT_TextBody", element(txBody_cxml)), None)
+        text_frame.column_count = new_value
+        assert text_frame._element.xml == xml(expected_cxml)
+
+    @pytest.mark.parametrize(
+        ("txBody_cxml", "expected_value"),
+        [
+            ("p:txBody/a:bodyPr", None),
+            ("p:txBody/a:bodyPr{spcCol=228600}", 228600),
+        ],
+    )
+    def it_knows_its_column_spacing(self, txBody_cxml: str, expected_value):
+        text_frame = TextFrame(cast("CT_TextBody", element(txBody_cxml)), None)
+        assert text_frame.column_spacing == expected_value
+
+    @pytest.mark.parametrize(
+        ("txBody_cxml", "new_value", "expected_cxml"),
+        [
+            ("p:txBody/a:bodyPr", Pt(18), "p:txBody/a:bodyPr{spcCol=228600}"),
+            ("p:txBody/a:bodyPr{spcCol=228600}", None, "p:txBody/a:bodyPr"),
+        ],
+    )
+    def it_can_change_its_column_spacing(self, txBody_cxml: str, new_value, expected_cxml: str):
+        text_frame = TextFrame(cast("CT_TextBody", element(txBody_cxml)), None)
+        text_frame.column_spacing = new_value
+        assert text_frame._element.xml == xml(expected_cxml)
+
     def it_knows_its_word_wrap_setting(self, wrap_get_fixture):
         text_frame, expected_value = wrap_get_fixture
         assert text_frame.word_wrap == expected_value
@@ -1047,6 +1095,121 @@ class Describe_Paragraph(object):
         paragraph.level = new_value
         assert paragraph._element.xml == expected_xml
 
+    @pytest.mark.parametrize(
+        ("p_cxml", "expected_value"),
+        [
+            ("a:p", None),
+            ("a:p/a:pPr", None),
+            ("a:p/a:pPr{rtl=1}", True),
+            ("a:p/a:pPr{rtl=0}", False),
+        ],
+    )
+    def it_knows_its_rtl_setting(self, p_cxml: str, expected_value):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element(p_cxml)), None)
+        assert paragraph.rtl == expected_value
+
+    @pytest.mark.parametrize(
+        ("p_cxml", "new_value", "expected_cxml"),
+        [
+            ("a:p", True, "a:p/a:pPr{rtl=1}"),
+            ("a:p", False, "a:p/a:pPr{rtl=0}"),
+            ("a:p/a:pPr{rtl=1}", None, "a:p/a:pPr"),
+        ],
+    )
+    def it_can_change_its_rtl_setting(self, p_cxml: str, new_value, expected_cxml: str):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element(p_cxml)), None)
+        paragraph.rtl = new_value
+        assert paragraph._element.xml == xml(expected_cxml)
+
+    @pytest.mark.parametrize(
+        ("p_cxml", "expected_value"),
+        [
+            ("a:p", None),
+            ("a:p/a:pPr", None),
+            ("a:p/a:pPr/a:buAutoNum{type=arabicPeriod}", None),
+            ("a:p/a:pPr/a:buAutoNum{type=arabicPeriod,startAt=5}", 5),
+        ],
+    )
+    def it_knows_its_numbered_start_at(self, p_cxml: str, expected_value):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element(p_cxml)), None)
+        assert paragraph.start_at == expected_value
+
+    @pytest.mark.parametrize(
+        ("p_cxml", "new_value", "expected_cxml"),
+        [
+            # -- setting start_at on a plain paragraph makes it an auto-number list --
+            ("a:p", 3, "a:p/a:pPr/a:buAutoNum{type=arabicPeriod,startAt=3}"),
+            # -- updating an existing auto-number list --
+            (
+                "a:p/a:pPr/a:buAutoNum{type=romanLcPeriod,startAt=2}",
+                4,
+                "a:p/a:pPr/a:buAutoNum{type=romanLcPeriod,startAt=4}",
+            ),
+            # -- clearing start_at leaves the list auto-numbered --
+            (
+                "a:p/a:pPr/a:buAutoNum{type=arabicPeriod,startAt=5}",
+                None,
+                "a:p/a:pPr/a:buAutoNum{type=arabicPeriod}",
+            ),
+        ],
+    )
+    def it_can_change_its_numbered_start_at(self, p_cxml: str, new_value, expected_cxml: str):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element(p_cxml)), None)
+        paragraph.start_at = new_value
+        assert paragraph._element.xml == xml(expected_cxml)
+
+    def it_can_make_itself_a_numbered_list_with_a_scheme(self):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element("a:p")), None)
+        paragraph.set_numbered(scheme="alphaUcParenR", start_at=2)
+        assert paragraph._element.xml == xml("a:p/a:pPr/a:buAutoNum{type=alphaUcParenR,startAt=2}")
+
+    def it_replaces_an_existing_bullet_when_made_a_numbered_list(self):
+        paragraph = _Paragraph(
+            cast("CT_TextParagraph", element("a:p/a:pPr/a:buChar{char=-}")), None
+        )
+        paragraph.set_numbered()
+        assert paragraph._element.xml == xml("a:p/a:pPr/a:buAutoNum{type=arabicPeriod}")
+
+    def it_provides_access_to_its_tab_stops(self):
+        paragraph = _Paragraph(
+            cast(
+                "CT_TextParagraph",
+                element(
+                    "a:p/a:pPr/a:tabLst/(a:tab{pos=914400,algn=ctr},a:tab{pos=1828800,algn=dec})"
+                ),
+            ),
+            None,
+        )
+        tab_stops = paragraph.tab_stops
+        assert len(tab_stops) == 2
+        positions = [ts.position for ts in tab_stops]
+        alignments = [ts.alignment for ts in tab_stops]
+        assert positions == [914400, 1828800]
+        assert alignments == ["center", "decimal"]
+        assert tab_stops[0].position == 914400
+
+    def it_has_no_tab_stops_when_tabLst_absent(self):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element("a:p")), None)
+        assert len(paragraph.tab_stops) == 0
+        assert list(paragraph.tab_stops) == []
+
+    def it_can_add_a_tab_stop(self):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element("a:p")), None)
+        ts = paragraph.tab_stops.add_tab_stop(Inches(1), "right")
+        assert ts.position == Inches(1)
+        assert ts.alignment == "right"
+        assert paragraph._element.xml == xml("a:p/a:pPr/a:tabLst/a:tab{pos=914400,algn=r}")
+
+    def it_defaults_added_tab_stop_alignment_to_left(self):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element("a:p")), None)
+        paragraph.tab_stops.add_tab_stop(Inches(2))
+        assert paragraph._element.xml == xml("a:p/a:pPr/a:tabLst/a:tab{pos=1828800,algn=l}")
+
+    def it_raises_on_an_unknown_tab_stop_alignment(self):
+        paragraph = _Paragraph(cast("CT_TextParagraph", element("a:p")), None)
+        with pytest.raises(ValueError):
+            paragraph.tab_stops.add_tab_stop(Inches(1), "bogus")
+
     def it_knows_its_line_spacing(self, spacing_get_fixture):
         paragraph, expected_value = spacing_get_fixture
         assert paragraph.line_spacing == expected_value
@@ -1454,6 +1617,29 @@ def _build_font_effects_deck():
     return prs
 
 
+def _build_text_layout_deck():
+    """Return a `Presentation` exercising rtl, start_at, columns, and tab stops."""
+    from power_pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(3))
+    tf = textbox.text_frame
+    tf.text = "שלום"
+    # -- multi-column text body --
+    tf.column_count = 2
+    tf.column_spacing = Pt(18)
+    p = tf.paragraphs[0]
+    # -- right-to-left paragraph direction (Hebrew) --
+    p.rtl = True
+    # -- numbered list starting at 5 --
+    p.start_at = 5
+    # -- explicit tab stops --
+    p.tab_stops.add_tab_stop(Inches(1), "center")
+    p.tab_stops.add_tab_stop(Inches(2.5), "decimal")
+    return prs
+
+
 class DescribeFontEffectsIntegration(object):
     """Round-trip and schema-validity checks for run-level text effects."""
 
@@ -1474,6 +1660,31 @@ class DescribeFontEffectsIntegration(object):
             pytest.skip("schema validation unavailable")
 
         prs = _build_font_effects_deck()
+        buf = io.BytesIO()
+        prs.save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []
+
+
+class DescribeTextLayoutIntegration(object):
+    """Round-trip and schema-validity checks for the international/layout paragraph API."""
+
+    def it_round_trips_a_deck_with_text_layout_props(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_build_text_layout_deck())
+
+    def it_emits_schema_valid_text_layout_props(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        prs = _build_text_layout_deck()
         buf = io.BytesIO()
         prs.save(buf)
         assert list(iter_schema_violations(buf.getvalue())) == []

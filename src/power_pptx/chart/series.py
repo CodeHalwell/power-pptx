@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from power_pptx.chart.analytics import ErrorBars, Trendlines
 from power_pptx.chart.datalabel import DataLabels
 from power_pptx.chart.marker import Marker
 from power_pptx.chart.point import BubblePoints, CategoryPoints, XyPoints
@@ -100,13 +101,86 @@ class _MarkerMixin(object):
         return Marker(self._ser)
 
 
-class AreaSeries(_BaseCategorySeries):
+class _AnalyticsMixin(object):
+    """Mixin adding ``trendlines`` and ``error_bars`` to a series.
+
+    Only mixed into the series types whose schema complexType permits
+    ``<c:trendline>`` / ``<c:errBars>`` children (bar, line, scatter, area,
+    bubble). Pie and radar series do not allow them.
+    """
+
+    @lazyproperty
+    def trendlines(self):
+        """The |Trendlines| collection for this series.
+
+        Supports ``len()``, iteration, indexed access, and
+        ``.add(kind, ...)`` to fit a new analytical trendline.
+        """
+        return Trendlines(self._ser)
+
+    @lazyproperty
+    def error_bars(self):
+        """The |ErrorBars| object for this series.
+
+        Provides Excel-style constructors: ``fixed(value)``,
+        ``percentage(pct)``, ``standard_deviation(n)``, ``standard_error()``,
+        and ``custom(plus, minus)``.
+        """
+        return ErrorBars(self._ser)
+
+    @property
+    def axis_group(self):
+        """Read/write ``"primary"`` or ``"secondary"`` axis group.
+
+        A series shares the value axis of the plot (chart group) it belongs
+        to. Assigning ``"secondary"`` moves this series' whole plot onto a
+        secondary value axis, creating that axis (and a hidden secondary
+        category axis it crosses) if necessary. The newly-allocated axis ids
+        stay within the signed-int32 range so PowerPoint never flags the file
+        for repair. Assigning ``"primary"`` is only valid while the series is
+        already on the primary axis (moving back is unsupported).
+        """
+        plotArea = self._ser.xpath("ancestor::c:plotArea")[0]
+        secondary = plotArea.secondary_value_axis
+        if secondary is None:
+            return "primary"
+        secondary_id = secondary.xpath("c:axId")[0].get("val")
+        xChart = self._ser.getparent()
+        ax_ids = {a.get("val") for a in xChart.xpath("c:axId")}
+        return "secondary" if secondary_id in ax_ids else "primary"
+
+    @axis_group.setter
+    def axis_group(self, value):
+        if value not in ("primary", "secondary"):
+            raise ValueError("axis_group must be 'primary' or 'secondary', got %r" % (value,))
+        if value == "primary":
+            if self.axis_group == "secondary":
+                raise ValueError("moving a series back to the primary axis group is not supported")
+            return
+        if self.axis_group == "secondary":
+            return
+        plotArea = self._ser.xpath("ancestor::c:plotArea")[0]
+        secondary = plotArea.secondary_value_axis
+        if secondary is None:
+            plotArea.add_secondary_value_axis()
+            return
+        # -- a secondary axis already exists; re-point this series' plot onto
+        # -- the secondary axis ids.
+        val2_id = secondary.xpath("c:axId")[0].get("val")
+        cross2_id = secondary.xpath("c:crossAx")[0].get("val")
+        ax_ids = self._ser.getparent().xpath("c:axId")
+        if len(ax_ids) >= 2:
+            ax_ids[0].set("val", str(cross2_id))
+            ax_ids[1].set("val", str(val2_id))
+
+
+class AreaSeries(_BaseCategorySeries, _AnalyticsMixin):
     """
     A data point series belonging to an area plot.
     """
 
 
-class BarSeries(_BaseCategorySeries):
+class BarSeries(_BaseCategorySeries, _AnalyticsMixin):
     """A data point series belonging to a bar plot."""
 
     @property
@@ -131,7 +205,7 @@ class BarSeries(_BaseCategorySeries):
         invertIfNegative.val = value
 
 
-class LineSeries(_BaseCategorySeries, _MarkerMixin):
+class LineSeries(_BaseCategorySeries, _MarkerMixin, _AnalyticsMixin):
     """
     A data point series belonging to a line plot.
     """
@@ -166,7 +240,7 @@ class RadarSeries(_BaseCategorySeries, _MarkerMixin):
     """
 
 
-class XySeries(_BaseSeries, _MarkerMixin):
+class XySeries(_BaseSeries, _MarkerMixin, _AnalyticsMixin):
     """
     A data point series belonging to an XY (scatter) plot.
     """

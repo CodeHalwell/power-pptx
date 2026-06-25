@@ -135,6 +135,64 @@ class Theme:
             return 0
         return _rebind_shape_colors(presentation, before_palette)
 
+    def to_dark_mode(self, *, min_contrast: float = 4.5) -> "Theme":
+        """Convert this theme's palette to a dark variant **in place**.
+
+        Swaps the two background/text pairs — ``dk1``↔``lt1`` and
+        ``dk2``↔``lt2`` — so the slot that previously held the (light)
+        page background now holds the (dark) one and text/background
+        invert.  Accent colors are then nudged *only as needed* to keep
+        them legible against the new dark background: any accent whose
+        WCAG contrast ratio against the new ``lt1`` (the dark canvas)
+        falls below *min_contrast* is lightened in HSL space until it
+        clears the threshold (or reaches white).
+
+        The default ``min_contrast`` of 4.5 is the WCAG AA threshold for
+        normal-size text.  The swap and any accent adjustments are
+        written through the existing :class:`ThemeColors` setter, so the
+        change persists on save and round-trips cleanly.
+
+        Returns *self* so calls can be chained.
+        """
+        colors = self.colors
+
+        # 1. Swap the dark/light background-text pairs.  Read both ends
+        #    of each pair first so the in-place writes don't clobber a
+        #    value we still need.
+        for dark_slot, light_slot in (
+            (MSO_THEME_COLOR.DARK_1, MSO_THEME_COLOR.LIGHT_1),
+            (MSO_THEME_COLOR.DARK_2, MSO_THEME_COLOR.LIGHT_2),
+        ):
+            dark_rgb = colors.get(dark_slot)
+            light_rgb = colors.get(light_slot)
+            if dark_rgb is not None:
+                colors[light_slot] = dark_rgb
+            if light_rgb is not None:
+                colors[dark_slot] = light_rgb
+
+        # 2. The new page background is whatever lt1 now resolves to
+        #    (lt1/bg1 is the canonical canvas slot).  Raise each accent's
+        #    contrast against it to at least min_contrast.
+        background = colors.get(MSO_THEME_COLOR.LIGHT_1)
+        if background is not None:
+            accent_slots = (
+                MSO_THEME_COLOR.ACCENT_1,
+                MSO_THEME_COLOR.ACCENT_2,
+                MSO_THEME_COLOR.ACCENT_3,
+                MSO_THEME_COLOR.ACCENT_4,
+                MSO_THEME_COLOR.ACCENT_5,
+                MSO_THEME_COLOR.ACCENT_6,
+            )
+            for slot in accent_slots:
+                rgb = colors.get(slot)
+                if rgb is None:
+                    continue
+                fixed = _raise_contrast(rgb, background, min_contrast)
+                if fixed != rgb:
+                    colors[slot] = fixed
+
+        return self
+
 
 def embed_font(
     presentation,
@@ -562,6 +620,61 @@ def _rebind_shape_colors(presentation, palette_map) -> int:
                 srgb.append(child)
             rebound += 1
     return rebound
+
+
+# ---------------------------------------------------------------------------
+# Contrast helpers (WCAG)
+#
+# Duplicated from lint._relative_luminance / lint._contrast_ratio so this
+# module stays self-contained (the brief asks us not to edit lint.py).
+# ---------------------------------------------------------------------------
+
+
+def _relative_luminance(rgb: RGBColor) -> float:
+    """Return WCAG relative luminance of an ``RGBColor`` / 3-tuple."""
+    r, g, b = (int(rgb[0]) / 255.0, int(rgb[1]) / 255.0, int(rgb[2]) / 255.0)
+
+    def _ch(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+
+def _contrast_ratio(rgb_a: RGBColor, rgb_b: RGBColor) -> float:
+    """Return WCAG contrast ratio between two colors."""
+    la = _relative_luminance(rgb_a)
+    lb = _relative_luminance(rgb_b)
+    light, dark = (la, lb) if la >= lb else (lb, la)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def _raise_contrast(rgb: RGBColor, background: RGBColor, min_contrast: float) -> RGBColor:
+    """Lighten *rgb* in HSL space until it clears *min_contrast* on *background*.
+
+    Returns *rgb* unchanged when it already meets the threshold.  The hue
+    and saturation are preserved; only lightness is raised, in small
+    steps, until the contrast target is met or the color reaches white.
+    """
+    import colorsys
+
+    if _contrast_ratio(rgb, background) >= min_contrast:
+        return rgb
+
+    h, light, s = colorsys.rgb_to_hls(
+        rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
+    )
+    best = rgb
+    steps = 100
+    for i in range(1, steps + 1):
+        new_l = light + (1.0 - light) * (i / steps)
+        r, g, b = colorsys.hls_to_rgb(h, new_l, s)
+        candidate = RGBColor(
+            round(r * 255), round(g * 255), round(b * 255)
+        )
+        best = candidate
+        if _contrast_ratio(candidate, background) >= min_contrast:
+            break
+    return best
 
 
 def _insert_clr_scheme_slot(clr_scheme, slot_elm, slot_name: str) -> None:

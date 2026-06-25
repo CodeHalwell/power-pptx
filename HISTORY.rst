@@ -17,13 +17,15 @@ installs the ``pptx`` import name) is also present in the environment.
 2.9.0 (unreleased)
 ++++++++++++++++++
 
-Minor release widening the public surface across several subsystems:
-the **group-shape API** (fill, move, recursive traversal, shrink-wrap,
-and a real ``ungroup()``), **run-level text effects and typography**,
-**shape inner/preset shadows**, **chart plot/axis toggles**, **table
-cell text direction**, and **machine-readable lint/audit output**, plus
-a couple of fail-closed ``from_spec`` ergonomics fixes. All additions
-are drop-in compatible.
+Minor release widening the public surface across many subsystems: the
+**group-shape API** (fill, move, recursive traversal, shrink-wrap, and a
+real ``ungroup()``), **run-level text effects and typography**, **shape
+inner/preset shadows**, **chart plot/axis toggles plus series
+trendlines, error bars, and a secondary value axis**, **table cell text
+direction and the built-in table-style gallery**, **international &
+multi-column text layout**, **theme dark-mode and palette-from-seed**,
+and **machine-readable lint/audit output**, plus a couple of fail-closed
+``from_spec`` ergonomics fixes. All additions are drop-in compatible.
 
 Added
 ~~~~~
@@ -126,6 +128,43 @@ Added
   ``<a:tcPr vert="…">`` attribute — what matrix / rotated column
   headers need — paired with the existing ``cell.vertical_anchor``
   alias.
+
+- **Chart series analytics.** ``series.trendlines.add(kind, …)`` adds
+  ``<c:trendline>`` curves (linear, exponential, logarithmic,
+  moving-average, polynomial, power) with optional equation / R²
+  display, polynomial order, moving-average period, and forward/backward
+  projection. ``series.error_bars`` offers Excel-style constructors
+  ``fixed()`` / ``percentage()`` / ``standard_deviation()`` /
+  ``standard_error()`` / ``custom(plus, minus)``. ``chart.secondary_value_axis``
+  (and ``series.axis_group = "secondary"``) adds a second value axis and
+  moves a plot onto it — new axis ids stay in the signed-int32 range so
+  PowerPoint never flags the file for repair. Analytics are exposed only
+  on series types whose schema permits them (bar/line/scatter/area/bubble,
+  not pie/radar).
+
+- **Table-style gallery.** ``table.style`` applies one of PowerPoint's
+  built-in table styles by friendly name (``"Medium Style 2 - Accent 1"``,
+  ``"Table Grid"``, ``"No Style, No Grid"``, …) or by raw ``{GUID}``.
+  Reading returns the friendly name for known built-ins, else the GUID,
+  else |None|; ``table.style = None`` detaches the style. The discoverable
+  name→GUID mapping is exposed as ``power_pptx.table_styles.TABLE_STYLES``;
+  unknown names raise ``ValueError`` with a "did you mean" hint.
+
+- **International & layout text properties.** ``paragraph.rtl`` sets
+  right-to-left direction (Hebrew / Arabic / Farsi). ``paragraph.start_at``
+  / ``paragraph.set_numbered(scheme, start_at)`` start a numbered list at
+  an arbitrary value. ``text_frame.column_count`` / ``text_frame.column_spacing``
+  lay text out in multiple columns. ``paragraph.tab_stops`` is a collection
+  over ``<a:tabLst>`` with ``add_tab_stop(position, alignment)``.
+
+- **Theme dark-mode & palette-from-seed.** ``prs.theme.to_dark_mode()``
+  produces a dark variant of a deck's theme in place — swapping the
+  background/text pairs and lightening accents only as needed to keep WCAG
+  AA contrast. ``DesignTokens.from_seed(seed, harmony=…)`` generates a
+  full, deterministic palette from one seed colour (complementary /
+  analogous / triadic / monochromatic), and
+  ``DesignTokens.validate_color_blindness(…)`` flags palette pairs
+  confusable under deuteranopia / protanopia / tritanopia.
 
 Fixed
 ~~~~~

@@ -32,6 +32,88 @@ class XL_AXIS_CROSSES(BaseXmlEnum):
     """The axis crosses at the minimum value."""
 
 
+class XL_TRENDLINE_TYPE(BaseXmlEnum):
+    """Specifies the type of a chart-series trendline.
+
+    Example::
+
+        from power_pptx.enum.chart import XL_TRENDLINE_TYPE
+
+        series.trendlines.add(XL_TRENDLINE_TYPE.LINEAR)
+
+    The XML values map to the ``val`` attribute of ``<c:trendlineType>``.
+    """
+
+    EXPONENTIAL = (5, "exp", "An exponential-curve trendline.")
+    """An exponential-curve trendline."""
+
+    LINEAR = (-4132, "linear", "A straight-line (least-squares) trendline.")
+    """A straight-line (least-squares) trendline."""
+
+    LOGARITHMIC = (-4133, "log", "A logarithmic-curve trendline.")
+    """A logarithmic-curve trendline."""
+
+    MOVING_AVERAGE = (6, "movingAvg", "A moving-average trendline.")
+    """A moving-average trendline."""
+
+    POLYNOMIAL = (3, "poly", "A polynomial-curve trendline.")
+    """A polynomial-curve trendline."""
+
+    POWER = (4, "power", "A power-curve trendline.")
+    """A power-curve trendline."""
+
+
+class XL_ERROR_BAR_TYPE(BaseXmlEnum):
+    """Specifies the direction error bars extend from a data point.
+
+    Maps to the ``val`` attribute of ``<c:errBarType>``.
+    """
+
+    BOTH = (9, "both", "Error bars extend in both directions.")
+    """Error bars extend in both directions."""
+
+    MINUS = (-4115, "minus", "Error bars extend in the minus direction only.")
+    """Error bars extend in the minus direction only."""
+
+    PLUS = (2, "plus", "Error bars extend in the plus direction only.")
+    """Error bars extend in the plus direction only."""
+
+
+class XL_ERROR_BAR_INCLUDE(BaseXmlEnum):
+    """Specifies how error-bar amounts are calculated.
+
+    Maps to the ``val`` attribute of ``<c:errValType>``.
+    """
+
+    CUSTOM = (-4114, "cust", "Error amounts are taken from explicit plus/minus values.")
+    """Error amounts are taken from explicit plus/minus values."""
+
+    FIXED_VALUE = (1, "fixedVal", "A fixed value is used for the error amount.")
+    """A fixed value is used for the error amount."""
+
+    PERCENTAGE = (2, "percentage", "A percentage of each value is used for the error amount.")
+    """A percentage of each value is used for the error amount."""
+
+    STANDARD_DEVIATION = (-4155, "stdDev", "A number of standard deviations is used.")
+    """A number of standard deviations is used."""
+
+    STANDARD_ERROR = (4, "stdErr", "The standard error is used for the error amount.")
+    """The standard error is used for the error amount."""
+
+
+class XL_ERROR_BAR_DIRECTION(BaseXmlEnum):
+    """Specifies the axis along which error bars are drawn.
+
+    Maps to the ``val`` attribute of ``<c:errDir>``.
+    """
+
+    X = (-4168, "x", "Error bars are drawn along the X (category/horizontal) axis.")
+    """Error bars are drawn along the X (category/horizontal) axis."""
+
+    Y = (1, "y", "Error bars are drawn along the Y (value/vertical) axis.")
+    """Error bars are drawn along the Y (value/vertical) axis."""
+
+
 class XL_CATEGORY_TYPE(BaseEnum):
     """Specifies the type of the category axis.
 

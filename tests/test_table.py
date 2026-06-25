@@ -1106,3 +1106,159 @@ class DescribeCellTextDirectionIntegration(object):
         buf = io.BytesIO()
         prs.save(buf)
         assert list(iter_schema_violations(buf.getvalue())) == []
+
+
+class DescribeTableStyleGallery(object):
+    """Unit-test suite for ``Table.style`` (the built-in table-style gallery)."""
+
+    def _new_table(self, rows=2, cols=2):
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        gf = slide.shapes.add_table(rows, cols, Inches(1), Inches(1), Inches(4), Inches(2))
+        return prs, gf.table
+
+    def it_sets_the_style_by_friendly_name(self):
+        from power_pptx.table_styles import TABLE_STYLES
+
+        _, table = self._new_table()
+
+        table.style = "Table Grid"
+
+        guid = TABLE_STYLES["Table Grid"]
+        style_id = table._tbl.tblPr.find(qn("a:tableStyleId"))
+        assert style_id is not None
+        assert style_id.text == guid
+
+    def it_sets_the_style_by_raw_guid(self):
+        _, table = self._new_table()
+        guid = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
+
+        table.style = guid
+
+        style_id = table._tbl.tblPr.find(qn("a:tableStyleId"))
+        assert style_id is not None
+        assert style_id.text == guid
+
+    def it_reads_back_the_friendly_name_for_a_known_guid(self):
+        _, table = self._new_table()
+
+        table.style = "Medium Style 2 - Accent 1"
+
+        assert table.style == "Medium Style 2 - Accent 1"
+
+    def it_reads_back_the_raw_guid_for_an_unknown_style_id(self):
+        _, table = self._new_table()
+        unknown = "{00000000-0000-0000-0000-000000000000}"
+
+        table.style = unknown
+
+        assert table.style == unknown
+
+    def it_reports_None_when_no_style_id_is_present(self):
+        _, table = self._new_table()
+
+        table.clear_style()
+
+        assert table.style is None
+
+    def it_clears_the_style_when_assigned_None(self):
+        _, table = self._new_table()
+        table.style = "Table Grid"
+
+        table.style = None
+
+        assert table.style is None
+        assert table._tbl.tblPr.find(qn("a:tableStyleId")) is None
+
+    def it_raises_a_clear_ValueError_for_an_unknown_name(self):
+        _, table = self._new_table()
+
+        with pytest.raises(ValueError) as exc:
+            table.style = "Medium Style 2 Accent 1"
+
+        message = str(exc.value)
+        assert "not a known built-in table style name" in message
+        # the "did you mean" hint should suggest the correct hyphenated name
+        assert "Medium Style 2 - Accent 1" in message
+
+    def it_overwrites_an_existing_style_id_rather_than_duplicating(self):
+        _, table = self._new_table()
+
+        table.style = "Table Grid"
+        table.style = "Medium Style 2 - Accent 1"
+
+        style_ids = table._tbl.tblPr.findall(qn("a:tableStyleId"))
+        assert len(style_ids) == 1
+        assert table.style == "Medium Style 2 - Accent 1"
+
+    def it_exposes_a_discoverable_name_to_guid_mapping(self):
+        from power_pptx.table_styles import TABLE_STYLES
+
+        assert TABLE_STYLES["Table Grid"] == "{5940675A-B579-460E-94D1-54222C63F5DA}"
+        assert TABLE_STYLES["No Style, No Grid"] == "{2D5ABB26-0587-4C30-8999-92F81FD0307C}"
+        assert TABLE_STYLES["Medium Style 2 - Accent 1"] == (
+            "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
+        )
+        # every GUID is a well-formed brace-wrapped string
+        for name, guid in TABLE_STYLES.items():
+            assert guid.startswith("{"), name
+            assert guid.endswith("}"), name
+
+    def it_round_trips_a_table_with_a_named_style(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        def factory():
+            prs, table = self._new_table()
+            table.style = "Medium Style 2 - Accent 1"
+            return prs
+
+        assert_round_trip(factory)
+
+    def it_emits_schema_valid_xml_for_a_named_style(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable (lxml/XSD missing)")
+
+        prs, table = self._new_table()
+        table.style = "Light Style 3 - Accent 2"
+
+        buf = io.BytesIO()
+        prs.save(buf)
+
+        assert list(iter_schema_violations(buf.getvalue())) == []
+
+
+class DescribeCT_TablePropertiesStyleId(object):
+    """Unit-test suite for the ``tableStyleId`` accessor on ``a:tblPr``."""
+
+    def it_adds_a_tableStyleId_child_when_set(self):
+        tblPr = element("a:tblPr")
+        guid = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
+
+        tblPr.tableStyleId_val = guid
+
+        child = tblPr.find(qn("a:tableStyleId"))
+        assert child is not None
+        assert child.text == guid
+
+    def it_reads_None_when_no_tableStyleId_present(self):
+        tblPr = element("a:tblPr")
+
+        assert tblPr.tableStyleId_val is None
+
+    def it_removes_the_tableStyleId_child_when_cleared(self):
+        tblPr = element("a:tblPr/a:tableStyleId")
+        tblPr.tableStyleId_val = "{5940675A-B579-460E-94D1-54222C63F5DA}"
+        assert tblPr.find(qn("a:tableStyleId")) is not None
+
+        tblPr.tableStyleId_val = None
+
+        assert tblPr.find(qn("a:tableStyleId")) is None

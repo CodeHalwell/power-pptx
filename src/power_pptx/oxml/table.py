@@ -449,12 +449,41 @@ class CT_TableGrid(BaseOxmlElement):
 class CT_TableProperties(BaseOxmlElement):
     """`a:tblPr` custom element class."""
 
+    get_or_add_tableStyleId: Callable[[], BaseOxmlElement]
+    _remove_tableStyleId: Callable[[], None]
+
+    # `a:tableStyleId` is the second member of a choice
+    # (`a:tableStyle` | `a:tableStyleId`) that follows the fill/effect
+    # property groups and precedes `a:extLst` in `CT_TableProperties`
+    # (ISO/IEC 29500-1, dml-main.xsd). Built-in styles are referenced by
+    # GUID through this element.
+    tableStyleId: BaseOxmlElement | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:tableStyleId", successors=("a:extLst",)
+    )
+
     bandRow = OptionalAttribute("bandRow", XsdBoolean, default=False)
     bandCol = OptionalAttribute("bandCol", XsdBoolean, default=False)
     firstRow = OptionalAttribute("firstRow", XsdBoolean, default=False)
     firstCol = OptionalAttribute("firstCol", XsdBoolean, default=False)
     lastRow = OptionalAttribute("lastRow", XsdBoolean, default=False)
     lastCol = OptionalAttribute("lastCol", XsdBoolean, default=False)
+
+    @property
+    def tableStyleId_val(self) -> str | None:
+        """The GUID string held by the `a:tableStyleId` child, or |None|."""
+        tableStyleId = self.tableStyleId
+        if tableStyleId is None:
+            return None
+        text = tableStyleId.text
+        return text if text else None
+
+    @tableStyleId_val.setter
+    def tableStyleId_val(self, guid: str | None) -> None:
+        """Set (or clear when |None|) the GUID held by the `a:tableStyleId` child."""
+        if guid is None:
+            self._remove_tableStyleId()
+            return
+        self.get_or_add_tableStyleId().text = guid
 
 
 class CT_TableRow(BaseOxmlElement):
