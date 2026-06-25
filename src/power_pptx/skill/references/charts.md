@@ -195,3 +195,20 @@ chart.apply_quick_layout("title_axes_legend_bottom")
 # Override the title text
 chart.chart_title.text_frame.text = "ARR & NDR ($M / %)"
 ```
+
+## Plot & axis fine-tuning ("go to Excel for this" gaps)
+
+Knobs that previously required hand-editing in Excel:
+
+- **Doughnut hole size** — `plot.hole_size = 65` (int 10–90; default 50).
+- **Smoothed lines** — `plot.smooth = True` on a `LinePlot` curve-fits
+  every series; reads back `True` only when all series are smoothed.
+- **Logarithmic value axis** — `chart.value_axis.log_base = 10` (float
+  2–1000); set `= None` to restore a linear axis.
+
+```python
+plot = chart.plots[0]
+plot.hole_size = 65            # doughnut
+plot.smooth = True            # line chart
+chart.value_axis.log_base = 10
+```

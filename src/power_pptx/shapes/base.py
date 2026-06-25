@@ -8,6 +8,8 @@ from power_pptx.action import ActionSetting
 from power_pptx.dml.effect import (
     BlurFormat,
     GlowFormat,
+    InnerShadowFormat,
+    PresetShadowFormat,
     ReflectionFormat,
     ShadowFormat,
     SoftEdgeFormat,
@@ -216,6 +218,28 @@ class BaseShape(object):
         skip GraphicFrames cleanly.
         """
         return ShadowFormat(self._element.spPr)
+
+    @lazyproperty
+    def inner_shadow(self) -> InnerShadowFormat:
+        """|InnerShadowFormat| object providing access to the inner-shadow effect.
+
+        An |InnerShadowFormat| facade is always returned, even when no inner
+        shadow is explicitly defined — its individual properties
+        (``blur_radius``, ``distance``, ``direction``, ``color``) return
+        ``None`` in that case.
+        """
+        return InnerShadowFormat(self._element.spPr)
+
+    @lazyproperty
+    def preset_shadow(self) -> PresetShadowFormat:
+        """|PresetShadowFormat| object providing access to the preset-shadow effect.
+
+        A |PresetShadowFormat| facade is always returned, even when no preset
+        shadow is explicitly defined — ``preset`` returns ``None`` in that
+        case.  Assign ``preset_shadow.preset`` an :class:`MSO_PRESET_SHADOW`
+        member or a ``"shdw1".."shdw20"`` string to apply one.
+        """
+        return PresetShadowFormat(self._element.spPr)
 
     @lazyproperty
     def soft_edges(self) -> SoftEdgeFormat:

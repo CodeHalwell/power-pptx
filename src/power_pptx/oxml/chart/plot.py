@@ -8,6 +8,7 @@ from power_pptx.oxml.simpletypes import (
     ST_BubbleScale,
     ST_GapAmount,
     ST_Grouping,
+    ST_HoleSize,
     ST_Overlap,
 )
 from power_pptx.oxml.xmlchemy import (
@@ -240,6 +241,7 @@ class CT_DoughnutChart(BaseChartElement):
     varyColors = ZeroOrOne("c:varyColors", successors=_tag_seq[1:])
     ser = ZeroOrMore("c:ser", successors=_tag_seq[2:])
     dLbls = ZeroOrOne("c:dLbls", successors=_tag_seq[3:])
+    holeSize = ZeroOrOne("c:holeSize", successors=_tag_seq[5:])
     del _tag_seq
 
 
@@ -250,6 +252,15 @@ class CT_GapAmount(BaseOxmlElement):
     """
 
     val = OptionalAttribute("val", ST_GapAmount, default=150)
+
+
+class CT_HoleSize(BaseOxmlElement):
+    """
+    ``<c:holeSize>`` child of a ``<c:doughnutChart>`` element, specifying the
+    size of the doughnut hole as an integer percentage of the chart radius.
+    """
+
+    val = OptionalAttribute("val", ST_HoleSize, default=10)
 
 
 class CT_Grouping(BaseOxmlElement):
@@ -343,3 +354,11 @@ class CT_ScatterChart(BaseChartElement):
     varyColors = ZeroOrOne("c:varyColors", successors=_tag_seq[2:])
     ser = ZeroOrMore("c:ser", successors=_tag_seq[3:])
     del _tag_seq
+
+
+# -- element-class registrations for elements introduced in this module that
+# -- are not registered from `power_pptx.oxml.__init__`. The import is local to
+# -- avoid a circular import at package-initialization time.
+from power_pptx.oxml import register_element_cls  # noqa: E402
+
+register_element_cls("c:holeSize", CT_HoleSize)

@@ -325,6 +325,128 @@ class DescribeBubblePlot(object):
         return bubble_plot, new_value, expected_xml
 
 
+class DescribeDoughnutPlot(object):
+    def it_knows_its_hole_size(self, hole_size_get_fixture):
+        doughnut_plot, expected_value = hole_size_get_fixture
+        assert doughnut_plot.hole_size == expected_value
+
+    def it_can_change_its_hole_size(self, hole_size_set_fixture):
+        doughnut_plot, new_value, expected_xml = hole_size_set_fixture
+        doughnut_plot.hole_size = new_value
+        assert doughnut_plot._element.xml == expected_xml
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture(
+        params=[
+            ("c:doughnutChart", 50),
+            ("c:doughnutChart/c:holeSize{val=60}", 60),
+            ("c:doughnutChart/c:holeSize{val=075%}", 75),
+        ]
+    )
+    def hole_size_get_fixture(self, request):
+        doughnutChart_cxml, expected_value = request.param
+        doughnut_plot = DoughnutPlot(element(doughnutChart_cxml), None)
+        return doughnut_plot, expected_value
+
+    @pytest.fixture(
+        params=[
+            ("c:doughnutChart", 25, "c:doughnutChart/c:holeSize{val=25}"),
+            (
+                "c:doughnutChart/c:holeSize{val=50}",
+                90,
+                "c:doughnutChart/c:holeSize{val=90}",
+            ),
+        ]
+    )
+    def hole_size_set_fixture(self, request):
+        doughnutChart_cxml, new_value, expected_cxml = request.param
+        doughnut_plot = DoughnutPlot(element(doughnutChart_cxml), None)
+        expected_xml = xml(expected_cxml)
+        return doughnut_plot, new_value, expected_xml
+
+
+class DescribeLinePlot(object):
+    def it_knows_whether_its_lines_are_smoothed(self, smooth_get_fixture):
+        line_plot, expected_value = smooth_get_fixture
+        assert line_plot.smooth == expected_value
+
+    def it_can_change_whether_its_lines_are_smoothed(self, smooth_set_fixture):
+        line_plot, new_value, expected_xml = smooth_set_fixture
+        line_plot.smooth = new_value
+        assert line_plot._element.xml == expected_xml
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture(
+        params=[
+            # -- no series at all -> not smoothed --
+            ("c:lineChart", False),
+            # -- series present but no smooth element -> not smoothed --
+            ("c:lineChart/c:ser/(c:idx{val=0},c:order{val=0})", False),
+            # -- single series smoothed -> True --
+            (
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=1})",
+                True,
+            ),
+            # -- single series explicitly un-smoothed -> False --
+            (
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=0})",
+                False,
+            ),
+            # -- all series smoothed -> True --
+            (
+                "c:lineChart/("
+                "c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=1}),"
+                "c:ser/(c:idx{val=1},c:order{val=1},c:smooth{val=1}))",
+                True,
+            ),
+            # -- only some series smoothed -> False --
+            (
+                "c:lineChart/("
+                "c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=1}),"
+                "c:ser/(c:idx{val=1},c:order{val=1}))",
+                False,
+            ),
+        ]
+    )
+    def smooth_get_fixture(self, request):
+        lineChart_cxml, expected_value = request.param
+        line_plot = LinePlot(element(lineChart_cxml), None)
+        return line_plot, expected_value
+
+    @pytest.fixture(
+        params=[
+            # -- `c:smooth` is a CT_Boolean whose `val` defaults to True, so
+            # -- setting True elides the attribute; False is emitted explicitly.
+            (
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0})",
+                True,
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0},c:smooth)",
+            ),
+            (
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=1})",
+                False,
+                "c:lineChart/c:ser/(c:idx{val=0},c:order{val=0},c:smooth{val=0})",
+            ),
+            (
+                "c:lineChart/("
+                "c:ser/(c:idx{val=0},c:order{val=0}),"
+                "c:ser/(c:idx{val=1},c:order{val=1}))",
+                True,
+                "c:lineChart/("
+                "c:ser/(c:idx{val=0},c:order{val=0},c:smooth),"
+                "c:ser/(c:idx{val=1},c:order{val=1},c:smooth))",
+            ),
+        ]
+    )
+    def smooth_set_fixture(self, request):
+        lineChart_cxml, new_value, expected_cxml = request.param
+        line_plot = LinePlot(element(lineChart_cxml), None)
+        expected_xml = xml(expected_cxml)
+        return line_plot, new_value, expected_xml
+
+
 class DescribePlotFactory(object):
     def it_contructs_a_plot_object_from_a_plot_element(self, call_fixture):
         xChart, chart_, PlotClass_, plot_ = call_fixture

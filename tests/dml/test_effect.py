@@ -205,8 +205,7 @@ class DescribeReflectionFormat(object):
 
     def it_reads_explicit_attributes(self):
         spPr = element(
-            "p:spPr/a:effectLst/a:reflection{blurRad=38100,dist=50800,dir=5400000"
-            ",stA=50000,endA=0}"
+            "p:spPr/a:effectLst/a:reflection{blurRad=38100,dist=50800,dir=5400000,stA=50000,endA=0}"
         )
         reflection = ReflectionFormat(spPr)
         assert reflection.blur_radius == Emu(38100)
@@ -247,3 +246,216 @@ class DescribeReflectionFormat(object):
         assert spPr.effectLst.reflection is not None
         assert reflection.blur_radius is None
         assert reflection.distance == Emu(50800)
+
+
+class DescribeInnerShadowFormat(object):
+    def it_returns_None_for_unset_attributes(self):
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        inner = InnerShadowFormat(element("p:spPr"))
+        assert inner.blur_radius is None
+        assert inner.distance is None
+        assert inner.direction is None
+        assert inner.color.rgb is None
+        assert inner._element.xml == xml("p:spPr")
+
+    def it_reads_explicit_attributes(self):
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        spPr = element(
+            "p:spPr/a:effectLst/a:innerShdw{blurRad=50800,dist=38100,dir=2700000}"
+            "/a:srgbClr{val=112233}"
+        )
+        inner = InnerShadowFormat(spPr)
+        assert inner.blur_radius == Emu(50800)
+        assert inner.distance == Emu(38100)
+        assert inner.direction == 45.0
+
+    def it_reads_explicit_color(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        spPr = element("p:spPr/a:effectLst/a:innerShdw/a:srgbClr{val=112233}")
+        inner = InnerShadowFormat(spPr)
+        assert inner.color.rgb == RGBColor(0x11, 0x22, 0x33)
+
+    def it_creates_innerShdw_element_lazily_on_set(self):
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        spPr = element("p:spPr")
+        inner = InnerShadowFormat(spPr)
+
+        assert spPr.effectLst is None
+
+        inner.blur_radius = Emu(50800)
+
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.innerShdw is not None
+        assert inner.blur_radius == Emu(50800)
+
+    def it_writes_a_colour_child_for_a_geometry_only_inner_shadow(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        inner = InnerShadowFormat(element("p:spPr"))
+        inner.distance = Emu(38100)
+        # <a:innerShdw> requires exactly one EG_ColorChoice child; geometry-only
+        # writes must still emit a colour or PowerPoint flags the deck broken.
+        assert inner.color.rgb == RGBColor(0x00, 0x00, 0x00)
+
+    def it_sets_direction_and_color_together(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        inner = InnerShadowFormat(element("p:spPr"))
+        inner.direction = 90.0
+        inner.color.rgb = RGBColor(0xAA, 0xBB, 0xCC)
+        assert inner.direction == 90.0
+        assert inner.color.rgb == RGBColor(0xAA, 0xBB, 0xCC)
+
+    def it_supports_direct_color_assignment(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import InnerShadowFormat
+
+        inner = InnerShadowFormat(element("p:spPr"))
+        inner.color = RGBColor(0x11, 0x22, 0x33)
+        assert inner.color.rgb == RGBColor(0x11, 0x22, 0x33)
+
+
+class DescribePresetShadowFormat(object):
+    def it_returns_None_for_unset_attributes(self):
+        from power_pptx.dml.effect import PresetShadowFormat
+
+        preset = PresetShadowFormat(element("p:spPr"))
+        assert preset.preset is None
+        assert preset.distance is None
+        assert preset.direction is None
+        assert preset.color.rgb is None
+        assert preset._element.xml == xml("p:spPr")
+
+    def it_reads_explicit_preset_and_attributes(self):
+        from power_pptx.dml.effect import PresetShadowFormat
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        spPr = element(
+            "p:spPr/a:effectLst/a:prstShdw{prst=shdw5,dist=38100,dir=2700000}/a:srgbClr{val=aabbcc}"
+        )
+        preset = PresetShadowFormat(spPr)
+        assert preset.preset is MSO_PRESET_SHADOW.SHADOW_5
+        assert preset.distance == Emu(38100)
+        assert preset.direction == 45.0
+
+    def it_accepts_a_preset_string(self):
+        from power_pptx.dml.effect import PresetShadowFormat
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        preset = PresetShadowFormat(element("p:spPr"))
+        preset.preset = "shdw7"
+        assert preset.preset is MSO_PRESET_SHADOW.SHADOW_7
+
+    def it_accepts_an_enum_member(self):
+        from power_pptx.dml.effect import PresetShadowFormat
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        preset = PresetShadowFormat(element("p:spPr"))
+        preset.preset = MSO_PRESET_SHADOW.SHADOW_12
+        assert preset.preset is MSO_PRESET_SHADOW.SHADOW_12
+
+    def it_defaults_preset_to_shdw1_on_geometry_only_write(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import PresetShadowFormat
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        # `prst` is schema-REQUIRED; setting only distance/color must still
+        # produce a valid element with a preset and a colour child.
+        preset = PresetShadowFormat(element("p:spPr"))
+        preset.distance = Emu(38100)
+        assert preset.preset is MSO_PRESET_SHADOW.SHADOW_1
+        assert preset.color.rgb == RGBColor(0x00, 0x00, 0x00)
+
+    def it_reads_explicit_color(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import PresetShadowFormat
+
+        spPr = element("p:spPr/a:effectLst/a:prstShdw{prst=shdw3}/a:srgbClr{val=aabbcc}")
+        preset = PresetShadowFormat(spPr)
+        assert preset.color.rgb == RGBColor(0xAA, 0xBB, 0xCC)
+
+    def it_clears_the_element_when_preset_set_to_None(self):
+        from power_pptx.dml.effect import PresetShadowFormat
+
+        spPr = element("p:spPr/a:effectLst/a:prstShdw{prst=shdw5}/a:srgbClr{val=aabbcc}")
+        preset = PresetShadowFormat(spPr)
+
+        preset.preset = None
+
+        assert spPr.effectLst is not None
+        assert spPr.effectLst.prstShdw is None
+
+    def it_supports_direct_color_assignment(self):
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.dml.effect import PresetShadowFormat
+
+        preset = PresetShadowFormat(element("p:spPr"))
+        preset.color = RGBColor(0x11, 0x22, 0x33)
+        assert preset.color.rgb == RGBColor(0x11, 0x22, 0x33)
+
+
+def _deck_with_shadow_effects():
+    """Build a one-slide deck with an inner-shadow shape and a preset-shadow shape."""
+    from power_pptx import Presentation
+    from power_pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.util import Inches
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    sp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5))
+    sp.inner_shadow.blur_radius = Emu(50800)
+    sp.inner_shadow.distance = Emu(38100)
+    sp.inner_shadow.direction = 45.0
+    sp.inner_shadow.color.rgb = (0x11, 0x22, 0x33)
+
+    sp2 = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(3), Inches(3), Inches(1.5))
+    sp2.preset_shadow.preset = "shdw5"
+    sp2.preset_shadow.distance = Emu(38100)
+    sp2.preset_shadow.color.rgb = (0xAA, 0xBB, 0xCC)
+    return prs
+
+
+class DescribeShadowEffectsRoundTrip(object):
+    def it_round_trips_inner_and_preset_shadow(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_deck_with_shadow_effects())
+
+    def it_reopens_inner_and_preset_shadow(self):
+        import io
+
+        from power_pptx import Presentation
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        buf = io.BytesIO()
+        _deck_with_shadow_effects().save(buf)
+        buf.seek(0)
+        prs = Presentation(buf)
+        shapes = list(prs.slides[0].shapes)
+        assert shapes[0].inner_shadow.blur_radius == Emu(50800)
+        assert shapes[0].inner_shadow.direction == 45.0
+        assert shapes[1].preset_shadow.preset is MSO_PRESET_SHADOW.SHADOW_5
+
+
+class DescribeShadowEffectsSchemaValidity(object):
+    def it_emits_schema_valid_inner_and_preset_shadow(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        buf = io.BytesIO()
+        _deck_with_shadow_effects().save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []

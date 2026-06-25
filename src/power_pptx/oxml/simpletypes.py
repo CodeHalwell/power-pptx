@@ -423,6 +423,24 @@ class ST_HexColorRGB(BaseStringType):
             raise ValueError("RGB string must be valid hex string, got '%s'" % str_value)
 
 
+class ST_HoleSize(BaseIntType):
+    """
+    String value is an integer in range 10-90, representing a percent,
+    optionally including a '%' suffix. Used for the `val` attribute of the
+    `c:holeSize` element of a doughnut chart.
+    """
+
+    @classmethod
+    def convert_from_xml(cls, str_value):
+        if "%" in str_value:
+            return int(str_value[:-1])
+        return super(ST_HoleSize, cls).convert_from_xml(str_value)
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_int_in_range(value, 10, 90)
+
+
 class ST_LayoutMode(XsdStringEnumeration):
     """
     Valid values for `val` attribute on c:xMode and other elements of type
@@ -464,6 +482,19 @@ class ST_LineWidth(XsdInt):
             raise ValueError(
                 "value must be in range 0-20116800 inclusive (0-1584 points)" ", got %d" % value
             )
+
+
+class ST_LogBase(XsdDouble):
+    """
+    Valid values for the `val` attribute of the `c:logBase` element, a float
+    in range 2-1000 inclusive specifying a logarithmic axis scale base.
+    """
+
+    @classmethod
+    def validate(cls, value):
+        super(ST_LogBase, cls).validate(value)
+        if value < 2 or value > 1000:
+            raise ValueError("value must be in range 2 to 1000 inclusive, got %s" % value)
 
 
 class ST_MarkerSize(XsdUnsignedByte):
@@ -756,6 +787,32 @@ class ST_TextStrikeType(XsdTokenEnumeration):
     DOUBLE = "dblStrike"
 
     _members = (NO_STRIKE, SINGLE, DOUBLE)
+
+
+class ST_TextVerticalType(XsdTokenEnumeration):
+    """Valid values for the `vert` attribute (text direction).
+
+    Used on `<a:bodyPr vert="">` and `<a:tcPr vert="">` to rotate or stack
+    cell/shape text. See ST_TextVerticalType in the ISO/IEC 29500 schema.
+    """
+
+    HORZ = "horz"
+    VERT = "vert"
+    VERT_270 = "vert270"
+    WORD_ART_VERT = "wordArtVert"
+    EA_VERT = "eaVert"
+    MONGOLIAN_VERT = "mongolianVert"
+    WORD_ART_VERT_RTL = "wordArtVertRtl"
+
+    _members = (
+        HORZ,
+        VERT,
+        VERT_270,
+        WORD_ART_VERT,
+        EA_VERT,
+        MONGOLIAN_VERT,
+        WORD_ART_VERT_RTL,
+    )
 
 
 class ST_TextTypeface(XsdString):

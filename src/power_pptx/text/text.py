@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterator, cast
 
 from power_pptx.dml.color import _LazyColorFormat
+from power_pptx.dml.effect import GlowFormat, ShadowFormat
 from power_pptx.dml.fill import FillFormat
+from power_pptx.dml.line import LineFormat
 from power_pptx.enum.lang import MSO_LANGUAGE_ID
 from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_UNDERLINE, MSO_VERTICAL_ANCHOR
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -428,6 +430,52 @@ class Font(object):
     @italic.setter
     def italic(self, value: bool | None):
         self._rPr.i = value
+
+    @lazyproperty
+    def outline(self) -> LineFormat:
+        """|LineFormat| for the text-outline stroke of this font.
+
+        Wraps the `<a:ln>` child of the run's `<a:rPr>`, letting you give glyphs a
+        coloured outline::
+
+            run.font.outline.color.rgb = "FF0000"
+            run.font.outline.width = Pt(1)
+
+        Reads are non-mutating — no `<a:ln>` element is written until an outline
+        property is assigned, preserving inheritance from the style hierarchy.
+        """
+        return LineFormat(self._rPr)
+
+    @lazyproperty
+    def shadow(self) -> ShadowFormat:
+        """|ShadowFormat| for the outer-shadow effect on this font's glyphs.
+
+        Wraps the `<a:effectLst>` child of the run's `<a:rPr>`::
+
+            run.font.shadow.color.rgb = "808080"
+            run.font.shadow.blur_radius = Pt(3)
+
+        Reads are non-mutating; the effect XML is created lazily on first write.
+        """
+        # -- ShadowFormat needs an element exposing `effectLst` /
+        # -- `get_or_add_effectLst`, which CT_TextCharacterProperties now
+        # -- provides; the annotated `CT_ShapeProperties` is structural here. --
+        return ShadowFormat(self._rPr)  # pyright: ignore[reportArgumentType]
+
+    @lazyproperty
+    def glow(self) -> GlowFormat:
+        """|GlowFormat| for the glow effect on this font's glyphs.
+
+        Wraps the `<a:effectLst>` child of the run's `<a:rPr>`::
+
+            run.font.glow.color.rgb = "00B0F0"
+            run.font.glow.radius = Pt(6)
+
+        Reads are non-mutating; the effect XML is created lazily on first write.
+        """
+        # -- GlowFormat needs an element exposing `effectLst` /
+        # -- `get_or_add_effectLst` (structural; see `shadow` above). --
+        return GlowFormat(self._rPr)  # pyright: ignore[reportArgumentType]
 
     @property
     def caps(self) -> str | None:

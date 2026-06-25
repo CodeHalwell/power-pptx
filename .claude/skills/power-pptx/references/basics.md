@@ -87,6 +87,21 @@ All are tri-state: `None` (the default) inherits from the theme/master,
 `True`/`False` write an explicit override. They round-trip and validate
 against the OOXML schema.
 
+### Text effects (outline, shadow, glow)
+
+Per-run glyph effects live on `run.font`, mirroring shape
+`.line`/`.shadow`/`.glow`:
+
+```python
+run.font.outline.color.rgb = "FF0000"   # coloured glyph outline...
+run.font.outline.width = Pt(1)          # ...of a given stroke width
+run.font.shadow.color.rgb = "808080"; run.font.shadow.blur_radius = Pt(3)
+run.font.glow.color.rgb = "00B0F0";   run.font.glow.radius = Pt(6)
+```
+
+Reads are non-mutating — nothing is written until you assign, so theme
+inheritance is preserved.
+
 ## Auto shapes
 
 ```python

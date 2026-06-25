@@ -478,6 +478,20 @@ class ValueAxis(_BaseAxis):
         cross_xAx._add_crossesAt(val=value)
 
     @property
+    def log_base(self):
+        """
+        Read/write float specifying the base of the logarithmic scale for this
+        value axis. |None| (the default) indicates a linear scale. Valid
+        values are in range 2 to 1000 inclusive. Assigning |None| removes the
+        log scale, restoring a linear axis.
+        """
+        return self._element.scaling.log_base
+
+    @log_base.setter
+    def log_base(self, value):
+        self._element.scaling.log_base = value
+
+    @property
     def major_unit(self):
         """
         The float number of units between major tick marks on this value

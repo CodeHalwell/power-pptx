@@ -17,10 +17,13 @@ installs the ``pptx`` import name) is also present in the environment.
 2.9.0 (unreleased)
 ++++++++++++++++++
 
-Minor release filling out the **group-shape surface**, previously the
-smallest and least-ergonomic corner of the shape API. Groups gained a
-fill, an atomic move, recursive traversal, shrink-wrap, and — the
-headline — a real ``ungroup()``. All additions are drop-in compatible.
+Minor release widening the public surface across several subsystems:
+the **group-shape API** (fill, move, recursive traversal, shrink-wrap,
+and a real ``ungroup()``), **run-level text effects and typography**,
+**shape inner/preset shadows**, **chart plot/axis toggles**, **table
+cell text direction**, and **machine-readable lint/audit output**, plus
+a couple of fail-closed ``from_spec`` ergonomics fixes. All additions
+are drop-in compatible.
 
 Added
 ~~~~~
@@ -93,6 +96,36 @@ Added
   ``slide_size`` shorthands — e.g. ``Unknown spec keys: 'slidez' (did
   you mean 'slides'?)``. Makes a spec typo recoverable in a single
   follow-up, which matters most for an LLM authoring the spec.
+
+- **Run-level text effects on ``Font``.** ``run.font.outline`` returns a
+  |LineFormat| over the run's text-outline stroke (``<a:ln>`` of
+  ``<a:rPr>``), giving glyphs a coloured outline of a chosen width.
+  ``run.font.shadow`` / ``run.font.glow`` return |ShadowFormat| /
+  |GlowFormat| over the run's ``<a:effectLst>``. All three read
+  non-mutatingly (no XML until assigned), preserving theme inheritance.
+
+- **Inner- and preset-shadow effects on shapes.** ``shape.inner_shadow``
+  (``InnerShadowFormat`` over ``<a:innerShdw>``) and
+  ``shape.preset_shadow`` (``PresetShadowFormat`` over ``<a:prstShdw>``)
+  join ``shape.shadow`` as first-class effect proxies. ``inner_shadow``
+  exposes ``blur_radius`` / ``distance`` / ``direction`` / ``color``;
+  ``preset_shadow`` exposes ``preset`` (an ``MSO_PRESET_SHADOW`` member
+  or ``"shdw1".."shdw20"`` string) plus geometry and colour. New
+  ``MSO_PRESET_SHADOW`` enum. The required ``prst`` and a colour child
+  are always emitted, so output stays schema-valid.
+
+- **Chart "go to Excel for this" toggles.** ``DoughnutPlot.hole_size``
+  (int 10–90), ``LinePlot.smooth`` (bool, smooths every series), and
+  ``ValueAxis.log_base`` (float 2–1000, or ``None`` for a linear axis).
+  ``smooth`` is exposed only where the series element permits it, so it
+  doesn't re-introduce the radar-chart ``<c:smooth>`` schema bug.
+
+- **Table cell text direction.** ``cell.text_direction`` rotates or
+  stacks cell text via friendly strings (``"horizontal"``,
+  ``"rotate90"``, ``"rotate270"``, ``"stacked"``) over the
+  ``<a:tcPr vert="…">`` attribute — what matrix / rotated column
+  headers need — paired with the existing ``cell.vertical_anchor``
+  alias.
 
 Fixed
 ~~~~~

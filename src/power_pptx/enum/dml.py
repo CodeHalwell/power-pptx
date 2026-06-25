@@ -660,3 +660,74 @@ class PresetMaterial(BaseXmlEnum):
 
     WARM_MATTE = (16, "warmMatte", "Warm matte material.")
     """Warm matte material."""
+
+
+class MSO_PRESET_SHADOW(BaseXmlEnum):
+    """Preset-shadow style for a shape.
+
+    Used with ``shape.preset_shadow.preset``.  Maps to the (schema-required)
+    ``prst`` attribute on ``<a:prstShdw>``, whose ISO/IEC 29500
+    ``ST_PresetShadowVal`` enumeration spans the twenty values ``shdw1`` ..
+    ``shdw20``.  The bare strings ``"shdw1"`` .. ``"shdw20"`` are also accepted
+    by ``preset_shadow.preset`` for convenience.
+    """
+
+    SHADOW_1 = (1, "shdw1", "Preset shadow 1 (top-left offset).")
+    """Preset shadow 1."""
+
+    SHADOW_2 = (2, "shdw2", "Preset shadow 2.")
+    """Preset shadow 2."""
+
+    SHADOW_3 = (3, "shdw3", "Preset shadow 3.")
+    """Preset shadow 3."""
+
+    SHADOW_4 = (4, "shdw4", "Preset shadow 4.")
+    """Preset shadow 4."""
+
+    SHADOW_5 = (5, "shdw5", "Preset shadow 5.")
+    """Preset shadow 5."""
+
+    SHADOW_6 = (6, "shdw6", "Preset shadow 6.")
+    """Preset shadow 6."""
+
+    SHADOW_7 = (7, "shdw7", "Preset shadow 7.")
+    """Preset shadow 7."""
+
+    SHADOW_8 = (8, "shdw8", "Preset shadow 8.")
+    """Preset shadow 8."""
+
+    SHADOW_9 = (9, "shdw9", "Preset shadow 9.")
+    """Preset shadow 9."""
+
+    SHADOW_10 = (10, "shdw10", "Preset shadow 10.")
+    """Preset shadow 10."""
+
+    SHADOW_11 = (11, "shdw11", "Preset shadow 11.")
+    """Preset shadow 11."""
+
+    SHADOW_12 = (12, "shdw12", "Preset shadow 12.")
+    """Preset shadow 12."""
+
+    SHADOW_13 = (13, "shdw13", "Preset shadow 13.")
+    """Preset shadow 13."""
+
+    SHADOW_14 = (14, "shdw14", "Preset shadow 14.")
+    """Preset shadow 14."""
+
+    SHADOW_15 = (15, "shdw15", "Preset shadow 15.")
+    """Preset shadow 15."""
+
+    SHADOW_16 = (16, "shdw16", "Preset shadow 16.")
+    """Preset shadow 16."""
+
+    SHADOW_17 = (17, "shdw17", "Preset shadow 17.")
+    """Preset shadow 17."""
+
+    SHADOW_18 = (18, "shdw18", "Preset shadow 18.")
+    """Preset shadow 18."""
+
+    SHADOW_19 = (19, "shdw19", "Preset shadow 19.")
+    """Preset shadow 19."""
+
+    SHADOW_20 = (20, "shdw20", "Preset shadow 20 (bottom-right offset).")
+    """Preset shadow 20."""

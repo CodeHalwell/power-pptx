@@ -162,3 +162,20 @@ else:
 ```
 
 No `<a:effectLst>` is written by the read.
+
+## Inner & preset shadows
+
+Besides `shape.shadow` (outer), shapes expose two sibling shadow effects:
+
+```python
+shape.inner_shadow.blur_radius = Pt(4)    # shadow cast INTO the shape
+shape.inner_shadow.distance = Pt(3)
+shape.inner_shadow.direction = 45.0
+shape.inner_shadow.color.rgb = "112233"
+
+shape.preset_shadow.preset = "shdw5"      # or MSO_PRESET_SHADOW.SHADOW_5
+shape.preset_shadow.color.rgb = "aabbcc"  # one of shdw1..shdw20
+```
+
+A colour child and the required `prst` are written automatically, so
+geometry-only shadows stay schema-valid.

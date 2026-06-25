@@ -1055,7 +1055,54 @@ class DescribeValueAxis(object):
         value_axis.minor_unit = new_value
         assert value_axis._element.xml == expected_xml
 
+    def it_knows_its_log_base(self, log_base_get_fixture):
+        value_axis, expected_value = log_base_get_fixture
+        assert value_axis.log_base == expected_value
+
+    def it_can_change_its_log_base(self, log_base_set_fixture):
+        value_axis, new_value, expected_xml = log_base_set_fixture
+        value_axis.log_base = new_value
+        assert value_axis._element.xml == expected_xml
+
     # fixtures -------------------------------------------------------
+
+    @pytest.fixture(
+        params=[
+            ("c:valAx/c:scaling", None),
+            ("c:valAx/c:scaling/c:logBase{val=10.0}", 10.0),
+            ("c:valAx/c:scaling/c:logBase{val=2.0}", 2.0),
+        ]
+    )
+    def log_base_get_fixture(self, request):
+        valAx_cxml, expected_value = request.param
+        value_axis = ValueAxis(element(valAx_cxml))
+        return value_axis, expected_value
+
+    @pytest.fixture(
+        params=[
+            # -- new log scale: logBase must precede orientation in scaling --
+            ("c:valAx/c:scaling", 10, "c:valAx/c:scaling/c:logBase{val=10.0}"),
+            (
+                "c:valAx/c:scaling/c:logBase{val=10.0}",
+                2.0,
+                "c:valAx/c:scaling/c:logBase{val=2.0}",
+            ),
+            # -- None clears the log scale, restoring a linear axis --
+            ("c:valAx/c:scaling/c:logBase{val=10.0}", None, "c:valAx/c:scaling"),
+            ("c:valAx/c:scaling", None, "c:valAx/c:scaling"),
+            # -- logBase is emitted before an existing orientation child --
+            (
+                "c:valAx/c:scaling/c:orientation{val=minMax}",
+                10,
+                "c:valAx/c:scaling/(c:logBase{val=10.0},c:orientation{val=minMax})",
+            ),
+        ]
+    )
+    def log_base_set_fixture(self, request):
+        valAx_cxml, new_value, expected_valAx_cxml = request.param
+        value_axis = ValueAxis(element(valAx_cxml))
+        expected_xml = xml(expected_valAx_cxml)
+        return value_axis, new_value, expected_xml
 
     @pytest.fixture(
         params=[

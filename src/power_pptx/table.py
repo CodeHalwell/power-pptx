@@ -537,6 +537,60 @@ class _Cell(Subshape):
             return Emu(0)
         return Emu(int(tr.h or 0))
 
+    # Friendly short-string ↔ ST_TextVerticalType (`a:tcPr@vert`) mapping.
+    # The XSD default is ``horz`` (attribute may also be absent), so reading a
+    # cell with no explicit direction returns ``"horizontal"``.
+    _TEXT_DIRECTION_TO_VERT = {
+        "horizontal": "horz",
+        "rotate90": "vert",
+        "rotate270": "vert270",
+        "stacked": "wordArtVert",
+    }
+    _VERT_TO_TEXT_DIRECTION = {
+        "horz": "horizontal",
+        "vert": "rotate90",
+        "vert270": "rotate270",
+        "wordArtVert": "stacked",
+    }
+
+    @property
+    def text_direction(self) -> str | None:
+        """Text direction (rotation/stacking) of this cell.
+
+        Read/write. Maps the `<a:tcPr vert="...">` attribute to friendly short
+        strings: ``"horizontal"`` (the default), ``"rotate90"``,
+        ``"rotate270"``, and ``"stacked"``. This is what rotated / matrix
+        column headers need.
+
+        Reading returns the friendly string. When the attribute is absent the
+        value ``"horizontal"`` is returned (its effective default). Assigning
+        ``"horizontal"`` or |None| clears any explicit setting and restores the
+        default. A ``vert`` value not covered by the friendly mapping (e.g.
+        ``eaVert``) is returned verbatim.
+        """
+        tcPr = self._tc.tcPr
+        if tcPr is None:
+            return "horizontal"
+        vert = tcPr.vert
+        if vert is None:
+            return "horizontal"
+        return self._VERT_TO_TEXT_DIRECTION.get(vert, vert)
+
+    @text_direction.setter
+    def text_direction(self, value: str | None):
+        if value is None or value == "horizontal":
+            if self._tc.tcPr is not None:
+                self._tc.tcPr.vert = None
+            return
+        try:
+            vert = self._TEXT_DIRECTION_TO_VERT[value]
+        except KeyError:
+            raise ValueError(
+                "text_direction must be one of 'horizontal', 'rotate90', "
+                "'rotate270', 'stacked' or None, got %r" % (value,)
+            )
+        self._tc.get_or_add_tcPr().vert = vert
+
     @property
     def vertical_anchor(self) -> MSO_VERTICAL_ANCHOR | None:
         """Vertical alignment of this cell.
