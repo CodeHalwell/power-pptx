@@ -1081,3 +1081,194 @@ class DescribeMachineReadableOutput:
         payload = json.loads(slide.lint().to_json())
 
         assert payload == {"has_errors": False, "issue_count": 0, "issues": []}
+
+
+class DescribeSarifExport:
+    """``SlideLintReport.to_sarif`` / ``lint_report_to_sarif``."""
+
+    def it_emits_a_valid_sarif_v2_1_0_document(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        sarif = report.to_sarif()
+
+        assert sarif["version"] == "2.1.0"
+        assert "$schema" in sarif
+        assert isinstance(sarif["runs"], list)
+        assert len(sarif["runs"]) == 1
+        driver = sarif["runs"][0]["tool"]["driver"]
+        assert driver["name"] == "power-pptx-lint"
+        assert isinstance(driver["rules"], list)
+
+    def it_has_one_result_per_issue_with_mapped_levels(self):
+        _, slide = _new_blank_slide()
+        # OffSlide → ERROR → "error".
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        results = report.to_sarif()["runs"][0]["results"]
+
+        assert len(results) == len(report.issues)
+        # Every result level must be one of the three SARIF levels we map to.
+        assert all(r["level"] in {"error", "warning", "note"} for r in results)
+        off_slide = next(r for r in results if r["ruleId"] == "OffSlide")
+        assert off_slide["level"] == "error"
+        assert off_slide["message"]["text"]
+        # Locations name the offending shape.
+        names = [
+            loc["logicalLocations"][0]["name"]
+            for loc in off_slide["locations"]
+        ]
+        assert "Rectangle 1" in names
+
+    def it_derives_rules_from_the_issue_codes(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        rules = report.to_sarif()["runs"][0]["tool"]["driver"]["rules"]
+        rule_ids = {r["id"] for r in rules}
+        result_rule_ids = {
+            r["ruleId"] for r in report.to_sarif()["runs"][0]["results"]
+        }
+        # Every result references a declared rule.
+        assert result_rule_ids <= rule_ids
+
+    def it_is_json_serializable(self):
+        import json
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        text = json.dumps(report.to_sarif())
+        assert json.loads(text)["version"] == "2.1.0"
+        # The convenience JSON helper agrees with json.dumps(to_sarif()).
+        assert json.loads(report.to_sarif_json())["version"] == "2.1.0"
+
+    def it_records_slide_index_when_supplied(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        results = report.to_sarif(slide_index=3)["runs"][0]["results"]
+        assert results
+        assert all(r["properties"]["slideIndex"] == 3 for r in results)
+
+    def it_aggregates_a_whole_deck_with_slide_indices(self):
+        from power_pptx.lint import lint_report_to_sarif
+
+        prs = Presentation()
+        reports = []
+        for _ in range(3):
+            s = prs.slides.add_slide(prs.slide_layouts[6])
+            s.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+            reports.append(s.lint())
+
+        sarif = lint_report_to_sarif(reports)
+
+        assert sarif["version"] == "2.1.0"
+        results = sarif["runs"][0]["results"]
+        # Every slide that had an issue is represented.
+        indices = {r["properties"]["slideIndex"] for r in results}
+        assert indices == {0, 1, 2}
+
+    def it_accepts_a_single_report(self):
+        from power_pptx.lint import lint_report_to_sarif
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(15), Inches(10), Inches(2), Inches(1))
+        report = slide.lint()
+
+        sarif = lint_report_to_sarif(report)
+        assert sarif["runs"][0]["results"][0]["properties"]["slideIndex"] == 0
+
+    def it_emits_a_well_formed_empty_run_for_a_clean_slide(self):
+        _, slide = _new_blank_slide()
+        sarif = slide.lint().to_sarif()
+        assert sarif["version"] == "2.1.0"
+        assert sarif["runs"][0]["results"] == []
+        assert sarif["runs"][0]["tool"]["driver"]["rules"] == []
+
+
+class DescribeBaselineDiff:
+    """``SlideLintReport.diff`` / ``diff_detail`` for CI baselining."""
+
+    def it_returns_empty_when_identical(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(-2), Inches(-2), Inches(1), Inches(1))
+        baseline = slide.lint()
+        current = slide.lint()
+        assert current.diff(baseline) == []
+
+    def it_returns_only_newly_introduced_issues(self):
+        _, slide = _new_blank_slide()
+        s1 = slide.shapes.add_shape(1, Inches(-2), Inches(-2), Inches(1), Inches(1))
+        s1.name = "first-off-slide"
+        baseline = slide.lint()
+
+        # Introduce a second, distinct off-slide shape.
+        s2 = slide.shapes.add_shape(1, Inches(-5), Inches(-5), Inches(1), Inches(1))
+        s2.name = "second-off-slide"
+        current = slide.lint()
+
+        new_issues = current.diff(baseline)
+        # Only the new shape's issues appear; the pre-existing one does not.
+        assert new_issues
+        new_shape_names = {
+            s.name for issue in new_issues for s in issue.shapes
+        }
+        assert new_shape_names == {"second-off-slide"}
+
+    def it_ignores_issues_that_only_moved(self):
+        # A shape already off-slide that is nudged (still off-slide) keeps
+        # the same fingerprint, so diff() must not report it as new.
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(-2), Inches(-2), Inches(1), Inches(1))
+        s.name = "drifter"
+        baseline = slide.lint()
+        s.left = Inches(-3)  # still off the left edge
+        current = slide.lint()
+        assert current.diff(baseline) == []
+
+    def it_reports_added_and_fixed_in_detail(self):
+        _, slide = _new_blank_slide()
+        s1 = slide.shapes.add_shape(1, Inches(-2), Inches(-2), Inches(1), Inches(1))
+        s1.name = "to-be-fixed"
+        baseline = slide.lint()
+
+        # Fix the first shape, add a different problem.
+        s1.left = Inches(1)
+        s1.top = Inches(1)
+        s2 = slide.shapes.add_shape(1, Inches(-5), Inches(-5), Inches(1), Inches(1))
+        s2.name = "brand-new"
+        current = slide.lint()
+
+        detail = current.diff_detail(baseline)
+        added_names = {s.name for i in detail["added"] for s in i.shapes}
+        fixed_names = {s.name for i in detail["fixed"] for s in i.shapes}
+        assert "brand-new" in added_names
+        assert "to-be-fixed" in fixed_names
+
+
+class DescribeLintExtensionsRoundTrip:
+    """A deck carrying lint metadata still saves and reopens cleanly."""
+
+    def it_round_trips_a_small_deck_unchanged(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        shape.text_frame.text = "Hello"
+
+        # Building SARIF / diff must not mutate the deck.
+        slide.lint().to_sarif()
+        slide.lint().diff(slide.lint())
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        reopened = Presentation(buf)
+        assert len(reopened.slides) == 1
+        names = [s.name for s in reopened.slides[0].shapes]
+        assert any("Rectangle" in n for n in names)

@@ -323,3 +323,25 @@ tf.column_spacing = Pt(18)         # gutter between columns
 
 p.tab_stops.add_tab_stop(Inches(1), "center")   # left | center | right | decimal
 ```
+
+### Sections, slide order, and speaker notes
+
+```python
+# Named sections (PowerPoint outline / slide-sorter groupings)
+prs.sections.add("Intro", start_slide_index=0)
+prs.sections.add("Body",  start_slide_index=2)
+for section in prs.sections:
+    print(section.name, section.slide_ids)   # section.name is read/write
+
+# Reorder slides without touching XML
+prs.slides.move(0, 2)              # send slide 0 to position 2
+prs.slides.reorder([2, 0, 1])     # full permutation (indices or Slide objects)
+
+# First-class speaker notes
+slide.notes = "Remember to thank the sponsors."   # creates the notes slide
+print(slide.notes)                # "" when the slide has no notes
+```
+
+`start_slide_index` claims every slide from that position to the deck
+end. `move` raises `IndexError` out of range; `reorder` raises
+`ValueError` unless given a clean permutation.

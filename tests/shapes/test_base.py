@@ -66,6 +66,30 @@ class DescribeBaseShape(object):
         shape.name = new_value
         assert shape._element.xml == expected_xml
 
+    def it_reads_empty_alt_text_when_unset(self):
+        shape = BaseShape(element("p:sp/p:nvSpPr/p:cNvPr{id=1,name=foo}"), None)
+        assert shape.alt_text == ""
+        assert shape.title_text == ""
+
+    def it_writes_alt_text_to_the_descr_attr(self):
+        shape = BaseShape(element("p:sp/p:nvSpPr/p:cNvPr{id=1,name=foo}"), None)
+        shape.alt_text = "A described shape."
+        cNvPr = shape._element._nvXxPr.cNvPr
+        assert cNvPr.get("descr") == "A described shape."
+        assert shape.alt_text == "A described shape."
+
+    def it_writes_title_text_to_the_title_attr(self):
+        shape = BaseShape(element("p:sp/p:nvSpPr/p:cNvPr{id=1,name=foo}"), None)
+        shape.title_text = "Shape title"
+        assert shape._element._nvXxPr.cNvPr.get("title") == "Shape title"
+
+    def it_clears_alt_text_when_set_empty(self):
+        shape = BaseShape(element("p:sp/p:nvSpPr/p:cNvPr{id=1,name=foo}"), None)
+        shape.alt_text = "x"
+        shape.alt_text = ""
+        assert shape.alt_text == ""
+        assert "descr" not in shape._element._nvXxPr.cNvPr.attrib
+
     @pytest.mark.parametrize(
         ("shape_cxml", "expected_x", "expected_y"),
         [

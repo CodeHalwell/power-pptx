@@ -138,3 +138,39 @@ if remaining:
 
 prs.save("out.pptx")
 ```
+
+## CI loop: SARIF export + baseline diff
+
+`summary()` is for humans; SARIF and diff are for CI.
+
+```python
+report = slide.lint()
+report.to_sarif(slide_index=0)        # SARIF v2.1.0 dict (GitHub code-scanning)
+report.to_sarif_json()                # JSON string
+
+from power_pptx.lint import lint_report_to_sarif
+sarif = lint_report_to_sarif([s.lint() for s in prs.slides])   # whole deck
+
+new_issues = current.diff(baseline)   # only issues NOT in baseline
+both = current.diff_detail(baseline)  # {"added": [...], "fixed": [...]}
+```
+
+Severities map ERROR→error, WARNING→warning, INFO→note. A
+moved-but-still-broken shape keeps its fingerprint, so `diff()` won't
+flag it as new.
+
+## Accessibility
+
+```python
+picture.alt_text = "Bar chart of Q3 revenue by region."   # -> <p:cNvPr descr=...>
+picture.title_text = "Q3 revenue"                          # -> <p:cNvPr title=...>
+
+from power_pptx import accessibility
+report = accessibility.audit_accessibility(prs)            # read-only
+if report.has_errors:                  # picture with no alt text = error
+    print(report.markdown())
+report.to_dict()                       # JSON-serializable for a CI gate / LLM loop
+```
+
+Flags: `MissingAltText` (pictures = error), `LowContrast` (below WCAG AA
+4.5:1), `NoSlideTitle` (no title landmark for navigation).

@@ -142,6 +142,60 @@ class BaseShape(object):
         self._element._nvXxPr.cNvPr.name = value  # pyright: ignore[reportPrivateUsage]
 
     @property
+    def alt_text(self) -> str:
+        """Accessibility description (alt text) for this shape.
+
+        Read/write ``str``.  Maps to the ``descr`` attribute of the
+        shape's ``<p:cNvPr>`` element — the OOXML-sanctioned alt-text
+        slot that screen readers announce and that PowerPoint surfaces
+        in its *Alt Text* pane.  Reading returns ``""`` when no
+        description has been set.
+
+        Example::
+
+            picture.alt_text = "Bar chart of Q3 revenue by region."
+
+        Assigning ``""`` (or ``None``) clears the description.
+        """
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return cNvPr.get("descr") or ""
+
+    @alt_text.setter
+    def alt_text(self, value: str | None):
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        if value is None or value == "":
+            if "descr" in cNvPr.attrib:
+                del cNvPr.attrib["descr"]
+            return
+        if not isinstance(value, str):
+            raise TypeError(f"alt_text must be a string or None; got {type(value).__name__}")
+        cNvPr.set("descr", value)
+
+    @property
+    def title_text(self) -> str:
+        """Accessibility title for this shape.
+
+        Read/write ``str``.  Maps to the ``title`` attribute of the
+        shape's ``<p:cNvPr>`` element — a short one-line label that
+        complements the longer :attr:`alt_text` description.  Reading
+        returns ``""`` when no title has been set; assigning ``""`` (or
+        ``None``) clears it.
+        """
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return cNvPr.get("title") or ""
+
+    @title_text.setter
+    def title_text(self, value: str | None):
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        if value is None or value == "":
+            if "title" in cNvPr.attrib:
+                del cNvPr.attrib["title"]
+            return
+        if not isinstance(value, str):
+            raise TypeError(f"title_text must be a string or None; got {type(value).__name__}")
+        cNvPr.set("title", value)
+
+    @property
     def part(self) -> BaseSlidePart:
         """The package part containing this shape.
 

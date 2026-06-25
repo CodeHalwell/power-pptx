@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Iterator, cast
+from typing import TYPE_CHECKING, Iterator, Sequence, cast
 
 from power_pptx.dml.fill import FillFormat
 from power_pptx.enum.presentation import (
@@ -548,6 +548,34 @@ class Slide(_BaseSlide):
         """
         return self.part.notes_slide
 
+    @property
+    def notes(self) -> str:
+        """The speaker-notes text for this slide as a |str|.
+
+        Returns an empty string when this slide has no notes slide or its notes
+        placeholder is empty. This is a first-class, LLM-friendly shortcut over
+        :attr:`.notes_slide` / :attr:`~.NotesSlide.notes_text_frame`; reading it
+        never creates a notes slide.
+
+        Assigning a string writes the notes text, creating the notes slide (and
+        therefore its notes placeholder) on demand::
+
+            slide.notes = "Remember to thank the sponsors."
+        """
+        if not self.has_notes_slide:
+            return ""
+        text_frame = self.notes_slide.notes_text_frame
+        if text_frame is None:
+            return ""
+        return text_frame.text
+
+    @notes.setter
+    def notes(self, text: str) -> None:
+        text_frame = self.notes_slide.notes_text_frame
+        if text_frame is None:
+            raise ValueError("notes slide has no notes placeholder; cannot set notes text")
+        text_frame.text = text
+
     @lazyproperty
     def placeholders(self) -> SlidePlaceholders:
         """Sequence of placeholder shapes in this slide."""
@@ -897,6 +925,82 @@ class Slides(ParentedElementProxy):
             if this_slide == slide:
                 return idx
         raise ValueError("%s is not in slide collection" % slide)
+
+    def move(self, old_index: int, new_index: int) -> None:
+        """Relocate the slide at `old_index` to `new_index`, shifting the rest.
+
+        Both indices are zero-based and must be in range. PowerPoint slide order
+        follows the order of `p:sldId` children in `p:sldIdLst`, so this simply
+        detaches the corresponding element and re-inserts it at the new
+        position::
+
+            prs.slides.move(0, 2)   # send the first slide to position 2
+
+        Raises |IndexError| if either index is out of range.
+        """
+        count = len(self._sldIdLst)
+        old_index = self._normalized_index(old_index, count)
+        new_index = self._normalized_index(new_index, count)
+        sldId_lst = self._sldIdLst.sldId_lst
+        sldId = sldId_lst[old_index]
+        self._sldIdLst.remove(sldId)
+        # -- recompute the insertion reference against the post-removal order --
+        remaining = self._sldIdLst.sldId_lst
+        if new_index >= len(remaining):
+            self._sldIdLst.append(sldId)
+        else:
+            remaining[new_index].addprevious(sldId)
+
+    def reorder(self, new_order: "Sequence[int | Slide]") -> None:
+        """Rearrange the slides into the permutation given by `new_order`.
+
+        `new_order` is a full permutation of the collection, expressed either as
+        zero-based indices into the *current* order or as the |Slide| objects
+        themselves (the two forms may not be mixed). After the call, the slide
+        that was at ``new_order[0]`` becomes the first slide, and so on::
+
+            prs.slides.reorder([2, 0, 1])           # by index
+            prs.slides.reorder([s2, s0, s1])        # by Slide object
+
+        Raises |ValueError| if `new_order` is not a permutation of exactly the
+        slides in this collection (wrong length, duplicates, or unknown items).
+        """
+        count = len(self._sldIdLst)
+        order = list(new_order)
+        if len(order) != count:
+            raise ValueError(
+                "new_order must contain exactly %d items, got %d" % (count, len(order))
+            )
+
+        sldId_lst = self._sldIdLst.sldId_lst
+        indices: list[int] = []
+        for item in order:
+            if isinstance(item, Slide):
+                indices.append(self.index(item))
+            else:
+                indices.append(self._normalized_index(int(item), count))
+
+        if sorted(indices) != list(range(count)):
+            raise ValueError("new_order must be a permutation of the slides in this collection")
+
+        ordered_sldIds = [sldId_lst[i] for i in indices]
+        for sldId in ordered_sldIds:
+            self._sldIdLst.remove(sldId)
+        for sldId in ordered_sldIds:
+            self._sldIdLst.append(sldId)
+
+    @staticmethod
+    def _normalized_index(idx: int, count: int) -> int:
+        """Return `idx` resolved against `count`, supporting negative indexing.
+
+        Raises |IndexError| when out of range.
+        """
+        original = idx
+        if idx < 0:
+            idx += count
+        if idx < 0 or idx >= count:
+            raise IndexError("slide index out of range: %r" % original)
+        return idx
 
 
 class SlideLayout(_BaseSlide):

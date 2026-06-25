@@ -783,6 +783,136 @@ class DescribeSlides(object):
         return instance_mock(request, SlideLayout)
 
 
+def _three_slide_prs():
+    """Return a fresh |Presentation| with three blank slides added."""
+    from power_pptx.api import Presentation as PresentationFactory
+
+    prs = PresentationFactory()
+    layout = prs.slide_layouts[6]
+    for _ in range(3):
+        prs.slides.add_slide(layout)
+    return prs
+
+
+class DescribeSlideReorderAndNotes(object):
+    """Integration-style suite for `Slides.move`/`reorder` and `Slide.notes`."""
+
+    def it_can_move_a_slide_to_a_new_index(self):
+        prs = _three_slide_prs()
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.move(0, 2)
+
+        assert [s.slide_id for s in prs.slides] == [ids[1], ids[2], ids[0]]
+
+    def it_can_move_a_slide_backward(self):
+        prs = _three_slide_prs()
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.move(2, 0)
+
+        assert [s.slide_id for s in prs.slides] == [ids[2], ids[0], ids[1]]
+
+    def it_supports_negative_indices_for_move(self):
+        prs = _three_slide_prs()
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.move(-1, 0)
+
+        assert [s.slide_id for s in prs.slides] == [ids[2], ids[0], ids[1]]
+
+    def it_raises_on_out_of_range_move(self):
+        prs = _three_slide_prs()
+        with pytest.raises(IndexError):
+            prs.slides.move(0, 5)
+        with pytest.raises(IndexError):
+            prs.slides.move(9, 0)
+
+    def it_can_reorder_by_index(self):
+        prs = _three_slide_prs()
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.reorder([2, 0, 1])
+
+        assert [s.slide_id for s in prs.slides] == [ids[2], ids[0], ids[1]]
+
+    def it_can_reorder_by_slide_object(self):
+        prs = _three_slide_prs()
+        s0, s1, s2 = list(prs.slides)
+
+        prs.slides.reorder([s2, s1, s0])
+
+        assert [s.slide_id for s in prs.slides] == [s2.slide_id, s1.slide_id, s0.slide_id]
+
+    def it_raises_on_wrong_length_permutation(self):
+        prs = _three_slide_prs()
+        with pytest.raises(ValueError):
+            prs.slides.reorder([0, 1])
+
+    def it_raises_on_non_permutation(self):
+        prs = _three_slide_prs()
+        with pytest.raises(ValueError):
+            prs.slides.reorder([0, 0, 1])
+
+    def it_returns_empty_string_when_no_notes(self):
+        prs = _three_slide_prs()
+        slide = prs.slides[0]
+        assert slide.has_notes_slide is False
+        assert slide.notes == ""
+        # -- reading notes must not create a notes slide as a side effect --
+        assert slide.has_notes_slide is False
+
+    def it_can_set_and_get_notes(self):
+        prs = _three_slide_prs()
+        slide = prs.slides[0]
+
+        slide.notes = "Thank the sponsors."
+
+        assert slide.has_notes_slide is True
+        assert slide.notes == "Thank the sponsors."
+
+    def it_can_overwrite_existing_notes(self):
+        prs = _three_slide_prs()
+        slide = prs.slides[0]
+        slide.notes = "first"
+        slide.notes = "second"
+        assert slide.notes == "second"
+
+    def it_round_trips_after_reorder_and_notes(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        def factory():
+            prs = _three_slide_prs()
+            prs.slides[0].notes = "Opening remarks."
+            prs.slides.reorder([2, 0, 1])
+            prs.slides.move(0, 2)
+            prs.slides[0].notes = "Now the first slide."
+            return prs
+
+        assert_round_trip(factory)
+
+    def it_produces_schema_valid_xml_after_reorder_and_notes(self):
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable (lxml or XSDs missing)")
+
+        import io
+
+        prs = _three_slide_prs()
+        prs.slides[0].notes = "Speaker notes for the reordered deck."
+        prs.slides.reorder([2, 1, 0])
+        prs.slides.move(2, 0)
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert violations == []
+
+
 class DescribeSlideLayout(object):
     """Unit-test suite for `power_pptx.slide.SlideLayout` objects."""
 
