@@ -13,3 +13,6 @@ _scratch/
 tags
 /tests/debug.py
 /examples/starter_pack/_out/
+
+# Claude Code agent worktrees (transient, harness-managed)
+.claude/worktrees/
