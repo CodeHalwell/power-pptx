@@ -28,6 +28,7 @@ class CT_Presentation(BaseOxmlElement):
     get_or_add_sldSz: Callable[[], CT_SlideSize]
     get_or_add_sldIdLst: Callable[[], CT_SlideIdList]
     get_or_add_sldMasterIdLst: Callable[[], CT_SlideMasterIdList]
+    get_or_add_embeddedFontLst: Callable[[], BaseOxmlElement]
     get_or_add_extLst: Callable[[], BaseOxmlElement]
 
     sldMasterIdLst: CT_SlideMasterIdList | None = (
@@ -47,6 +48,24 @@ class CT_Presentation(BaseOxmlElement):
     )
     sldSz: CT_SlideSize | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "p:sldSz", successors=("p:notesSz",)
+    )
+    # -- `p:embeddedFontLst` follows `p:notesSz` but precedes `custShowLst`,
+    # -- `photoAlbum`, `custDataLst`, `kinsoku`, `defaultTextStyle`,
+    # -- `modifyVerifier`, and `extLst` in the CT_Presentation sequence.
+    # -- Every default template already carries a `defaultTextStyle`, so a bare
+    # -- append would place the font list *after* it and produce a
+    # -- presentation.xml PowerPoint reports as broken. --
+    embeddedFontLst: BaseOxmlElement | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "p:embeddedFontLst",
+        successors=(
+            "p:custShowLst",
+            "p:photoAlbum",
+            "p:custDataLst",
+            "p:kinsoku",
+            "p:defaultTextStyle",
+            "p:modifyVerifier",
+            "p:extLst",
+        ),
     )
     # -- `p:extLst` is the final child of `p:presentation` (no successors). --
     extLst: BaseOxmlElement | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]

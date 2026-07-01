@@ -243,6 +243,28 @@ def _deck_3d_none_presets() -> bytes:
     return _saved(prs)
 
 
+def _deck_embedded_font() -> bytes:
+    # Regression: embed_font wrote <p:embeddedFontLst> at the end of
+    # presentation.xml, after the defaultTextStyle every template carries.
+    # CT_Presentation requires it *before* defaultTextStyle, so the out-of-order
+    # append made PowerPoint report the deck as needing repair.
+    import os
+
+    from power_pptx.theme import embed_font
+
+    ttf = os.path.join(
+        os.path.dirname(__file__), "..", "test_files", "calibriz.ttf"
+    )
+    if not os.path.isfile(ttf):
+        pytest.skip("calibriz.ttf fixture is unavailable")
+
+    prs = Presentation()
+    _blank_slide(prs)
+    embed_font(prs, ttf, typeface="Calibri", weight="regular")
+    embed_font(prs, ttf, typeface="Calibri", weight="boldItalic")
+    return _saved(prs)
+
+
 def _deck_ole_objects() -> bytes:
     # Regression: two OLE objects on one slide previously both emitted the
     # inner show-as-icon <p:pic> with the hardcoded id="0", a duplicate shape
@@ -362,6 +384,7 @@ _DECK_BUILDERS = {
     "effects_and_3d": _deck_effects_and_3d,
     "3d_none_presets": _deck_3d_none_presets,
     "ole_objects": _deck_ole_objects,
+    "embedded_font": _deck_embedded_font,
     "gradient": _deck_gradient,
     "table": _deck_table,
     "chart": _deck_chart,

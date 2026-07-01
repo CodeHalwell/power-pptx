@@ -206,6 +206,15 @@ Added
 Fixed
 ~~~~~
 
+- **Embedding a font produced an invalid presentation.xml.**
+  ``theme.embed_font(...)`` appended ``<p:embeddedFontLst>`` to the end of
+  ``presentation.xml``, but the ``CT_Presentation`` sequence requires it
+  *before* ``defaultTextStyle`` — an element every default template
+  already carries. The out-of-order element made PowerPoint report the
+  deck as broken. The list is now inserted in its schema-mandated
+  position (a proper ``embeddedFontLst`` child definition on
+  ``CT_Presentation`` with the correct successors).
+
 - **Two OLE objects on one slide produced a duplicate shape id.** The
   inner "show-as-icon" ``<p:pic>`` of every embedded OLE object
   (``shapes.add_ole_object(...)``) was emitted with a hardcoded

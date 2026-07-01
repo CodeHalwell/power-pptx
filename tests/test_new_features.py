@@ -298,6 +298,33 @@ class DescribeEmbedFont:
         order = [child.tag.rsplit("}", 1)[-1] for child in ef]
         assert order == ["font", "regular", "bold", "italic", "boldItalic"]
 
+    def it_places_embeddedFontLst_before_defaultTextStyle(self):
+        # CT_Presentation requires embeddedFontLst to precede defaultTextStyle,
+        # which every default template already carries.  A bare append put the
+        # font list *after* it and produced a presentation.xml PowerPoint
+        # reports as broken.
+        from lxml import etree
+
+        from power_pptx.oxml.ns import qn
+
+        candidates = [
+            p
+            for p in glob.glob("/usr/share/fonts/**/*.ttf", recursive=True)
+            if os.path.isfile(p)
+        ]
+        if not candidates:
+            pytest.skip("no system TTF found to embed")
+
+        prs = Presentation()
+        prs.theme.embed_font(prs, candidates[0], typeface="OrderTest", weight="regular")
+
+        pres_elm = prs.part.presentation._element
+        children = [etree.QName(c).localname for c in pres_elm]
+        assert "embeddedFontLst" in children
+        # defaultTextStyle is present in the default template; the font list
+        # must come strictly before it.
+        assert children.index("embeddedFontLst") < children.index("defaultTextStyle")
+
     def it_rejects_invalid_weight(self):
         prs = Presentation()
         with pytest.raises(ValueError):
