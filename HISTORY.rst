@@ -206,6 +206,14 @@ Added
 Fixed
 ~~~~~
 
+- **Two OLE objects on one slide produced a duplicate shape id.** The
+  inner "show-as-icon" ``<p:pic>`` of every embedded OLE object
+  (``shapes.add_ole_object(...)``) was emitted with a hardcoded
+  ``id="0"``, so a slide carrying more than one OLE object contained two
+  shapes sharing that id — a non-unique shape id that makes PowerPoint
+  report the deck as needing repair. Each inner pic now receives its own
+  uniquely-allocated shape id.
+
 - **3-D shapes were rejected by Microsoft PowerPoint when a bevel or
   material was turned off via the enum.** ``shape.three_d.bevel_top.preset
   = BevelPreset.NONE`` and ``shape.three_d.preset_material =

@@ -243,6 +243,31 @@ def _deck_3d_none_presets() -> bytes:
     return _saved(prs)
 
 
+def _deck_ole_objects() -> bytes:
+    # Regression: two OLE objects on one slide previously both emitted the
+    # inner show-as-icon <p:pic> with the hardcoded id="0", a duplicate shape
+    # id that makes PowerPoint report the deck as needing repair. Each inner
+    # pic must now get its own unique shape id.
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+        "0049454e44ae426082"
+    )
+    prs = Presentation()
+    s = _blank_slide(prs)
+    for i in range(2):
+        s.shapes.add_ole_object(
+            io.BytesIO(b"embedded-object-payload-%d" % i),
+            prog_id="Package",
+            left=Inches(1 + i * 3),
+            top=Inches(1),
+            width=Inches(2),
+            height=Inches(2),
+            icon_file=io.BytesIO(png),
+        )
+    return _saved(prs)
+
+
 def _deck_picture_washout() -> bytes:
     # Regression: recolor "washout" must write the required <a:biLevel thresh="…">.
     png = bytes.fromhex(
@@ -336,6 +361,7 @@ _DECK_BUILDERS = {
     "run_properties": _deck_run_properties,
     "effects_and_3d": _deck_effects_and_3d,
     "3d_none_presets": _deck_3d_none_presets,
+    "ole_objects": _deck_ole_objects,
     "gradient": _deck_gradient,
     "table": _deck_table,
     "chart": _deck_chart,
@@ -420,6 +446,24 @@ class DescribeGeneratedDeckSchemaValidity:
         prs.save(buf)
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any("axis-id range" in msg for _, msg in violations), violations
+
+    def it_gives_each_ole_object_a_unique_icon_pic_id(self):
+        # The inner show-as-icon <p:pic> of each OLE object must carry a unique,
+        # non-zero shape id — two objects sharing id="0" is a repair trigger.
+        import zipfile
+
+        from lxml import etree
+
+        data = _deck_ole_objects()
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            doc = etree.fromstring(zf.read("ppt/slides/slide1.xml"))
+        ids = [
+            el.get("id")
+            for el in doc.iter()
+            if etree.QName(el).localname == "cNvPr"
+        ]
+        assert "0" not in ids, ids
+        assert len(ids) == len(set(ids)), "duplicate shape ids: %s" % ids
 
     def it_detects_a_duplicate_shape_id(self):
         # Self-test for the duplicate-shape-id rule: force two shapes on one

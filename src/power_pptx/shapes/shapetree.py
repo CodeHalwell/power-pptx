@@ -1889,6 +1889,7 @@ class _OleObjectElementCreator(object):
             self._cy,
             self._icon_width,
             self._icon_height,
+            self._pic_id,
         )
 
     @lazyproperty
@@ -1994,6 +1995,16 @@ class _OleObjectElementCreator(object):
         The name is formed from the prefix "Object " and the shape-id decremented by 1.
         """
         return "Object %d" % (self._shape_id - 1)
+
+    @lazyproperty
+    def _pic_id(self) -> int:
+        """Unique shape id for the inner "show-as-icon" ``p:pic`` element.
+
+        Allocated separately from the graphic-frame's own id so two OLE objects on the same
+        slide don't both emit the hardcoded ``id="0"`` used previously — a duplicate shape id
+        that makes PowerPoint report the deck as needing repair.
+        """
+        return self._shapes._next_shape_id
 
     @lazyproperty
     def _slide_part(self) -> SlidePart:
