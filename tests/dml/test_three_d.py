@@ -71,6 +71,40 @@ class DescribeThreeDFormat:
         td.bevel_top.width = Pt(4)
         assert spPr.sp3d.bevelT.w == Pt(4)
 
+    def it_removes_bevelT_on_NONE_preset_write(self):
+        # ``BevelPreset.NONE`` means "no bevel"; its token "none" is invalid per
+        # ST_BevelPresetType and would trigger a PowerPoint repair, so assigning
+        # it must remove the whole <a:bevelT> element, not write prst="none".
+        spPr = element("p:spPr/a:sp3d/a:bevelT{prst=circle,w=50800}")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = BevelPreset.NONE
+        assert spPr.sp3d.bevelT is None
+        assert td.bevel_top.preset is None
+
+    def it_is_a_noop_to_write_NONE_bevel_preset_when_absent(self):
+        # Assigning NONE with no existing 3-D must not fabricate an sp3d/bevelT.
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = BevelPreset.NONE
+        assert spPr.sp3d is None
+        assert td._element.xml == xml("p:spPr")
+
+    def it_keeps_bevelT_dimensions_on_None_preset_write(self):
+        # Python ``None`` (distinct from ``BevelPreset.NONE``) only clears the
+        # preset attribute, preserving any explicit bevel dimensions.
+        spPr = element("p:spPr/a:sp3d/a:bevelT{prst=circle,w=50800}")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = None
+        assert spPr.sp3d.bevelT is not None
+        assert spPr.sp3d.bevelT.prst is None
+        assert spPr.sp3d.bevelT.w == Emu(50800)
+
+    def it_removes_bevelB_on_NONE_preset_write(self):
+        spPr = element("p:spPr/a:sp3d/a:bevelB{prst=slope}")
+        td = ThreeDFormat(spPr)
+        td.bevel_bottom.preset = BevelPreset.NONE
+        assert spPr.sp3d.bevelB is None
+
     # ------------------------------------------------------------------
     # bevel_bottom
     # ------------------------------------------------------------------
@@ -140,6 +174,23 @@ class DescribeThreeDFormat:
         td = ThreeDFormat(spPr)
         td.preset_material = None
         assert spPr.sp3d.prstMaterial is None
+
+    def it_clears_preset_material_on_NONE_write(self):
+        # ``PresetMaterial.NONE``'s token "none" is invalid per
+        # ST_PresetMaterialType and would trigger a PowerPoint repair, so
+        # assigning it clears the attribute instead of writing prstMaterial="none".
+        spPr = element("p:spPr/a:sp3d{prstMaterial=metal}")
+        td = ThreeDFormat(spPr)
+        td.preset_material = PresetMaterial.NONE
+        assert spPr.sp3d.prstMaterial is None
+        assert td.preset_material is None
+
+    def it_is_a_noop_to_write_NONE_material_when_absent(self):
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.preset_material = PresetMaterial.NONE
+        assert spPr.sp3d is None
+        assert td._element.xml == xml("p:spPr")
 
     # ------------------------------------------------------------------
     # extrusion_color
@@ -236,7 +287,7 @@ class Describe_BevelFormat:
     """Unit tests for _BevelFormat."""
 
     def it_returns_None_for_all_props_when_element_absent(self):
-        bevel = _BevelFormat(peek=lambda: None, ensure=lambda: None)
+        bevel = _BevelFormat(peek=lambda: None, ensure=lambda: None, remove=lambda: None)
         assert bevel.preset is None
         assert bevel.width is None
         assert bevel.height is None
@@ -244,6 +295,14 @@ class Describe_BevelFormat:
     def it_clears_preset_on_None_write_when_element_exists(self):
         spPr = element("p:spPr/a:sp3d/a:bevelT{prst=circle}")
         bevel_elm = spPr.sp3d.bevelT
-        bevel = _BevelFormat(peek=lambda: bevel_elm, ensure=lambda: bevel_elm)
+        bevel = _BevelFormat(peek=lambda: bevel_elm, ensure=lambda: bevel_elm, remove=lambda: None)
         bevel.preset = None
         assert bevel_elm.prst is None
+
+    def it_calls_remove_on_NONE_preset_write(self):
+        calls = []
+        bevel = _BevelFormat(
+            peek=lambda: None, ensure=lambda: None, remove=lambda: calls.append(True)
+        )
+        bevel.preset = BevelPreset.NONE
+        assert calls == [True]
