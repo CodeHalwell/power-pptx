@@ -206,6 +206,15 @@ Added
 Fixed
 ~~~~~
 
+- **Table border helpers crashed on a hex-string colour.**
+  ``cell.borders.all(color="1F4E79")`` (and ``outer`` / ``diagonal`` /
+  the ``row.borders`` / ``col.borders`` group helpers) raised
+  ``TypeError`` because the colour was pre-wrapped as
+  ``RGBColor(*color)``, which splat the six-character hex string into six
+  positional arguments. Hex strings, ``(r, g, b)`` tuples, and
+  ``RGBColor`` now all work, matching the colour convention used
+  everywhere else in the library.
+
 - **Embedding a font produced an invalid presentation.xml.**
   ``theme.embed_font(...)`` appended ``<p:embeddedFontLst>`` to the end of
   ``presentation.xml``, but the ``CT_Presentation`` sequence requires it

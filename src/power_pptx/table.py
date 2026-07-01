@@ -12,6 +12,7 @@ from power_pptx.text.text import TextFrame
 from power_pptx.util import Emu, lazyproperty
 
 if TYPE_CHECKING:
+    from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
     from power_pptx.oxml.shapes.shared import CT_LineProperties
     from power_pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCellProperties, CT_TableCol, CT_TableRow
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
     from power_pptx.shapes.graphfrm import GraphicFrame
     from power_pptx.types import ProvidesPart
     from power_pptx.util import Length
+
+    # A colour accepted anywhere in the library: hex string, (r, g, b) tuple,
+    # or RGBColor. Matches what LineFormat.color.rgb coercion accepts.
+    _ColorLike = str | tuple[int, int, int] | RGBColor
 
 
 class Table(object):
@@ -902,18 +907,22 @@ class _Borders(object):
         """|LineFormat| for the bottom-left-to-top-right diagonal (`a:lnBlToTr`)."""
         return LineFormat(_BorderEdge(self._tc, "lnBlToTr"))
 
-    def all(self, width: Length | None = None, color: tuple[int, int, int] | None = None) -> None:
+    def all(self, width: Length | None = None, color: _ColorLike | None = None) -> None:
         """Apply `width` and/or `color` to every border edge (4 sides + 2 diagonals).
 
-        `color` is an `(r, g, b)` 3-tuple of ints in 0–255 (compatible with
-        |RGBColor|). Either argument may be |None| to leave that aspect alone.
+        `color` accepts anything the library accepts elsewhere — a hex string
+        (`"1F4E79"`), an `(r, g, b)` 3-tuple, or an |RGBColor|. Either argument
+        may be |None| to leave that aspect alone.
         """
         for edge in (self.left, self.right, self.top, self.bottom,
                      self.diagonal_down, self.diagonal_up):
             self._apply(edge, width, color)
 
-    def outer(self, width: Length | None = None, color: tuple[int, int, int] | None = None) -> None:
-        """Apply `width` and/or `color` to the four outer edges (left/right/top/bottom)."""
+    def outer(self, width: Length | None = None, color: _ColorLike | None = None) -> None:
+        """Apply `width` and/or `color` to the four outer edges (left/right/top/bottom).
+
+        `color` accepts a hex string, an `(r, g, b)` 3-tuple, or an |RGBColor|.
+        """
         for edge in (self.left, self.right, self.top, self.bottom):
             self._apply(edge, width, color)
 
@@ -937,13 +946,14 @@ class _Borders(object):
         tcPr._remove_lnBlToTr()
 
     @staticmethod
-    def _apply(line: LineFormat, width: Length | None, color: tuple[int, int, int] | None) -> None:
-        from power_pptx.dml.color import RGBColor
-
+    def _apply(line: LineFormat, width: Length | None, color: _ColorLike | None) -> None:
         if width is not None:
             line.width = width
         if color is not None:
-            line.color.rgb = color if isinstance(color, RGBColor) else RGBColor(*color)
+            # LineFormat.color.rgb coerces hex strings, 3-tuples, and RGBColor;
+            # pass through rather than pre-wrapping (RGBColor(*"1F4E79") would
+            # splat the hex string into 6 positional args and raise).
+            line.color.rgb = color
 
 
 class _LineGroup(object):
@@ -961,18 +971,16 @@ class _LineGroup(object):
         self,
         edge: str,
         width: Length | None,
-        color,
+        color: _ColorLike | None,
     ) -> None:
-        from power_pptx.dml.color import RGBColor
-
         for tc in self._tcs:
             line = LineFormat(_BorderEdge(tc, edge))
             if width is not None:
                 line.width = width
             if color is not None:
-                line.color.rgb = (
-                    color if isinstance(color, RGBColor) else RGBColor(*color)
-                )
+                # color.rgb coerces hex strings, 3-tuples, and RGBColor — pass
+                # through rather than pre-wrapping (RGBColor(*"1F4E79") raises).
+                line.color.rgb = color
 
     def left(self, width: Length | None = None, color=None) -> None:
         """Apply *width* and/or *color* to the left edge of every cell."""
