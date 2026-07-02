@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     # A colour accepted anywhere in the library: hex string, (r, g, b) tuple,
     # or RGBColor. Matches what LineFormat.color.rgb coercion accepts.
     _ColorLike = str | tuple[int, int, int] | RGBColor
+else:
+    # Runtime fallback so ``typing.get_type_hints()`` on the public border
+    # helpers resolves ``_ColorLike`` instead of raising ``NameError`` (the
+    # precise union above is type-checker-only, since RGBColor is not imported
+    # at runtime here).
+    _ColorLike = Any
 
 
 class Table(object):

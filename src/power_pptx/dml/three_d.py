@@ -100,16 +100,15 @@ class _BevelFormat:
             bevel = self._peek()
             if bevel is not None:
                 bevel.prst = None  # type: ignore[assignment]
-        elif value == BevelPreset.NONE:
+        elif value is BevelPreset.NONE or value == BevelPreset.NONE.value:
             # -- ``BevelPreset.NONE`` means "no bevel". Its ``xml_value`` is the
             # -- token ``"none"``, which the OOXML ``ST_BevelPresetType``
             # -- enumeration does not allow — writing it makes PowerPoint report
             # -- the file as broken. Remove the whole ``<a:bevelT>``/``<a:bevelB>``
             # -- element instead, which is the schema-valid way to say "no bevel".
-            # -- ``==`` (not ``is``) so the raw enum *value* (``BevelPreset.NONE
-            # -- .value``, e.g. from a JSON/config path) is caught too — the
-            # -- downstream attribute writer would otherwise coerce that int
-            # -- straight back into the invalid ``"none"`` token.
+            # -- Match both the singleton and its raw ``.value`` (an int, e.g.
+            # -- deserialized from JSON/config) — the downstream attribute writer
+            # -- would otherwise coerce that int back into the invalid token.
             self._remove()
         else:
             self._ensure().prst = value  # type: ignore[assignment]
@@ -286,17 +285,20 @@ class ThreeDFormat:
 
     @preset_material.setter
     def preset_material(self, value: PresetMaterial | None) -> None:
-        if value is None or value == PresetMaterial.NONE:
+        if (
+            value is None
+            or value is PresetMaterial.NONE
+            or value == PresetMaterial.NONE.value
+        ):
             # -- ``PresetMaterial.NONE`` means "no explicit material". Its
             # -- ``xml_value`` is the token ``"none"``, which the OOXML
             # -- ``ST_PresetMaterialType`` enumeration does not allow — writing
             # -- it makes PowerPoint report the file as broken. Clear the
             # -- attribute instead (the schema-valid way to leave it unset);
             # -- use ``PresetMaterial.FLAT`` for an explicit flat surface.
-            # -- ``==`` (not ``is``) so the raw enum *value*
-            # -- (``PresetMaterial.NONE.value``, e.g. from a JSON/config path)
-            # -- is caught too — the downstream attribute writer would otherwise
-            # -- coerce that int straight back into the invalid ``"none"`` token.
+            # -- Match both the singleton and its raw ``.value`` (an int, e.g.
+            # -- deserialized from JSON/config) — the downstream attribute writer
+            # -- would otherwise coerce that int back into the invalid token.
             sp3d = self._sp3d
             if sp3d is not None:
                 sp3d.prstMaterial = None  # type: ignore[assignment]

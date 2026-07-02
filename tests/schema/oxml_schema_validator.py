@@ -192,7 +192,7 @@ def _iter_duplicate_shape_id_violations(name: str, doc) -> "Iterator[tuple[str, 
             yield (
                 name,
                 "duplicate shape id %s (used by %r and %r) — PowerPoint repairs "
-                "decks whose shape ids are not unique within a slide"
+                "decks whose shape ids are not unique within this part"
                 % (sid, seen[sid], el.get("name")),
             )
         else:
@@ -210,6 +210,11 @@ def _iter_content_type_violations(zf, names) -> "Iterator[tuple[str, str]]":
         ct = etree.fromstring(zf.read("[Content_Types].xml"))
     except KeyError:
         yield ("[Content_Types].xml", "package is missing [Content_Types].xml")
+        return
+    except etree.XMLSyntaxError as exc:
+        # Report rather than crash — the harness exists to surface structural
+        # problems, and a corrupt content-types stream is itself a fatal one.
+        yield ("[Content_Types].xml", "not well-formed XML: %s" % exc)
         return
     defaults = {
         e.get("Extension").lower()
@@ -264,7 +269,12 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
         if not rels_name.endswith(".rels"):
             continue
         base = _rels_source_dir(rels_name)
-        rels = etree.fromstring(zf.read(rels_name))
+        try:
+            rels = etree.fromstring(zf.read(rels_name))
+        except etree.XMLSyntaxError as exc:
+            # A corrupt .rels part is itself a repair trigger; report and skip.
+            yield (rels_name, "not well-formed XML: %s" % exc)
+            continue
         for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
             if rel.get("TargetMode") == "External":
                 continue
@@ -284,7 +294,12 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
         rels_name = _rels_partname_for(part)
         rel_ids = set()
         if rels_name in name_set:
-            rels = etree.fromstring(zf.read(rels_name))
+            try:
+                rels = etree.fromstring(zf.read(rels_name))
+            except etree.XMLSyntaxError:
+                # Pass 1 already reported this malformed .rels; skip the r:id
+                # scan for this part rather than flag every ref as dangling.
+                continue
             rel_ids = {rel.get("Id") for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)}
         try:
             doc = etree.fromstring(zf.read(part))
