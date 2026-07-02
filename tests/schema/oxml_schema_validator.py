@@ -30,6 +30,7 @@ morph, etc.) are validated through their fallback rather than reported as
 from __future__ import annotations
 
 import io
+import posixpath
 import zipfile
 from pathlib import Path
 from typing import Iterator, Union
@@ -54,6 +55,13 @@ _NS_SCHEMA = {
 
 _MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+
+# Relationship + content-type namespaces, for the structural checks below that
+# catch repair triggers the XSD cannot express (dangling ``r:id`` references,
+# duplicate shape ids, parts absent from ``[Content_Types].xml``).
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 # PowerPoint parses chart axis ids (``c:axId`` / ``c:crossAx``) as *signed*
 # 32-bit integers, so a value above 2**31-1 reads back negative and PowerPoint
@@ -148,14 +156,179 @@ def _iter_axid_range_violations(name: str, doc) -> "Iterator[tuple[str, str]]":
                 )
 
 
+# Slide-like parts whose ``p:cNvPr`` shape ids must be unique within the part.
+# PowerPoint reports a deck as needing repair when two shapes on the same slide
+# share an id — a class the XSD (which types the id as a bare ``unsignedInt``)
+# cannot express.
+_ID_CHECKED_PREFIXES = (
+    "ppt/slides/slide",
+    "ppt/slideLayouts/slideLayout",
+    "ppt/slideMasters/slideMaster",
+    "ppt/notesSlides/notesSlide",
+    "ppt/notesMasters/notesMaster",
+)
+
+
+def _rels_partname_for(partname: str) -> str:
+    """Return the ``.rels`` partname that holds *partname*'s relationships."""
+    folder, base = posixpath.split(partname)
+    return posixpath.join(folder, "_rels", base + ".rels")
+
+
+def _iter_duplicate_shape_id_violations(name: str, doc) -> "Iterator[tuple[str, str]]":
+    """Yield violations for non-unique ``p:cNvPr`` shape ids within one part.
+
+    Two shapes sharing an id on the same slide is a classic "PowerPoint repairs
+    the file" trigger that pure XSD validation (``unsignedInt``) cannot catch.
+    """
+    seen: "dict[str, str]" = {}
+    for el in doc.iter():
+        if etree.QName(el).localname != "cNvPr":
+            continue
+        sid = el.get("id")
+        if sid is None:
+            continue
+        if sid in seen:
+            yield (
+                name,
+                "duplicate shape id %s (used by %r and %r) — PowerPoint repairs "
+                "decks whose shape ids are not unique within this part"
+                % (sid, seen[sid], el.get("name")),
+            )
+        else:
+            seen[sid] = el.get("name")
+
+
+def _iter_content_type_violations(zf, names) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for any package part not declared in ``[Content_Types].xml``.
+
+    A part with no matching ``Default`` (by extension) or ``Override`` (by
+    partname) makes PowerPoint reject the package — invisible to per-part XSD
+    validation, which never looks at the content-types stream.
+    """
+    try:
+        ct = etree.fromstring(zf.read("[Content_Types].xml"))
+    except KeyError:
+        yield ("[Content_Types].xml", "package is missing [Content_Types].xml")
+        return
+    except etree.XMLSyntaxError as exc:
+        # Report rather than crash — the harness exists to surface structural
+        # problems, and a corrupt content-types stream is itself a fatal one.
+        yield ("[Content_Types].xml", "not well-formed XML: %s" % exc)
+        return
+    defaults = {
+        e.get("Extension").lower()
+        for e in ct.iter("{%s}Default" % _CT_NS)
+        if e.get("Extension")
+    }
+    overrides = {
+        e.get("PartName") for e in ct.iter("{%s}Override" % _CT_NS) if e.get("PartName")
+    }
+    for part in names:
+        if part.endswith("/") or part == "[Content_Types].xml":
+            continue
+        if "/_rels/" in part or part.startswith("_rels/"):
+            ext = "rels"
+        elif "." in part:
+            ext = part.rsplit(".", 1)[-1].lower()
+        else:
+            ext = ""
+        if ext not in defaults and ("/" + part) not in overrides:
+            yield (part, "part is not declared in [Content_Types].xml (extension %r)" % ext)
+
+
+def _rels_source_dir(rels_name: str) -> str:
+    """Return the base directory a ``.rels`` part's Targets resolve against.
+
+    Relationship Targets are relative to the directory *containing* the
+    ``_rels`` folder, so the package-root ``_rels/.rels`` resolves against the
+    package root (``""``) and ``ppt/slides/_rels/slide1.xml.rels`` against
+    ``ppt/slides``.
+    """
+    return posixpath.dirname(posixpath.dirname(rels_name))
+
+
+def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
+    """Yield violations for broken relationships and dangling ``r:id`` references.
+
+    Catches two repair triggers the XSD cannot see: an internal relationship
+    whose target part does not exist in the package, and an ``r:id`` /
+    ``r:embed`` / ``r:link`` attribute whose target relationship is absent from
+    the referencing part's ``.rels``.
+
+    Every ``.rels`` part is checked for missing targets — including the
+    package-root ``_rels/.rels`` (whose ``officeDocument`` relationship points
+    at ``ppt/presentation.xml``), which a part-driven scan would skip because
+    the package root is not itself an XML part.
+    """
+    name_set = set(names)
+
+    # -- 1. every relationship in every .rels part must resolve to an existing
+    # -- part (covers _rels/.rels and all other rels, not just XML parts') --
+    for rels_name in sorted(name_set):
+        if not rels_name.endswith(".rels"):
+            continue
+        base = _rels_source_dir(rels_name)
+        try:
+            rels = etree.fromstring(zf.read(rels_name))
+        except etree.XMLSyntaxError as exc:
+            # A corrupt .rels part is itself a repair trigger; report and skip.
+            yield (rels_name, "not well-formed XML: %s" % exc)
+            continue
+        for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
+            if rel.get("TargetMode") == "External":
+                continue
+            target = rel.get("Target") or ""
+            resolved = posixpath.normpath(posixpath.join(base, target)).lstrip("/")
+            if resolved not in name_set:
+                yield (
+                    rels_name,
+                    "relationship %s points at missing part %r" % (rel.get("Id"), resolved),
+                )
+
+    # -- 2. every r:id / r:embed / r:link reference in a part's content must
+    # -- name a relationship declared in that part's .rels --
+    for part in sorted(name_set):
+        if not part.endswith(".xml") or "/_rels/" in part or part.startswith("_rels/"):
+            continue
+        rels_name = _rels_partname_for(part)
+        rel_ids = set()
+        if rels_name in name_set:
+            try:
+                rels = etree.fromstring(zf.read(rels_name))
+            except etree.XMLSyntaxError:
+                # Pass 1 already reported this malformed .rels; skip the r:id
+                # scan for this part rather than flag every ref as dangling.
+                continue
+            rel_ids = {rel.get("Id") for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)}
+        try:
+            doc = etree.fromstring(zf.read(part))
+        except etree.XMLSyntaxError:
+            continue  # not-well-formed is reported by the main XSD pass
+        for el in doc.iter():
+            for attr, value in el.attrib.items():
+                if not attr.startswith("{%s}" % _R_NS) or not value:
+                    continue
+                if value not in rel_ids:
+                    yield (
+                        part,
+                        "dangling %s=%r on <%s> — no such relationship in %s"
+                        % (attr.split("}")[1], value, etree.QName(el).localname, rels_name),
+                    )
+
+
 def iter_schema_violations(
     pptx: Union[str, Path, bytes, "io.BytesIO"],
 ) -> Iterator["tuple[str, str]"]:
     """Yield ``(partname, message)`` for each schema violation in *pptx*.
 
     *pptx* may be a path, raw ``bytes``, or a file-like object.  Only parts
-    with a known root schema are checked; ``mc:AlternateContent`` is resolved
-    to its fallback first.  Yields nothing for a schema-clean package.
+    with a known root schema are checked against the XSDs; ``mc:AlternateContent``
+    is resolved to its fallback first.  In addition, three package-wide
+    structural checks run that the XSD cannot express — parts missing from
+    ``[Content_Types].xml``, broken/dangling relationships, and duplicate shape
+    ids — because each is a real "PowerPoint repairs the file" trigger.  Yields
+    nothing for a clean package.
     """
     if not schema_validation_available():  # pragma: no cover - guarded by tests
         raise RuntimeError("schema validation unavailable (lxml or XSDs missing)")
@@ -168,8 +341,26 @@ def iter_schema_violations(
         source = pptx
 
     with zipfile.ZipFile(source) as zf:  # type: ignore[arg-type]
-        for name in zf.namelist():
-            if not name.endswith(".xml") or not _should_check(name):
+        names = zf.namelist()
+
+        # -- package-level structural checks (content types + relationships) --
+        yield from _iter_content_type_violations(zf, names)
+        yield from _iter_relationship_violations(zf, names)
+
+        for name in names:
+            if not name.endswith(".xml"):
+                continue
+            # Duplicate-shape-id check runs on the raw part (before any mce
+            # resolution) for every slide-like part, not just XSD-checked ones.
+            if name.startswith(_ID_CHECKED_PREFIXES):
+                try:
+                    raw_doc = etree.fromstring(zf.read(name))
+                except etree.XMLSyntaxError:
+                    raw_doc = None
+                if raw_doc is not None:
+                    yield from _iter_duplicate_shape_id_violations(name, raw_doc)
+
+            if not _should_check(name):
                 continue
             try:
                 doc = etree.fromstring(zf.read(name))

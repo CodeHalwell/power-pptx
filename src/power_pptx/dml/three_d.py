@@ -81,9 +81,11 @@ class _BevelFormat:
         self,
         peek: Callable[[], CT_Bevel | None],
         ensure: Callable[[], CT_Bevel],
+        remove: Callable[[], None],
     ) -> None:
         self._peek = peek
         self._ensure = ensure
+        self._remove = remove
 
     @property
     def preset(self) -> BevelPreset | None:
@@ -94,9 +96,20 @@ class _BevelFormat:
     @preset.setter
     def preset(self, value: BevelPreset | None) -> None:
         if value is None:
+            # -- unset the preset attribute; keep any bevel dimensions in place.
             bevel = self._peek()
             if bevel is not None:
                 bevel.prst = None  # type: ignore[assignment]
+        elif value is BevelPreset.NONE or value == BevelPreset.NONE.value:
+            # -- ``BevelPreset.NONE`` means "no bevel". Its ``xml_value`` is the
+            # -- token ``"none"``, which the OOXML ``ST_BevelPresetType``
+            # -- enumeration does not allow — writing it makes PowerPoint report
+            # -- the file as broken. Remove the whole ``<a:bevelT>``/``<a:bevelB>``
+            # -- element instead, which is the schema-valid way to say "no bevel".
+            # -- Match both the singleton and its raw ``.value`` (an int, e.g.
+            # -- deserialized from JSON/config) — the downstream attribute writer
+            # -- would otherwise coerce that int back into the invalid token.
+            self._remove()
         else:
             self._ensure().prst = value  # type: ignore[assignment]
 
@@ -167,6 +180,7 @@ class ThreeDFormat:
         return _BevelFormat(
             peek=self._peek_bevelT,
             ensure=self._get_or_add_bevelT,
+            remove=self._remove_bevelT,
         )
 
     # ------------------------------------------------------------------
@@ -182,6 +196,7 @@ class ThreeDFormat:
         return _BevelFormat(
             peek=self._peek_bevelB,
             ensure=self._get_or_add_bevelB,
+            remove=self._remove_bevelB,
         )
 
     # ------------------------------------------------------------------
@@ -270,7 +285,20 @@ class ThreeDFormat:
 
     @preset_material.setter
     def preset_material(self, value: PresetMaterial | None) -> None:
-        if value is None:
+        if (
+            value is None
+            or value is PresetMaterial.NONE
+            or value == PresetMaterial.NONE.value
+        ):
+            # -- ``PresetMaterial.NONE`` means "no explicit material". Its
+            # -- ``xml_value`` is the token ``"none"``, which the OOXML
+            # -- ``ST_PresetMaterialType`` enumeration does not allow — writing
+            # -- it makes PowerPoint report the file as broken. Clear the
+            # -- attribute instead (the schema-valid way to leave it unset);
+            # -- use ``PresetMaterial.FLAT`` for an explicit flat surface.
+            # -- Match both the singleton and its raw ``.value`` (an int, e.g.
+            # -- deserialized from JSON/config) — the downstream attribute writer
+            # -- would otherwise coerce that int back into the invalid token.
             sp3d = self._sp3d
             if sp3d is not None:
                 sp3d.prstMaterial = None  # type: ignore[assignment]
@@ -327,6 +355,16 @@ class ThreeDFormat:
 
     def _get_or_add_bevelB(self) -> CT_Bevel:
         return self._get_or_add_sp3d().get_or_add_bevelB()
+
+    def _remove_bevelT(self) -> None:
+        sp3d = self._sp3d
+        if sp3d is not None:
+            sp3d._remove_bevelT()
+
+    def _remove_bevelB(self) -> None:
+        sp3d = self._sp3d
+        if sp3d is not None:
+            sp3d._remove_bevelB()
 
     def _peek_extrusionClr(self) -> CT_ExtrusionColor | None:
         sp3d = self._sp3d

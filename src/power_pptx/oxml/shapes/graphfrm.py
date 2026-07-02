@@ -233,6 +233,7 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
         cy: int,
         imgW: int,
         imgH: int,
+        pic_id: int,
     ) -> CT_GraphicalObjectFrame:
         """Return newly-created `p:graphicFrame` for embedded OLE-object.
 
@@ -243,6 +244,10 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
 
         `icon_rId` identifies the relationship to an image part used to display the OLE-object as
         an icon (vs. a preview).
+
+        `pic_id` is the shape id for the inner "show-as-icon" ``p:pic``. It must be unique within
+        the slide: two OLE objects sharing the hardcoded ``id="0"`` used previously collide on a
+        duplicate shape id, which PowerPoint reports as a file needing repair.
         """
         return cast(
             CT_GraphicalObjectFrame,
@@ -270,7 +275,7 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
                 f"        <p:embed/>\n"
                 f"        <p:pic>\n"
                 f"          <p:nvPicPr>\n"
-                f'            <p:cNvPr id="0" name=""/>\n'
+                f'            <p:cNvPr id="{pic_id}" name=""/>\n'
                 f"            <p:cNvPicPr/>\n"
                 f"            <p:nvPr/>\n"
                 f"          </p:nvPicPr>\n"

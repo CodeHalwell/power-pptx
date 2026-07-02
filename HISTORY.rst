@@ -206,6 +206,47 @@ Added
 Fixed
 ~~~~~
 
+- **Table border helpers crashed on a hex-string colour.**
+  ``cell.borders.all(color="1F4E79")`` (and ``outer`` / ``diagonal`` /
+  the ``row.borders`` / ``col.borders`` group helpers) raised
+  ``TypeError`` because the colour was pre-wrapped as
+  ``RGBColor(*color)``, which splat the six-character hex string into six
+  positional arguments. Hex strings, ``(r, g, b)`` tuples, and
+  ``RGBColor`` now all work, matching the colour convention used
+  everywhere else in the library.
+
+- **Embedding a font produced an invalid presentation.xml.**
+  ``theme.embed_font(...)`` appended ``<p:embeddedFontLst>`` to the end of
+  ``presentation.xml``, but the ``CT_Presentation`` sequence requires it
+  *before* ``defaultTextStyle`` — an element every default template
+  already carries. The out-of-order element made PowerPoint report the
+  deck as broken. The list is now inserted in its schema-mandated
+  position (a proper ``embeddedFontLst`` child definition on
+  ``CT_Presentation`` with the correct successors).
+
+- **Two OLE objects on one slide produced a duplicate shape id.** The
+  inner "show-as-icon" ``<p:pic>`` of every embedded OLE object
+  (``shapes.add_ole_object(...)``) was emitted with a hardcoded
+  ``id="0"``, so a slide carrying more than one OLE object contained two
+  shapes sharing that id — a non-unique shape id that makes PowerPoint
+  report the deck as needing repair. Each inner pic now receives its own
+  uniquely-allocated shape id.
+
+- **3-D shapes were rejected by Microsoft PowerPoint when a bevel or
+  material was turned off via the enum.** ``shape.three_d.bevel_top.preset
+  = BevelPreset.NONE`` and ``shape.three_d.preset_material =
+  PresetMaterial.NONE`` — the natural way to say "no bevel" / "no
+  material" — emitted the token ``"none"``, which is absent from the
+  ISO-29500 ``ST_BevelPresetType`` / ``ST_PresetMaterialType``
+  enumerations. The file opened in python-pptx and LibreOffice but
+  PowerPoint reported it as broken and offered to repair it. Assigning
+  ``BevelPreset.NONE`` now removes the ``<a:bevelT>`` / ``<a:bevelB>``
+  element (the schema-valid way to express "no bevel"), and
+  ``PresetMaterial.NONE`` clears the ``prstMaterial`` attribute; both
+  read back as ``None``. Passing Python ``None`` keeps its prior meaning
+  of clearing only the preset while preserving any bevel dimensions. Use
+  ``PresetMaterial.FLAT`` for an explicit flat surface.
+
 - **``from_spec`` no longer silently swallows an unknown layout name.**
   A typo'd / unrecognized ``"layout"`` used to fall back to the Blank
   layout silently, so a misspelled ``"titel"`` produced a blank slide
@@ -218,6 +259,15 @@ Fixed
 These additions ship with unit tests, a round-trip test, and
 ISO-29500 schema-validity tests for the new group-fill and run-property
 XML.
+
+The ``tests/schema`` harness that guards this class of bug also grew
+three PowerPoint-specific structural checks the XSDs cannot express —
+duplicate shape ids within a slide, dangling relationship references
+(``r:id`` / ``r:embed`` / ``r:link`` targets with no matching
+relationship, and relationships pointing at missing parts), and package
+parts absent from ``[Content_Types].xml`` — each a real "PowerPoint
+repairs the file" trigger, each with a self-test proving it detects its
+target.
 
 
 2.8.1 (2026-06-17)

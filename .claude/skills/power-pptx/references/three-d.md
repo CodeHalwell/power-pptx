@@ -27,6 +27,11 @@ three_d.bevel_bottom.height = Pt(1)
 `CIRCLE`, `SLOPE`, `CROSS`, `ANGLE`, `SOFT_ROUND`, `CONVEX`, `COOL_SLANT`,
 `DIVOT`, `RIBLET`, `HARD_EDGE`, `ART_DECO`.
 
+To turn a bevel back off, assign `BevelPreset.NONE` — it removes the
+bevel entirely (`three_d.bevel_top.preset = BevelPreset.NONE`). Don't
+worry about it emitting an invalid `"none"` token; the setter maps it to
+element removal, so the deck stays schema-clean.
+
 ## Extrusion
 
 ```python
@@ -61,6 +66,10 @@ three_d.preset_material = PresetMaterial.METAL
 # POWDER, DK_EDGE, SOFT_EDGE, CLEAR, FLAT, SOFT_METAL, NONE,
 # LEGACY_MATTE, LEGACY_METAL, LEGACY_PLASTIC, LEGACY_WIREFRAME
 ```
+
+`PresetMaterial.NONE` clears the material (leaves it unset, reads back as
+`None`); use `PresetMaterial.FLAT` for an explicit non-reflective flat
+surface.
 
 ## End-to-end: a beveled badge
 

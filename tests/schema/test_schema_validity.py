@@ -214,6 +214,91 @@ def _deck_soft_metal_material() -> bytes:
     return _saved(prs)
 
 
+def _deck_3d_none_presets() -> bytes:
+    # Regression: BevelPreset.NONE / PresetMaterial.NONE must not emit the token
+    # "none" (invalid per ST_BevelPresetType / ST_PresetMaterialType, which makes
+    # PowerPoint repair the file). NONE removes the bevel / clears the material.
+    from power_pptx.dml.color import RGBColor
+    from power_pptx.enum.dml import BevelPreset, PresetMaterial
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+
+    # A shape that sets a real preset then turns it off via NONE.
+    sh = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(2))
+    sh.fill.solid()
+    sh.fill.fore_color.rgb = RGBColor(0x33, 0xA7, 0xFF)
+    sh.three_d.bevel_top.preset = BevelPreset.CIRCLE
+    sh.three_d.bevel_top.width = Pt(6)
+    sh.three_d.bevel_top.preset = BevelPreset.NONE  # -> removes <a:bevelT>
+    sh.three_d.preset_material = PresetMaterial.METAL
+    sh.three_d.preset_material = PresetMaterial.NONE  # -> clears prstMaterial
+    sh.three_d.extrusion_height = Pt(8)  # keep a populated sp3d so the part is real
+
+    # A second shape that only ever assigns NONE (must not fabricate junk).
+    sh2 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(5), Inches(1), Inches(2), Inches(2))
+    sh2.three_d.bevel_bottom.preset = BevelPreset.NONE
+    sh2.three_d.preset_material = PresetMaterial.NONE
+
+    # A third shape that turns things off via the enum's raw *value* (an int,
+    # e.g. deserialized from JSON/config) rather than the singleton — this must
+    # also route to remove/clear, not coerce the int back into "none".
+    sh3 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(8), Inches(1), Inches(2), Inches(2))
+    sh3.three_d.bevel_top.preset = BevelPreset.SLOPE
+    sh3.three_d.bevel_top.preset = BevelPreset.NONE.value  # int -> removes bevelT
+    sh3.three_d.preset_material = PresetMaterial.NONE.value  # int -> clears attr
+    sh3.three_d.extrusion_height = Pt(4)
+    return _saved(prs)
+
+
+def _deck_embedded_font() -> bytes:
+    # Regression: embed_font wrote <p:embeddedFontLst> at the end of
+    # presentation.xml, after the defaultTextStyle every template carries.
+    # CT_Presentation requires it *before* defaultTextStyle, so the out-of-order
+    # append made PowerPoint report the deck as needing repair.
+    import os
+
+    from power_pptx.theme import embed_font
+
+    ttf = os.path.join(
+        os.path.dirname(__file__), "..", "test_files", "calibriz.ttf"
+    )
+    if not os.path.isfile(ttf):
+        pytest.skip("calibriz.ttf fixture is unavailable")
+
+    prs = Presentation()
+    _blank_slide(prs)
+    embed_font(prs, ttf, typeface="Calibri", weight="regular")
+    embed_font(prs, ttf, typeface="Calibri", weight="boldItalic")
+    return _saved(prs)
+
+
+def _deck_ole_objects() -> bytes:
+    # Regression: two OLE objects on one slide previously both emitted the
+    # inner show-as-icon <p:pic> with the hardcoded id="0", a duplicate shape
+    # id that makes PowerPoint report the deck as needing repair. Each inner
+    # pic must now get its own unique shape id.
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+        "0049454e44ae426082"
+    )
+    prs = Presentation()
+    s = _blank_slide(prs)
+    for i in range(2):
+        s.shapes.add_ole_object(
+            io.BytesIO(b"embedded-object-payload-%d" % i),
+            prog_id="Package",
+            left=Inches(1 + i * 3),
+            top=Inches(1),
+            width=Inches(2),
+            height=Inches(2),
+            icon_file=io.BytesIO(png),
+        )
+    return _saved(prs)
+
+
 def _deck_picture_washout() -> bytes:
     # Regression: recolor "washout" must write the required <a:biLevel thresh="…">.
     png = bytes.fromhex(
@@ -306,6 +391,9 @@ _DECK_BUILDERS = {
     "group_fill": _deck_group_fill,
     "run_properties": _deck_run_properties,
     "effects_and_3d": _deck_effects_and_3d,
+    "3d_none_presets": _deck_3d_none_presets,
+    "ole_objects": _deck_ole_objects,
+    "embedded_font": _deck_embedded_font,
     "gradient": _deck_gradient,
     "table": _deck_table,
     "chart": _deck_chart,
@@ -390,3 +478,111 @@ class DescribeGeneratedDeckSchemaValidity:
         prs.save(buf)
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any("axis-id range" in msg for _, msg in violations), violations
+
+    def it_gives_each_ole_object_a_unique_icon_pic_id(self):
+        # The inner show-as-icon <p:pic> of each OLE object must carry a unique,
+        # non-zero shape id — two objects sharing id="0" is a repair trigger.
+        import zipfile
+
+        from lxml import etree
+
+        data = _deck_ole_objects()
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            doc = etree.fromstring(zf.read("ppt/slides/slide1.xml"))
+        ids = [
+            el.get("id")
+            for el in doc.iter()
+            if etree.QName(el).localname == "cNvPr"
+        ]
+        assert "0" not in ids, ids
+        assert len(ids) == len(set(ids)), "duplicate shape ids: %s" % ids
+
+    def it_detects_a_duplicate_shape_id(self):
+        # Self-test for the duplicate-shape-id rule: force two shapes on one
+        # slide to share a cNvPr id (valid per XSD unsignedInt, but a PowerPoint
+        # repair trigger) and confirm the validator flags it.
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        s = _blank_slide(prs)
+        a = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(1), Inches(2), Inches(1))
+        # Collide b's id onto a's, bypassing the id allocator.
+        b._element.nvSpPr.cNvPr.set("id", str(a.shape_id))
+
+        violations = list(iter_schema_violations(_saved(prs)))
+        assert any("duplicate shape id" in msg for _, msg in violations), violations
+
+    def it_detects_a_dangling_relationship_reference(self):
+        # Self-test for the relationship rule: point a picture's r:embed at a
+        # relationship id that does not exist and confirm the validator flags it.
+        import io as _io
+        import zipfile
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+            "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+            "0049454e44ae426082"
+        )
+        prs = Presentation()
+        s = _blank_slide(prs)
+        s.shapes.add_picture(_io.BytesIO(png), Inches(1), Inches(1), Inches(2), Inches(2))
+        original = _saved(prs)
+
+        # Rewrite slide1.xml so the blip r:embed references a bogus rId.
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            slide_xml = zin.read("ppt/slides/slide1.xml").replace(b'r:embed="rId', b'r:embed="rIdX')
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    is_slide = item.filename == "ppt/slides/slide1.xml"
+                    zout.writestr(item, slide_xml if is_slide else zin.read(item.filename))
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any("dangling" in msg for _, msg in violations), violations
+
+    def it_detects_a_missing_target_in_the_package_root_rels(self):
+        # Self-test for the package-root ``_rels/.rels`` case: drop the
+        # ``docProps/core.xml`` part its core-properties relationship points at
+        # (nothing else references it), so the root rels now targets a missing
+        # part. A part-driven scan would skip the package root because the root
+        # is not itself an XML part; the rels-driven pass must catch it.
+        import io as _io
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    if item.filename == "docProps/core.xml":
+                        continue  # drop the part the root rels points at
+                    zout.writestr(item, zin.read(item.filename))
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "_rels/.rels" and "docProps/core.xml" in msg
+            for part, msg in violations
+        ), violations
+
+    def it_detects_a_part_missing_from_content_types(self):
+        # Self-test for the content-types rule: add a part whose extension has
+        # neither a Default nor an Override (the exact "PowerPoint can't type
+        # this part" repair trigger) and confirm the validator flags it.
+        import io as _io
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    zout.writestr(item, zin.read(item.filename))
+                # A part with a novel extension the content-types stream never declares.
+                zout.writestr("ppt/media/orphan.xyz", b"not declared anywhere")
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "ppt/media/orphan.xyz" and "not declared in [Content_Types].xml" in msg
+            for part, msg in violations
+        ), violations

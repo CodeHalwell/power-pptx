@@ -276,13 +276,13 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     pres_elm = presentation._element  # type: ignore[attr-defined]
     r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
-    embedded_lst = pres_elm.find(qn("p:embeddedFontLst"))
-    if embedded_lst is None:
-        embedded_lst = OxmlElement("p:embeddedFontLst")
-        # Insert in CT_Presentation's schema-permitted position; appending
-        # at the end is acceptable per the schema (only handlerLst, custDataLst
-        # and extLst follow it; we don't generate those).
-        pres_elm.append(embedded_lst)
+    # Get (or create) the list in its schema-mandated position. embeddedFontLst
+    # must precede defaultTextStyle / modifyVerifier / extLst in the
+    # CT_Presentation sequence, and every default template already carries a
+    # defaultTextStyle — a bare append would place it out of order and produce a
+    # presentation.xml PowerPoint reports as broken. get_or_add_embeddedFontLst
+    # inserts before the first existing successor.
+    embedded_lst = pres_elm.get_or_add_embeddedFontLst()
 
     # Find existing entry for this typeface.
     existing = None

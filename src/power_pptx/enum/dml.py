@@ -635,8 +635,15 @@ class PresetMaterial(BaseXmlEnum):
     METAL = (9, "metal", "Metal material.")
     """Metal material."""
 
-    NONE = (10, "none", "No material (flat).")
-    """No material (flat)."""
+    NONE = (10, "none", "No explicit material (leaves prstMaterial unset).")
+    """No explicit material.
+
+    Assigning this to ``shape.three_d.preset_material`` *clears* the material
+    (leaves ``prstMaterial`` unset) rather than emitting the token ``"none"``,
+    which is invalid per ISO ``ST_PresetMaterialType`` and would make
+    PowerPoint report the file as broken. For an explicit flat surface use
+    :attr:`FLAT`.
+    """
 
     PLASTIC = (11, "plastic", "Plastic material.")
     """Plastic material."""

@@ -21,6 +21,7 @@ from power_pptx.table import (
     _CellCollection,
     _Column,
     _ColumnCollection,
+    _LineGroup,
     _Row,
     _RowCollection,
 )
@@ -1007,6 +1008,37 @@ class Describe_Borders(object):
 
         # -- assignment succeeded; conversion produced an srgbClr child --
         assert tc.tcPr.lnL is not None
+
+    def it_accepts_a_hex_string_for_color(self):
+        # Regression: the convenience helpers pre-wrapped color as
+        # ``RGBColor(*color)``, which splat a hex string into six positional
+        # args and raised. Hex strings must work like everywhere else.
+        from power_pptx.oxml.ns import qn
+
+        tc = element("a:tc")
+        borders = _Borders(tc)
+
+        borders.all(width=Pt(1), color="1F4E79")
+
+        lnL = tc.tcPr.lnL
+        assert lnL is not None
+        srgb = lnL.find(qn("a:solidFill")).find(qn("a:srgbClr"))
+        assert srgb.get("val") == "1F4E79"
+
+    def it_accepts_a_hex_string_for_color_on_a_row_or_column(self):
+        # Same regression for the row/column group helpers (_LineGroup).
+        from power_pptx.oxml.ns import qn
+
+        tcs = [element("a:tc"), element("a:tc")]
+        group = _LineGroup(tcs)
+
+        group.bottom(width=Pt(1), color="1F4E79")
+
+        for tc in tcs:
+            lnB = tc.tcPr.lnB
+            assert lnB is not None
+            srgb = lnB.find(qn("a:solidFill")).find(qn("a:srgbClr"))
+            assert srgb.get("val") == "1F4E79"
 
     def it_can_remove_all_borders(self):
         tc = element("a:tc")

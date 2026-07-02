@@ -2106,6 +2106,7 @@ class Describe_OleObjectElementCreator(object):
         property_mock(request, _OleObjectElementCreator, "_icon_rId", return_value="rId24")
         property_mock(request, _OleObjectElementCreator, "_cx", return_value=cx)
         property_mock(request, _OleObjectElementCreator, "_cy", return_value=cy)
+        property_mock(request, _OleObjectElementCreator, "_pic_id", return_value=8)
         element_creator = _OleObjectElementCreator(
             None, shape_id, None, None, x, y, cx, cy, None, Inches(0.5), Inches(0.75)
         )
@@ -2135,7 +2136,7 @@ class Describe_OleObjectElementCreator(object):
             "        <p:embed/>\n"
             "        <p:pic>\n"
             "          <p:nvPicPr>\n"
-            '            <p:cNvPr id="0" name=""/>\n'
+            '            <p:cNvPr id="8" name=""/>\n'
             "            <p:cNvPicPr/>\n"
             "            <p:nvPr/>\n"
             "          </p:nvPicPr>\n"
