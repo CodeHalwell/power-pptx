@@ -81,6 +81,16 @@ class DescribeThreeDFormat:
         assert spPr.sp3d.bevelT is None
         assert td.bevel_top.preset is None
 
+    def it_removes_bevelT_when_the_raw_NONE_enum_value_is_passed(self):
+        # A caller round-tripping through the enum's *value* (e.g. from JSON /
+        # config) passes ``BevelPreset.NONE.value`` (an int), not the singleton.
+        # The guard must still treat it as "no bevel" — otherwise the int is
+        # coerced straight back into the invalid ``prst="none"`` token.
+        spPr = element("p:spPr/a:sp3d/a:bevelT{prst=circle}")
+        td = ThreeDFormat(spPr)
+        td.bevel_top.preset = BevelPreset.NONE.value  # type: ignore[assignment]
+        assert spPr.sp3d.bevelT is None
+
     def it_is_a_noop_to_write_NONE_bevel_preset_when_absent(self):
         # Assigning NONE with no existing 3-D must not fabricate an sp3d/bevelT.
         spPr = element("p:spPr")
@@ -184,6 +194,15 @@ class DescribeThreeDFormat:
         td.preset_material = PresetMaterial.NONE
         assert spPr.sp3d.prstMaterial is None
         assert td.preset_material is None
+
+    def it_clears_preset_material_when_the_raw_NONE_enum_value_is_passed(self):
+        # ``PresetMaterial.NONE.value`` (an int, e.g. from JSON / config) must
+        # clear the attribute too, not fall through and coerce the int back into
+        # the invalid ``prstMaterial="none"`` token.
+        spPr = element("p:spPr/a:sp3d{prstMaterial=metal}")
+        td = ThreeDFormat(spPr)
+        td.preset_material = PresetMaterial.NONE.value  # type: ignore[assignment]
+        assert spPr.sp3d.prstMaterial is None
 
     def it_is_a_noop_to_write_NONE_material_when_absent(self):
         spPr = element("p:spPr")

@@ -240,6 +240,15 @@ def _deck_3d_none_presets() -> bytes:
     sh2 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(5), Inches(1), Inches(2), Inches(2))
     sh2.three_d.bevel_bottom.preset = BevelPreset.NONE
     sh2.three_d.preset_material = PresetMaterial.NONE
+
+    # A third shape that turns things off via the enum's raw *value* (an int,
+    # e.g. deserialized from JSON/config) rather than the singleton — this must
+    # also route to remove/clear, not coerce the int back into "none".
+    sh3 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(8), Inches(1), Inches(2), Inches(2))
+    sh3.three_d.bevel_top.preset = BevelPreset.SLOPE
+    sh3.three_d.bevel_top.preset = BevelPreset.NONE.value  # int -> removes bevelT
+    sh3.three_d.preset_material = PresetMaterial.NONE.value  # int -> clears attr
+    sh3.three_d.extrusion_height = Pt(4)
     return _saved(prs)
 
 
