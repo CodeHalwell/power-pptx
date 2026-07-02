@@ -305,18 +305,12 @@ class DescribeEmbedFont:
         # reports as broken.
         from lxml import etree
 
-        from power_pptx.oxml.ns import qn
-
-        candidates = [
-            p
-            for p in glob.glob("/usr/share/fonts/**/*.ttf", recursive=True)
-            if os.path.isfile(p)
-        ]
-        if not candidates:
-            pytest.skip("no system TTF found to embed")
+        ttf = os.path.join(os.path.dirname(__file__), "test_files", "calibriz.ttf")
+        if not os.path.isfile(ttf):
+            pytest.skip("calibriz.ttf fixture is unavailable")
 
         prs = Presentation()
-        prs.theme.embed_font(prs, candidates[0], typeface="OrderTest", weight="regular")
+        prs.theme.embed_font(prs, ttf, typeface="OrderTest", weight="regular")
 
         pres_elm = prs.part.presentation._element
         children = [etree.QName(c).localname for c in pres_elm]

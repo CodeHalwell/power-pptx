@@ -233,7 +233,7 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
         cy: int,
         imgW: int,
         imgH: int,
-        pic_id: int = 0,
+        pic_id: int,
     ) -> CT_GraphicalObjectFrame:
         """Return newly-created `p:graphicFrame` for embedded OLE-object.
 

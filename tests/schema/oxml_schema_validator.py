@@ -232,36 +232,60 @@ def _iter_content_type_violations(zf, names) -> "Iterator[tuple[str, str]]":
             yield (part, "part is not declared in [Content_Types].xml (extension %r)" % ext)
 
 
+def _rels_source_dir(rels_name: str) -> str:
+    """Return the base directory a ``.rels`` part's Targets resolve against.
+
+    Relationship Targets are relative to the directory *containing* the
+    ``_rels`` folder, so the package-root ``_rels/.rels`` resolves against the
+    package root (``""``) and ``ppt/slides/_rels/slide1.xml.rels`` against
+    ``ppt/slides``.
+    """
+    return posixpath.dirname(posixpath.dirname(rels_name))
+
+
 def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
     """Yield violations for broken relationships and dangling ``r:id`` references.
 
-    Catches two repair triggers the XSD cannot see: an ``r:id`` / ``r:embed`` /
-    ``r:link`` attribute whose target relationship is absent from the part's
-    ``.rels``, and an internal relationship whose target part does not exist in
-    the package.
+    Catches two repair triggers the XSD cannot see: an internal relationship
+    whose target part does not exist in the package, and an ``r:id`` /
+    ``r:embed`` / ``r:link`` attribute whose target relationship is absent from
+    the referencing part's ``.rels``.
+
+    Every ``.rels`` part is checked for missing targets — including the
+    package-root ``_rels/.rels`` (whose ``officeDocument`` relationship points
+    at ``ppt/presentation.xml``), which a part-driven scan would skip because
+    the package root is not itself an XML part.
     """
     name_set = set(names)
+
+    # -- 1. every relationship in every .rels part must resolve to an existing
+    # -- part (covers _rels/.rels and all other rels, not just XML parts') --
+    for rels_name in sorted(name_set):
+        if not rels_name.endswith(".rels"):
+            continue
+        base = _rels_source_dir(rels_name)
+        rels = etree.fromstring(zf.read(rels_name))
+        for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
+            if rel.get("TargetMode") == "External":
+                continue
+            target = rel.get("Target") or ""
+            resolved = posixpath.normpath(posixpath.join(base, target)).lstrip("/")
+            if resolved not in name_set:
+                yield (
+                    rels_name,
+                    "relationship %s points at missing part %r" % (rel.get("Id"), resolved),
+                )
+
+    # -- 2. every r:id / r:embed / r:link reference in a part's content must
+    # -- name a relationship declared in that part's .rels --
     for part in sorted(name_set):
         if not part.endswith(".xml") or "/_rels/" in part or part.startswith("_rels/"):
             continue
         rels_name = _rels_partname_for(part)
-        rel_targets: "dict[str, object]" = {}
+        rel_ids = set()
         if rels_name in name_set:
             rels = etree.fromstring(zf.read(rels_name))
-            for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
-                rid = rel.get("Id")
-                rel_targets[rid] = rel
-                if rel.get("TargetMode") == "External":
-                    continue
-                target = rel.get("Target") or ""
-                resolved = posixpath.normpath(
-                    posixpath.join(posixpath.dirname(part), target)
-                ).lstrip("/")
-                if resolved not in name_set:
-                    yield (
-                        rels_name,
-                        "relationship %s points at missing part %r" % (rid, resolved),
-                    )
+            rel_ids = {rel.get("Id") for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)}
         try:
             doc = etree.fromstring(zf.read(part))
         except etree.XMLSyntaxError:
@@ -270,7 +294,7 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
             for attr, value in el.attrib.items():
                 if not attr.startswith("{%s}" % _R_NS) or not value:
                     continue
-                if value not in rel_targets:
+                if value not in rel_ids:
                     yield (
                         part,
                         "dangling %s=%r on <%s> — no such relationship in %s"

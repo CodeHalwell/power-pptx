@@ -532,6 +532,30 @@ class DescribeGeneratedDeckSchemaValidity:
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any("dangling" in msg for _, msg in violations), violations
 
+    def it_detects_a_missing_target_in_the_package_root_rels(self):
+        # Self-test for the package-root ``_rels/.rels`` case: drop the
+        # ``docProps/core.xml`` part its core-properties relationship points at
+        # (nothing else references it), so the root rels now targets a missing
+        # part. A part-driven scan would skip the package root because the root
+        # is not itself an XML part; the rels-driven pass must catch it.
+        import io as _io
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    if item.filename == "docProps/core.xml":
+                        continue  # drop the part the root rels points at
+                    zout.writestr(item, zin.read(item.filename))
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "_rels/.rels" and "docProps/core.xml" in msg
+            for part, msg in violations
+        ), violations
+
     def it_detects_a_part_missing_from_content_types(self):
         # Self-test for the content-types rule: add a part whose extension has
         # neither a Default nor an Override (the exact "PowerPoint can't type
