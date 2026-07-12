@@ -666,6 +666,28 @@ class DescribeAnimationsIntrospection:
         assert slide.animations.purge_orphans() == 1
         assert slide._element.find(qn("p:timing")) is None
 
+    def it_never_writes_exponent_notation_into_motion_paths(self):
+        # %g formatting emitted scientific notation for float noise
+        # (sin/cos at multiples of pi -> 1.5e-17), which PowerPoint's path
+        # parser cannot read ('e' is not a number token and 'E' is the End
+        # command), so the whole animation was dropped.
+        import re
+
+        from power_pptx.animation import MotionPath
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        MotionPath.spiral(slide, a, Inches(2), turns=2)
+        MotionPath.line(slide, a, Inches(0.00001), Inches(2))
+        MotionPath.circle(slide, a, Inches(1))
+        MotionPath.zigzag(slide, a, Inches(3), 0, segments=4)
+
+        paths = [m.get("path") for m in slide._element.iter(qn("p:animMotion"))]
+        assert paths
+        offenders = [p for p in paths if re.search(r"\de[-+]", p)]
+        assert offenders == [], offenders
+
     def but_it_keeps_a_timing_tree_that_still_holds_entries(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
