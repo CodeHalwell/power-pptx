@@ -230,14 +230,17 @@ class DataLabels(object):
         if existing is not None:
             existing.set("val", str(int(val)))
             return
-        # The schema places gapWidth after dLbls in the bar-chart
-        # sequence; when not present we let lxml handle ordering by
-        # appending — PowerPoint accepts either ordering for the
-        # gap-width-bearing elements in this neighbourhood.
-        from lxml import etree
-
-        gw = etree.SubElement(plot_elm, gap_tag)
-        gw.set("val", str(int(val)))
+        # CT_BarChart/CT_Bar3DChart are strict sequences: gapWidth must
+        # precede overlap/serLines/axId/extLst (a bare append lands after
+        # axId, which PowerPoint rejects with the repair prompt).
+        gw = plot_elm.makeelement(gap_tag, {"val": str(int(val))})
+        successor_tags = ("c:overlap", "c:gapDepth", "c:shape", "c:serLines", "c:axId", "c:extLst")
+        for successor_tag in successor_tags:
+            successor = plot_elm.find(qn(successor_tag))
+            if successor is not None:
+                successor.addprevious(gw)
+                return
+        plot_elm.append(gw)
 
     @staticmethod
     def _first_series_category_count(plot_elm):

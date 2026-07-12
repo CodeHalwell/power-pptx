@@ -123,6 +123,21 @@ class DescribeTrendlines(object):
         with pytest.raises(ValueError):
             Trendlines(ser).add("bogus")
 
+    @pytest.mark.parametrize("order", [0, 1, 7, 10])
+    def it_rejects_a_polynomial_order_outside_2_to_6(self, order):
+        # ST_Order is 2..6; an out-of-range c:order makes PowerPoint
+        # report the deck as needing repair.
+        ser = element("c:ser/(c:idx{val=0},c:order{val=0})")
+        with pytest.raises(ValueError):
+            Trendlines(ser).add("poly", order=order)
+
+    @pytest.mark.parametrize("period", [0, 1])
+    def it_rejects_a_moving_average_period_below_2(self, period):
+        # ST_Period requires >= 2.
+        ser = element("c:ser/(c:idx{val=0},c:order{val=0})")
+        with pytest.raises(ValueError):
+            Trendlines(ser).add("movingAvg", period=period)
+
     def it_supports_indexing_and_iteration(self):
         ser = element("c:ser/(c:idx{val=0},c:order{val=0})")
         trendlines = Trendlines(ser)
@@ -241,6 +256,16 @@ class DescribeSecondaryValueAxis(object):
         second_id = chart.secondary_value_axis._element.xpath("c:axId/@val")
         assert first_id == second_id
         assert len(chart._chartSpace.plotArea.xpath("c:valAx")) == 2
+
+    def and_it_stays_idempotent_after_the_secondary_axis_is_hidden(self):
+        # Hiding writes a bare `<c:delete/>` (val attribute stripped as the
+        # schema default); detection must still match so a later access
+        # doesn't pile a third axis pair onto the plot area.
+        prs, chart = _column_chart()
+        chart.secondary_value_axis.visible = False
+        chart.secondary_value_axis
+        plotArea = chart._chartSpace.plotArea
+        assert len(plotArea.xpath("c:valAx")) == 2
 
     def it_moves_a_series_via_axis_group(self):
         prs, chart = _column_chart()

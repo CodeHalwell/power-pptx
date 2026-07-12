@@ -88,6 +88,18 @@ class DescribeCompact:
         plot_elm = chart.plots[0]._element
         assert _gap_width(plot_elm) == 60
 
+    def it_inserts_gap_width_in_schema_order(self):
+        # A freshly written barChart has no c:gapWidth, so the strategy
+        # creates one; it must land *before* c:axId in the CT_BarChart
+        # sequence — appended after axId, PowerPoint repairs the deck.
+        chart = _make_chart(categories=["A", "B"], series_count=1)
+        chart.plots[0].has_data_labels = True
+        chart.plots[0].data_labels.collision_strategy = "compact"
+
+        plot_elm = chart.plots[0]._element
+        tags = [child.tag for child in plot_elm]
+        assert tags.index(qn("c:gapWidth")) < tags.index(qn("c:axId"))
+
 
 class DescribeShrink:
     def it_only_touches_font(self):
