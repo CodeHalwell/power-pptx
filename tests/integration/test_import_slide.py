@@ -111,6 +111,53 @@ class Describe_import_slide_dedupe:
         dst.import_slide(src.slides[1])  # must dedupe onto that clone
         assert len(dst.slide_masters) == 2
 
+    def but_masters_differing_only_in_referenced_image_content_do_not_dedupe(self):
+        # The fingerprint normalises relationship ids with a token derived
+        # from the referenced part's *content* — masking them with a constant
+        # would let a source master with a different logo false-match a
+        # destination master and hand the slide the wrong branding.
+        from copy import deepcopy
+
+        from power_pptx._slide_importer import _master_fingerprint
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        png_b = bytes.fromhex(
+            "89504e470d0a1a0a0000000d494844520000000100000001080600"
+            "00001f15c4890000000d49444154789c626001000000ffff030000"
+            "060005a5f5e2bd0000000049454e44ae426082"
+        )
+
+        def deck_with_master_logo(png_bytes):
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            pic = slide.shapes.add_picture(
+                io.BytesIO(png_bytes), Inches(8), Inches(6), Inches(1), Inches(1)
+            )
+            master = prs.slide_masters[0]
+            image_part = slide.part.related_part(pic._element.blip_rId)
+            rId = master.part.relate_to(image_part, RT.IMAGE)
+            pic_el = deepcopy(pic._element)
+            for el in pic_el.iter():
+                for attr_name in list(el.attrib):
+                    if attr_name.endswith("}embed"):
+                        el.set(attr_name, rId)
+                if el.tag.endswith("}cNvPr"):
+                    el.set("id", "999")
+            master.shapes._spTree.append(pic_el)
+            pic._element.getparent().remove(pic._element)
+            return prs
+
+        deck_a = deck_with_master_logo(_PNG)
+        deck_b = deck_with_master_logo(png_b)
+
+        fp_a = _master_fingerprint(deck_a.slide_masters[0].part)
+        fp_b = _master_fingerprint(deck_b.slide_masters[0].part)
+        assert fp_a != fp_b
+        # ...while the same deck built twice fingerprints identically
+        # (rId-allocation differences must not matter).
+        deck_a2 = deck_with_master_logo(_PNG)
+        assert _master_fingerprint(deck_a2.slide_masters[0].part) == fp_a
+
     def it_adds_a_new_master_on_dedupe_miss(self):
         """Importing from a different-looking master should add a new master."""
         import zipfile, io as _io

@@ -515,7 +515,7 @@ def _master_fingerprint(master_part: Part) -> bytes:
     h = hashlib.sha256()
     element = getattr(master_part, "_element", None)
     if element is not None:
-        h.update(_normalized_master_xml(element))
+        h.update(_normalized_master_xml(master_part, element))
     else:  # pragma: no cover - a master part is always an XmlPart
         h.update(master_part.blob)
     try:
@@ -526,13 +526,18 @@ def _master_fingerprint(master_part: Part) -> bytes:
     return h.digest()
 
 
-def _normalized_master_xml(master_elm) -> bytes:
-    """Serialize *master_elm* with package-allocation artifacts removed.
+def _normalized_master_xml(master_part: Part, master_elm) -> bytes:
+    """Serialize *master_elm* with package-allocation artifacts normalised.
 
     Drops the `p:sldLayoutIdLst` (its rId/id values are allocated per
-    package) and masks every relationship-id attribute value (`r:embed`
-    etc. are renumbered when dependencies are copied), leaving only the
-    content that determines whether two masters are visually equivalent.
+    package) and replaces every relationship-id attribute value (`r:embed`
+    etc. are renumbered when dependencies are copied) with a *stable token
+    derived from the referenced content* — the SHA-1 of the target part's
+    bytes, or the verbatim URL for an external target.  Masking with a
+    constant would make two masters that differ only in a referenced image
+    (a different logo, say) fingerprint-identical and dedupe onto the wrong
+    branding; content-addressing keeps the hash stable across packages
+    while still distinguishing what the references point at.
     """
     from lxml import etree
 
@@ -540,11 +545,30 @@ def _normalized_master_xml(master_elm) -> bytes:
     clone = deepcopy(master_elm)
     for layout_id_lst in clone.findall("{%s}sldLayoutIdLst" % p_ns):
         clone.remove(layout_id_lst)
+
+    token_cache: dict[str, str] = {}
+
+    def _target_token(rId: str) -> str:
+        if rId in token_cache:
+            return token_cache[rId]
+        token = "unresolved"
+        try:
+            rel = master_part.rels[rId]
+        except KeyError:
+            rel = None
+        if rel is not None:
+            if rel.is_external:
+                token = "external:%s" % rel.target_ref
+            else:
+                token = hashlib.sha1(rel.target_part.blob).hexdigest()
+        token_cache[rId] = token
+        return token
+
     r_prefix = "{%s}" % _R_NS
     for el in clone.iter():
-        for attr_name in el.attrib:
+        for attr_name, attr_value in list(el.attrib.items()):
             if attr_name.startswith(r_prefix):
-                el.set(attr_name, "rId0")
+                el.set(attr_name, _target_token(attr_value))
     return etree.tostring(clone)
 
 
