@@ -6,6 +6,7 @@ from power_pptx.enum.dml import MSO_PATTERN_TYPE
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls
 from power_pptx.oxml.simpletypes import (
+    ST_FixedPercentage,
     ST_Percentage,
     ST_PositiveFixedAngle,
     ST_PositiveFixedPercentage,
@@ -295,8 +296,8 @@ class CT_LuminanceEffect(BaseOxmlElement):
     ``[-1.0, 1.0]`` where ``0.0`` means no change.
     """
 
-    bright = OptionalAttribute("bright", ST_Percentage, default=0.0)
-    contrast = OptionalAttribute("contrast", ST_Percentage, default=0.0)
+    bright = OptionalAttribute("bright", ST_FixedPercentage, default=0.0)
+    contrast = OptionalAttribute("contrast", ST_FixedPercentage, default=0.0)
 
 
 class CT_SolidColorFillProperties(BaseOxmlElement):

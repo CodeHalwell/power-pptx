@@ -323,7 +323,12 @@ class CT_PlotArea(BaseOxmlElement):
         count of ``c:valAx`` elements is not a reliable signal there. (Primary
         value axes are emitted with ``axPos="l"``.)
         """
-        matches = self.xpath('c:valAx[c:axPos/@val="r"][c:delete/@val="0"]')
+        # Deliberately no `c:delete` predicate: a hidden axis writes
+        # `<c:delete/>` with its val attribute dropped (the schema default is
+        # stripped), so filtering on delete-state made a hidden secondary axis
+        # invisible here and each later access piled a fresh axis pair onto
+        # the plot area.
+        matches = self.xpath('c:valAx[c:axPos/@val="r"]')
         return matches[0] if matches else None
 
     def add_secondary_value_axis(self, target_xChart=None):

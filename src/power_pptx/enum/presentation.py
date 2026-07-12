@@ -116,7 +116,6 @@ MSO_TRANSITION = MSO_TRANSITION_TYPE
 # -- members whose XML element lives in the `p14:` (PowerPoint 2010+) namespace --
 P14_TRANSITION_NAMES = frozenset(
     {
-        "morph",
         "flythrough",
         "vortex",
         "switch",
@@ -124,3 +123,11 @@ P14_TRANSITION_NAMES = frozenset(
         "conveyor",
     }
 )
+
+# -- members whose XML element lives in the `p159:` (PowerPoint 2016+,
+# -- http://schemas.microsoft.com/office/powerpoint/2015/09/main) namespace.
+# -- Morph is NOT a p14 element: MS-PPTX defines it in the 2015/09 schema, and
+# -- a `p14:morph` inside an `mc:Choice Requires="p14"` is an undefined element
+# -- in a namespace every modern PowerPoint understands — the repair-dialog
+# -- class of failure. --
+P159_TRANSITION_NAMES = frozenset({"morph"})

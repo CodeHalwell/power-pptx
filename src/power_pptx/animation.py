@@ -377,6 +377,31 @@ def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.
     )
 
 
+def _prune_empty_timing(sld: Any) -> None:
+    """Drop the slide's timing content once it holds no time nodes.
+
+    An empty `<p:childTnLst>` violates the schema (CT_TimeNodeList requires
+    at least one time-node child), so whichever removal takes out the last
+    animation entry must remove the `p:tnLst` subtree with it.  A `p:bldLst`
+    goes too — its build entries reference the effects just removed.  An
+    extension list (`p:extLst`) is preserved: CT_SlideTiming allows a timing
+    element holding only extensions, and its content is not ours to drop.
+    Timing trees that still carry time nodes (remaining effects, or a
+    `p:video` node for a movie's play controls) are left untouched.
+    """
+    timing = sld.find(qn("p:timing"))
+    if timing is None:
+        return
+    if sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*"):
+        return
+    ext_lst_tag = qn("p:extLst")
+    for child in list(timing):
+        if child.tag != ext_lst_tag:
+            timing.remove(child)
+    if len(timing) == 0:
+        sld._remove_timing()
+
+
 # ---------------------------------------------------------------------------
 # SlideAnimations – the object returned by slide.animations
 # ---------------------------------------------------------------------------
@@ -451,6 +476,7 @@ class SlideAnimations:
             if parent is not None:
                 parent.remove(top_par)
                 removed += 1
+        _prune_empty_timing(self._slide._element)
         return removed
 
     def _top_level_pars(self) -> list[Any]:
@@ -1176,6 +1202,8 @@ class SlideAnimations:
                         parent.remove(top_par)
                         removed += 1
                     break  # already removed; no need to check more spTgts
+        if removed:
+            _prune_empty_timing(sld)
         return removed
 
     def _resolve_trigger(
@@ -1347,6 +1375,7 @@ class AnimationEntry:
         parent = self._par_element.getparent()
         if parent is not None:
             parent.remove(self._par_element)
+            _prune_empty_timing(self._slide._element)
 
     # -- internal helpers --------------------------------------------------
 
@@ -1719,7 +1748,7 @@ class MotionPath:
         slide_w, slide_h = _slide_dimensions_emu(slide)
         nx = float(dx) / slide_w
         ny = float(dy) / slide_h
-        path = f"M 0 0 L {nx:g} {ny:g} E"
+        path = f"M 0 0 L {_fmt(nx)} {_fmt(ny)} E"
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
         )
@@ -1855,12 +1884,13 @@ class MotionPath:
         s = 1 if clockwise else -1
         path = (
             f"M 0 0 "
-            f"C 0 {-s * k * ry:g} {rx - k * rx:g} {-s * ry:g} {rx:g} {-s * ry:g} "
-            f"C {rx + k * rx:g} {-s * ry:g} {2 * rx:g} {-s * (ry - k * ry):g} "
-            f"{2 * rx:g} 0 "
-            f"C {2 * rx:g} {s * (ry - k * ry):g} {rx + k * rx:g} {s * ry:g} "
-            f"{rx:g} {s * ry:g} "
-            f"C {rx - k * rx:g} {s * ry:g} 0 {s * (ry - k * ry):g} 0 0 E"
+            f"C 0 {_fmt(-s * k * ry)} {_fmt(rx - k * rx)} {_fmt(-s * ry)} "
+            f"{_fmt(rx)} {_fmt(-s * ry)} "
+            f"C {_fmt(rx + k * rx)} {_fmt(-s * ry)} {_fmt(2 * rx)} "
+            f"{_fmt(-s * (ry - k * ry))} {_fmt(2 * rx)} 0 "
+            f"C {_fmt(2 * rx)} {_fmt(s * (ry - k * ry))} {_fmt(rx + k * rx)} "
+            f"{_fmt(s * ry)} {_fmt(rx)} {_fmt(s * ry)} "
+            f"C {_fmt(rx - k * rx)} {_fmt(s * ry)} 0 {_fmt(s * (ry - k * ry))} 0 0 E"
         )
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
@@ -1899,7 +1929,7 @@ class MotionPath:
         # vertical (where the previous `abs(nx) * height` collapsed to 0).
         cx = nx / 2 + height * ny
         cy = ny / 2 - height * nx
-        path = f"M 0 0 Q {cx:g} {cy:g} {nx:g} {ny:g} E"
+        path = f"M 0 0 Q {_fmt(cx)} {_fmt(cy)} {_fmt(nx)} {_fmt(ny)} E"
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
         )
@@ -1941,7 +1971,7 @@ class MotionPath:
             if i < segments:
                 mid_x += px * swing
                 mid_y += py * swing
-            parts.append(f"L {mid_x:g} {mid_y:g}")
+            parts.append(f"L {_fmt(mid_x)} {_fmt(mid_y)}")
         parts.append("E")
         path = " ".join(parts)
         slide.animations.add_motion(
@@ -1986,7 +2016,7 @@ class MotionPath:
             # turns this lands at (rx, 0) — one radius from the start.
             x = rx * t * math.cos(angle)
             y = s * ry * t * math.sin(angle)
-            parts.append(f"L {x:g} {y:g}")
+            parts.append(f"L {_fmt(x)} {_fmt(y)}")
         parts.append("E")
         path = " ".join(parts)
         slide.animations.add_motion(
@@ -2046,11 +2076,10 @@ def _svg_to_ooxml_motion_path(
 
     def _emit(letter: str, *coords: float) -> None:
         # Translate (cx, cy) in SVG coords to OOXML unit-square coords
-        # relative to the rebase origin.  ``g`` formatting keeps
-        # ``-0`` from sneaking in.
+        # relative to the rebase origin.
         out_parts.append(letter)
         for c in coords:
-            out_parts.append(f"{c:g}")
+            out_parts.append(_fmt(c))
 
     def _to_ooxml(x: float, y: float) -> tuple[float, float]:
         # Rebase to origin then map viewbox → unit square.
@@ -2191,3 +2220,18 @@ def _slide_dimensions_emu(slide: Slide) -> tuple[int, int]:
     width = presentation.slide_width or 9_144_000   # 10 inches
     height = presentation.slide_height or 6_858_000  # 7.5 inches
     return int(width), int(height)
+
+
+def _fmt(value: float) -> str:
+    """Format a motion-path coordinate as a plain decimal number.
+
+    ``%g`` emits scientific notation for small magnitudes (``1.5e-17`` from
+    sin/cos float noise), which PowerPoint's path parser cannot read — ``e``
+    is not part of the number grammar and ``E`` is the End command — so the
+    whole animation is dropped.  Fixed-point with six decimals, trailing
+    zeros stripped, and float-noise clamped to ``0``.
+    """
+    if abs(value) < 5e-7:
+        return "0"
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text

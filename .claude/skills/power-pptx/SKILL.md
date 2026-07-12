@@ -1,6 +1,6 @@
 ---
 name: power-pptx
-description: Build PowerPoint (.pptx) decks from Python with the power-pptx library — the actively-maintained fork of python-pptx. Use this skill whenever the user wants to generate, mutate, lint, theme, animate, or render PowerPoint decks programmatically. The headline reason this fork exists is **space-awareness**: text that doesn't overflow its box and shapes that don't slide off the edges of the slide. Reach for it especially when generation is dynamic (LLM, DB, CLI, JSON spec) and the deck has to look right without manual cleanup. Other post-fork features include visual effects, animations, transitions, theme writer, design tokens, slide recipes, native-shape diagrams (pipelines, hub-and-spoke, cycle, decision tree), slide thumbnails, chart palettes, SVG embedding, 3D, and SmartArt text substitution.
+description: Build PowerPoint (.pptx) decks from Python with the power-pptx library — the actively-maintained fork of python-pptx. Use this skill whenever the user wants to generate, mutate, lint, theme, animate, or render PowerPoint decks programmatically. The headline reason this fork exists is **space-awareness**: text that doesn't overflow its box and shapes that don't slide off the edges of the slide. Reach for it especially when generation is dynamic (LLM, DB, CLI, JSON spec) and the deck has to look right without manual cleanup. Other post-fork features include visual effects, animations, transitions, theme writer, design tokens, slide recipes, slide thumbnails, chart palettes, SVG embedding, 3D, and SmartArt text substitution.
 ---
 
 # power-pptx
@@ -33,6 +33,75 @@ The whole upstream 1.0.2 API still works — the rest of this skill
 focuses on the post-fork additions because they're what's most often
 missed by snippets pulled from the wider internet.
 
+## Cheat sheet (most common operations)
+
+The 25 calls that cover ~90% of deck-generation tasks. Reach for
+`references/geometry-and-arrows.md` for the full surface; this is the
+working set:
+
+```python
+from power_pptx import Presentation, BBox, audit
+from power_pptx.diagrams import horizontal_pipeline, hub_and_spoke, cycle
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
+
+# --- open / save ---
+prs = Presentation()                       # new blank deck
+prs = Presentation("file.pptx")            # open existing
+prs.save("out.pptx")
+
+# --- slides ---
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+
+# --- geometry (BBox is splattable into add_*) ---
+bb = BBox.from_inches(1, 2, 8, 4)
+left, right = bb.split_h([1, 1], gap=Inches(0.2))
+inner = bb.inset(all=Inches(0.2))
+
+# --- text (one call) ---
+slide.shapes.add_text(bb, text="Hello",
+                      size_pt=24, bold=True,
+                      color="#0B5CFF", align="center")
+
+# --- shape with chainable colour ---
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
+    .fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)
+
+# --- arrow with proper triangular head + auto edge routing ---
+start_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
+end_shape   = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
+slide.shapes.add_arrow(start=start_shape, end=end_shape,
+                       head="triangle", color="#0B5CFF", weight_pt=1.5)
+
+# --- format-preserving text replacement (templated placeholders) ---
+title_shape.set_text_preserving_format("New title")
+
+# --- picture replacement (broken / sub-quality picture → native shapes) ---
+picture.replace_with(lambda slide, bbox: ..., padding=Inches(0.1))
+
+# --- diagram recipes ---
+horizontal_pipeline(slide, bb, steps=["Extract", "Classify", "Enrich"])
+hub_and_spoke(slide, bb, centre="Agent",
+              spokes=["Memory", "Tools", "Planning"])
+
+# --- space-aware fit ---
+tf.fit_text(font_family="Inter", max_size=24)
+
+# --- single-call cleanup before save ---
+slide.tidy()                               # lints + safe auto-fixes
+
+# --- whole-deck audit (markdown summary) ---
+print(audit(prs).markdown())
+
+# --- render thumbnails ---
+from power_pptx.render import render_slides
+render_slides(prs, slides=[0, 1, 2], out_dir="thumbs",
+              name_template="slide-{:02d}.png")
+```
+
+That whole sheet fits on one screen — it's the working set.
+
 ## When to use this skill
 
 - The user wants to **generate a deck** from Python or a JSON / dict spec
@@ -46,8 +115,6 @@ missed by snippets pulled from the wider internet.
 - The user wants to **lint / auto-fix** geometry issues
 - The user wants to **import a slide** between decks or **apply a template**
 - The user wants a **design system** (tokens, recipes, Grid/Stack layout)
-- The user wants a **diagram** — process pipeline, hub-and-spoke, cycle,
-  decision tree, or comparison columns — built from native shapes
 - The user wants **chart palettes**, **quick layouts**, or per-series
   gradient/pattern fills
 - The user wants **slide thumbnails** rendered to PNG
@@ -73,9 +140,9 @@ collections. Read just the file you need — they're self-contained.
 | File | What it covers |
 |---|---|
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
+| `references/geometry-and-arrows.md` | `BBox` value object, `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
 | `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
 | `references/design.md` | `DesignTokens`, `shape.style` facade, `Grid` / `Stack` layout primitives (geometry-safe placement), slide recipes (`title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, `image_hero_slide`), starter pack. **Phase 9.** |
-| `references/diagrams.md` | Native-shape diagram recipes (`horizontal_pipeline`, `vertical_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`) — space-aware, fully editable, no SmartArt. |
 | `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts. Quick-reference cheatsheet. |
 | `references/effects.md` | Shadow, glow, soft edges, blur, reflection, alpha-tinted colors, gradient fills (linear / radial / rectangular / shape), line ends/caps/joins/compound. **Phase 3 + Phase 6.** |
 | `references/animations.md` | `Entrance` / `Exit` / `Emphasis` presets, triggers, by-paragraph reveal, sequencing context manager, motion paths. **Phase 5.** |
@@ -89,7 +156,31 @@ collections. Read just the file you need — they're self-contained.
 | `references/smart-art.md` | Text substitution inside an existing template's SmartArt. **Phase 8.** |
 | `references/tables.md` | The inherited table API, plus `Cell.borders`. **Phase 4.** |
 | `references/end-to-end-deck.md` | A complete worked example: tokens, recipes, animations, transitions, charts, **and a lint pass before save**. |
-| `references/real-world-decks.md` | Pointer at `examples/real_world/` — ten Fortune-500-style decks demonstrating the patterns each script uses (cover, KPI dashboard, conditional-fill table, multi-stage timeline, etc.). |
+
+## Top-level imports beyond `Presentation`
+
+These are stable package-root re-exports — prefer them over deeper
+import paths:
+
+```python
+from power_pptx import (
+    Presentation,
+    # Immutable rectangular region; splats into add_* APIs.
+    BBox,
+    # One-call deck audit (lint + picture + empty-slide + font checks).
+    audit, AuditReport,
+    # Figure adapters — Plotly / Matplotlib / SVG / HTML → slide picture.
+    # Third-party deps are imported lazily; missing deps surface a clear
+    # FigureBackendUnavailable with the right pip install command.
+    add_plotly_figure, add_matplotlib_figure,
+    add_svg_figure,    add_html_figure,
+    FigureBackendUnavailable,
+    # Shape-level building blocks (token-driven; return small
+    # dataclasses exposing constituent shapes for further tweaks).
+    add_kpi_card, add_progress_bar,
+    KpiCard,      ProgressBar,
+)
+```
 
 ## House rules for code you write
 
@@ -111,15 +202,10 @@ collections. Read just the file you need — they're self-contained.
    `add_textbox` only when the recipes don't fit.
 7. **Save once at the end** — build the deck in memory, then call
    `prs.save(...)`. Don't open and re-save inside loops.
-8. **For released-version constraints**: this fork is
-   `power-pptx>=1.1.0`. Pin that in any requirements file you generate.
-9. **Do not generate `power_pptx.animation` calls.** The animation
-   module produces XML that round-trips through the OOXML schema and
-   reads back via the introspection API, but **playback is currently
-   broken in PowerPoint slideshow mode** (animated shapes sit at
-   10–15% opacity for several seconds and snap to fully visible all at
-   once). Use slide *transitions* instead — those round-trip and play
-   correctly. See `references/animations.md` for the warning callout.
+8. **For released-version constraints**: pin `power-pptx>=2.8.0`
+   when generating requirements files — that's the minimum that
+   ships the `BBox`, `add_text`, `add_arrow`, `diagrams`, and
+   `audit` surface used in this skill.
 
 ## A space-aware mini-template
 
@@ -159,11 +245,68 @@ if errors:
 prs.save("out.pptx")
 ```
 
+## Recent additions worth knowing
+
+These changes ship after v2.5 and are easy to miss:
+
+- **`Chart.recolour(palette)`** is the recommended single entry
+  point — auto-dispatches per chart type (per-point on pie /
+  doughnut, per-series otherwise). `apply_palette` warns and
+  routes when called on a doughnut.
+- **`Chart.line_color`** and **`Chart.apply_dark_theme(text=, line=)`**
+  pin axis lines + gridlines for dark-deck styling.
+- **Horizontal bar charts (`BAR_*`)** now default to top-to-bottom
+  reading order (`reverse_order=True`). Override with
+  `chart.category_axis.reverse_order = False` for legacy ordering.
+  Column charts are unaffected.
+- **`anchor=` keyword on `add_picture` / `add_shape` / `add_textbox`**
+  collapses corner / centre placement to one call (see
+  `references/basics.md`).
+- **`add_table(..., style="clean")`** disables every inherited style
+  flag — use it whenever you'll set custom cell borders or fills.
+- **`add_kpi_card(slide, ...)` / `add_progress_bar(slide, ...)`** —
+  shape-level building blocks beneath the slide-level recipes
+  (see `references/design.md`).
+- **Float coordinates from arithmetic are coerced** at constructor
+  entry and at `shape.left/top/width/height` setters, so
+  `(Inches(N) - gutter) / 2` style expressions can be passed straight
+  through. Pre-2.6.1 these produced float-valued `<a:off>` / `<a:ext>`
+  attributes that PowerPoint rejected with the "Repair?" dialog.
+
+## Anti-patterns to avoid
+
+LLM-generated power-pptx code falls into the same handful of traps.
+Flagging them up front saves the trial-and-error round.
+
+- **Don't** access `tf.paragraphs` twice and compare wrapper objects
+  with `is`. The property returns *fresh* `_Paragraph` objects every
+  call, so `p is not para` is always true — your filter will remove
+  the wrong paragraph. Use `set_text_preserving_format(new_text)` for
+  the common "replace text, keep formatting" case.
+- **Don't** assume `add_connector(MSO_CONNECTOR.STRAIGHT, ...)` puts
+  an arrowhead on the line. It produces a bare line. Use
+  `slide.shapes.add_arrow(start, end, head="triangle")` — it sets the
+  arrowhead, inset, edge routing, and colour in one call.
+- **Don't** size a diagram to a broken picture's bbox when there's an
+  enclosing card. The card area is what you want. Use
+  `picture.enclosing_container()` to find the right box, then
+  `picture.replace_with(builder)`.
+- **Don't** delete a picture and then assume sibling shape indexes
+  are stable. Process in reverse index order, or capture the shapes
+  to mutate *before* iterating.
+- **Don't** import `RGBColor` / `PP_ALIGN` / `MSO_VERTICAL_ANCHOR`
+  for every styling call. Use the hex-string and short-name kwargs:
+  `slide.shapes.add_text(bb, text="…", color="#0B5CFF", align="center",
+  anchor="middle")`. Hex strings, tuples, and `RGBColor` all work
+  everywhere a colour is accepted.
+- **Don't** write raw EMU integers. `BBox.from_inches(1, 2, 8, 4)`
+  for regions, `Inches(1)` / `Pt(12)` for individual lengths. Float
+  arithmetic on EMU is fine — coordinates are coerced at the setter.
+- **Don't** lint + auto_fix + lint again to clear safe issues. Use
+  `slide.tidy()` — it's the one-call wrapper.
+
 ## Common pitfalls
 
-- **Animations don't play in PowerPoint slideshow mode.** See house
-  rule 9: do not generate `power_pptx.animation` calls. Use slide
-  transitions instead.
 - **Calling `shape.shadow.inherit`** raises `DeprecationWarning`. Read
   individual properties (`blur_radius`, `distance`, `direction`,
   `color`) and check for `None` instead.
@@ -175,66 +318,39 @@ prs.save("out.pptx")
 - **`add_svg_picture` without `cairosvg` and without a `png_fallback`**
   raises `CairoSvgUnavailable`. Either install cairosvg or supply a
   pre-rasterised PNG.
-- **`TextOverflow` is now auto-fixable** via
-  `report.auto_fix()` — it flips `auto_size` to `TEXT_TO_FIT_SHAPE`
-  on the offending frame. For more control, set
-  `auto_size = TEXT_TO_FIT_SHAPE` yourself or call `tf.fit_text(...)`.
+- **`TextOverflow` is reported but not auto-fixed**. The current
+  `report.auto_fix()` only handles `OffSlide`. For overflow, use
+  `tf.fit_text(...)` or `auto_size = TEXT_TO_FIT_SHAPE`.
 - **Slide thumbnails require `soffice` on PATH** (LibreOffice).
   Otherwise you get `ThumbnailRendererUnavailable`.
 - **`MSO_PATTERN_TYPE.ERCENT_40`** is the upstream typo and emits a
   `DeprecationWarning`. Use `PERCENT_40`.
-- **Use `RGBColor.from_hex(value)`, not `from_string(value)`.** The
-  latter does not strip a leading `#` and now emits a
-  `DeprecationWarning`; it will be removed in a future major release.
-  Every public color-accepting setter
-  (`shape.fill.fore_color.rgb`, `chart.text_color`, `linear_gradient`,
-  `gradient`, etc.) accepts hex strings (with or without `#`),
-  `RGBColor`, and 3-tuples interchangeably.
-- **Cards holding more than ~5 lines of body text should set
-  `text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`** immediately
-  after writing the text. The lint heuristic is conservative and will
-  otherwise raise.
-- **Pricing-card / badge text in shapes ≤ 0.5" tall should set
-  `auto_size = TEXT_TO_FIT_SHAPE`** to avoid the `TextOverflow` lint.
-- **When you need to animate or measure a chart's parent shape**, use
-  `chart.shape` (returns the `GraphicFrame`) — *not*
-  `chart.element.getparent().getparent()`. `chart.shape` works
-  whenever the chart was reached via
-  `slide.shapes.add_chart(...).chart` or `slide.shapes[i].chart`.
-- **`prs.set_transition(kind=…)` preserves per-slide overrides** by
-  default. Code that wrote `slide.transition.kind = MORPH` first,
-  then `prs.set_transition(FADE)` for the rest, no longer needs to
-  re-apply MORPH after the deck-wide call. Pass `force=True` if you
-  *do* want the deck-wide kind to clobber per-slide settings.
-- **`apply_quick_layout` accepts both forms for `legend_position`**:
-  `XL_LEGEND_POSITION.RIGHT` and `"right"` both work.
-- **For paragraph-level branded fonts**, use
-  `text_frame.set_paragraph_defaults(font_name="Inter", size=Pt(14),
-  color="#222222")` instead of looping over runs and setting six
-  properties each.
+- **Calling `chart.apply_palette` on a pie / doughnut** emits a
+  `UserWarning` and routes through `color_by_category`. Use
+  `chart.recolour(palette)` directly to silence it.
 
 ## Where to look in the project
 
 If the user has the `power-pptx` repo checked out alongside this
 skill, these paths are useful for source-of-truth lookup:
 
-- `src/pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
+- `src/power_pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
   `ShapeCollision`, `LintSeverity`.
-- `src/pptx/text/text.py`, `src/pptx/text/layout.py` — `fit_text`,
+- `src/power_pptx/text/text.py`, `src/power_pptx/text/layout.py` — `fit_text`,
   `TextFitter`, `_best_fit_font_size`.
-- `src/pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
+- `src/power_pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
   `MotionPath`, `SlideAnimations`.
-- `src/pptx/compose/` — `from_spec`, plus the `import_slide` /
+- `src/power_pptx/compose/` — `from_spec`, plus the `import_slide` /
   `apply_template` re-exports.
-- `src/pptx/theme.py`, `src/pptx/inherit.py` — theme reader/writer and
+- `src/power_pptx/theme.py`, `src/power_pptx/inherit.py` — theme reader/writer and
   `resolve_color`.
-- `src/pptx/dml/effect.py`, `src/pptx/dml/picture.py`,
-  `src/pptx/dml/line.py` — Phase 3/6 visual effects, picture filters,
+- `src/power_pptx/dml/effect.py`, `src/power_pptx/dml/picture.py`,
+  `src/power_pptx/dml/line.py` — Phase 3/6 visual effects, picture filters,
   line-end formatting.
-- `src/pptx/design/` — `tokens`, `style`, `layout`, `recipes`.
-- `src/pptx/chart/palettes.py`, `src/pptx/chart/quick_layouts.py`.
-- `src/pptx/render.py` — slide-thumbnail renderer.
-- `src/pptx/smart_art.py`, `src/pptx/_svg.py`.
+- `src/power_pptx/design/` — `tokens`, `style`, `layout`, `recipes`.
+- `src/power_pptx/chart/palettes.py`, `src/power_pptx/chart/quick_layouts.py`.
+- `src/power_pptx/render.py` — slide-thumbnail renderer.
+- `src/power_pptx/smart_art.py`, `src/power_pptx/_svg.py`.
 - `examples/starter_pack/` — three example token sets and a build script.
 
 The user-facing Sphinx documentation under `docs/user/` mirrors the

@@ -334,23 +334,23 @@ Flagging them up front saves the trial-and-error round.
 If the user has the `power-pptx` repo checked out alongside this
 skill, these paths are useful for source-of-truth lookup:
 
-- `src/pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
+- `src/power_pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
   `ShapeCollision`, `LintSeverity`.
-- `src/pptx/text/text.py`, `src/pptx/text/layout.py` — `fit_text`,
+- `src/power_pptx/text/text.py`, `src/power_pptx/text/layout.py` — `fit_text`,
   `TextFitter`, `_best_fit_font_size`.
-- `src/pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
+- `src/power_pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
   `MotionPath`, `SlideAnimations`.
-- `src/pptx/compose/` — `from_spec`, plus the `import_slide` /
+- `src/power_pptx/compose/` — `from_spec`, plus the `import_slide` /
   `apply_template` re-exports.
-- `src/pptx/theme.py`, `src/pptx/inherit.py` — theme reader/writer and
+- `src/power_pptx/theme.py`, `src/power_pptx/inherit.py` — theme reader/writer and
   `resolve_color`.
-- `src/pptx/dml/effect.py`, `src/pptx/dml/picture.py`,
-  `src/pptx/dml/line.py` — Phase 3/6 visual effects, picture filters,
+- `src/power_pptx/dml/effect.py`, `src/power_pptx/dml/picture.py`,
+  `src/power_pptx/dml/line.py` — Phase 3/6 visual effects, picture filters,
   line-end formatting.
-- `src/pptx/design/` — `tokens`, `style`, `layout`, `recipes`.
-- `src/pptx/chart/palettes.py`, `src/pptx/chart/quick_layouts.py`.
-- `src/pptx/render.py` — slide-thumbnail renderer.
-- `src/pptx/smart_art.py`, `src/pptx/_svg.py`.
+- `src/power_pptx/design/` — `tokens`, `style`, `layout`, `recipes`.
+- `src/power_pptx/chart/palettes.py`, `src/power_pptx/chart/quick_layouts.py`.
+- `src/power_pptx/render.py` — slide-thumbnail renderer.
+- `src/power_pptx/smart_art.py`, `src/power_pptx/_svg.py`.
 - `examples/starter_pack/` — three example token sets and a build script.
 
 The user-facing Sphinx documentation under `docs/user/` mirrors the

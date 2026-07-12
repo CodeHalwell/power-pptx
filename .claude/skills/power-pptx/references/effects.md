@@ -14,18 +14,9 @@ shadow = card.shadow
 shadow.blur_radius = Pt(8)
 shadow.distance    = Pt(4)
 shadow.direction   = 90.0          # degrees, 90 = down
-shadow.color       = RGBColor(0, 0, 0)   # shorthand for shadow.color.rgb = …
+shadow.color.rgb   = RGBColor(0, 0, 0)
 shadow.color.alpha = 0.35          # 35% opacity
 ```
-
-`color` accepts a direct `RGBColor` (shorthand for `.color.rgb = …`); use the
-proxy form (`.color.rgb` / `.color.theme_color`) when you want to read it back.
-
-Setting only `color.alpha` (no colour) defaults the colour to black — shadows
-are almost always black, so `shadow.color.alpha = 0.4` works on a fresh shape
-without setting `.rgb` first. (A geometry-only shadow — just `blur_radius` etc.
-— is also written with a black colour so PowerPoint accepts it; the
-`<a:outerShdw>` schema requires a colour child.)
 
 To clear, assign `None` to each property — the `<a:outerShdw>` element
 is dropped when the last attribute goes away, restoring inheritance.
@@ -36,8 +27,8 @@ is dropped when the last attribute goes away, restoring inheritance.
 ## Glow
 
 ```python
-card.glow.radius    = Pt(6)
-card.glow.color     = RGBColor(0x4F, 0x9D, 0xFF)   # or .color.rgb = …
+card.glow.radius   = Pt(6)
+card.glow.color.rgb = RGBColor(0x4F, 0x9D, 0xFF)
 ```
 
 ## Soft edges

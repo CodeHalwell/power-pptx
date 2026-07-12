@@ -128,6 +128,119 @@ class DescribeSections:
         assert section.id.startswith("{")
         assert section.id.endswith("}")
 
+    def it_emits_the_required_sldIdLst_child_for_an_empty_section(self):
+        # MS-PPTX 2.5.17 (CT_Section) makes `p14:sldIdLst` a required child
+        # (minOccurs=1); PowerPoint writes it even for an empty section.
+        prs = _deck(1)
+        prs.sections.add("Empty", id=GUID_A)
+        assert "<p14:sldIdLst" in prs._element.sectionLst.xml
+
+    def it_adds_new_slides_to_the_final_section(self):
+        # PowerPoint keeps the section list a complete partition of the deck;
+        # a slide appended to a sectioned deck must join the last section
+        # rather than belong to no section at all.
+        prs = _deck(2)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        prs.sections.add("B", start_slide_index=1, id=GUID_B)
+
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        assert prs.sections[1].slide_ids[-1] == slide.slide_id
+        # complete partition: every slide in exactly one section
+        all_ids = [sid for section in prs.sections for sid in section.slide_ids]
+        assert sorted(all_ids) == sorted(s.slide_id for s in prs.slides)
+        assert len(all_ids) == len(set(all_ids))
+
+    def but_adding_a_slide_to_an_unsectioned_deck_stays_a_no_op(self):
+        prs = _deck(1)
+        prs.slides.add_slide(prs.slide_layouts[6])
+        assert prs._element.sectionLst is None
+
+    def it_does_not_mutate_the_deck_when_sections_is_only_read(self):
+        # Reading a property must not inject the PowerPoint-2010 extension
+        # block (an empty <p14:sectionLst/> is itself invalid — CT_SectionList
+        # requires at least one section).
+        prs = _deck(1)
+        assert len(prs.sections) == 0
+        assert list(prs.sections) == []
+        assert prs._element.sectionLst is None
+
+    def it_merges_removed_section_slides_into_the_previous_section(self):
+        prs = _deck(4)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        b = prs.sections.add("B", start_slide_index=2, id=GUID_B)
+
+        prs.sections.remove(b)
+
+        assert len(prs.sections) == 1
+        assert prs.sections[0].slide_ids == [256, 257, 258, 259]
+
+    def it_merges_first_section_slides_into_the_next_section_in_order(self):
+        prs = _deck(4)
+        a = prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        prs.sections.add("B", start_slide_index=2, id=GUID_B)
+
+        a.delete()
+
+        assert len(prs.sections) == 1
+        assert prs.sections[0].name == "B"
+        assert prs.sections[0].slide_ids == [256, 257, 258, 259]
+
+    def it_drops_the_section_extension_when_the_only_section_is_removed(self):
+        prs = _deck(2)
+        only = prs.sections.add("Only", start_slide_index=0, id=GUID_A)
+        only.delete()
+        assert len(prs.sections) == 0
+        # No empty <p14:sectionLst/> (CT_SectionList minOccurs=1) may remain.
+        assert prs._element.sectionLst is None
+
+    def it_moves_a_slide_between_sections_rather_than_duplicating_it(self):
+        prs = _deck(2)
+        a = prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        b = prs.sections.add("B", id=GUID_B)
+
+        slide = prs.slides[0]
+        b.add_slide(slide)
+
+        assert slide.slide_id not in a.slide_ids
+        assert slide.slide_id in b.slide_ids
+
+    def it_covers_leading_slides_when_the_first_section_starts_past_zero(self):
+        # PowerPoint never leaves a slide outside every section; a first
+        # section starting at slide 2 gets an auto-created "Default Section"
+        # covering slides 0-1.
+        prs = _deck(4)
+        prs.sections.add("Body", start_slide_index=2, id=GUID_A)
+
+        assert len(prs.sections) == 2
+        assert prs.sections[0].name == "Default Section"
+        assert prs.sections[0].slide_ids == [256, 257]
+        assert prs.sections[1].name == "Body"
+        assert prs.sections[1].slide_ids == [258, 259]
+
+    def it_rejects_a_malformed_section_id(self):
+        prs = _deck(1)
+        with pytest.raises(ValueError):
+            prs.sections.add("Bad", id="not-a-guid")
+
+    def it_rejects_a_duplicate_section_id(self):
+        prs = _deck(2)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        with pytest.raises(ValueError):
+            prs.sections.add("B", id=GUID_A)
+
+    def it_adds_an_imported_slide_to_the_final_section(self):
+        src = _deck(1)
+        prs = _deck(2)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        prs.sections.add("B", start_slide_index=1, id=GUID_B)
+
+        imported = prs.import_slide(src.slides[0])
+
+        assert imported.slide_id in prs.sections[1].slide_ids
+        all_ids = [sid for section in prs.sections for sid in section.slide_ids]
+        assert sorted(all_ids) == sorted(s.slide_id for s in prs.slides)
+        assert len(all_ids) == len(set(all_ids))
+
 
 class DescribeSectionsPersistence:
     """The section extension survives save/reopen and validates clean."""

@@ -633,6 +633,90 @@ class DescribeAnimationsIntrospection:
         assert len(slide.animations) == 1
         assert next(iter(slide.animations)).shape_id == b.shape_id
 
+    # -- timing-tree pruning: an empty <p:childTnLst> is schema-invalid
+    # -- (CT_TimeNodeList requires a time-node child), so whichever removal
+    # -- takes out the last entry must drop the whole p:timing subtree.
+
+    def it_prunes_the_timing_tree_when_remove_takes_the_last_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+
+        next(iter(slide.animations)).remove()
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_prunes_the_timing_tree_on_clear(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Emphasis.pulse(slide, a)
+
+        slide.animations.clear()
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_prunes_the_timing_tree_when_purge_removes_the_last_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        a._element.getparent().remove(a._element)
+
+        assert slide.animations.purge_orphans() == 1
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_never_writes_exponent_notation_into_motion_paths(self):
+        # %g formatting emitted scientific notation for float noise
+        # (sin/cos at multiples of pi -> 1.5e-17), which PowerPoint's path
+        # parser cannot read ('e' is not a number token and 'E' is the End
+        # command), so the whole animation was dropped.
+        import re
+
+        from power_pptx.animation import MotionPath
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        MotionPath.spiral(slide, a, Inches(2), turns=2)
+        MotionPath.line(slide, a, Inches(0.00001), Inches(2))
+        MotionPath.circle(slide, a, Inches(1))
+        MotionPath.zigzag(slide, a, Inches(3), 0, segments=4)
+
+        paths = [m.get("path") for m in slide._element.iter(qn("p:animMotion"))]
+        assert paths
+        offenders = [p for p in paths if re.search(r"\de[-+]", p)]
+        assert offenders == [], offenders
+
+    def but_it_keeps_a_timing_tree_that_still_holds_entries(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Entrance.fade(slide, b)
+
+        next(iter(slide.animations)).remove()
+        assert slide._element.find(qn("p:timing")) is not None
+
+    def and_it_preserves_a_timing_extension_list_when_pruning(self):
+        # CT_SlideTiming legally holds only an extLst; foreign extension data
+        # must survive the prune even when the last effect is removed.
+        from lxml import etree
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        timing = slide._element.find(qn("p:timing"))
+        etree.SubElement(timing, qn("p:extLst"))
+
+        slide.animations.clear()
+
+        timing = slide._element.find(qn("p:timing"))
+        assert timing is not None
+        assert [child.tag for child in timing] == [qn("p:extLst")]
+
 
 class DescribeBlockTriggerCounting:
     """Explicit triggers inside group()/sequence() still consume a slot.

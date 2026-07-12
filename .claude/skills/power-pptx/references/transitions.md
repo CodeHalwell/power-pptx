@@ -1,24 +1,5 @@
 # Slide transitions (Phase 4)
 
-> ℹ️ **Per-slide overrides are preserved across `set_transition`**
->
-> `prs.set_transition(kind=…)` skips slides that already have an
-> explicit per-slide transition kind, instead of silently overwriting
-> them. Either order now works — set the per-slide override before
-> *or* after the deck-wide call:
->
-> ```python
-> slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH       # before
-> prs.set_transition(MSO_TRANSITION_TYPE.FADE)             # leaves slide1 alone
->
-> # Or:
-> prs.set_transition(MSO_TRANSITION_TYPE.FADE)             # default for the deck
-> slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH       # after — also fine
-> ```
->
-> Pass `force=True` to restore the old "force every slide" behaviour:
-> `prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)`.
-
 Each slide exposes a `transition` proxy backed by `<p:transition>`.
 Reads on an unset transition return `None` and never mutate XML,
 keeping theme inheritance intact.
@@ -52,20 +33,11 @@ if slide.transition.kind is None:
 `MSO_TRANSITION_TYPE` covers 25+ kinds including Office 2010+
 extension transitions on the `p14:` namespace:
 
-- Classics: `NONE`, `FADE`, `PUSH`, `PULL`, `WIPE`, `SPLIT`, `RANDOM`,
-  `RANDOM_BAR`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`, `BLINDS`, `CHECKER`,
-  `CIRCLE`, `DIAMOND`, `PLUS`, `WEDGE`, `WHEEL`, `NEWSFLASH`, `STRIPS`
+- Classics: `FADE`, `PUSH`, `WIPE`, `SPLIT`, `REVEAL`, `RANDOM_BARS`,
+  `SHAPE`, `UNCOVER`, `COVER`, `CUT`, `DISSOLVE`, `ZOOM`
 - Office 2010+ (p14): `MORPH`, `VORTEX`, `CONVEYOR`, `SWITCH`,
-  `GALLERY`, `FLY_THROUGH`
-
-(Use `power_pptx.enum.presentation.MSO_TRANSITION_TYPE` for the full,
-authoritative list.)
-
-The `p14:` kinds (Morph, Vortex, …) are written the way PowerPoint itself
-writes them — wrapped in `<mc:AlternateContent>` with an `<mc:Fallback>` for
-pre-2010 viewers — so the deck opens cleanly in PowerPoint instead of being
-flagged for repair. You just set `transition.kind`; the wrapping is automatic
-and round-trips on save/reopen.
+  `GALLERY`, `FLY_THROUGH`, `RIPPLE`, `HONEYCOMB`, `GLITTER`, `ORBIT`,
+  `PAN`, `WARP`, `WIND`
 
 Direction modifiers (`fromLeft`, `fromTop`, etc.) are not yet
 exposed by the high-level API — they round-trip but you have to set
@@ -112,11 +84,17 @@ slide2.shapes.title.text = "Run-rate metrics"
 slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
 slide1.transition.duration = 1500
 
-# Default everything else to a quick fade.  set_transition skips
-# slides with an explicit kind by default, so slide1's MORPH is
-# preserved.  Pass force=True if you ever want to clobber per-slide
-# kinds.
+# Default everything else to a quick fade
 prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
+# (set_transition won't overwrite slide1's already-set kind unless the
+#  kind kwarg is provided — but we passed kind here, so for slide1 it
+#  WILL be overwritten. To preserve slide1, set it AFTER the deck-wide
+#  call instead.)
+
+# Correct order:
+prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
+slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
+slide1.transition.duration = 1500
 
 prs.save("with-transitions.pptx")
 ```

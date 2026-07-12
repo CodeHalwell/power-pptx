@@ -409,6 +409,7 @@ class CT_TLMediaNodeVideo(BaseOxmlElement):
 
 _MC_URI = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _P14_URI = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+_P159_URI = "http://schemas.microsoft.com/office/powerpoint/2015/09/main"
 _P_URI = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 
@@ -430,18 +431,29 @@ def _transition_kind_child(transition):
     return None
 
 
-def _is_p14_transition(transition) -> bool:
+def _extension_kind_uri(transition) -> "str | None":
+    """The Microsoft-extension namespace URI of the transition kind, or |None|.
+
+    Returns ``_P159_URI`` for a 2016+ kind (morph), ``_P14_URI`` for a 2010+
+    kind (flythrough, vortex, …), and |None| for a classic ``p:`` kind or a
+    kind-less transition.
+    """
     kind = _transition_kind_child(transition)
-    return kind is not None and kind.tag.startswith("{%s}" % _P14_URI)
+    if kind is None:
+        return None
+    for uri in (_P159_URI, _P14_URI):
+        if kind.tag.startswith("{%s}" % uri):
+            return uri
+    return None
 
 
 def _has_p14_attr(transition) -> bool:
     """True when *transition* carries any PowerPoint-2010 (p14) attribute.
 
-    The most common one is ``p14:dur`` (millisecond duration). Like the p14
-    *kind* elements, a p14 attribute is only schema-valid inside an
-    ``<mc:Choice Requires="p14">`` — a bare ``<p:transition p14:dur="…">`` is
-    rejected by Microsoft PowerPoint (it reports the deck as needing repair).
+    The most common one is ``p14:dur`` (millisecond duration). Like the
+    extension *kind* elements, a p14 attribute is only schema-valid inside an
+    ``<mc:Choice>`` — a bare ``<p:transition p14:dur="…">`` is rejected by
+    Microsoft PowerPoint (it reports the deck as needing repair).
     """
     p14 = "{%s}" % _P14_URI
     return any(name.startswith(p14) for name in transition.attrib)
@@ -450,10 +462,10 @@ def _has_p14_attr(transition) -> bool:
 def _needs_mc_wrap(transition) -> bool:
     """True when *transition* must be wrapped in ``<mc:AlternateContent>``.
 
-    That is whenever it holds *any* p14 content — a p14 kind child (morph, …)
-    or a p14 attribute (e.g. ``p14:dur``).
+    That is whenever it holds *any* extension content — a p14/p159 kind child
+    (flythrough, morph, …) or a p14 attribute (e.g. ``p14:dur``).
     """
-    return _is_p14_transition(transition) or _has_p14_attr(transition)
+    return _extension_kind_uri(transition) is not None or _has_p14_attr(transition)
 
 
 def slide_has_p14_transition(root) -> bool:
@@ -478,30 +490,56 @@ def wrap_p14_transitions(root) -> None:
             continue
         idx = list(root).index(transition)
 
-        ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
-        choice = etree.SubElement(ac, _mc("Choice"), nsmap={"p14": _P14_URI})
-        choice.set("Requires", "p14")
+        # Heal decks written by earlier power-pptx releases (and any other
+        # producer) that emitted morph in the p14 namespace: retag to p159 so
+        # a plain load → save round-trip repairs the file.
+        legacy_morph = _transition_kind_child(transition)
+        if legacy_morph is not None and legacy_morph.tag == "{%s}morph" % _P14_URI:
+            healed = etree.Element("{%s}morph" % _P159_URI, nsmap={"p159": _P159_URI})
+            for attr_name, attr_value in legacy_morph.attrib.items():
+                healed.set(attr_name, attr_value)
+            transition.replace(legacy_morph, healed)
 
-        # Match PowerPoint: <p14:morph option="byObject"/> when option is unset.
+        ext_uri = _extension_kind_uri(transition)
+
+        # Morph is a 2015/09 (p159) element per MS-PPTX, so its Choice must
+        # require "p159" — every modern PowerPoint understands p14, and an
+        # undefined `p14:morph` inside the selected branch is exactly the
+        # repair-dialog class of failure.  The 2010 kinds (and a p14
+        # attribute on a classic kind) require "p14".
+        if ext_uri == _P159_URI:
+            requires, choice_nsmap = "p159", {"p159": _P159_URI, "p14": _P14_URI}
+        else:
+            requires, choice_nsmap = "p14", {"p14": _P14_URI}
+
+        ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
+        choice = etree.SubElement(ac, _mc("Choice"), nsmap=choice_nsmap)
+        choice.set("Requires", requires)
+
+        # Match PowerPoint: <p159:morph option="byObject"/> when option is unset.
         kind = _transition_kind_child(transition)
-        if kind is not None and kind.tag == "{%s}morph" % _P14_URI and kind.get("option") is None:
+        if kind is not None and kind.tag == "{%s}morph" % _P159_URI and kind.get("option") is None:
             kind.set("option", "byObject")
 
         # Fallback transition keeps the non-p14 timing attributes.  When the
         # kind is a *classic* (p:) element — e.g. a fade carrying only a p14:dur
         # — preserve it in the fallback so pre-2010 viewers still get the
-        # transition.  p14 kinds (morph, …) have no classic equivalent, so the
-        # fallback stays kind-less for them.
+        # transition.  Extension kinds (morph, vortex, …) have no classic
+        # equivalent; PowerPoint's own fallback for them is a plain fade, and
+        # an extension element must never leak into the ISO-pure fallback.
         fallback = etree.SubElement(ac, _mc("Fallback"))
         fb = etree.SubElement(fallback, _p_tag("transition"))
         for name, value in transition.attrib.items():
             if not name.startswith(p14):
                 fb.set(name, value)
-        if kind is not None and not kind.tag.startswith(p14):
-            fb.append(copy.deepcopy(kind))
+        if kind is not None:
+            if ext_uri is None:
+                fb.append(copy.deepcopy(kind))
+            else:
+                etree.SubElement(fb, _p_tag("fade"))
 
-        # Move the original p14 transition under <mc:Choice> and drop it into
-        # the tree where it used to live.
+        # Move the original extension transition under <mc:Choice> and drop
+        # it into the tree where it used to live.
         choice.append(transition)
         root.insert(idx, ac)
 

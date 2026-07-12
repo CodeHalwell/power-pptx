@@ -249,6 +249,30 @@ class DescribeChart(object):
         with pytest.raises(AttributeError):
             chart.text_color  # noqa: B018
 
+    def it_pins_text_color_on_a_scatter_chart(self):
+        # Regression: CT_ScatterChart lacked a `dLbls` accessor, so the
+        # data-labels sweep in the text_color setter (and apply_dark_theme)
+        # crashed with AttributeError on any scatter chart.
+        from power_pptx import Presentation
+        from power_pptx.chart.data import XyChartData
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        data = XyChartData()
+        series = data.add_series("S")
+        for n in range(3):
+            series.add_data_point(n, n * 2.0)
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.XY_SCATTER, Inches(1), Inches(1), Inches(6), Inches(4), data
+        ).chart
+
+        chart.text_color = "#FFAA00"
+        chart.apply_dark_theme()
+
+        assert chart.font.color.rgb is not None
+        assert chart.plots[0].has_data_labels is False
+
     def it_recolours_per_series_for_multi_series_charts(self):
         chart = _make_chart_with_series(("S1", "S2"))
 
@@ -256,6 +280,16 @@ class DescribeChart(object):
 
         actual = [str(s.format.fill.fore_color.rgb) for s in chart.series]
         assert actual == ["FF0000", "00FF00"]
+
+    def it_paints_the_line_stroke_when_recolouring_a_radar_chart(self):
+        # Radar (non-filled) series render as line strokes, so a palette
+        # must colour `a:ln`, not just the (invisible) shape fill.
+        chart = _make_chart_with_series(("S1",), chart_type=XL_CHART_TYPE.RADAR)
+
+        chart.apply_palette(["#FF0000"])
+
+        stroke_fills = chart._chartSpace.xpath(".//c:ser/c:spPr/a:ln/a:solidFill/a:srgbClr/@val")
+        assert stroke_fills == ["FF0000"]
 
     def it_recolours_per_point_for_pie_and_doughnut_charts(self):
         # Single-series chart types are dispatched to color_by_category so

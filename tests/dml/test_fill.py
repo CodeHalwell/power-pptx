@@ -446,6 +446,9 @@ class Describe_GradFill(object):
     @pytest.fixture(
         params=[
             ("a:gradFill", None),
+            # -- `a:lin` with no `ang` attribute (the default `<a:lin
+            # -- scaled="0"/>` gradient) renders at the effective angle 0 --
+            ("a:gradFill/a:lin", 0.0),
             ("a:gradFill/a:lin{ang=0}", 0.0),
             ("a:gradFill/a:lin{ang=2730000}", 314.5),
             ("a:gradFill/a:lin{ang=16200000}", 90.0),

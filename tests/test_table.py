@@ -1238,6 +1238,38 @@ class DescribeTableStyleGallery(object):
             assert guid.startswith("{"), name
             assert guid.endswith("}"), name
 
+    def it_maps_style_names_to_the_published_microsoft_guids(self):
+        # Regression: ~30 entries were fabricated or mapped to the wrong
+        # style; PowerPoint silently applies no styling (or the wrong one)
+        # for a GUID outside the published built-in set.  Spot-check the
+        # families that were wrong, against Microsoft's hh273476 list.
+        from power_pptx.table_styles import TABLE_STYLES, name_for_guid
+
+        assert TABLE_STYLES["Medium Style 2"] == "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}"
+        assert TABLE_STYLES["Medium Style 3"] == "{8EC20E35-A176-4012-BC5E-935CFFF8708E}"
+        assert TABLE_STYLES["Dark Style 1"] == "{E8034E78-7F5D-4C2E-B375-FC64B27BC917}"
+        assert TABLE_STYLES["Dark Style 2"] == "{5202B0CA-FC54-4496-8BCA-5EF66A818D29}"
+        assert TABLE_STYLES["Themed Style 2 - Accent 2"] == (
+            "{18603FDC-E32A-4AB5-989C-0864C3EAD2B8}"
+        )
+        assert TABLE_STYLES["Light Style 3 - Accent 1"] == (
+            "{BC89EF96-8CEA-46FF-86C4-4CE0E7609802}"
+        )
+        assert TABLE_STYLES["Dark Style 2 - Accent 5/Accent 6"] == (
+            "{46F890A9-2807-4EBB-B81D-B2AA78EC7F39}"
+        )
+        # a genuine PowerPoint "Dark Style 2" deck must read back correctly
+        assert name_for_guid("{5202B0CA-FC54-4496-8BCA-5EF66A818D29}") == "Dark Style 2"
+        # no two style names may share a GUID (aside from the documented
+        # "Table Grid" alias of "No Style, Table Grid")
+        seen: dict[str, str] = {}
+        for name, guid in TABLE_STYLES.items():
+            if guid in seen:
+                assert {name, seen[guid]} == {"Table Grid", "No Style, Table Grid"}, (
+                    "%s and %s share GUID %s" % (name, seen[guid], guid)
+                )
+            seen[guid] = name
+
     def it_round_trips_a_table_with_a_named_style(self):
         from tests.integration.round_trip import assert_round_trip
 

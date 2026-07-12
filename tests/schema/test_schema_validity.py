@@ -328,6 +328,61 @@ def _deck_transition_duration() -> bytes:
     return _saved(prs)
 
 
+def _deck_sections() -> bytes:
+    # Regression: an empty section must still emit its required
+    # <p14:sldIdLst/> child, and a slide added to a sectioned deck must join
+    # the final section so the section list stays a complete partition.
+    prs = Presentation()
+    for _ in range(3):
+        _blank_slide(prs)
+    prs.sections.add("Intro", 0)
+    prs.sections.add("Body", 2)
+    prs.sections.add("Empty tail")
+    _blank_slide(prs)  # joins "Empty tail"
+    return _saved(prs)
+
+
+def _deck_animation_removal() -> bytes:
+    # Regression: removing the last animation entry (remove()/clear()/
+    # purge_orphans()) left an empty <p:childTnLst>, which is schema-invalid
+    # and a repair trigger. Slide 1 ends with zero animations; slide 2 keeps
+    # one after a partial removal.
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s1 = _blank_slide(prs)
+    sh1 = s1.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(1), Inches(1), Inches(1))
+    s1.animations.add("entrance", "fade", sh1)
+    s1.animations.clear()
+
+    s2 = _blank_slide(prs)
+    sh2 = s2.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(1), Inches(1), Inches(1))
+    s2.animations.add("entrance", "fade", sh2)
+    s2.animations.add("emphasis", "pulse", sh2)
+    next(iter(s2.animations)).remove()
+    return _saved(prs)
+
+
+def _deck_label_collision_strategy() -> bytes:
+    # Regression: collision_strategy created <c:gapWidth> by bare append,
+    # landing it after <c:axId> — out of sequence in CT_BarChart.
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    data = CategoryChartData()
+    data.categories = ["A", "B", "C", "D", "E"]
+    data.add_series("S1", (1, 2, 3, 4, 5))
+    data.add_series("S2", (5, 4, 3, 2, 1))
+    chart = s.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(8), Inches(5), data
+    ).chart
+    chart.plots[0].has_data_labels = True
+    chart.plots[0].data_labels.collision_strategy = "compact"
+    return _saved(prs)
+
+
 def _deck_diagrams() -> bytes:
     from power_pptx.diagrams import cycle, decision_tree, horizontal_pipeline
     from power_pptx.geometry import BBox
@@ -397,7 +452,10 @@ _DECK_BUILDERS = {
     "gradient": _deck_gradient,
     "table": _deck_table,
     "chart": _deck_chart,
+    "label_collision_strategy": _deck_label_collision_strategy,
     "animations": _deck_animations,
+    "animation_removal": _deck_animation_removal,
+    "sections": _deck_sections,
     "morph_transition": _deck_morph_transition,
     "transition_duration": _deck_transition_duration,
     "chart_types": _deck_chart_types,
@@ -562,6 +620,64 @@ class DescribeGeneratedDeckSchemaValidity:
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
             part == "_rels/.rels" and "docProps/core.xml" in msg
+            for part, msg in violations
+        ), violations
+
+    def it_detects_a_duplicate_zip_member_name(self):
+        # Self-test for the OPC unique-partname rule: write two different
+        # payloads under one member name (zipfile permits it silently; the
+        # PowerPoint package reader does not) and confirm the validator
+        # flags it.
+        import io as _io
+        import warnings
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    zout.writestr(item, zin.read(item.filename))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)  # zipfile dup warning
+                    zout.writestr("ppt/slides/slide1.xml", b"<not-the-real-slide/>")
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "ppt/slides/slide1.xml" and "more than once" in msg
+            for part, msg in violations
+        ), violations
+
+    def it_detects_an_orphan_slide_part(self):
+        # Self-test for the sldIdLst-coverage rule: add a slide part (with
+        # valid rels and a content-type override) that no p:sldId references
+        # and confirm the validator flags it.
+        import io as _io
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            ct = zin.read("[Content_Types].xml").replace(
+                b"</Types>",
+                b'<Override PartName="/ppt/slides/slide9.xml" ContentType='
+                b'"application/vnd.openxmlformats-officedocument.presentationml.'
+                b'slide+xml"/></Types>',
+            )
+            # Read up front: writestr(zinfo, ...) mutates the shared ZipInfo,
+            # so members can't be re-read after they've been written out.
+            slide_xml = zin.read("ppt/slides/slide1.xml")
+            slide_rels = zin.read("ppt/slides/_rels/slide1.xml.rels")
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = ct if item.filename == "[Content_Types].xml" else zin.read(item.filename)
+                    zout.writestr(item, data)
+                zout.writestr("ppt/slides/slide9.xml", slide_xml)
+                zout.writestr("ppt/slides/_rels/slide9.xml.rels", slide_rels)
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "ppt/slides/slide9.xml" and "not referenced by any p:sldId" in msg
             for part, msg in violations
         ), violations
 

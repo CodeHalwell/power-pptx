@@ -112,6 +112,12 @@ class DescribeGraphicFrame(object):
         # slide don't have to wrap each access in ``try/except``.
         assert GraphicFrame(None, None).shadow is None
 
+    def it_raises_NotImplementedError_for_three_d(self):
+        # A graphic frame has no `p:spPr`; the inherited spPr-based accessor
+        # raised a bare AttributeError (mirrors blur/glow behaviour).
+        with pytest.raises(NotImplementedError):
+            GraphicFrame(None, None).three_d
+
     @pytest.mark.parametrize(
         "uri, oleObj_child, expected_value",
         (

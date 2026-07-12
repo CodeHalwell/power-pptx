@@ -9,6 +9,7 @@ from power_pptx.dml.fill import FillFormat
 from power_pptx.enum.presentation import (
     MSO_TRANSITION_TYPE,
     P14_TRANSITION_NAMES,
+    P159_TRANSITION_NAMES,
 )
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.oxml.ns import qn
@@ -231,7 +232,12 @@ class SlideTransition(object):
         if value is MSO_TRANSITION_TYPE.NONE:
             return
         local = value.xml_value
-        prefix = "p14" if local in P14_TRANSITION_NAMES else "p"
+        if local in P159_TRANSITION_NAMES:
+            prefix = "p159"
+        elif local in P14_TRANSITION_NAMES:
+            prefix = "p14"
+        else:
+            prefix = "p"
         kind_elm = etree.Element(
             qn("%s:%s" % (prefix, local)),
             nsmap={prefix: _PREFIX_TO_URI[prefix]},
@@ -336,6 +342,7 @@ _SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}
 _PREFIX_TO_URI = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
+    "p159": "http://schemas.microsoft.com/office/powerpoint/2015/09/main",
 }
 
 
@@ -903,8 +910,24 @@ class Slides(ParentedElementProxy):
         """Return a newly added slide that inherits layout from `slide_layout`."""
         rId, slide = self.part.add_slide(slide_layout)
         slide.shapes.clone_layout_placeholders(slide_layout)
-        self._sldIdLst.add_sldId(rId)
+        sldId = self._sldIdLst.add_sldId(rId)
+        self._add_to_final_section(sldId.id)
         return slide
+
+    def _add_to_final_section(self, slide_id: int) -> None:
+        """Register a newly appended slide with the deck's final section.
+
+        PowerPoint keeps the 2010 section extension a complete partition of
+        the deck — every slide belongs to exactly one section.  A slide
+        appended at the end of a sectioned deck therefore falls into the
+        last section, so mirror that here to keep the `p14:sectionLst` in
+        sync.  A no-op when the deck has no sections.
+        """
+        prs_elm = self._sldIdLst.getparent()
+        sectionLst = getattr(prs_elm, "sectionLst", None)
+        if sectionLst is None or not sectionLst.section_lst:
+            return
+        sectionLst.section_lst[-1].add_sldId(slide_id)
 
     def get(self, slide_id: int, default: Slide | None = None) -> Slide | None:
         """Return the slide identified by int `slide_id` in this presentation.

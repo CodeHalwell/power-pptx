@@ -152,6 +152,13 @@ class DescribeGroupShapeSurface(object):
         assert int(group.inner_shadow.blur_radius) == Pt(3)
         assert group.preset_shadow.preset is not None
 
+    def it_raises_NotImplementedError_for_three_d(self, group):
+        # `p:grpSpPr` legally holds `a:scene3d` but not `a:sp3d`, so routing
+        # the ThreeDFormat facade at it would emit schema-invalid XML; the
+        # inherited spPr-based accessor raised a bare AttributeError instead.
+        with pytest.raises(NotImplementedError):
+            group.three_d
+
     def it_ungroups_preserving_child_geometry(self, slide, group):
         before = [(int(s.left), int(s.top), int(s.width), int(s.height)) for s in group.shapes]
 

@@ -159,6 +159,36 @@ pic = slide.shapes.add_picture(
 )
 ```
 
+### Anchored placement
+
+`add_picture`, `add_shape`, and `add_textbox` accept an
+``anchor=`` keyword that collapses the
+``add → measure → reposition`` idiom for branding elements:
+
+```python
+# Logo at bottom-right with a 0.25" margin, height-only sizing:
+slide.shapes.add_picture(
+    "logo.png",
+    anchor="bottom-right",
+    margin=Inches(0.25),
+    height=Inches(0.32),
+)
+
+# Title centred in the top half of a parent card:
+slide.shapes.add_textbox(
+    Inches(0), Inches(0), Inches(2), Inches(0.5),
+    anchor="top-center", margin=Inches(0.25),
+    container=card,         # any shape with .width / .height
+)
+```
+
+`anchor` is one of `top-left`, `top-center`, `top-right`,
+`middle-left`, `middle-center` (or bare `center`),
+`middle-right`, `bottom-left`, `bottom-center`, `bottom-right`.
+Both `center` / `centre` spellings are accepted. `container` is the
+slide by default; pass any shape (or anything exposing
+`.width` / `.height`) to anchor inside a card / group / placeholder.
+
 ## Grouping shapes
 
 `slide.shapes.add_group_shape()` returns a `GroupShape` whose
@@ -195,6 +225,7 @@ table_shape = slide.shapes.add_table(
     rows=4, cols=3,
     left=Inches(1), top=Inches(2),
     width=Inches(8), height=Inches(3),
+    style="clean",   # disable inherited style flags for hand-styled tables
 )
 table = table_shape.table
 
@@ -212,6 +243,10 @@ for row, (k, v, d) in enumerate([("ARR", "$182M", "+27%"),
     table.cell(row, 1).text = v
     table.cell(row, 2).text = d
 ```
+
+Pass `style="clean"` whenever you plan to apply custom cell borders
+or fills. The default inherited table style otherwise overlays them
+and renders inconsistently across PowerPoint and LibreOffice.
 
 (See `tables.md` for `Cell.borders`, the post-fork addition.)
 
@@ -260,6 +295,20 @@ Cm(2.54)    # ≈ Inches(1)
 ```
 
 Use these everywhere — never write the EMU integers directly.
+
+Arithmetic on lengths is fine — power-pptx coerces float coordinates
+to integer EMU at the API boundary, so this works:
+
+```python
+card_w = (Inches(12.33) - Inches(0.25)) / 2   # produces a float
+slide.shapes.add_chart(chart_type, x, y, card_w, height, data)
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, card_w, h)
+shape.width = card_w   # setter coerces too
+```
+
+Both ``/`` (true division → float) and ``//`` (floor division → int)
+work; pick whichever reads more cleanly. The coercion is round-half-
+to-even, so it's unbiased over long expression chains.
 
 ### International & layout text properties
 

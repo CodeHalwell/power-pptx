@@ -139,7 +139,13 @@ class Trendline(object):
         if value is None:
             self._trendline._remove_order()
             return
-        self._trendline.get_or_add_order().val = int(value)
+        order = int(value)
+        if not 2 <= order <= 6:
+            raise ValueError(
+                "polynomial trendline order must be in the range 2-6 "
+                "(ST_Order); got %r" % (value,)
+            )
+        self._trendline.get_or_add_order().val = order
 
     @property
     def period(self):
@@ -154,7 +160,13 @@ class Trendline(object):
         if value is None:
             self._trendline._remove_period()
             return
-        self._trendline.get_or_add_period().val = int(value)
+        period = int(value)
+        if period < 2:
+            raise ValueError(
+                "moving-average trendline period must be 2 or greater "
+                "(ST_Period); got %r" % (value,)
+            )
+        self._trendline.get_or_add_period().val = period
 
     @property
     def forward(self):

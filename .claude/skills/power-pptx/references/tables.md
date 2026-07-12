@@ -66,6 +66,29 @@ from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
 ```
 
+## Detaching the default table style
+
+Every table created via `slide.shapes.add_table(...)` is born with
+the "Medium Style 2 — Accent 1" `tableStyleId` attached. The style
+ships a banded-row overlay that PowerPoint and LibreOffice render
+on top of any per-cell fills you set — and that overlay survives
+`table.horz_banding = False` and `table.first_row = False`, because
+those flags only suppress `bandRow` / `firstRow` markup, not the
+style's own banding rules.
+
+When you want full control of every cell's appearance, detach the
+default style outright:
+
+```python
+table.clear_style()           # drops <a:tableStyleId>
+# now style every cell explicitly:
+for r in range(len(table.rows)):
+    for c in range(len(table.columns)):
+        cell = table.cell(r, c)
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+```
+
 ## Cell borders (Phase 4 — post-fork addition)
 
 `cell.borders` exposes per-edge `LineFormat` proxies plus convenience
@@ -111,17 +134,14 @@ for r in range(1, len(table.rows)):
 
 ## Reading borders
 
-Reads on an unset edge return a `LineFormat` and never mutate the XML
-(the "reads don't mutate" contract). `LineFormat.width` reads back as
-`Emu(0)` when no width has been set — the same as a plain shape's
-`shape.line.width` — so test for a falsy width, not `None`:
+Reads on an unset edge return a `LineFormat` whose properties read as
+`None` — matching the rest of the library's "reads don't mutate"
+contract:
 
 ```python
-if not cell.borders.bottom.width:        # Emu(0) when unset
+if cell.borders.bottom.width is None:
     print("inherits border from style")
 ```
-
-`color.rgb` on an unset edge does read back as `None`.
 
 ## Rotated / stacked cell text
 

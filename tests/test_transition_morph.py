@@ -36,13 +36,20 @@ class DescribeMorphTransitionSerialization:
 
         xml = _saved_slide_xml(prs)
         assert "<mc:AlternateContent" in xml
-        assert 'Requires="p14"' in xml
-        assert "<p14:morph" in xml
+        # Morph is a PowerPoint-2016 (2015/09, p159) element per MS-PPTX —
+        # NOT p14. A `p14:morph` in a Requires="p14" Choice is an undefined
+        # element in a namespace every modern PowerPoint understands, which
+        # triggers the repair dialog.
+        assert 'Requires="p159"' in xml
+        assert "<p159:morph" in xml
         assert 'option="byObject"' in xml
-        # A fallback <p:transition> must be present for pre-2010 viewers.
+        assert "p14:morph" not in xml
+        # A fallback <p:transition> must be present for pre-2016 viewers,
+        # with PowerPoint's own downgrade kind (fade), not kind-less.
         assert "<mc:Fallback>" in xml
+        assert "<p:fade/>" in xml
         # The bare (invalid) form must NOT be present.
-        assert "<p:transition><p14:morph" not in xml
+        assert "<p:transition><p159:morph" not in xml
 
     def it_does_not_wrap_a_standard_transition(self):
         prs = Presentation()
@@ -68,7 +75,115 @@ class DescribeMorphTransitionSerialization:
         # Re-saving must keep the wrapper (stable round-trip).
         xml = _saved_slide_xml(reopened)
         assert "<mc:AlternateContent" in xml
-        assert "<p14:morph" in xml
+        assert "<p159:morph" in xml
+
+    def it_round_trips_a_powerpoint_authored_p159_morph(self):
+        # A deck whose morph was written by PowerPoint itself (p159 wrapper,
+        # p14:dur on the transition) must re-save schema-valid: the p159 kind
+        # must stay in a Requires="p159" Choice and must never leak into the
+        # ISO-pure mc:Fallback branch.
+        import re
+
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+
+        p159_wrapper = (
+            '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/'
+            'markup-compatibility/2006">'
+            '<mc:Choice xmlns:p159="http://schemas.microsoft.com/office/'
+            'powerpoint/2015/09/main" xmlns:p14="http://schemas.microsoft.com/'
+            'office/powerpoint/2010/main" Requires="p159">'
+            '<p:transition spd="slow" p14:dur="2000">'
+            '<p159:morph option="byObject"/></p:transition></mc:Choice>'
+            "<mc:Fallback><p:transition spd=\"slow\"><p:fade/></p:transition>"
+            "</mc:Fallback></mc:AlternateContent>"
+        )
+        out = io.BytesIO()
+        with zipfile.ZipFile(buf) as zin:
+            slide_xml = zin.read("ppt/slides/slide1.xml").decode("utf-8")
+            slide_xml = re.sub(
+                r"(</p:clrMapOvr>)", r"\1" + p159_wrapper, slide_xml, count=1
+            )
+            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = (
+                        slide_xml.encode("utf-8")
+                        if item.filename == "ppt/slides/slide1.xml"
+                        else zin.read(item.filename)
+                    )
+                    zout.writestr(item, data)
+        out.seek(0)
+
+        reopened = Presentation(out)
+        assert reopened.slides[0].transition.kind == MSO_TRANSITION_TYPE.MORPH
+
+        resaved = _saved_slide_xml(reopened)
+        assert 'Requires="p159"' in resaved
+        # The p159 kind may exist ONLY inside the mc:Choice branch: strip
+        # every AlternateContent block and assert no p159 content remains
+        # (a bare p159:morph in p:sld or one leaked into the ISO-pure
+        # mc:Fallback are both repair triggers).
+        import re as _re
+
+        outside_wrappers = _re.sub(
+            r"<mc:AlternateContent\b.*?</mc:AlternateContent>", "", resaved, flags=_re.S
+        )
+        assert "p159" not in outside_wrappers
+        fallback = resaved.split("<mc:Fallback>", 1)[1]
+        assert "p159" not in fallback
+
+        from tests.schema.oxml_schema_validator import iter_schema_violations
+
+        final = io.BytesIO()
+        reopened.save(final)
+        assert list(iter_schema_violations(final.getvalue())) == []
+
+    def it_heals_a_legacy_p14_morph_on_resave(self):
+        # Decks written by earlier power-pptx releases carry `p14:morph`
+        # inside a Requires="p14" Choice; a load → save cycle must retag the
+        # kind to p159 and fix the Requires token.
+        import re
+
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+
+        p14_wrapper = (
+            '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/'
+            'markup-compatibility/2006">'
+            '<mc:Choice xmlns:p14="http://schemas.microsoft.com/office/'
+            'powerpoint/2010/main" Requires="p14">'
+            '<p:transition p14:dur="600"><p14:morph option="byObject"/>'
+            "</p:transition></mc:Choice>"
+            "<mc:Fallback><p:transition/></mc:Fallback></mc:AlternateContent>"
+        )
+        out = io.BytesIO()
+        with zipfile.ZipFile(buf) as zin:
+            slide_xml = zin.read("ppt/slides/slide1.xml").decode("utf-8")
+            slide_xml = re.sub(
+                r"(</p:clrMapOvr>)", r"\1" + p14_wrapper, slide_xml, count=1
+            )
+            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = (
+                        slide_xml.encode("utf-8")
+                        if item.filename == "ppt/slides/slide1.xml"
+                        else zin.read(item.filename)
+                    )
+                    zout.writestr(item, data)
+        out.seek(0)
+
+        reopened = Presentation(out)
+        assert reopened.slides[0].transition.kind == MSO_TRANSITION_TYPE.MORPH
+        resaved = _saved_slide_xml(reopened)
+        assert "p14:morph" not in resaved
+        assert "<p159:morph" in resaved
+        assert 'Requires="p159"' in resaved
 
 
 class DescribeChartAxisIds:
