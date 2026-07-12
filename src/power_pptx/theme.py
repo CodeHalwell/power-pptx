@@ -276,6 +276,11 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     pres_elm = presentation._element  # type: ignore[attr-defined]
     r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
+    # PowerPoint treats font embedding as *disabled* unless the presentation
+    # carries embedTrueTypeFonts="1" — without it, a user re-saving the deck
+    # in PowerPoint has the fntdata parts and font list silently stripped.
+    pres_elm.set("embedTrueTypeFonts", "1")
+
     # Get (or create) the list in its schema-mandated position. embeddedFontLst
     # must precede defaultTextStyle / modifyVerifier / extLst in the
     # CT_Presentation sequence, and every default template already carries a
@@ -549,8 +554,20 @@ class ThemeFonts:
 
         kind_elm = font_scheme.find(qn(f"a:{font_kind}"))
         if kind_elm is None:
+            # Recovery path for a theme missing a required font collection:
+            # CT_FontCollection requires latin + ea + cs (in that order), and
+            # CT_FontScheme requires majorFont before minorFont — a bare
+            # latin-only append would itself be repair-trigger XML.
             kind_elm = OxmlElement(f"a:{font_kind}")
-            font_scheme.append(kind_elm)
+            for tag in ("a:latin", "a:ea", "a:cs"):
+                child = OxmlElement(tag)
+                child.set("typeface", "")
+                kind_elm.append(child)
+            minor = font_scheme.find(qn("a:minorFont"))
+            if font_kind == "majorFont" and minor is not None:
+                minor.addprevious(kind_elm)
+            else:
+                font_scheme.append(kind_elm)
 
         latin = kind_elm.find(qn("a:latin"))
         if latin is None:

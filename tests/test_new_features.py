@@ -319,6 +319,18 @@ class DescribeEmbedFont:
         # must come strictly before it.
         assert children.index("embeddedFontLst") < children.index("defaultTextStyle")
 
+    def it_sets_embedTrueTypeFonts_on_the_presentation(self):
+        # PowerPoint treats embedding as disabled without this attribute and
+        # silently strips the fntdata parts + font list on the next re-save.
+        ttf = os.path.join(os.path.dirname(__file__), "test_files", "calibriz.ttf")
+        if not os.path.isfile(ttf):
+            pytest.skip("calibriz.ttf fixture is unavailable")
+
+        prs = Presentation()
+        prs.theme.embed_font(prs, ttf, typeface="EmbedFlagTest", weight="regular")
+
+        assert prs.part.presentation._element.get("embedTrueTypeFonts") == "1"
+
     def it_rejects_invalid_weight(self):
         prs = Presentation()
         with pytest.raises(ValueError):
