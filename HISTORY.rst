@@ -14,7 +14,232 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
-2.9.0 (unreleased)
+2.10.0 (2026-07-12)
++++++++++++++++++++
+
+Maintenance release centred on a full-library OOXML-conformance
+review: every emitted-XML subsystem was cross-checked against the
+ISO/IEC 29500 schemas, [MS-PPTX], and Microsoft's published
+references, hunting the "PowerPoint reports the file as broken /
+silently repairs it" class of bug. Together with the tail of the
+2.9.0 review cycle, this fixes seventeen repair triggers plus a batch
+of crashes and silent-misbehaviour bugs; every fix ships with
+regression tests, and the schema harness gained new structural checks
+so the classes stay fixed. No new public API.
+
+Fixed
+~~~~~
+
+- **Table border helpers crashed on a hex-string colour.**
+  ``cell.borders.all(color="1F4E79")`` (and ``outer`` / ``diagonal`` /
+  the ``row.borders`` / ``col.borders`` group helpers) raised
+  ``TypeError`` because the colour was pre-wrapped as
+  ``RGBColor(*color)``, which splat the six-character hex string into six
+  positional arguments. Hex strings, ``(r, g, b)`` tuples, and
+  ``RGBColor`` now all work, matching the colour convention used
+  everywhere else in the library.
+
+- **Embedding a font produced an invalid presentation.xml.**
+  ``theme.embed_font(...)`` appended ``<p:embeddedFontLst>`` to the end of
+  ``presentation.xml``, but the ``CT_Presentation`` sequence requires it
+  *before* ``defaultTextStyle`` — an element every default template
+  already carries. The out-of-order element made PowerPoint report the
+  deck as broken. The list is now inserted in its schema-mandated
+  position (a proper ``embeddedFontLst`` child definition on
+  ``CT_Presentation`` with the correct successors).
+
+- **Two OLE objects on one slide produced a duplicate shape id.** The
+  inner "show-as-icon" ``<p:pic>`` of every embedded OLE object
+  (``shapes.add_ole_object(...)``) was emitted with a hardcoded
+  ``id="0"``, so a slide carrying more than one OLE object contained two
+  shapes sharing that id — a non-unique shape id that makes PowerPoint
+  report the deck as needing repair. Each inner pic now receives its own
+  uniquely-allocated shape id.
+
+- **3-D shapes were rejected by Microsoft PowerPoint when a bevel or
+  material was turned off via the enum.** ``shape.three_d.bevel_top.preset
+  = BevelPreset.NONE`` and ``shape.three_d.preset_material =
+  PresetMaterial.NONE`` — the natural way to say "no bevel" / "no
+  material" — emitted the token ``"none"``, which is absent from the
+  ISO-29500 ``ST_BevelPresetType`` / ``ST_PresetMaterialType``
+  enumerations. The file opened in python-pptx and LibreOffice but
+  PowerPoint reported it as broken and offered to repair it. Assigning
+  ``BevelPreset.NONE`` now removes the ``<a:bevelT>`` / ``<a:bevelB>``
+  element (the schema-valid way to express "no bevel"), and
+  ``PresetMaterial.NONE`` clears the ``prstMaterial`` attribute; both
+  read back as ``None``. Passing Python ``None`` keeps its prior meaning
+  of clearing only the preset while preserving any bevel dimensions. Use
+  ``PresetMaterial.FLAT`` for an explicit flat surface.
+
+- **Removing the last animation left schema-invalid timing XML.**
+  ``entry.remove()``, ``animations.clear()``, and ``purge_orphans()``
+  removed the click-group ``<p:par>`` entries but left an empty
+  ``<p:childTnLst>`` behind — invalid per ``CT_TimeNodeList`` (at least
+  one time-node child is required) and a PowerPoint repair trigger.
+  Whichever removal takes out the last entry now prunes the whole
+  ``p:timing`` subtree; a timing tree still carrying content (remaining
+  effects, or a movie's ``p:video`` play-controls node) is untouched.
+
+- **Sections stayed out of sync with the deck.** Two fixes to the
+  PowerPoint-2010 section extension: an empty section
+  (``prs.sections.add("Name")``) omitted its ``<p14:sldIdLst>`` child,
+  which MS-PPTX 2.5.17 makes required (PowerPoint writes it even when
+  empty); and ``slides.add_slide(...)`` on a sectioned deck left the new
+  slide belonging to no section. New slides now join the final section,
+  keeping the section list the complete partition of the deck that
+  PowerPoint itself always writes.
+
+- **Data-label ``collision_strategy`` emitted out-of-order chart XML.**
+  ``"compact"`` (and a firing ``"auto"``) created ``<c:gapWidth>`` by
+  bare append, landing it *after* ``<c:axId>`` — out of sequence in
+  ``CT_BarChart`` and a repair trigger. The element is now inserted in
+  its schema position (before ``overlap``/``serLines``/``axId``).
+
+- **Out-of-range trendline parameters produced invalid chart XML.**
+  ``trendlines.add("poly", order=10)`` / ``add("movingAvg", period=1)``
+  wrote values outside the schema ranges (``ST_Order`` 2–6,
+  ``ST_Period`` ≥ 2) verbatim; both now raise ``ValueError`` at the API
+  boundary like the library's other range-checked chart attributes.
+
+- **``chart.apply_dark_theme()`` / ``chart.text_color`` crashed on
+  scatter charts.** ``CT_ScatterChart`` lacked the ``dLbls`` accessor its
+  sibling plot classes define, so the data-label sweep raised
+  ``AttributeError`` (``plot.has_data_labels`` on a scatter plot crashed
+  on both read and write). The accessor is now defined in its correct
+  ``CT_ScatterChart`` sequence position.
+
+- **A hidden secondary value axis multiplied on re-access.**
+  ``axis.visible = False`` writes a bare ``<c:delete/>`` (the ``val``
+  attribute is dropped as the schema default), which made the
+  secondary-axis detection stop matching — each later
+  ``chart.secondary_value_axis`` access piled a fresh axis pair onto the
+  plot area. Detection no longer filters on delete-state.
+
+- **Palettes skipped radar-chart strokes.** ``apply_palette`` /
+  ``recolour`` on ``RADAR`` / ``RADAR_MARKERS`` charts wrote only the
+  (invisible) shape fill; radar series now get their line stroke
+  painted like the other line-rendered chart types.
+
+- **``fill.gradient_angle`` crashed on the library's own default
+  gradient.** The default ``<a:lin scaled="0"/>`` (and a
+  radial→linear ``change_to_kind`` switch) carries no ``ang``
+  attribute, and the read raised ``TypeError`` on ``360.0 - None``. An
+  ``a:lin`` without ``ang`` now reads as the effective angle ``0.0``.
+
+- **``shape.three_d`` raised a bare ``AttributeError`` on groups and
+  graphic frames.** Both now raise an explanatory
+  ``NotImplementedError`` instead, mirroring the sibling effect facades
+  (a group's ``grpSpPr`` legally carries ``scene3d`` but not ``sp3d``,
+  so the facade cannot target it without emitting invalid XML).
+
+- **Cross-deck ``import_slide`` / ``apply_template`` produced structurally
+  broken packages in several master-cloning paths.** Fixed as a group:
+
+  * A cloned slide master kept the *source's* ``p:sldLayoutIdLst`` rIds
+    while its new relationships put the theme on ``rId1`` — the first
+    "layout" entry resolved to the theme part, the rest were off by
+    one, and the last layout was unlisted. The id list is now rebuilt
+    entry-by-entry as layouts are cloned, with fresh unique ids
+    allocated across the whole presentation (duplicate
+    ``sldMasterId``/``sldLayoutId`` ids are themselves a repair
+    trigger).
+  * Cloned masters and layouts lost their own image dependencies
+    (template logos, backgrounds), leaving dangling ``r:embed``
+    references. Their dependency graphs are now copied and remapped
+    like the slide's.
+  * A layout cloned into an existing (deduped) master was related but
+    never registered in the master's ``p:sldLayoutIdLst``, leaving it
+    invisible to PowerPoint's layout picker.
+  * A copied notes slide's back-reference to its slide cloned the
+    entire slide graph a second time — an orphan slide part the notes
+    slide pointed at instead of the registered slide.
+  * The copied notes slide dropped its ``notesSlide→notesMaster``
+    relationship entirely (and the destination got no notes master);
+    it is now re-linked to the destination's own notes master, created
+    from the default template when absent.
+  * The next-slide-partname allocator counted ``p:sldIdLst`` entries
+    only, so ``add_slide()`` after an import could write a second,
+    different part under an existing partname — a duplicate zip member
+    name, which OPC forbids. It now scans the package's actual
+    partnames.
+
+- **Latent oxml attribute types corrected against the XSD.**
+  ``a:reflection@kx/@ky`` are now ``ST_FixedAngle`` (exclusive ±90°,
+  no silent modulo-360 normalization), ``a:outerShdw@dir`` is
+  ``ST_PositiveFixedAngle`` (matching ``a:innerShdw``), and
+  ``a:lum@bright/@contrast`` are ``ST_FixedPercentage`` (±100%). Also,
+  resetting picture ``brightness``/``contrast`` to ``0.0`` no longer
+  strands a dead empty ``<a:lum/>`` on the blip.
+
+- **Morph transitions were emitted in the wrong namespace.** MS-PPTX
+  defines ``morph`` in the PowerPoint-2016 namespace
+  (``…/powerpoint/2015/09/main``, prefix ``p159``), not the 2010
+  ``p14`` namespace this library used — and because every modern
+  PowerPoint understands ``p14``, MCE selected that branch and hit an
+  undefined element: the repair dialog, on the headline Morph feature.
+  Morph now serializes as ``<p159:morph>`` inside an ``mc:Choice
+  Requires="p159"``; round-tripping a PowerPoint-authored morph deck
+  no longer writes the p159 kind bare into ``p:sld`` (a hard
+  ``CT_SlideTransition`` violation) or into the ISO-pure fallback;
+  extension-kind fallbacks carry ``<p:fade/>`` (PowerPoint's own
+  downgrade) instead of rendering as a cut; and legacy decks written
+  with ``p14:morph`` are healed on re-save.
+
+- **Motion paths could contain exponent-notation coordinates.**
+  ``%g`` formatting wrote ``1.5e-17``-style float noise into
+  ``animMotion`` paths (``MotionPath.spiral`` on essentially every
+  call); the path grammar has no exponent form, so PowerPoint dropped
+  the animation. Coordinates are now fixed-point with noise clamped
+  to ``0``.
+
+- **Section list integrity, round two.** ``Sections.remove()`` /
+  ``Section.delete()`` now merge the removed section's slides into the
+  neighbouring section (PowerPoint's own "Remove Section" behaviour)
+  instead of orphaning them, and removing the only section drops the
+  whole extension block rather than leaving an empty
+  ``<p14:sectionLst/>`` (itself invalid — ``minOccurs=1``).
+  ``Section.add_slide()`` moves a slide between sections instead of
+  letting two sections reference it. A first section created with
+  ``start_slide_index > 0`` now gets an auto-created "Default Section"
+  covering the preceding slides. ``import_slide`` onto a sectioned
+  deck adds the imported slide to the final section. Section ids are
+  validated as unique brace-wrapped GUIDs. And reading
+  ``prs.sections`` no longer injects the PowerPoint-2010 extension
+  block into a section-less deck.
+
+- **Embedded fonts survived exactly one save.** ``embed_font`` never
+  set ``embedTrueTypeFonts="1"`` on ``p:presentation``, so PowerPoint
+  considered embedding disabled and silently stripped the ``fntdata``
+  parts and font list the next time a user saved the deck in
+  PowerPoint. Also hardened the ``ThemeFonts`` recovery path for
+  themes missing a required font collection (it previously emitted a
+  ``latin``-only collection appended out of order — itself
+  repair-trigger XML).
+
+- **~30 of the built-in table-style GUIDs were wrong.** Entries in
+  ``TABLE_STYLES`` were fabricated or mapped to a different style than
+  their name claimed — ``"Dark Style 1"`` selected *No Style, No
+  Grid*, ``"Medium Style 2"`` selected *No Style, Table Grid*, the
+  Medium 3 / Dark 1 / Dark 2 / Light 3 accent rows were shuffled or
+  invented, and ``name_for_guid`` mislabelled genuine PowerPoint
+  decks. A GUID outside the built-in set is schema-valid but
+  PowerPoint silently applies **no styling at all**. Every entry is
+  now verbatim from Microsoft's published list (hh273476); the
+  fabricated ``"Themed Style N - No Color"`` aliases are removed.
+
+The ``tests/schema`` harness that guards this class of bug also grew
+five PowerPoint-specific structural checks the XSDs cannot express —
+duplicate shape ids within a slide, dangling relationship references
+(``r:id`` / ``r:embed`` / ``r:link`` targets with no matching
+relationship, and relationships pointing at missing parts), package
+parts absent from ``[Content_Types].xml``, duplicate zip member names
+(two payloads under one OPC part name), and slide parts absent from
+``p:sldIdLst`` (orphans left by a botched copy) — each a real
+"PowerPoint repairs the file" trigger, each with a self-test proving
+it detects its target.
+
+
+2.9.0 (2026-06-25)
 ++++++++++++++++++
 
 Minor release widening the public surface across many subsystems: the
@@ -206,47 +431,6 @@ Added
 Fixed
 ~~~~~
 
-- **Table border helpers crashed on a hex-string colour.**
-  ``cell.borders.all(color="1F4E79")`` (and ``outer`` / ``diagonal`` /
-  the ``row.borders`` / ``col.borders`` group helpers) raised
-  ``TypeError`` because the colour was pre-wrapped as
-  ``RGBColor(*color)``, which splat the six-character hex string into six
-  positional arguments. Hex strings, ``(r, g, b)`` tuples, and
-  ``RGBColor`` now all work, matching the colour convention used
-  everywhere else in the library.
-
-- **Embedding a font produced an invalid presentation.xml.**
-  ``theme.embed_font(...)`` appended ``<p:embeddedFontLst>`` to the end of
-  ``presentation.xml``, but the ``CT_Presentation`` sequence requires it
-  *before* ``defaultTextStyle`` — an element every default template
-  already carries. The out-of-order element made PowerPoint report the
-  deck as broken. The list is now inserted in its schema-mandated
-  position (a proper ``embeddedFontLst`` child definition on
-  ``CT_Presentation`` with the correct successors).
-
-- **Two OLE objects on one slide produced a duplicate shape id.** The
-  inner "show-as-icon" ``<p:pic>`` of every embedded OLE object
-  (``shapes.add_ole_object(...)``) was emitted with a hardcoded
-  ``id="0"``, so a slide carrying more than one OLE object contained two
-  shapes sharing that id — a non-unique shape id that makes PowerPoint
-  report the deck as needing repair. Each inner pic now receives its own
-  uniquely-allocated shape id.
-
-- **3-D shapes were rejected by Microsoft PowerPoint when a bevel or
-  material was turned off via the enum.** ``shape.three_d.bevel_top.preset
-  = BevelPreset.NONE`` and ``shape.three_d.preset_material =
-  PresetMaterial.NONE`` — the natural way to say "no bevel" / "no
-  material" — emitted the token ``"none"``, which is absent from the
-  ISO-29500 ``ST_BevelPresetType`` / ``ST_PresetMaterialType``
-  enumerations. The file opened in python-pptx and LibreOffice but
-  PowerPoint reported it as broken and offered to repair it. Assigning
-  ``BevelPreset.NONE`` now removes the ``<a:bevelT>`` / ``<a:bevelB>``
-  element (the schema-valid way to express "no bevel"), and
-  ``PresetMaterial.NONE`` clears the ``prstMaterial`` attribute; both
-  read back as ``None``. Passing Python ``None`` keeps its prior meaning
-  of clearing only the preset while preserving any bevel dimensions. Use
-  ``PresetMaterial.FLAT`` for an explicit flat surface.
-
 - **``from_spec`` no longer silently swallows an unknown layout name.**
   A typo'd / unrecognized ``"layout"`` used to fall back to the Blank
   layout silently, so a misspelled ``"titel"`` produced a blank slide
@@ -256,174 +440,9 @@ Fixed
   keys. Pass ``"layout": "blank"`` explicitly for a deliberately blank
   slide.
 
-- **Removing the last animation left schema-invalid timing XML.**
-  ``entry.remove()``, ``animations.clear()``, and ``purge_orphans()``
-  removed the click-group ``<p:par>`` entries but left an empty
-  ``<p:childTnLst>`` behind — invalid per ``CT_TimeNodeList`` (at least
-  one time-node child is required) and a PowerPoint repair trigger.
-  Whichever removal takes out the last entry now prunes the whole
-  ``p:timing`` subtree; a timing tree still carrying content (remaining
-  effects, or a movie's ``p:video`` play-controls node) is untouched.
-
-- **Sections stayed out of sync with the deck.** Two fixes to the
-  PowerPoint-2010 section extension: an empty section
-  (``prs.sections.add("Name")``) omitted its ``<p14:sldIdLst>`` child,
-  which MS-PPTX 2.5.17 makes required (PowerPoint writes it even when
-  empty); and ``slides.add_slide(...)`` on a sectioned deck left the new
-  slide belonging to no section. New slides now join the final section,
-  keeping the section list the complete partition of the deck that
-  PowerPoint itself always writes.
-
-- **Data-label ``collision_strategy`` emitted out-of-order chart XML.**
-  ``"compact"`` (and a firing ``"auto"``) created ``<c:gapWidth>`` by
-  bare append, landing it *after* ``<c:axId>`` — out of sequence in
-  ``CT_BarChart`` and a repair trigger. The element is now inserted in
-  its schema position (before ``overlap``/``serLines``/``axId``).
-
-- **Out-of-range trendline parameters produced invalid chart XML.**
-  ``trendlines.add("poly", order=10)`` / ``add("movingAvg", period=1)``
-  wrote values outside the schema ranges (``ST_Order`` 2–6,
-  ``ST_Period`` ≥ 2) verbatim; both now raise ``ValueError`` at the API
-  boundary like the library's other range-checked chart attributes.
-
-- **``chart.apply_dark_theme()`` / ``chart.text_color`` crashed on
-  scatter charts.** ``CT_ScatterChart`` lacked the ``dLbls`` accessor its
-  sibling plot classes define, so the data-label sweep raised
-  ``AttributeError`` (``plot.has_data_labels`` on a scatter plot crashed
-  on both read and write). The accessor is now defined in its correct
-  ``CT_ScatterChart`` sequence position.
-
-- **A hidden secondary value axis multiplied on re-access.**
-  ``axis.visible = False`` writes a bare ``<c:delete/>`` (the ``val``
-  attribute is dropped as the schema default), which made the
-  secondary-axis detection stop matching — each later
-  ``chart.secondary_value_axis`` access piled a fresh axis pair onto the
-  plot area. Detection no longer filters on delete-state.
-
-- **Palettes skipped radar-chart strokes.** ``apply_palette`` /
-  ``recolour`` on ``RADAR`` / ``RADAR_MARKERS`` charts wrote only the
-  (invisible) shape fill; radar series now get their line stroke
-  painted like the other line-rendered chart types.
-
-- **``fill.gradient_angle`` crashed on the library's own default
-  gradient.** The default ``<a:lin scaled="0"/>`` (and a
-  radial→linear ``change_to_kind`` switch) carries no ``ang``
-  attribute, and the read raised ``TypeError`` on ``360.0 - None``. An
-  ``a:lin`` without ``ang`` now reads as the effective angle ``0.0``.
-
-- **``shape.three_d`` raised a bare ``AttributeError`` on groups and
-  graphic frames.** Both now raise an explanatory
-  ``NotImplementedError`` instead, mirroring the sibling effect facades
-  (a group's ``grpSpPr`` legally carries ``scene3d`` but not ``sp3d``,
-  so the facade cannot target it without emitting invalid XML).
-
-- **Cross-deck ``import_slide`` / ``apply_template`` produced structurally
-  broken packages in several master-cloning paths.** Fixed as a group:
-
-  * A cloned slide master kept the *source's* ``p:sldLayoutIdLst`` rIds
-    while its new relationships put the theme on ``rId1`` — the first
-    "layout" entry resolved to the theme part, the rest were off by
-    one, and the last layout was unlisted. The id list is now rebuilt
-    entry-by-entry as layouts are cloned, with fresh unique ids
-    allocated across the whole presentation (duplicate
-    ``sldMasterId``/``sldLayoutId`` ids are themselves a repair
-    trigger).
-  * Cloned masters and layouts lost their own image dependencies
-    (template logos, backgrounds), leaving dangling ``r:embed``
-    references. Their dependency graphs are now copied and remapped
-    like the slide's.
-  * A layout cloned into an existing (deduped) master was related but
-    never registered in the master's ``p:sldLayoutIdLst``, leaving it
-    invisible to PowerPoint's layout picker.
-  * A copied notes slide's back-reference to its slide cloned the
-    entire slide graph a second time — an orphan slide part the notes
-    slide pointed at instead of the registered slide.
-  * The copied notes slide dropped its ``notesSlide→notesMaster``
-    relationship entirely (and the destination got no notes master);
-    it is now re-linked to the destination's own notes master, created
-    from the default template when absent.
-  * The next-slide-partname allocator counted ``p:sldIdLst`` entries
-    only, so ``add_slide()`` after an import could write a second,
-    different part under an existing partname — a duplicate zip member
-    name, which OPC forbids. It now scans the package's actual
-    partnames.
-
-- **Latent oxml attribute types corrected against the XSD.**
-  ``a:reflection@kx/@ky`` are now ``ST_FixedAngle`` (exclusive ±90°,
-  no silent modulo-360 normalization), ``a:outerShdw@dir`` is
-  ``ST_PositiveFixedAngle`` (matching ``a:innerShdw``), and
-  ``a:lum@bright/@contrast`` are ``ST_FixedPercentage`` (±100%). Also,
-  resetting picture ``brightness``/``contrast`` to ``0.0`` no longer
-  strands a dead empty ``<a:lum/>`` on the blip.
-
-- **Morph transitions were emitted in the wrong namespace.** MS-PPTX
-  defines ``morph`` in the PowerPoint-2016 namespace
-  (``…/powerpoint/2015/09/main``, prefix ``p159``), not the 2010
-  ``p14`` namespace this library used — and because every modern
-  PowerPoint understands ``p14``, MCE selected that branch and hit an
-  undefined element: the repair dialog, on the headline Morph feature.
-  Morph now serializes as ``<p159:morph>`` inside an ``mc:Choice
-  Requires="p159"``; round-tripping a PowerPoint-authored morph deck
-  no longer writes the p159 kind bare into ``p:sld`` (a hard
-  ``CT_SlideTransition`` violation) or into the ISO-pure fallback;
-  extension-kind fallbacks carry ``<p:fade/>`` (PowerPoint's own
-  downgrade) instead of rendering as a cut; and legacy decks written
-  with ``p14:morph`` are healed on re-save.
-
-- **Motion paths could contain exponent-notation coordinates.**
-  ``%g`` formatting wrote ``1.5e-17``-style float noise into
-  ``animMotion`` paths (``MotionPath.spiral`` on essentially every
-  call); the path grammar has no exponent form, so PowerPoint dropped
-  the animation. Coordinates are now fixed-point with noise clamped
-  to ``0``.
-
-- **Section list integrity, round two.** ``Sections.remove()`` /
-  ``Section.delete()`` now merge the removed section's slides into the
-  neighbouring section (PowerPoint's own "Remove Section" behaviour)
-  instead of orphaning them, and removing the only section drops the
-  whole extension block rather than leaving an empty
-  ``<p14:sectionLst/>`` (itself invalid — ``minOccurs=1``).
-  ``Section.add_slide()`` moves a slide between sections instead of
-  letting two sections reference it. A first section created with
-  ``start_slide_index > 0`` now gets an auto-created "Default Section"
-  covering the preceding slides. ``import_slide`` onto a sectioned
-  deck adds the imported slide to the final section. Section ids are
-  validated as unique brace-wrapped GUIDs. And reading
-  ``prs.sections`` no longer injects the PowerPoint-2010 extension
-  block into a section-less deck.
-
-- **Embedded fonts survived exactly one save.** ``embed_font`` never
-  set ``embedTrueTypeFonts="1"`` on ``p:presentation``, so PowerPoint
-  considered embedding disabled and silently stripped the ``fntdata``
-  parts and font list the next time a user saved the deck in
-  PowerPoint. Also hardened the ``ThemeFonts`` recovery path for
-  themes missing a required font collection (it previously emitted a
-  ``latin``-only collection appended out of order — itself
-  repair-trigger XML).
-
-- **~30 of the built-in table-style GUIDs were wrong.** Entries in
-  ``TABLE_STYLES`` were fabricated or mapped to a different style than
-  their name claimed — ``"Dark Style 1"`` selected *No Style, No
-  Grid*, ``"Medium Style 2"`` selected *No Style, Table Grid*, the
-  Medium 3 / Dark 1 / Dark 2 / Light 3 accent rows were shuffled or
-  invented, and ``name_for_guid`` mislabelled genuine PowerPoint
-  decks. A GUID outside the built-in set is schema-valid but
-  PowerPoint silently applies **no styling at all**. Every entry is
-  now verbatim from Microsoft's published list (hh273476); the
-  fabricated ``"Themed Style N - No Color"`` aliases are removed.
-
 These additions ship with unit tests, a round-trip test, and
 ISO-29500 schema-validity tests for the new group-fill and run-property
 XML.
-
-The ``tests/schema`` harness that guards this class of bug also grew
-three PowerPoint-specific structural checks the XSDs cannot express —
-duplicate shape ids within a slide, dangling relationship references
-(``r:id`` / ``r:embed`` / ``r:link`` targets with no matching
-relationship, and relationships pointing at missing parts), and package
-parts absent from ``[Content_Types].xml`` — each a real "PowerPoint
-repairs the file" trigger, each with a self-test proving it detects its
-target.
 
 
 2.8.1 (2026-06-17)
