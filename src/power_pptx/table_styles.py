@@ -13,20 +13,23 @@ GUID string, so callers can discover the valid names::
     from power_pptx.table_styles import TABLE_STYLES
     print(sorted(TABLE_STYLES))
 
-Every GUID below is from the documented OOXML / PowerPoint built-in set.
-The map deliberately covers only the families whose GUIDs are confidently
-known and published; uncertain values are omitted rather than guessed, so
-every entry here is safe to write into a deck.
+Every GUID below is taken verbatim from Microsoft's published list
+("Programmatically Working with Table Styles in PowerPoint 2010",
+https://learn.microsoft.com/en-us/previous-versions/office/developer/
+office-2010/hh273476(v=office.14)), the canonical reference for the
+built-in style ids.  A GUID outside this set is schema-valid but makes
+PowerPoint silently apply *no* styling, so nothing here is guessed.
 
-Coverage:
+Coverage (the full 74-entry built-in gallery):
 
 * ``No Style, No Grid`` and ``No Style, Table Grid``
-* ``Table Grid`` (the plain gridded style)
-* ``Themed Style 1`` / ``Themed Style 2`` — Accent 1–6 (and no-accent)
-* ``Light Style 1`` / ``Light Style 2`` / ``Light Style 3`` — Accent 1–6
-* ``Medium Style 1`` … ``Medium Style 4`` — Accent 1–6
-* ``Dark Style 1`` / ``Dark Style 2`` — Accent 1–6 (Dark 2 covers the
-  paired-accent variants PowerPoint exposes)
+* ``Table Grid`` (alias for ``No Style, Table Grid``)
+* ``Themed Style 1`` / ``Themed Style 2`` — Accent 1–6
+* ``Light Style 1`` / ``Light Style 2`` / ``Light Style 3`` — base and
+  Accent 1–6
+* ``Medium Style 1`` … ``Medium Style 4`` — base and Accent 1–6
+* ``Dark Style 1`` — base and Accent 1–6; ``Dark Style 2`` — base and the
+  paired-accent variants PowerPoint exposes
 """
 
 from __future__ import annotations
@@ -46,8 +49,10 @@ __all__ = [
 DEFAULT_TABLE_STYLE_GUID = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
 
 
-# Friendly name -> GUID.  Keys match PowerPoint's UI labels.  GUIDs are the
-# documented built-in values; see module docstring for covered families.
+# Friendly name -> GUID.  Keys match PowerPoint's UI labels.  GUIDs are
+# verbatim from Microsoft's hh273476 list; do not edit by hand without
+# re-checking against that source — an unknown GUID silently applies no
+# styling at all.
 TABLE_STYLES: Mapping[str, str] = {
     # -- no-style / plain grid ------------------------------------------
     "No Style, No Grid": "{2D5ABB26-0587-4C30-8999-92F81FD0307C}",
@@ -60,15 +65,13 @@ TABLE_STYLES: Mapping[str, str] = {
     "Themed Style 1 - Accent 4": "{775DCB02-9BB8-47FD-8907-85C794F793BA}",
     "Themed Style 1 - Accent 5": "{35758FB7-9AC5-4552-8A53-C91805E547FA}",
     "Themed Style 1 - Accent 6": "{08FB837D-C827-4EFA-A057-4D05807E0F7C}",
-    "Themed Style 1 - No Color": "{9D7B26C5-4107-4FEC-AEDC-1716B250A1EF}",
     # -- Themed Style 2 (Accent 1-6) ------------------------------------
     "Themed Style 2 - Accent 1": "{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}",
-    "Themed Style 2 - Accent 2": "{18603FDC-E32A-4AB5-989C-0864C3343C3B}",
+    "Themed Style 2 - Accent 2": "{18603FDC-E32A-4AB5-989C-0864C3EAD2B8}",
     "Themed Style 2 - Accent 3": "{306799F8-075E-4A3A-A7F6-7FBC6576F1A4}",
     "Themed Style 2 - Accent 4": "{E269D01E-BC32-4049-B463-5C60D7B0CCD2}",
     "Themed Style 2 - Accent 5": "{327F97BB-C833-4FB7-BDE5-3F7075034690}",
     "Themed Style 2 - Accent 6": "{638B1855-1B75-4FBE-930C-398BA8C253C6}",
-    "Themed Style 2 - No Color": "{0E3FDE45-AF77-4B5C-9715-49D594BDF05E}",
     # -- Light Style 1 --------------------------------------------------
     "Light Style 1": "{9D7B26C5-4107-4FEC-AEDC-1716B250A1EF}",
     "Light Style 1 - Accent 1": "{3B4B98B0-60AC-42C2-AFA5-B58CD77FA1E5}",
@@ -87,14 +90,14 @@ TABLE_STYLES: Mapping[str, str] = {
     "Light Style 2 - Accent 6": "{912C8C85-51F0-491E-9774-3900AFEF0FD7}",
     # -- Light Style 3 --------------------------------------------------
     "Light Style 3": "{616DA210-FB5B-4158-B5E0-FEB733F419BA}",
-    "Light Style 3 - Accent 1": "{5940675A-B579-460E-94D1-54222C63F5DA}",
-    "Light Style 3 - Accent 2": "{D6DC6DDC-4DB7-4474-87BC-5F2A949A0DDF}",
-    "Light Style 3 - Accent 3": "{937DB4E0-FF40-4E32-91F1-67F11A22F4D1}",
-    "Light Style 3 - Accent 4": "{8FD4443E-F989-4FC4-A0C8-D5A2AF1F390B}",
-    "Light Style 3 - Accent 5": "{6E25E649-3F16-4E02-A734-19CA84408B31}",
-    "Light Style 3 - Accent 6": "{DC57A461-D2E9-4C82-BB36-CF42D2D40F36}",
+    "Light Style 3 - Accent 1": "{BC89EF96-8CEA-46FF-86C4-4CE0E7609802}",
+    "Light Style 3 - Accent 2": "{5DA37D80-6434-44D0-A028-1B22A696006F}",
+    "Light Style 3 - Accent 3": "{8799B23B-EC83-4686-B30A-512413B5E67A}",
+    "Light Style 3 - Accent 4": "{ED083AE6-46FA-4A59-8FB0-9F97EB10719F}",
+    "Light Style 3 - Accent 5": "{BDBED569-4797-4DF1-A0F4-6AAB3CD982D8}",
+    "Light Style 3 - Accent 6": "{E8B1032C-EA38-4F05-BA0D-38AFFFC7BED3}",
     # -- Medium Style 1 -------------------------------------------------
-    "Medium Style 1": "{3C2FFA5D-87B4-456A-9821-1D502468CF0F}",
+    "Medium Style 1": "{793D81CF-94F2-401A-BA57-92F5A7B2D0C5}",
     "Medium Style 1 - Accent 1": "{B301B821-A1FF-4177-AEE7-76D212191A09}",
     "Medium Style 1 - Accent 2": "{9DCAF9ED-07DC-4A11-8D7F-57B35C25682E}",
     "Medium Style 1 - Accent 3": "{1FECB4D8-DB02-4DC6-A0A2-4F2EBAE1DC90}",
@@ -102,7 +105,7 @@ TABLE_STYLES: Mapping[str, str] = {
     "Medium Style 1 - Accent 5": "{FABFCF23-3B69-468F-B69F-88F6DE6A72F2}",
     "Medium Style 1 - Accent 6": "{10A1B5D5-9B99-4C35-A422-299274C87663}",
     # -- Medium Style 2 -------------------------------------------------
-    "Medium Style 2": "{5940675A-B579-460E-94D1-54222C63F5DA}",
+    "Medium Style 2": "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}",
     "Medium Style 2 - Accent 1": "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}",
     "Medium Style 2 - Accent 2": "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}",
     "Medium Style 2 - Accent 3": "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}",
@@ -110,15 +113,15 @@ TABLE_STYLES: Mapping[str, str] = {
     "Medium Style 2 - Accent 5": "{7DF18680-E054-41AD-8BC1-D1AEF772440D}",
     "Medium Style 2 - Accent 6": "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}",
     # -- Medium Style 3 -------------------------------------------------
-    "Medium Style 3": "{8EE5EEC4-2EE0-4F3D-B0E1-5A0DBA5D5E60}",
-    "Medium Style 3 - Accent 1": "{D7AC3CCA-C797-4891-BE02-D94E43425B78}",
-    "Medium Style 3 - Accent 2": "{91EBBBCC-DAD2-459C-BE2E-F6DE35CF9A28}",
-    "Medium Style 3 - Accent 3": "{CF52607C-552E-4769-B441-1FF15B7F62C8}",
-    "Medium Style 3 - Accent 4": "{0E266DDA-2706-4D40-91E6-D9C4E1D5ADD3}",
-    "Medium Style 3 - Accent 5": "{6F6FDB36-EE7B-4F5B-9D5C-21D7D60E5A4E}",
-    "Medium Style 3 - Accent 6": "{0CADFFBA-8E7A-4F9C-8DA0-3D4E3A8C9F60}",
+    "Medium Style 3": "{8EC20E35-A176-4012-BC5E-935CFFF8708E}",
+    "Medium Style 3 - Accent 1": "{6E25E649-3F16-4E02-A733-19D2CDBF48F0}",
+    "Medium Style 3 - Accent 2": "{85BE263C-DBD7-4A20-BB59-AAB30ACAA65A}",
+    "Medium Style 3 - Accent 3": "{EB344D84-9AFB-497E-A393-DC336BA19D2E}",
+    "Medium Style 3 - Accent 4": "{EB9631B5-78F2-41C9-869B-9F39066F8104}",
+    "Medium Style 3 - Accent 5": "{74C1A8A3-306A-4EB7-A6B1-4F7E0EB9C5D6}",
+    "Medium Style 3 - Accent 6": "{2A488322-F2BA-4B5B-9748-0D474271808F}",
     # -- Medium Style 4 -------------------------------------------------
-    "Medium Style 4": "{1FECB4D8-DB02-4DC6-A0A2-4F2EBAE1DC90}",
+    "Medium Style 4": "{D7AC3CCA-C797-4891-BE02-D94E43425B78}",
     "Medium Style 4 - Accent 1": "{69CF1AB2-1976-4502-BF36-3FF5EA218861}",
     "Medium Style 4 - Accent 2": "{8A107856-5554-42FB-B03E-39F5DBC370BA}",
     "Medium Style 4 - Accent 3": "{0505E3EF-67EA-436B-97B2-0124C06EBD24}",
@@ -126,18 +129,18 @@ TABLE_STYLES: Mapping[str, str] = {
     "Medium Style 4 - Accent 5": "{22838BEF-8BB2-4498-84A7-C5851F593DF1}",
     "Medium Style 4 - Accent 6": "{16D9F66E-5EB9-4882-86FB-DCBF35E3C3E4}",
     # -- Dark Style 1 ---------------------------------------------------
-    "Dark Style 1": "{2D5ABB26-0587-4C30-8999-92F81FD0307C}",
-    "Dark Style 1 - Accent 1": "{E8B1032C-EA38-4F05-BA0D-38AFFFC7BED3}",
-    "Dark Style 1 - Accent 2": "{5202B0CA-FC54-4496-8BCA-5EF66A818D29}",
-    "Dark Style 1 - Accent 3": "{0660B408-B3CF-4A94-85FC-2B1E0A45F4A2}",
-    "Dark Style 1 - Accent 4": "{91124212-7F3D-407D-8B17-AA92B5305A8B}",
-    "Dark Style 1 - Accent 5": "{74C1A8A3-306A-4EB7-A6B1-4F7E0EB9C5D8}",
-    "Dark Style 1 - Accent 6": "{36A77E1A-9DE3-489A-BB99-9C5FE3F2EE45}",
+    "Dark Style 1": "{E8034E78-7F5D-4C2E-B375-FC64B27BC917}",
+    "Dark Style 1 - Accent 1": "{125E5076-3810-47DD-B79F-674D7AD40C01}",
+    "Dark Style 1 - Accent 2": "{37CE84F3-28C3-443E-9E96-99CF82512B78}",
+    "Dark Style 1 - Accent 3": "{D03447BB-5D67-496B-8E87-E561075AD55C}",
+    "Dark Style 1 - Accent 4": "{E929F9F4-4A8F-4326-A1B4-22849713DDAB}",
+    "Dark Style 1 - Accent 5": "{8FD4443E-F989-4FC4-A0C8-D5A2AF1F390B}",
+    "Dark Style 1 - Accent 6": "{AF606853-7671-496A-8E4F-DF71F8EC918B}",
     # -- Dark Style 2 ---------------------------------------------------
-    "Dark Style 2": "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}",
-    "Dark Style 2 - Accent 1/Accent 2": "{5DA37D80-6434-44D0-A028-1B22A696006F}",
-    "Dark Style 2 - Accent 3/Accent 4": "{D8807A85-2A1C-4A8A-9F1F-9E3E0A0E3F8B}",
-    "Dark Style 2 - Accent 5/Accent 6": "{8799B23B-EC83-4686-B30A-512413B5E67A}",
+    "Dark Style 2": "{5202B0CA-FC54-4496-8BCA-5EF66A818D29}",
+    "Dark Style 2 - Accent 1/Accent 2": "{0660B408-B3CF-4A94-85FC-2B1E0A45F4A2}",
+    "Dark Style 2 - Accent 3/Accent 4": "{91EBBBCC-DAD2-459C-BE2E-F6DE35CF9A28}",
+    "Dark Style 2 - Accent 5/Accent 6": "{46F890A9-2807-4EBB-B81D-B2AA78EC7F39}",
 }
 
 
