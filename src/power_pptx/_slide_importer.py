@@ -441,7 +441,13 @@ class _SlideImporter:
         """Add the new slide part to the destination presentation."""
         rId = self._dst_prs_part.relate_to(dst_slide_part, RT.SLIDE)
         prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
-        prs_element.get_or_add_sldIdLst().add_sldId(rId)
+        sldId = prs_element.get_or_add_sldIdLst().add_sldId(rId)
+        # A sectioned destination keeps its section list a complete partition
+        # — the imported slide lands at the end of the deck, so it joins the
+        # final section (same rule as Slides.add_slide).
+        sectionLst = getattr(prs_element, "sectionLst", None)
+        if sectionLst is not None and sectionLst.section_lst:
+            sectionLst.section_lst[-1].add_sldId(sldId.id)
 
 
 # ---------------------------------------------------------------------------

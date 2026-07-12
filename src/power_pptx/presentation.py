@@ -157,11 +157,10 @@ class Presentation(PartElementProxy):
         returned collection supports ``len()``, indexed access, iteration,
         ``.add(name, start_slide_index=None)``, and ``.remove(section)``.
 
-        Accessing this property creates the (empty) section-list container if
-        the deck does not already have one.
+        Reading this property never modifies the deck; the extension
+        container is created only when the first section is added.
         """
-        sectionLst = self._element.get_or_add_sectionLst()
-        return Sections(sectionLst, self)
+        return Sections(self._element, self)
 
     def import_slide(
         self,
