@@ -128,6 +128,33 @@ class DescribeSections:
         assert section.id.startswith("{")
         assert section.id.endswith("}")
 
+    def it_emits_the_required_sldIdLst_child_for_an_empty_section(self):
+        # MS-PPTX 2.5.17 (CT_Section) makes `p14:sldIdLst` a required child
+        # (minOccurs=1); PowerPoint writes it even for an empty section.
+        prs = _deck(1)
+        prs.sections.add("Empty", id=GUID_A)
+        assert "<p14:sldIdLst" in prs._element.sectionLst.xml
+
+    def it_adds_new_slides_to_the_final_section(self):
+        # PowerPoint keeps the section list a complete partition of the deck;
+        # a slide appended to a sectioned deck must join the last section
+        # rather than belong to no section at all.
+        prs = _deck(2)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        prs.sections.add("B", start_slide_index=1, id=GUID_B)
+
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        assert prs.sections[1].slide_ids[-1] == slide.slide_id
+        # complete partition: every slide in exactly one section
+        all_ids = [sid for section in prs.sections for sid in section.slide_ids]
+        assert sorted(all_ids) == sorted(s.slide_id for s in prs.slides)
+        assert len(all_ids) == len(set(all_ids))
+
+    def but_adding_a_slide_to_an_unsectioned_deck_stays_a_no_op(self):
+        prs = _deck(1)
+        prs.slides.add_slide(prs.slide_layouts[6])
+        assert prs._element.sectionLst is None
+
 
 class DescribeSectionsPersistence:
     """The section extension survives save/reopen and validates clean."""

@@ -241,6 +241,9 @@ class CT_SectionList(BaseOxmlElement):
         section = self._add_section()
         section.name = name
         section.id = section_id
+        # -- `p14:sldIdLst` is a required child (MS-PPTX 2.5.17 CT_Section,
+        # -- minOccurs=1); PowerPoint writes it even for an empty section. --
+        section.get_or_add_sldIdLst()
         return section
 
 

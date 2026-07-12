@@ -903,8 +903,24 @@ class Slides(ParentedElementProxy):
         """Return a newly added slide that inherits layout from `slide_layout`."""
         rId, slide = self.part.add_slide(slide_layout)
         slide.shapes.clone_layout_placeholders(slide_layout)
-        self._sldIdLst.add_sldId(rId)
+        sldId = self._sldIdLst.add_sldId(rId)
+        self._add_to_final_section(sldId.id)
         return slide
+
+    def _add_to_final_section(self, slide_id: int) -> None:
+        """Register a newly appended slide with the deck's final section.
+
+        PowerPoint keeps the 2010 section extension a complete partition of
+        the deck — every slide belongs to exactly one section.  A slide
+        appended at the end of a sectioned deck therefore falls into the
+        last section, so mirror that here to keep the `p14:sectionLst` in
+        sync.  A no-op when the deck has no sections.
+        """
+        prs_elm = self._sldIdLst.getparent()
+        sectionLst = getattr(prs_elm, "sectionLst", None)
+        if sectionLst is None or not sectionLst.section_lst:
+            return
+        sectionLst.section_lst[-1].add_sldId(slide_id)
 
     def get(self, slide_id: int, default: Slide | None = None) -> Slide | None:
         """Return the slide identified by int `slide_id` in this presentation.
