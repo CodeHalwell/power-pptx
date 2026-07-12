@@ -377,6 +377,21 @@ def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.
     )
 
 
+def _prune_empty_timing(sld: Any) -> None:
+    """Drop the slide's `p:timing` subtree once it holds no time nodes.
+
+    An empty `<p:childTnLst>` violates the schema (CT_TimeNodeList requires
+    at least one time-node child), so whichever removal takes out the last
+    animation entry must remove the whole timing tree with it.  Timing trees
+    that still carry content (remaining effects, or a `p:video` node for a
+    movie's play controls) are left untouched.
+    """
+    if sld.find(qn("p:timing")) is None:
+        return
+    if not sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*"):
+        sld._remove_timing()
+
+
 # ---------------------------------------------------------------------------
 # SlideAnimations – the object returned by slide.animations
 # ---------------------------------------------------------------------------
@@ -451,6 +466,7 @@ class SlideAnimations:
             if parent is not None:
                 parent.remove(top_par)
                 removed += 1
+        _prune_empty_timing(self._slide._element)
         return removed
 
     def _top_level_pars(self) -> list[Any]:
@@ -1176,6 +1192,8 @@ class SlideAnimations:
                         parent.remove(top_par)
                         removed += 1
                     break  # already removed; no need to check more spTgts
+        if removed:
+            _prune_empty_timing(sld)
         return removed
 
     def _resolve_trigger(
@@ -1347,6 +1365,7 @@ class AnimationEntry:
         parent = self._par_element.getparent()
         if parent is not None:
             parent.remove(self._par_element)
+            _prune_empty_timing(self._slide._element)
 
     # -- internal helpers --------------------------------------------------
 

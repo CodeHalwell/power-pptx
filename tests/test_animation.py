@@ -633,6 +633,50 @@ class DescribeAnimationsIntrospection:
         assert len(slide.animations) == 1
         assert next(iter(slide.animations)).shape_id == b.shape_id
 
+    # -- timing-tree pruning: an empty <p:childTnLst> is schema-invalid
+    # -- (CT_TimeNodeList requires a time-node child), so whichever removal
+    # -- takes out the last entry must drop the whole p:timing subtree.
+
+    def it_prunes_the_timing_tree_when_remove_takes_the_last_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+
+        next(iter(slide.animations)).remove()
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_prunes_the_timing_tree_on_clear(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Emphasis.pulse(slide, a)
+
+        slide.animations.clear()
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_prunes_the_timing_tree_when_purge_removes_the_last_entry(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        a._element.getparent().remove(a._element)
+
+        assert slide.animations.purge_orphans() == 1
+        assert slide._element.find(qn("p:timing")) is None
+
+    def but_it_keeps_a_timing_tree_that_still_holds_entries(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        b = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        Entrance.fade(slide, b)
+
+        next(iter(slide.animations)).remove()
+        assert slide._element.find(qn("p:timing")) is not None
+
 
 class DescribeBlockTriggerCounting:
     """Explicit triggers inside group()/sequence() still consume a slot.
