@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.opc.package import Part
 from power_pptx.opc.packuri import PackURI
 from power_pptx.package import Package
 from power_pptx.parts.coreprops import CorePropertiesPart
@@ -184,11 +185,23 @@ class DescribePresentationPart(object):
 
         assert slide == expected_value
 
-    def it_knows_the_next_slide_partname_to_help(self):
+    def it_knows_the_next_slide_partname_to_help(self, package_):
+        package_.iter_parts.return_value = iter(())
         prs_elm = element("p:presentation/p:sldIdLst/(p:sldId,p:sldId)")
-        prs_part = PresentationPart(None, None, None, prs_elm)
+        prs_part = PresentationPart(None, None, package_, prs_elm)
 
         assert prs_part._next_slide_partname == PackURI("/ppt/slides/slide3.xml")
+
+    def and_it_skips_slide_partnames_already_present_in_the_package(self, request, package_):
+        # An unregistered slide part (e.g. left by a cross-deck import) must
+        # not be overwritten by the next added slide.
+        taken = instance_mock(request, Part)
+        taken.partname = PackURI("/ppt/slides/slide3.xml")
+        package_.iter_parts.return_value = iter((taken,))
+        prs_elm = element("p:presentation/p:sldIdLst/(p:sldId,p:sldId)")
+        prs_part = PresentationPart(None, None, package_, prs_elm)
+
+        assert prs_part._next_slide_partname == PackURI("/ppt/slides/slide4.xml")
 
     # fixture components ---------------------------------------------
 

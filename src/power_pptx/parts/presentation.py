@@ -120,7 +120,17 @@ class PresentationPart(XmlPart):
 
     @property
     def _next_slide_partname(self):
-        """Return |PackURI| instance containing next available slide partname."""
-        sldIdLst = self._element.get_or_add_sldIdLst()
-        partname_str = "/ppt/slides/slide%d.xml" % (len(sldIdLst) + 1)
-        return PackURI(partname_str)
+        """Return |PackURI| instance containing next available slide partname.
+
+        Scans the actual partnames in the package rather than counting
+        `p:sldIdLst` entries — the package can hold slide parts beyond those
+        registered in the id list (e.g. after a cross-deck import), and
+        writing two different parts under one partname corrupts the package.
+        """
+        existing = {part.partname for part in self.package.iter_parts()}
+        n = len(self._element.get_or_add_sldIdLst()) + 1
+        while True:
+            candidate = PackURI("/ppt/slides/slide%d.xml" % n)
+            if candidate not in existing:
+                return candidate
+            n += 1

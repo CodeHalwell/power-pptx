@@ -143,6 +143,100 @@ class Describe_import_slide_dedupe:
 
         assert len(dst.slide_masters) == before + 1
 
+    def it_rebuilds_the_cloned_masters_layout_id_list(self):
+        # Regression: the deep-copied master kept the SOURCE's
+        # p:sldLayoutIdLst rIds while its new rels put the theme on rId1 —
+        # so the first "layout" entry resolved to the theme part, every
+        # other one was off by one, and the last layout was unlisted.
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        src = Presentation()
+        src.slides.add_slide(src.slide_layouts[0])
+
+        dst = Presentation()
+        dst.import_slide(src.slides[0], merge_master="clone")
+
+        cloned_master = list(dst.slide_masters)[-1]
+        master_part = cloned_master.part
+        entries = cloned_master._element.sldLayoutIdLst.sldLayoutId_lst
+        n_layout_rels = sum(
+            1
+            for rel in master_part.rels.values()
+            if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT
+        )
+        assert len(entries) == n_layout_rels
+        for entry in entries:
+            target = master_part.related_part(entry.rId)
+            assert "slideLayout" in str(target.partname), (
+                "sldLayoutId %s resolves to %s" % (entry.rId, target.partname)
+            )
+
+        # ids stay unique across every master's layout list + master ids
+        ids = [e.get("id") for e in entries]
+        for master in list(dst.slide_masters)[:-1]:
+            lst = master._element.sldLayoutIdLst
+            if lst is not None:
+                ids += [e.get("id") for e in lst.sldLayoutId_lst]
+        prs_elm = dst.part._element
+        ids += list(prs_elm.xpath("p:sldMasterIdLst/p:sldMasterId/@id"))
+        ids = [i for i in ids if i is not None]
+        assert len(ids) == len(set(ids)), "duplicate hierarchy ids: %s" % ids
+
+    def it_copies_a_cloned_layouts_own_dependencies(self):
+        # Regression: cloned layouts lost their image dependencies, leaving
+        # dangling r:embed references — a documented repair trigger for any
+        # branded template with a logo on a layout.
+        import re
+        import zipfile
+
+        from copy import deepcopy
+
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        # Build a source deck whose layout carries a picture.
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        pic = slide.shapes.add_picture(
+            io.BytesIO(_PNG), Inches(8), Inches(6), Inches(1), Inches(1)
+        )
+        layout = src.slide_layouts[6]
+        image_part = slide.part.related_part(pic._element.blip_rId)
+        rId = layout.part.relate_to(image_part, RT.IMAGE)
+        pic_el = deepcopy(pic._element)
+        for el in pic_el.iter():
+            for attr_name in list(el.attrib):
+                if attr_name.endswith("}embed"):
+                    el.set(attr_name, rId)
+        for el in pic_el.iter():
+            if el.tag.endswith("}cNvPr"):
+                el.set("id", "999")  # clear of the layout's placeholder ids
+                break
+        layout.shapes._spTree.append(pic_el)
+        pic._element.getparent().remove(pic._element)
+
+        dst = Presentation()
+        dst.import_slide(src.slides[0], merge_master="clone")
+
+        buf = io.BytesIO()
+        dst.save(buf)
+        with zipfile.ZipFile(buf) as z:
+            layout_names = [
+                n for n in z.namelist()
+                if re.match(r"ppt/slideLayouts/slideLayout\d+\.xml$", n)
+            ]
+            dangling = []
+            for name in layout_names:
+                xml_text = z.read(name).decode()
+                embeds = re.findall(r'r:embed="([^"]+)"', xml_text)
+                if not embeds:
+                    continue
+                rels_name = name.replace("slideLayouts/", "slideLayouts/_rels/") + ".rels"
+                rels_text = z.read(rels_name).decode() if rels_name in z.namelist() else ""
+                for embed_rId in embeds:
+                    if 'Id="%s"' % embed_rId not in rels_text:
+                        dangling.append((name, embed_rId))
+        assert dangling == [], "dangling r:embed refs: %s" % dangling
+
 
 # ---------------------------------------------------------------------------
 # Multiple imports — partname collision handling
@@ -198,6 +292,73 @@ class Describe_import_slide_notes:
         imported_slide = dst.slides[0]
         assert imported_slide.has_notes_slide
         assert imported_slide.notes_slide.notes_text_frame.text == "Speaker note text"
+
+    def it_binds_the_notes_slide_to_the_registered_slide_not_an_orphan_clone(self):
+        # Regression: the copied notes slide's back-reference to its slide
+        # used to trigger a SECOND clone of the whole slide graph — an orphan
+        # part in the zip that the notes slide pointed at instead of the
+        # slide registered in p:sldIdLst.
+        import zipfile
+
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        slide.notes_slide.notes_text_frame.text = "n"
+
+        dst = Presentation()
+        imported = dst.import_slide(src.slides[0])
+
+        notes_part = imported.notes_slide.part
+        assert notes_part.part_related_by(RT.SLIDE) is imported.part
+
+        buf = io.BytesIO()
+        dst.save(buf)
+        with zipfile.ZipFile(buf) as z:
+            slide_parts = [
+                n for n in z.namelist()
+                if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+            ]
+        assert len(slide_parts) == len(dst.slides)
+
+    def it_relinks_the_notes_slide_to_the_destination_notes_master(self):
+        # ECMA-376 requires the notesSlide→notesMaster relationship;
+        # PowerPoint always writes it, and its absence risks repair when
+        # entering notes view or printing notes pages.
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        slide.notes_slide.notes_text_frame.text = "n"
+
+        dst = Presentation()
+        imported = dst.import_slide(src.slides[0])
+
+        notes_part = imported.notes_slide.part
+        notes_master_part = notes_part.part_related_by(RT.NOTES_MASTER)
+        assert notes_master_part is dst.part.notes_master_part
+
+    def it_keeps_partnames_unique_when_a_slide_is_added_after_import(self):
+        # Regression: the next-slide-partname allocator counted p:sldIdLst
+        # entries only, so a slide added after an import could be written
+        # under a partname the zip already carried — two different parts
+        # with one name, which PowerPoint's package reader rejects.
+        import zipfile
+        from collections import Counter
+
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        slide.notes_slide.notes_text_frame.text = "n"
+
+        dst = Presentation()
+        dst.import_slide(src.slides[0])
+        dst.slides.add_slide(dst.slide_layouts[6])
+
+        buf = io.BytesIO()
+        dst.save(buf)
+        with zipfile.ZipFile(buf) as z:
+            duplicated = [n for n, count in Counter(z.namelist()).items() if count > 1]
+        assert duplicated == []
 
 
 # 1x1 transparent PNG.
