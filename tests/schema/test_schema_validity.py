@@ -328,6 +328,61 @@ def _deck_transition_duration() -> bytes:
     return _saved(prs)
 
 
+def _deck_sections() -> bytes:
+    # Regression: an empty section must still emit its required
+    # <p14:sldIdLst/> child, and a slide added to a sectioned deck must join
+    # the final section so the section list stays a complete partition.
+    prs = Presentation()
+    for _ in range(3):
+        _blank_slide(prs)
+    prs.sections.add("Intro", 0)
+    prs.sections.add("Body", 2)
+    prs.sections.add("Empty tail")
+    _blank_slide(prs)  # joins "Empty tail"
+    return _saved(prs)
+
+
+def _deck_animation_removal() -> bytes:
+    # Regression: removing the last animation entry (remove()/clear()/
+    # purge_orphans()) left an empty <p:childTnLst>, which is schema-invalid
+    # and a repair trigger. Slide 1 ends with zero animations; slide 2 keeps
+    # one after a partial removal.
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s1 = _blank_slide(prs)
+    sh1 = s1.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(1), Inches(1), Inches(1))
+    s1.animations.add("entrance", "fade", sh1)
+    s1.animations.clear()
+
+    s2 = _blank_slide(prs)
+    sh2 = s2.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(1), Inches(1), Inches(1))
+    s2.animations.add("entrance", "fade", sh2)
+    s2.animations.add("emphasis", "pulse", sh2)
+    next(iter(s2.animations)).remove()
+    return _saved(prs)
+
+
+def _deck_label_collision_strategy() -> bytes:
+    # Regression: collision_strategy created <c:gapWidth> by bare append,
+    # landing it after <c:axId> — out of sequence in CT_BarChart.
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    data = CategoryChartData()
+    data.categories = ["A", "B", "C", "D", "E"]
+    data.add_series("S1", (1, 2, 3, 4, 5))
+    data.add_series("S2", (5, 4, 3, 2, 1))
+    chart = s.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(8), Inches(5), data
+    ).chart
+    chart.plots[0].has_data_labels = True
+    chart.plots[0].data_labels.collision_strategy = "compact"
+    return _saved(prs)
+
+
 def _deck_diagrams() -> bytes:
     from power_pptx.diagrams import cycle, decision_tree, horizontal_pipeline
     from power_pptx.geometry import BBox
@@ -397,7 +452,10 @@ _DECK_BUILDERS = {
     "gradient": _deck_gradient,
     "table": _deck_table,
     "chart": _deck_chart,
+    "label_collision_strategy": _deck_label_collision_strategy,
     "animations": _deck_animations,
+    "animation_removal": _deck_animation_removal,
+    "sections": _deck_sections,
     "morph_transition": _deck_morph_transition,
     "transition_duration": _deck_transition_duration,
     "chart_types": _deck_chart_types,

@@ -256,6 +256,106 @@ Fixed
   keys. Pass ``"layout": "blank"`` explicitly for a deliberately blank
   slide.
 
+- **Removing the last animation left schema-invalid timing XML.**
+  ``entry.remove()``, ``animations.clear()``, and ``purge_orphans()``
+  removed the click-group ``<p:par>`` entries but left an empty
+  ``<p:childTnLst>`` behind — invalid per ``CT_TimeNodeList`` (at least
+  one time-node child is required) and a PowerPoint repair trigger.
+  Whichever removal takes out the last entry now prunes the whole
+  ``p:timing`` subtree; a timing tree still carrying content (remaining
+  effects, or a movie's ``p:video`` play-controls node) is untouched.
+
+- **Sections stayed out of sync with the deck.** Two fixes to the
+  PowerPoint-2010 section extension: an empty section
+  (``prs.sections.add("Name")``) omitted its ``<p14:sldIdLst>`` child,
+  which MS-PPTX 2.5.17 makes required (PowerPoint writes it even when
+  empty); and ``slides.add_slide(...)`` on a sectioned deck left the new
+  slide belonging to no section. New slides now join the final section,
+  keeping the section list the complete partition of the deck that
+  PowerPoint itself always writes.
+
+- **Data-label ``collision_strategy`` emitted out-of-order chart XML.**
+  ``"compact"`` (and a firing ``"auto"``) created ``<c:gapWidth>`` by
+  bare append, landing it *after* ``<c:axId>`` — out of sequence in
+  ``CT_BarChart`` and a repair trigger. The element is now inserted in
+  its schema position (before ``overlap``/``serLines``/``axId``).
+
+- **Out-of-range trendline parameters produced invalid chart XML.**
+  ``trendlines.add("poly", order=10)`` / ``add("movingAvg", period=1)``
+  wrote values outside the schema ranges (``ST_Order`` 2–6,
+  ``ST_Period`` ≥ 2) verbatim; both now raise ``ValueError`` at the API
+  boundary like the library's other range-checked chart attributes.
+
+- **``chart.apply_dark_theme()`` / ``chart.text_color`` crashed on
+  scatter charts.** ``CT_ScatterChart`` lacked the ``dLbls`` accessor its
+  sibling plot classes define, so the data-label sweep raised
+  ``AttributeError`` (``plot.has_data_labels`` on a scatter plot crashed
+  on both read and write). The accessor is now defined in its correct
+  ``CT_ScatterChart`` sequence position.
+
+- **A hidden secondary value axis multiplied on re-access.**
+  ``axis.visible = False`` writes a bare ``<c:delete/>`` (the ``val``
+  attribute is dropped as the schema default), which made the
+  secondary-axis detection stop matching — each later
+  ``chart.secondary_value_axis`` access piled a fresh axis pair onto the
+  plot area. Detection no longer filters on delete-state.
+
+- **Palettes skipped radar-chart strokes.** ``apply_palette`` /
+  ``recolour`` on ``RADAR`` / ``RADAR_MARKERS`` charts wrote only the
+  (invisible) shape fill; radar series now get their line stroke
+  painted like the other line-rendered chart types.
+
+- **``fill.gradient_angle`` crashed on the library's own default
+  gradient.** The default ``<a:lin scaled="0"/>`` (and a
+  radial→linear ``change_to_kind`` switch) carries no ``ang``
+  attribute, and the read raised ``TypeError`` on ``360.0 - None``. An
+  ``a:lin`` without ``ang`` now reads as the effective angle ``0.0``.
+
+- **``shape.three_d`` raised a bare ``AttributeError`` on groups and
+  graphic frames.** Both now raise an explanatory
+  ``NotImplementedError`` instead, mirroring the sibling effect facades
+  (a group's ``grpSpPr`` legally carries ``scene3d`` but not ``sp3d``,
+  so the facade cannot target it without emitting invalid XML).
+
+- **Cross-deck ``import_slide`` / ``apply_template`` produced structurally
+  broken packages in several master-cloning paths.** Fixed as a group:
+
+  * A cloned slide master kept the *source's* ``p:sldLayoutIdLst`` rIds
+    while its new relationships put the theme on ``rId1`` — the first
+    "layout" entry resolved to the theme part, the rest were off by
+    one, and the last layout was unlisted. The id list is now rebuilt
+    entry-by-entry as layouts are cloned, with fresh unique ids
+    allocated across the whole presentation (duplicate
+    ``sldMasterId``/``sldLayoutId`` ids are themselves a repair
+    trigger).
+  * Cloned masters and layouts lost their own image dependencies
+    (template logos, backgrounds), leaving dangling ``r:embed``
+    references. Their dependency graphs are now copied and remapped
+    like the slide's.
+  * A layout cloned into an existing (deduped) master was related but
+    never registered in the master's ``p:sldLayoutIdLst``, leaving it
+    invisible to PowerPoint's layout picker.
+  * A copied notes slide's back-reference to its slide cloned the
+    entire slide graph a second time — an orphan slide part the notes
+    slide pointed at instead of the registered slide.
+  * The copied notes slide dropped its ``notesSlide→notesMaster``
+    relationship entirely (and the destination got no notes master);
+    it is now re-linked to the destination's own notes master, created
+    from the default template when absent.
+  * The next-slide-partname allocator counted ``p:sldIdLst`` entries
+    only, so ``add_slide()`` after an import could write a second,
+    different part under an existing partname — a duplicate zip member
+    name, which OPC forbids. It now scans the package's actual
+    partnames.
+
+- **Latent oxml attribute types corrected against the XSD.**
+  ``a:reflection@kx/@ky`` are now ``ST_FixedAngle`` (exclusive ±90°,
+  no silent modulo-360 normalization), ``a:outerShdw@dir`` is
+  ``ST_PositiveFixedAngle`` (matching ``a:innerShdw``), and
+  ``a:lum@bright/@contrast`` are ``ST_FixedPercentage`` (±100%). Also,
+  resetting picture ``brightness``/``contrast`` to ``0.0`` no longer
+  strands a dead empty ``<a:lum/>`` on the blip.
+
 These additions ship with unit tests, a round-trip test, and
 ISO-29500 schema-validity tests for the new group-fill and run-property
 XML.
