@@ -94,6 +94,23 @@ class Describe_import_slide_dedupe:
 
         assert len(dst.slide_masters) == master_count_before
 
+    def it_keeps_deduping_onto_a_master_it_cloned_earlier(self):
+        # Regression (PR #41 review): cloning rebuilds the master's
+        # p:sldLayoutIdLst with fresh rIds/ids, so a raw-XML fingerprint no
+        # longer matched the source and every subsequent import cloned yet
+        # another master/layout set. The fingerprint now normalises those
+        # package-allocation artifacts out.
+        src = Presentation()
+        src.slide_masters[0]._element.cSld.set("name", "BrandedMaster")
+        src.slides.add_slide(src.slide_layouts[6])
+        src.slides.add_slide(src.slide_layouts[0])
+
+        dst = Presentation()
+        dst.import_slide(src.slides[0])  # dedupe miss -> clone
+        assert len(dst.slide_masters) == 2
+        dst.import_slide(src.slides[1])  # must dedupe onto that clone
+        assert len(dst.slide_masters) == 2
+
     def it_adds_a_new_master_on_dedupe_miss(self):
         """Importing from a different-looking master should add a new master."""
         import zipfile, io as _io

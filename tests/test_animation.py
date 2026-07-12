@@ -699,6 +699,24 @@ class DescribeAnimationsIntrospection:
         next(iter(slide.animations)).remove()
         assert slide._element.find(qn("p:timing")) is not None
 
+    def and_it_preserves_a_timing_extension_list_when_pruning(self):
+        # CT_SlideTiming legally holds only an extLst; foreign extension data
+        # must survive the prune even when the last effect is removed.
+        from lxml import etree
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        Entrance.fade(slide, a)
+        timing = slide._element.find(qn("p:timing"))
+        etree.SubElement(timing, qn("p:extLst"))
+
+        slide.animations.clear()
+
+        timing = slide._element.find(qn("p:timing"))
+        assert timing is not None
+        assert [child.tag for child in timing] == [qn("p:extLst")]
+
 
 class DescribeBlockTriggerCounting:
     """Explicit triggers inside group()/sequence() still consume a slot.

@@ -504,15 +504,48 @@ def _master_fingerprint(master_part: Part) -> bytes:
 
     Used for master deduplication: two masters with identical fingerprints are
     considered equivalent for the purposes of ``merge_master='dedupe'``.
+
+    The hash must be *stable across packages*: cloning a master rebuilds its
+    `p:sldLayoutIdLst` (fresh rIds and unique ids) and remaps any `r:embed`
+    references in its body, so those package-allocation artifacts are
+    normalised out before hashing.  Otherwise a master cloned by one import
+    would stop matching its own source, and every later import of a slide
+    from that source would clone yet another duplicate master/layout set.
     """
     h = hashlib.sha256()
-    h.update(master_part.blob)
+    element = getattr(master_part, "_element", None)
+    if element is not None:
+        h.update(_normalized_master_xml(element))
+    else:  # pragma: no cover - a master part is always an XmlPart
+        h.update(master_part.blob)
     try:
         theme_part = master_part.part_related_by(RT.THEME)
         h.update(theme_part.blob)
     except KeyError:
         pass
     return h.digest()
+
+
+def _normalized_master_xml(master_elm) -> bytes:
+    """Serialize *master_elm* with package-allocation artifacts removed.
+
+    Drops the `p:sldLayoutIdLst` (its rId/id values are allocated per
+    package) and masks every relationship-id attribute value (`r:embed`
+    etc. are renumbered when dependencies are copied), leaving only the
+    content that determines whether two masters are visually equivalent.
+    """
+    from lxml import etree
+
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    clone = deepcopy(master_elm)
+    for layout_id_lst in clone.findall("{%s}sldLayoutIdLst" % p_ns):
+        clone.remove(layout_id_lst)
+    r_prefix = "{%s}" % _R_NS
+    for el in clone.iter():
+        for attr_name in el.attrib:
+            if attr_name.startswith(r_prefix):
+                el.set(attr_name, "rId0")
+    return etree.tostring(clone)
 
 
 def _partname_template(partname: PackURI) -> str:

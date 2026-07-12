@@ -122,10 +122,16 @@ class DescribeMorphTransitionSerialization:
 
         resaved = _saved_slide_xml(reopened)
         assert 'Requires="p159"' in resaved
-        # No bare p159 kind outside the wrapper, and none in the Fallback.
-        assert "<p:transition spd=\"slow\" p14:dur=\"2000\"><p159:morph" not in resaved.replace(
-            "AlternateContent", ""
-        ) or "<mc:AlternateContent" in resaved
+        # The p159 kind may exist ONLY inside the mc:Choice branch: strip
+        # every AlternateContent block and assert no p159 content remains
+        # (a bare p159:morph in p:sld or one leaked into the ISO-pure
+        # mc:Fallback are both repair triggers).
+        import re as _re
+
+        outside_wrappers = _re.sub(
+            r"<mc:AlternateContent\b.*?</mc:AlternateContent>", "", resaved, flags=_re.S
+        )
+        assert "p159" not in outside_wrappers
         fallback = resaved.split("<mc:Fallback>", 1)[1]
         assert "p159" not in fallback
 

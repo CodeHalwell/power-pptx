@@ -378,17 +378,27 @@ def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.
 
 
 def _prune_empty_timing(sld: Any) -> None:
-    """Drop the slide's `p:timing` subtree once it holds no time nodes.
+    """Drop the slide's timing content once it holds no time nodes.
 
     An empty `<p:childTnLst>` violates the schema (CT_TimeNodeList requires
     at least one time-node child), so whichever removal takes out the last
-    animation entry must remove the whole timing tree with it.  Timing trees
-    that still carry content (remaining effects, or a `p:video` node for a
-    movie's play controls) are left untouched.
+    animation entry must remove the `p:tnLst` subtree with it.  A `p:bldLst`
+    goes too — its build entries reference the effects just removed.  An
+    extension list (`p:extLst`) is preserved: CT_SlideTiming allows a timing
+    element holding only extensions, and its content is not ours to drop.
+    Timing trees that still carry time nodes (remaining effects, or a
+    `p:video` node for a movie's play controls) are left untouched.
     """
-    if sld.find(qn("p:timing")) is None:
+    timing = sld.find(qn("p:timing"))
+    if timing is None:
         return
-    if not sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*"):
+    if sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*"):
+        return
+    ext_lst_tag = qn("p:extLst")
+    for child in list(timing):
+        if child.tag != ext_lst_tag:
+            timing.remove(child)
+    if len(timing) == 0:
         sld._remove_timing()
 
 
