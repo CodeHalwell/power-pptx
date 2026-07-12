@@ -9,6 +9,7 @@ from power_pptx.dml.fill import FillFormat
 from power_pptx.enum.presentation import (
     MSO_TRANSITION_TYPE,
     P14_TRANSITION_NAMES,
+    P159_TRANSITION_NAMES,
 )
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.oxml.ns import qn
@@ -231,7 +232,12 @@ class SlideTransition(object):
         if value is MSO_TRANSITION_TYPE.NONE:
             return
         local = value.xml_value
-        prefix = "p14" if local in P14_TRANSITION_NAMES else "p"
+        if local in P159_TRANSITION_NAMES:
+            prefix = "p159"
+        elif local in P14_TRANSITION_NAMES:
+            prefix = "p14"
+        else:
+            prefix = "p"
         kind_elm = etree.Element(
             qn("%s:%s" % (prefix, local)),
             nsmap={prefix: _PREFIX_TO_URI[prefix]},
@@ -336,6 +342,7 @@ _SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}
 _PREFIX_TO_URI = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
+    "p159": "http://schemas.microsoft.com/office/powerpoint/2015/09/main",
 }
 
 

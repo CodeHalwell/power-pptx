@@ -497,12 +497,25 @@ class DescribeSlideTransition(object):
     def it_can_set_a_p14_kind(self):
         sld = element("p:sld/p:cSld")
         transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.VORTEX
+        assert transition.kind == MSO_TRANSITION_TYPE.VORTEX
+        t_elm = sld.transition
+        assert t_elm is not None
+        assert (
+            t_elm.find("{http://schemas.microsoft.com/office/powerpoint/2010/main}vortex")
+            is not None
+        )
+
+    def it_can_set_the_p159_morph_kind(self):
+        # Morph is a PowerPoint-2016 (2015/09) element per MS-PPTX — not p14.
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
         transition.kind = MSO_TRANSITION_TYPE.MORPH
         assert transition.kind == MSO_TRANSITION_TYPE.MORPH
         t_elm = sld.transition
         assert t_elm is not None
         assert (
-            t_elm.find("{http://schemas.microsoft.com/office/powerpoint/2010/main}morph")
+            t_elm.find("{http://schemas.microsoft.com/office/powerpoint/2015/09/main}morph")
             is not None
         )
 
