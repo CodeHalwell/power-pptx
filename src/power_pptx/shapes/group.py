@@ -95,6 +95,17 @@ class GroupShape(BaseShape):
         return PresetShadowFormat(self._grpSp.grpSpPr)
 
     @property
+    def three_d(self):
+        """Unconditionally raises |NotImplementedError|.
+
+        A group shape's ``p:grpSpPr`` legally carries ``a:scene3d`` but not
+        ``a:sp3d`` (bevel / extrusion), so the |ThreeDFormat| facade — which
+        writes both — cannot target it without emitting schema-invalid XML.
+        Apply 3-D formatting to the member shapes instead.
+        """
+        raise NotImplementedError("three_d property on GroupShape not supported")
+
+    @property
     def fill(self) -> FillFormat:
         """|FillFormat| instance for this group, providing access to fill properties.
 

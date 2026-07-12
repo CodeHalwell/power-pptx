@@ -73,8 +73,11 @@ class PictureEffects:
     def brightness(self, value: float) -> None:
         if not -1.0 <= value <= 1.0:
             raise ValueError(f"brightness must be between -1.0 and 1.0, got {value!r}")
+        if value == 0.0 and self._blip.lum is None:
+            return  # -- "no change" on a picture with no `a:lum`: nothing to write
         lum = self._blip.get_or_add_lum()
         lum.bright = value  # type: ignore[assignment]
+        self._drop_lum_if_neutral()
 
     # ------------------------------------------------------------------
     # contrast
@@ -94,8 +97,22 @@ class PictureEffects:
     def contrast(self, value: float) -> None:
         if not -1.0 <= value <= 1.0:
             raise ValueError(f"contrast must be between -1.0 and 1.0, got {value!r}")
+        if value == 0.0 and self._blip.lum is None:
+            return  # -- "no change" on a picture with no `a:lum`: nothing to write
         lum = self._blip.get_or_add_lum()
         lum.contrast = value  # type: ignore[assignment]
+        self._drop_lum_if_neutral()
+
+    def _drop_lum_if_neutral(self) -> None:
+        """Remove `a:lum` once both adjustments are back at their defaults.
+
+        Writing ``0.0`` drops the corresponding attribute (the schema
+        default), so a lum whose adjustments are both reset would otherwise
+        linger as a dead empty ``<a:lum/>``.
+        """
+        lum = self._blip.lum
+        if lum is not None and lum.get("bright") is None and lum.get("contrast") is None:
+            self._blip.remove(lum)
 
     # ------------------------------------------------------------------
     # recolor

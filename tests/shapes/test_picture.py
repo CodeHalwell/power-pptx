@@ -240,6 +240,29 @@ class DescribePicture(object):
         slide_part_.get_image.assert_called_once_with(rId)
         assert image is image_
 
+    def it_drops_the_lum_element_when_adjustments_reset_to_neutral(self):
+        # brightness/contrast of 0.0 are the schema defaults, so their
+        # attributes are dropped on write; once both are neutral the `a:lum`
+        # itself must go too, not linger as a dead empty element.
+        from power_pptx.dml.picture import PictureEffects
+        from power_pptx.oxml.ns import qn
+
+        pic = element("p:pic/p:blipFill/a:blip{r:embed=rId1}")
+        blip = pic.blipFill.blip
+        effects = PictureEffects(blip)
+
+        effects.brightness = 0.0  # no-op on a picture with no a:lum
+        assert blip.find(qn("a:lum")) is None
+
+        effects.brightness = 0.3
+        effects.contrast = -0.2
+        assert blip.find(qn("a:lum")) is not None
+
+        effects.brightness = 0.0
+        assert blip.find(qn("a:lum")) is not None  # contrast still set
+        effects.contrast = 0.0
+        assert blip.find(qn("a:lum")) is None
+
     # fixtures -------------------------------------------------------
 
     @pytest.fixture(

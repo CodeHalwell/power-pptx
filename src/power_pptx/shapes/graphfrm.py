@@ -162,6 +162,15 @@ class GraphicFrame(BaseShape):
         raise NotImplementedError("soft_edges property on GraphicFrame not yet supported")
 
     @property
+    def three_d(self):
+        """Unconditionally raises |NotImplementedError|.
+
+        A graphic frame has no ``p:spPr``, so the |ThreeDFormat| facade does
+        not apply (mirrors :attr:`blur` / :attr:`glow` behaviour).
+        """
+        raise NotImplementedError("three_d property on GraphicFrame not yet supported")
+
+    @property
     def shape_type(self) -> MSO_SHAPE_TYPE:
         """Optional member of `MSO_SHAPE_TYPE` identifying the type of this shape.
 

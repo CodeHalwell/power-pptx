@@ -5,7 +5,7 @@ from __future__ import annotations
 from power_pptx.enum.dml import MSO_PRESET_SHADOW
 from power_pptx.oxml.ns import qn
 from power_pptx.oxml.simpletypes import (
-    ST_Angle,
+    ST_FixedAngle,
     ST_Percentage,
     ST_PositiveCoordinate,
     ST_PositiveFixedAngle,
@@ -122,7 +122,7 @@ class CT_OuterShadowEffect(BaseOxmlElement):
     eg_colorChoice = ZeroOrOneChoice(_COLOR_CHOICES, successors=())
     blurRad = OptionalAttribute("blurRad", ST_PositiveCoordinate)
     dist = OptionalAttribute("dist", ST_PositiveCoordinate)
-    dir = OptionalAttribute("dir", ST_Angle)
+    dir = OptionalAttribute("dir", ST_PositiveFixedAngle)
     rotWithShape = OptionalAttribute("rotWithShape", XsdBoolean)
 
 
@@ -196,8 +196,8 @@ class CT_ReflectionEffect(BaseOxmlElement):
     fadeDir = OptionalAttribute("fadeDir", ST_PositiveFixedAngle)
     sx = OptionalAttribute("sx", ST_Percentage)
     sy = OptionalAttribute("sy", ST_Percentage)
-    kx = OptionalAttribute("kx", ST_Angle)
-    ky = OptionalAttribute("ky", ST_Angle)
+    kx = OptionalAttribute("kx", ST_FixedAngle)
+    ky = OptionalAttribute("ky", ST_FixedAngle)
     algn = OptionalAttribute("algn", ST_RectAlignment)
     rotWithShape = OptionalAttribute("rotWithShape", XsdBoolean)
 

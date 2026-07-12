@@ -432,10 +432,13 @@ class _GradFill(_Fill):
         # angle is stored in XML as a clockwise angle, whereas the UI
         # reports it as counter-clockwise from horizontal-pointing-right.
         # Since the UI is consistent with trigonometry conventions, we
-        # respect that in the API.
+        # respect that in the API. An `a:lin` without an `ang` attribute
+        # (e.g. the default `<a:lin scaled="0"/>` gradient) renders at the
+        # effective angle 0.
         clockwise_angle = lin.ang
-        counter_clockwise_angle = 0.0 if clockwise_angle == 0.0 else (360.0 - clockwise_angle)
-        return counter_clockwise_angle
+        if clockwise_angle is None or clockwise_angle == 0.0:
+            return 0.0
+        return 360.0 - clockwise_angle
 
     @gradient_angle.setter
     def gradient_angle(self, value):

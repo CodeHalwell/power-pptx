@@ -368,6 +368,32 @@ class ST_Extension(XsdString):
     pass
 
 
+class ST_FixedAngle(ST_Angle):
+    """Skew angle in 60000ths of a degree, exclusive range (-90, 90) degrees.
+
+    Used for `kx`/`ky` skew attributes (e.g. `a:reflection`). Unlike
+    |ST_Angle|, values are *not* normalized modulo 360 — the schema range is
+    (-5400000, 5400000) exclusive, so a negative skew must stay negative in
+    the XML and out-of-range values are rejected.
+    """
+
+    @classmethod
+    def convert_from_xml(cls, str_value: str) -> float:
+        return int(str_value) / cls.DEGREE_INCREMENTS
+
+    @classmethod
+    def convert_to_xml(cls, value):
+        return str(int(round(value * cls.DEGREE_INCREMENTS)))
+
+    @classmethod
+    def validate(cls, value):
+        BaseFloatType.validate(value)
+        if not -90.0 < value < 90.0:
+            raise ValueError(
+                "skew angle must be strictly between -90.0 and 90.0 degrees, got %s" % value
+            )
+
+
 class ST_GapAmount(BaseIntType):
     """
     String value is an integer in range 0-500, representing a percent,
@@ -555,6 +581,18 @@ class ST_Percentage(BaseIntType):
     def _convert_from_percent_literal(cls, str_value):
         float_part = str_value[:-1]  # trim off '%' character
         return float(float_part) / 100.0
+
+
+class ST_FixedPercentage(ST_Percentage):
+    """Percentage constrained to [-100%, 100%], as a float in [-1.0, 1.0].
+
+    Same lexical forms as |ST_Percentage| (1000ths-of-a-percent integer or
+    "-42.0%" literal), restricted to the ST_FixedPercentage schema range.
+    """
+
+    @classmethod
+    def validate(cls, value):
+        cls.validate_float_in_range(value, -1.0, 1.0)
 
 
 class ST_PathShadeType(XsdStringEnumeration):
