@@ -84,27 +84,6 @@ generated `.pptx` opens correctly in PowerPoint:
   suppresses `spAutoFit` and keeps the declared geometry intact —
   fold it into every textbox in a recipe-style helper.
 
-### What the headless renderer can and can't show
-
-Some valid OOXML effects simply aren't rasterised by LibreOffice
-headless. The XML is written correctly and displays in real
-PowerPoint — only the thumbnail is flat. Don't mistake a renderer gap
-for a library bug.
-
-| Feature | LibreOffice thumbnail | Microsoft PowerPoint |
-|---|---|---|
-| Solid / gradient fills | ✅ | ✅ |
-| Shadow, glow, soft edges | ✅ | ✅ |
-| Duotone / picture effects | ✅ | ✅ |
-| Native charts, tables | ✅ | ✅ |
-| SVG pictures (via `cairosvg`) | ✅ | ✅ |
-| Transitions / animations | n/a (static image) | ✅ |
-| **3-D bevel / extrusion** (`<a:sp3d>`/`<a:scene3d>`) | ❌ renders flat | ✅ |
-| **Reflection** (`<a:reflection>`) | ❌ renders plain | ✅ |
-
-If you need to verify 3-D or reflection visually, open the deck in
-PowerPoint (or Keynote) — the thumbnail won't show them.
-
 ## Errors
 
 ```python

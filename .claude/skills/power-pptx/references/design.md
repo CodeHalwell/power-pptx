@@ -185,17 +185,72 @@ image_hero_slide(
 Recipes use the `Blank` layout and place every shape themselves so the
 rendered geometry doesn't depend on the host template's master.
 
-Set `palette["background"]` and the recipe slides paint a full-bleed
-background rectangle in that colour (so hand-built slides and recipe slides
-share one canvas colour instead of two different "whites"). It's opt-in —
-omit the slot and recipes keep the master's default (white) background.
-
 `kpi_slide` honours `palette["positive"]` / `palette["negative"]` when
 tinting deltas (falls back to green/red when unset). It applies
 `tokens.shadows["card"]` to each card when present.
 
 `image_hero_slide` uses `palette["on_primary"]` for overlay text and
 tints the bottom band with `palette["primary"]` at 55% alpha.
+
+## Shape-level building blocks
+
+For mixed layouts where the slide-level recipes don't fit, reach for
+the shape-level components in `power_pptx.design.components`. Both
+honour the deck's `DesignTokens` and return small dataclasses
+exposing the constituent shapes, so callers can compose them into
+custom layouts without re-implementing the styling:
+
+```python
+from power_pptx import add_kpi_card, add_progress_bar
+from power_pptx.util import Inches
+
+kpi = add_kpi_card(
+    slide,
+    left=Inches(1), top=Inches(1),
+    width=Inches(2.5), height=Inches(1.9),
+    label="ARR",
+    value="$182M",
+    delta={"delta": +0.27},
+    tokens=tokens,
+)
+# kpi.card / kpi.value_box / kpi.label_box / kpi.delta_box are
+# accessible for further per-deck tweaks.
+
+bar = add_progress_bar(
+    slide,
+    left=Inches(1), top=Inches(3),
+    width=Inches(6), height=Inches(0.3),
+    fraction=0.42,         # 0..1 — clamped if you go over
+    tokens=tokens,
+    fill_color="#4F9DFF",  # optional override
+)
+# bar.track / bar.fill — animate or restyle either independently.
+```
+
+All shape-level components tag their stacked shapes with
+`lint_group` so the linter doesn't flag the intentional overlap
+(label-on-card, fill-on-track) as a collision.
+
+Other components in the same module:
+
+```python
+from power_pptx import (
+    add_gauge,         # progress bar with optional target tick
+    add_status_pill,   # coloured pill + centred label, e.g. "LIVE"
+    add_stat_strip,    # n KPI tiles laid out across a strip with gutter
+    add_article_card,  # title + blurb + optional CTA pill
+)
+
+add_gauge(slide, left=Inches(1), top=Inches(2), width=Inches(4),
+          height=Inches(0.3), fraction=0.62, target=0.80, tokens=tokens)
+
+add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
+               width=Inches(12), height=Inches(1.9),
+               items=[{"label": "ARR", "value": "$182M"},
+                      {"label": "NDR", "value": "131%", "delta": +0.03},
+                      {"label": "CAC payback", "value": "8 mo"}],
+               tokens=tokens)
+```
 
 ## Starter pack
 

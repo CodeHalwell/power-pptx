@@ -51,9 +51,6 @@ in this repo's Claude Code sessions. **These two copies must be kept in sync** â
 the one under `src/` is what gets packaged and shipped to downstream installs
 (`python -m power_pptx.skill install` copies it into `~/.claude/skills/`).
 
-Note: the SKILL.md "Where to look in the project" section still references the
-old `src/pptx/...` paths; the actual source lives under `src/power_pptx/...`.
-
 ## Repository layout
 
 ```
