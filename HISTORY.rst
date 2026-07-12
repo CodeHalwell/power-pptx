@@ -356,6 +356,62 @@ Fixed
   resetting picture ``brightness``/``contrast`` to ``0.0`` no longer
   strands a dead empty ``<a:lum/>`` on the blip.
 
+- **Morph transitions were emitted in the wrong namespace.** MS-PPTX
+  defines ``morph`` in the PowerPoint-2016 namespace
+  (``…/powerpoint/2015/09/main``, prefix ``p159``), not the 2010
+  ``p14`` namespace this library used — and because every modern
+  PowerPoint understands ``p14``, MCE selected that branch and hit an
+  undefined element: the repair dialog, on the headline Morph feature.
+  Morph now serializes as ``<p159:morph>`` inside an ``mc:Choice
+  Requires="p159"``; round-tripping a PowerPoint-authored morph deck
+  no longer writes the p159 kind bare into ``p:sld`` (a hard
+  ``CT_SlideTransition`` violation) or into the ISO-pure fallback;
+  extension-kind fallbacks carry ``<p:fade/>`` (PowerPoint's own
+  downgrade) instead of rendering as a cut; and legacy decks written
+  with ``p14:morph`` are healed on re-save.
+
+- **Motion paths could contain exponent-notation coordinates.**
+  ``%g`` formatting wrote ``1.5e-17``-style float noise into
+  ``animMotion`` paths (``MotionPath.spiral`` on essentially every
+  call); the path grammar has no exponent form, so PowerPoint dropped
+  the animation. Coordinates are now fixed-point with noise clamped
+  to ``0``.
+
+- **Section list integrity, round two.** ``Sections.remove()`` /
+  ``Section.delete()`` now merge the removed section's slides into the
+  neighbouring section (PowerPoint's own "Remove Section" behaviour)
+  instead of orphaning them, and removing the only section drops the
+  whole extension block rather than leaving an empty
+  ``<p14:sectionLst/>`` (itself invalid — ``minOccurs=1``).
+  ``Section.add_slide()`` moves a slide between sections instead of
+  letting two sections reference it. A first section created with
+  ``start_slide_index > 0`` now gets an auto-created "Default Section"
+  covering the preceding slides. ``import_slide`` onto a sectioned
+  deck adds the imported slide to the final section. Section ids are
+  validated as unique brace-wrapped GUIDs. And reading
+  ``prs.sections`` no longer injects the PowerPoint-2010 extension
+  block into a section-less deck.
+
+- **Embedded fonts survived exactly one save.** ``embed_font`` never
+  set ``embedTrueTypeFonts="1"`` on ``p:presentation``, so PowerPoint
+  considered embedding disabled and silently stripped the ``fntdata``
+  parts and font list the next time a user saved the deck in
+  PowerPoint. Also hardened the ``ThemeFonts`` recovery path for
+  themes missing a required font collection (it previously emitted a
+  ``latin``-only collection appended out of order — itself
+  repair-trigger XML).
+
+- **~30 of the built-in table-style GUIDs were wrong.** Entries in
+  ``TABLE_STYLES`` were fabricated or mapped to a different style than
+  their name claimed — ``"Dark Style 1"`` selected *No Style, No
+  Grid*, ``"Medium Style 2"`` selected *No Style, Table Grid*, the
+  Medium 3 / Dark 1 / Dark 2 / Light 3 accent rows were shuffled or
+  invented, and ``name_for_guid`` mislabelled genuine PowerPoint
+  decks. A GUID outside the built-in set is schema-valid but
+  PowerPoint silently applies **no styling at all**. Every entry is
+  now verbatim from Microsoft's published list (hh273476); the
+  fabricated ``"Themed Style N - No Color"`` aliases are removed.
+
 These additions ship with unit tests, a round-trip test, and
 ISO-29500 schema-validity tests for the new group-fill and run-property
 XML.
