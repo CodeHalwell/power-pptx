@@ -623,6 +623,64 @@ class DescribeGeneratedDeckSchemaValidity:
             for part, msg in violations
         ), violations
 
+    def it_detects_a_duplicate_zip_member_name(self):
+        # Self-test for the OPC unique-partname rule: write two different
+        # payloads under one member name (zipfile permits it silently; the
+        # PowerPoint package reader does not) and confirm the validator
+        # flags it.
+        import io as _io
+        import warnings
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    zout.writestr(item, zin.read(item.filename))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)  # zipfile dup warning
+                    zout.writestr("ppt/slides/slide1.xml", b"<not-the-real-slide/>")
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "ppt/slides/slide1.xml" and "more than once" in msg
+            for part, msg in violations
+        ), violations
+
+    def it_detects_an_orphan_slide_part(self):
+        # Self-test for the sldIdLst-coverage rule: add a slide part (with
+        # valid rels and a content-type override) that no p:sldId references
+        # and confirm the validator flags it.
+        import io as _io
+        import zipfile
+
+        original = _deck_blank()
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(_io.BytesIO(original)) as zin:
+            ct = zin.read("[Content_Types].xml").replace(
+                b"</Types>",
+                b'<Override PartName="/ppt/slides/slide9.xml" ContentType='
+                b'"application/vnd.openxmlformats-officedocument.presentationml.'
+                b'slide+xml"/></Types>',
+            )
+            # Read up front: writestr(zinfo, ...) mutates the shared ZipInfo,
+            # so members can't be re-read after they've been written out.
+            slide_xml = zin.read("ppt/slides/slide1.xml")
+            slide_rels = zin.read("ppt/slides/_rels/slide1.xml.rels")
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = ct if item.filename == "[Content_Types].xml" else zin.read(item.filename)
+                    zout.writestr(item, data)
+                zout.writestr("ppt/slides/slide9.xml", slide_xml)
+                zout.writestr("ppt/slides/_rels/slide9.xml.rels", slide_rels)
+
+        violations = list(iter_schema_violations(buf.getvalue()))
+        assert any(
+            part == "ppt/slides/slide9.xml" and "not referenced by any p:sldId" in msg
+            for part, msg in violations
+        ), violations
+
     def it_detects_a_part_missing_from_content_types(self):
         # Self-test for the content-types rule: add a part whose extension has
         # neither a Default nor an Override (the exact "PowerPoint can't type

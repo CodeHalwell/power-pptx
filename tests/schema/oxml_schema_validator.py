@@ -317,6 +317,65 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
                     )
 
 
+def _iter_duplicate_member_violations(names) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each zip member name that appears more than once.
+
+    OPC (ISO 29500-2) requires part names to be unique within the package;
+    a zip carrying two different payloads under one name is rejected or
+    repaired by PowerPoint's package reader, while ``zipfile`` reads it
+    silently (returning only the last payload), so nothing else notices.
+    """
+    seen: "set[str]" = set()
+    reported: "set[str]" = set()
+    for name in names:
+        if name in seen and name not in reported:
+            reported.add(name)
+            yield (name, "zip member name appears more than once in the package")
+        seen.add(name)
+
+
+def _iter_orphan_slide_violations(zf, names) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each slide part not registered in ``p:sldIdLst``.
+
+    A ``ppt/slides/slideN.xml`` part that no ``p:sldId`` entry resolves to is
+    invisible in the deck yet still validated/loaded by PowerPoint — the
+    signature of a botched copy operation (and the partname it squats on can
+    collide with the next added slide).
+    """
+    name_set = set(names)
+    if "ppt/presentation.xml" not in name_set:
+        return
+    try:
+        prs = etree.fromstring(zf.read("ppt/presentation.xml"))
+        rels = etree.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+    except (KeyError, etree.XMLSyntaxError):
+        return  # reported by the content/rels passes
+    rel_targets = {
+        rel.get("Id"): posixpath.normpath(
+            posixpath.join("ppt", rel.get("Target") or "")
+        ).lstrip("/")
+        for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)
+        if rel.get("TargetMode") != "External"
+    }
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    registered = set()
+    for sldId in prs.iter("{%s}sldId" % p_ns):
+        rId = sldId.get("{%s}id" % _R_NS)
+        target = rel_targets.get(rId)
+        if target is not None:
+            registered.add(target)
+    for part in sorted(name_set):
+        if not part.startswith("ppt/slides/slide") or not part.endswith(".xml"):
+            continue
+        if part not in registered:
+            yield (
+                part,
+                "slide part is not referenced by any p:sldId in "
+                "ppt/presentation.xml — an orphan slide left by a copy "
+                "operation",
+            )
+
+
 def iter_schema_violations(
     pptx: Union[str, Path, bytes, "io.BytesIO"],
 ) -> Iterator["tuple[str, str]"]:
@@ -324,9 +383,10 @@ def iter_schema_violations(
 
     *pptx* may be a path, raw ``bytes``, or a file-like object.  Only parts
     with a known root schema are checked against the XSDs; ``mc:AlternateContent``
-    is resolved to its fallback first.  In addition, three package-wide
-    structural checks run that the XSD cannot express — parts missing from
-    ``[Content_Types].xml``, broken/dangling relationships, and duplicate shape
+    is resolved to its fallback first.  In addition, five package-wide
+    structural checks run that the XSD cannot express — duplicate zip member
+    names, parts missing from ``[Content_Types].xml``, broken/dangling
+    relationships, slide parts absent from ``p:sldIdLst``, and duplicate shape
     ids — because each is a real "PowerPoint repairs the file" trigger.  Yields
     nothing for a clean package.
     """
@@ -344,8 +404,10 @@ def iter_schema_violations(
         names = zf.namelist()
 
         # -- package-level structural checks (content types + relationships) --
+        yield from _iter_duplicate_member_violations(names)
         yield from _iter_content_type_violations(zf, names)
         yield from _iter_relationship_violations(zf, names)
+        yield from _iter_orphan_slide_violations(zf, names)
 
         for name in names:
             if not name.endswith(".xml"):
