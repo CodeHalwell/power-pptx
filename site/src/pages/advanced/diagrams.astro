@@ -1,0 +1,83 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx.diagrams import horizontal_pipeline, vertical_pipeline
+
+horizontal_pipeline(
+    slide, BBox.from_inches(0.5, 2.5, 9, 2.2),
+    steps=["Extract", "Classify", "Enrich", "Output"],
+    accent="#0B5CFF",
+)
+
+vertical_pipeline(
+    slide, BBox.from_inches(4, 1, 2, 5),
+    steps=["Plan", "Build", "Ship"],
+)`;
+
+const snippet1 = `from power_pptx.diagrams import hub_and_spoke
+
+hub_and_spoke(
+    slide, BBox.from_inches(1, 1.5, 8, 5),
+    centre="Agent",
+    spokes=["Memory", "Tools", "Planning"],
+)`;
+
+const snippet2 = `from power_pptx.diagrams import cycle
+
+cycle(
+    slide, BBox.from_inches(2, 1.5, 6, 5),
+    steps=["Observe", "Orient", "Decide", "Act"],
+)`;
+
+const snippet3 = `from power_pptx.diagrams import decision_tree
+
+decision_tree(
+    slide, BBox.from_inches(1, 1, 8, 5.5),
+    root="Cache hit?",
+    branches={"yes": ["Serve cached"], "no": ["Compute", "Store"]},
+)`;
+
+const snippet4 = `from power_pptx.diagrams import comparison_columns
+
+comparison_columns(
+    slide, BBox.from_inches(0.5, 1.5, 9, 5),
+    columns=[
+        {"title": "python-pptx", "items": ["Upstream 1.0.2", "Maintenance mode"]},
+        {"title": "power-pptx", "items": ["Space-aware authoring", "Effects, animations, themes"]},
+    ],
+)`;
+
+---
+
+<DocsLayout
+  title="Diagram Recipes"
+  description="Six native-shape diagram recipes that cover ~80% of architecture-deck patterns."
+>
+  <p class="lead">
+    <code>power_pptx.diagrams</code> ships six recipes built from native shapes — editable in
+    PowerPoint, no images. Each takes a slide, a <code>BBox</code>, and a content spec, and covers
+    the patterns that make up most architecture and process decks.
+  </p>
+
+  <h2 id="pipeline">Pipelines</h2>
+  <Code code={snippet0} />
+
+  <h2 id="hub">Hub and spoke</h2>
+  <Code code={snippet1} />
+
+  <h2 id="cycle">Cycle</h2>
+  <Code code={snippet2} />
+
+  <h2 id="tree">Decision tree</h2>
+  <Code code={snippet3} />
+
+  <h2 id="comparison">Comparison columns</h2>
+  <Code code={snippet4} />
+
+  <h2 id="tips">Tips</h2>
+  <ul>
+    <li>Recipes return the shapes they create, so you can restyle individual nodes afterwards.</li>
+    <li>Size the <code>BBox</code> generously and let the recipe distribute the nodes; use <code>bb.inset()</code> to keep diagrams off the slide chrome.</li>
+    <li>Combine with <code>slide.tidy()</code> before save so any accidental collisions get reported.</li>
+  </ul>
+</DocsLayout>

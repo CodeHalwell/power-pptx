@@ -1,0 +1,56 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { DOCS_SIDEBAR } from "@/lib/site";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<BaseLayout title={title} description={description}>
+  <div class="mx-auto flex max-w-8xl gap-8 px-4 sm:px-6 lg:px-8">
+    <aside class="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 overflow-y-auto py-8 pr-4 lg:block">
+      <nav aria-label="Documentation">
+        {
+          DOCS_SIDEBAR.map((section) => (
+            <div class="pb-6">
+              <p class="pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {section.title}
+              </p>
+              <ul class="space-y-1 border-l border-border">
+                {section.items.map((item) => (
+                  <li>
+                    <a
+                      href={item.href}
+                      aria-current={currentPath === item.href ? "page" : undefined}
+                      class:list={[
+                        "-ml-px block border-l-2 py-1.5 pl-4 text-sm transition-colors",
+                        currentPath === item.href
+                          ? "border-primary font-medium text-foreground"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+                      ]}
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </nav>
+    </aside>
+    <main class="min-w-0 flex-1 py-8">
+      <article
+        class="prose prose-neutral max-w-none dark:prose-invert prose-headings:scroll-mt-20 prose-a:text-primary prose-pre:rounded-lg prose-pre:border prose-pre:border-border"
+      >
+        <h1>{title}</h1>
+        <slot />
+      </article>
+    </main>
+  </div>
+</BaseLayout>

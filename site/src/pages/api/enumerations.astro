@@ -1,0 +1,71 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const s0 = `from power_pptx.enum.shapes import (
+    MSO_SHAPE,           # autoshape types: RECTANGLE, OVAL, CHEVRON, ...
+    MSO_CONNECTOR,       # STRAIGHT, ELBOW, CURVE
+    MSO_SHAPE_TYPE,       # AUTO_SHAPE, PICTURE, GROUP, PLACEHOLDER, ...
+    PP_PLACEHOLDER,      # TITLE, BODY, CENTER_TITLE, PICTURE, ...
+)
+from power_pptx.enum.text import (
+    MSO_AUTO_SIZE,       # NONE, SHAPE_TO_FIT_TEXT, TEXT_TO_FIT_SHAPE
+    PP_ALIGN,            # LEFT, CENTER, RIGHT, JUSTIFY, ...
+    MSO_VERTICAL_ANCHOR, # TOP, MIDDLE, BOTTOM
+    MSO_UNDERLINE,
+)
+from power_pptx.enum.chart import (
+    XL_CHART_TYPE, XL_LEGEND_POSITION, XL_TICK_MARK,
+    XL_TICK_LABEL_POSITION, XL_DATA_LABEL_POSITION,
+)
+from power_pptx.enum.dml import (
+    MSO_LINE_DASH_STYLE, MSO_THEME_COLOR, MSO_PATTERN_TYPE,
+    MSO_FILL_TYPE,
+)
+from power_pptx.enum.presentation import (
+    PP_MEDIA_TYPE, PP_SLIDE_SIZE_TYPE,
+)
+from power_pptx.enum.action import PP_ACTION          # click actions
+from power_pptx.enum.lang import MSO_LANGUAGE_ID
+from power_pptx.enum.animation import (               # fork
+    MSO_ANIMATION_TRIGGER, MSO_ANIMATION_DIRECTION, ...
+)`;
+
+const s1 = `from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
+
+Inches(1) + Pt(72) == Inches(2)       # Length arithmetic works
+(Inches(10) - Inches(0.4)) / 2        # floats coerce at the setter
+
+from power_pptx.dml.color import RGBColor
+RGBColor(0x0B, 0x5C, 0xFF)
+RGBColor.from_string("0B5CFF")
+RGBColor(0x0B, 0x5C, 0xFF).alpha(0.5)   # fork: alpha tint`;
+---
+
+<DocsLayout
+  title="API: Enumerations & Utilities"
+  description="The MSO_*/PP_*/XL_* enums and the power_pptx.util length helpers."
+>
+  <h2 id="enums">Enumeration modules</h2>
+  <Code code={s0} />
+  <p>
+    Complete member lists live in the
+    <a href="https://python-pptx.readthedocs.io/en/latest/api/enum/index.html" target="_blank" rel="noopener noreferrer">upstream enum documentation</a>;
+    the fork's additions (animation enums, new pattern aliases) are documented in the
+    <a href="https://github.com/CodeHalwell/power-pptx/blob/master/HISTORY.rst" target="_blank" rel="noopener noreferrer">changelog</a>.
+  </p>
+
+  <h2 id="gotchas">Gotchas</h2>
+  <ul>
+    <li>
+      <code>MSO_PATTERN_TYPE.ERCENT_40</code> is an upstream typo retained for compatibility; it
+      raises <code>DeprecationWarning</code>. Use <code>PERCENT_40</code>.
+    </li>
+    <li>
+      Enum members compare equal across aliases (<code>MSO_ANCHOR.MIDDLE is MSO_VERTICAL_ANCHOR.MIDDLE</code>).
+    </li>
+  </ul>
+
+  <h2 id="util"><code>power_pptx.util</code> lengths</h2>
+  <Code code={s1} />
+</DocsLayout>

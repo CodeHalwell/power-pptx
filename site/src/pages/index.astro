@@ -1,0 +1,214 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { SITE } from "@/lib/site";
+import { withBase } from "@/lib/utils";
+import CopyButton from "@/components/react/CopyButton";
+import MuiShowcase from "@/components/react/MuiShowcase";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Bot,
+  Boxes,
+  ChartColumn,
+  FileJson,
+  Film,
+  Palette,
+  Ruler,
+  ScanSearch,
+  Sparkles,
+} from "lucide-react";
+
+const features = [
+  {
+    icon: Ruler,
+    title: "Space-aware authoring",
+    body: "fit_text() measures with Pillow font metrics and bakes a fitting size before save; auto_size and slide.lint() catch everything else. Text that never overflows its box.",
+  },
+  {
+    icon: Boxes,
+    title: "Design system",
+    body: "DesignTokens, a token-resolving shape.style facade, Grid/Stack layout primitives and opinionated slide recipes — title, bullet, KPI, quote, image-hero.",
+  },
+  {
+    icon: Sparkles,
+    title: "Effects & gradients",
+    body: "Outer shadow, glow, soft edges, blur and reflection as non-mutating proxies; alpha-tinted colours; linear / radial / rectangular gradient fills.",
+  },
+  {
+    icon: Film,
+    title: "Animations & transitions",
+    body: "Entrance / exit / emphasis presets, motion paths, per-paragraph reveal, sequencing, and deck-wide transitions including Morph.",
+  },
+  {
+    icon: ChartColumn,
+    title: "Charting",
+    body: "Palette presets independent of chart_style, ten quick layouts, per-series gradient and pattern fills, one-call chart.recolour().",
+  },
+  {
+    icon: ScanSearch,
+    title: "Lint & audit",
+    body: "slide.lint() reports overflow, off-slide shapes and collisions; slide.tidy() auto-fixes; audit(prs) gives a whole-deck Markdown report.",
+  },
+  {
+    icon: FileJson,
+    title: "JSON authoring",
+    body: "power_pptx.compose.from_spec() builds a complete deck from a JSON-shaped spec; import_slide and apply_template cover cross-presentation work.",
+  },
+  {
+    icon: Palette,
+    title: "Theme reader & writer",
+    body: "Read theme colours and fonts, write fresh srgbClr values into the clrScheme, or apply a theme imported from a .potx.",
+  },
+  {
+    icon: Bot,
+    title: "Built for coding agents",
+    body: "Ships a Claude Code skill — python -m power_pptx.skill install — with cheat sheets, recipes and an anti-patterns guide for LLM-authored decks.",
+  },
+];
+
+const quickstart = `from power_pptx import Presentation, BBox, audit
+from power_pptx.diagrams import horizontal_pipeline
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+slide.shapes.title.text = "Pipeline overview"
+
+horizontal_pipeline(
+    slide,
+    BBox.from_inches(0.5, 2.5, 9, 2.2),
+    steps=["Extract", "Classify", "Enrich", "Output"],
+    accent="#0B5CFF",
+)
+
+slide.tidy()                 # lint + safe auto-fixes
+print(audit(prs).markdown()) # whole-deck report
+prs.save("out.pptx")`;
+---
+
+<BaseLayout>
+  <!-- Hero -->
+  <section class="border-b border-border bg-gradient-to-b from-accent/50 to-background">
+    <div class="mx-auto max-w-8xl px-4 py-20 text-center sm:px-6 lg:px-8 lg:py-28">
+      <div class="mb-6 flex flex-wrap items-center justify-center gap-2">
+        <Badge variant="secondary">v{SITE.version}</Badge>
+        <Badge variant="secondary">Python {SITE.python}</Badge>
+        <Badge variant="secondary">{SITE.license} License</Badge>
+        <Badge variant="secondary">PyPI: power-pptx</Badge>
+      </div>
+      <h1 class="mx-auto max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+        PowerPoint decks from Python, <span class="text-primary">that actually fit</span>
+      </h1>
+      <p class="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+        {SITE.title} is the actively-maintained fork of python-pptx. Generate, mutate, theme,
+        animate and render <code>.pptx</code> files — no Microsoft PowerPoint required — with
+        space-aware authoring so text never overflows its box.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a
+          href={withBase("/getting-started")}
+          class="inline-flex h-10 items-center rounded-md bg-primary px-8 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+        >
+          Get started
+        </a>
+        <a
+          href={withBase("/api")}
+          class="inline-flex h-10 items-center rounded-md border border-border bg-background px-8 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+        >
+          API reference
+        </a>
+        <a
+          href={SITE.github}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex h-10 items-center rounded-md border border-border bg-background px-8 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+        >
+          View on GitHub
+        </a>
+      </div>
+      <div
+        class="mx-auto mt-10 flex max-w-md items-center justify-between rounded-lg border border-border bg-card px-4 py-3 font-mono text-sm shadow-sm"
+      >
+        <span><span class="text-muted-foreground">$ </span>pip install power-pptx</span>
+        <CopyButton text="pip install power-pptx" client:load />
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature grid -->
+  <section class="mx-auto max-w-8xl px-4 py-16 sm:px-6 lg:px-8">
+    <h2 class="text-center text-3xl font-bold tracking-tight">Everything the upstream left out</h2>
+    <p class="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
+      Drop-in compatible with python-pptx 1.0.2 — every addition ships with round-trip regression
+      tests, so existing scripts keep working.
+    </p>
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        features.map((f) => (
+          <Card>
+            <CardHeader>
+              <f.icon className="h-6 w-6 text-primary" aria-hidden="true" />
+              <CardTitle>{f.title}</CardTitle>
+              <CardDescription>{f.body}</CardDescription>
+            </CardHeader>
+          </Card>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- Quickstart -->
+  <section class="border-y border-border bg-accent/30">
+    <div class="mx-auto grid max-w-8xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8">
+      <div class="flex flex-col justify-center">
+        <h2 class="text-3xl font-bold tracking-tight">A deck in twenty lines</h2>
+        <p class="mt-4 text-muted-foreground">
+          The working set covers ~90% of deck generation: open, add a slide, drop in a diagram
+          recipe, tidy up the geometry, audit the whole deck, save. Everything is splattable
+          <code>BBox</code> geometry — no raw EMU integers.
+        </p>
+        <ul class="mt-6 space-y-2 text-sm text-muted-foreground">
+          <li class="flex gap-2"><span class="text-primary">✓</span> Three-tier layout safety: fit_text → auto_size → lint</li>
+          <li class="flex gap-2"><span class="text-primary">✓</span> Six native-shape diagram recipes cover architecture decks</li>
+          <li class="flex gap-2"><span class="text-primary">✓</span> Hex strings everywhere a colour is accepted</li>
+          <li class="flex gap-2"><span class="text-primary">✓</span> One-call <code>audit(prs).markdown()</code> for chat replies</li>
+        </ul>
+        <div class="mt-6">
+          <a href={withBase("/getting-started")} class="text-sm font-medium text-primary hover:underline">
+            Read the full starter guide →
+          </a>
+        </div>
+      </div>
+      <pre
+        class="overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed shadow-sm"
+      ><code>{quickstart}</code></pre>
+    </div>
+  </section>
+
+  <!-- MUI showcase strip -->
+  <section class="mx-auto max-w-8xl px-4 py-16 sm:px-6 lg:px-8">
+    <MuiShowcase client:load />
+  </section>
+
+  <!-- Agents callout -->
+  <section class="border-t border-border bg-gradient-to-b from-background to-accent/40">
+    <div class="mx-auto max-w-8xl px-4 py-16 text-center sm:px-6 lg:px-8">
+      <Bot className="mx-auto h-10 w-10 text-primary" aria-hidden="true" />
+      <h2 class="mt-4 text-3xl font-bold tracking-tight">Made for coding agents</h2>
+      <p class="mx-auto mt-3 max-w-2xl text-muted-foreground">
+        The package ships its own Claude Code skill: cheat sheet, 16 focused reference docs, and an
+        anti-patterns list of the mistakes LLMs commonly make. One command installs it.
+      </p>
+      <div
+        class="mx-auto mt-8 flex max-w-lg items-center justify-between rounded-lg border border-border bg-card px-4 py-3 font-mono text-sm shadow-sm"
+      >
+        <span><span class="text-muted-foreground">$ </span>python -m power_pptx.skill install</span>
+        <CopyButton text="python -m power_pptx.skill install" client:load />
+      </div>
+      <div class="mt-6">
+        <a href={withBase("/agents")} class="text-sm font-medium text-primary hover:underline">
+          Using power-pptx with coding agents →
+        </a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

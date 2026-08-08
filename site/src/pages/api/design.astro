@@ -1,0 +1,71 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const s0 = `from power_pptx.design import DesignTokens
+
+DesignTokens.from_dict({...})          # dict-shaped tokens
+DesignTokens.from_yaml("brand.yaml")   # needs pyyaml
+DesignTokens.from_pptx("brand.pptx")   # lift palette+fonts from a deck
+
+# token namespaces: palette, typography, shadows, radii, spacings
+tokens.palette["primary"]
+tokens.typography["heading"]           # {"family": ..., "size": ...}`;
+
+const s1 = `from power_pptx.design import Grid, Stack
+
+grid = Grid(slide, rows=2, cols=3,
+            gutter=Inches(0.2), margin=Inches(0.5))
+for cell in grid.cells():              # each cell is a BBox
+    ...
+
+stack = Stack.vertical(slide, bbox, gap=Inches(0.15))
+stack_h = Stack.horizontal(slide, bbox, gap=Inches(0.15))
+
+# token-resolving style facade
+shape.style(tokens, fill="primary", line="ink", radius="card")`;
+
+const s2 = `from power_pptx.design.recipes import (
+    title_slide, bullet_slide, kpi_slide, quote_slide, image_hero_slide,
+)
+
+title_slide(prs, tokens, title=..., subtitle=...)
+bullet_slide(prs, tokens, title=..., bullets=[...])
+kpi_slide(prs, tokens, title=..., kpis=[...])
+quote_slide(prs, tokens, quote=..., attribution=...)
+image_hero_slide(prs, tokens, image=..., title=...)`;
+
+const s3 = `from power_pptx import (
+    add_kpi_card, add_progress_bar, add_gauge,
+    add_status_pill, add_stat_strip, add_article_card,
+    KpiCard, ProgressBar, Gauge, StatusPill, StatStrip, ArticleCard,
+)
+
+kpi = add_kpi_card(slide, bbox, tokens, label="MRR",
+                   value="$120k", delta="+8%")
+kpi.value_shape   # constituent shapes stay tweakable
+
+from power_pptx import (
+    add_plotly_figure, add_matplotlib_figure,
+    add_svg_figure, add_html_figure, FigureBackendUnavailable,
+)
+
+add_plotly_figure(slide, bbox, fig)      # lazy third-party deps`;
+---
+
+<DocsLayout
+  title="API: Design System"
+  description="DesignTokens, Grid/Stack layout, slide recipes, shape components and figure adapters."
+>
+  <h2 id="tokens"><code>DesignTokens</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s0} />
+
+  <h2 id="layout"><code>Grid</code> / <code>Stack</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s1} />
+
+  <h2 id="recipes">Slide recipes <strong class="text-primary">fork</strong></h2>
+  <Code code={s2} />
+
+  <h2 id="components">Shape components &amp; figure adapters <strong class="text-primary">fork</strong></h2>
+  <Code code={s3} />
+</DocsLayout>

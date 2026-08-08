@@ -1,10 +1,54 @@
 power-pptx
 ==========
 
+|PyPI| |PyPI - Python Versions| |CI| |License| |Documentation|
+
+.. |PyPI| image:: https://img.shields.io/pypi/v/power-pptx.svg
+   :target: https://pypi.org/project/power-pptx/
+   :alt: PyPI
+
+.. |PyPI - Python Versions| image:: https://img.shields.io/pypi/pyversions/power-pptx.svg
+   :target: https://pypi.org/project/power-pptx/
+   :alt: Python 3.9 – 3.13
+
+.. |CI| image:: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml
+   :alt: CI status
+
+.. |License| image:: https://img.shields.io/badge/license-MIT-blue.svg
+   :target: https://github.com/CodeHalwell/power-pptx/blob/master/LICENSE
+   :alt: MIT License
+
+.. |Documentation| image:: https://img.shields.io/badge/docs-codehalwell.github.io%2Fpower--pptx-blue.svg
+   :target: https://codehalwell.github.io/power-pptx/
+   :alt: Documentation
+
+**PowerPoint decks from Python, that actually fit.**
+
 *power-pptx* is the actively-maintained fork of the excellent
 `python-pptx`_ library by `Steve Canny`_, picking up where the upstream's
 1.0.2 release left off. It is a Python library for creating, reading,
 and updating PowerPoint (.pptx) files.
+
++----------------+----------------------------------------------------------+
+| **Package**    | ``power-pptx`` on PyPI (imports as ``power_pptx``)       |
++----------------+----------------------------------------------------------+
+| **Python**     | 3.9 – 3.13                                               |
++----------------+----------------------------------------------------------+
+| **License**    | MIT                                                      |
++----------------+----------------------------------------------------------+
+| **Docs**       | https://codehalwell.github.io/power-pptx/                |
++----------------+----------------------------------------------------------+
+| **Guides**     | `Getting started`_ · `Advanced usage`_ ·                 |
+|                | `Coding agents`_ · `API reference`_                      |
++----------------+----------------------------------------------------------+
+| **Source**     | https://github.com/CodeHalwell/power-pptx                |
++----------------+----------------------------------------------------------+
+
+.. _`Getting started`: https://codehalwell.github.io/power-pptx/getting-started/
+.. _`Advanced usage`: https://codehalwell.github.io/power-pptx/advanced/space-aware-authoring/
+.. _`Coding agents`: https://codehalwell.github.io/power-pptx/agents/
+.. _`API reference`: https://codehalwell.github.io/power-pptx/api/
 
 A typical use is generating a PowerPoint presentation from dynamic
 content such as a database query, an analytics output, an LLM payload,
@@ -247,6 +291,12 @@ writes.
 
 Documentation
 -------------
+
+**Project site:** https://codehalwell.github.io/power-pptx/ — the
+Astro/React documentation site (source in ``site/``) with the
+`Getting started`_ guide, `Advanced usage`_ walkthroughs, a guide to
+`Coding agents`_ (the bundled Claude Code skill), and the full
+`API reference`_.
 
 The Sphinx documentation lives under ``docs/`` and covers both the
 inherited 1.0.2 API and every feature added by the fork.  Browse

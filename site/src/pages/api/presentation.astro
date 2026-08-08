@@ -1,0 +1,78 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const s0 = `from power_pptx import Presentation
+
+prs = Presentation()                  # new deck from the default template
+prs = Presentation("file.pptx")       # open an existing deck
+prs.save("out.pptx")                  # write to a path or file-like object`;
+
+const s1 = `prs.slide_width            # EMU width of the slide canvas
+prs.slide_height           # EMU height
+prs.slides                 # Slides collection
+prs.slide_layouts          # layouts of the first master
+prs.slide_masters          # SlideMasters collection
+prs.core_properties        # document metadata (author, title, ...)
+prs.theme                  # fork: Theme reader/writer
+prs.notes_master           # NotesMaster
+prs.part.package           # the OpcPackage`;
+
+const s2 = `slide = prs.slides.add_slide(prs.slide_layouts[5])
+slide.name                 # str, mutable
+slide.shapes               # SlideShapes (shape tree)
+slide.placeholders         # SlidePlaceholders
+slide.background           # _Background (fill)
+slide.slide_layout         # the SlideLayout this slide follows
+slide.transition           # fork: SlideTransition (Morph, Fade, ...)
+slide.animations           # fork: SlideAnimations
+slide.notes_slide          # NotesSlide (created on demand)
+
+# fork: space-aware helpers
+report = slide.lint()      # SlideLintReport
+slide.tidy()               # lint + safe auto-fixes
+free = slide.find_empty_region(min_size=Inches(2))`;
+
+const s3 = `from power_pptx import audit
+
+report = audit(prs)        # lint + broken pictures + empty slides
+                           # + uncommon fonts + oversized pictures
+print(report.markdown())`;
+---
+
+<DocsLayout
+  title="API: Presentation & Slides"
+  description="Presentation factory, slides, layouts, masters, notes, transitions, audit."
+>
+  <h2 id="presentation"><code>power_pptx.Presentation</code></h2>
+  <p>Factory entry point. Accepts a path/file-like object or nothing (blank default template).</p>
+  <Code code={s0} />
+  <Code code={s1} />
+
+  <h2 id="slides"><code>power_pptx.slide</code></h2>
+  <table>
+    <thead>
+      <tr><th>Class</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>Slides</code></td><td>Sequence of slides; <code>add_slide(layout)</code>, iteration, indexing, <code>index()</code>, reordering via <code>slide_id</code> list</td></tr>
+      <tr><td><code>Slide</code></td><td>A single slide; shapes, background, notes, transition, animations, lint</td></tr>
+      <tr><td><code>SlideLayouts</code> / <code>SlideLayout</code></td><td>Layouts of a master; <code>Slide</code> instances clone placeholders from them</td></tr>
+      <tr><td><code>SlideMasters</code> / <code>SlideMaster</code></td><td>Masters expose <code>layouts</code>, <code>placeholders</code>, <code>theme</code> via the part</td></tr>
+      <tr><td><code>NotesSlide</code> / <code>NotesMaster</code></td><td>Speaker notes surface; <code>notes_text_frame</code> on <code>NotesSlide</code></td></tr>
+      <tr><td><code>SlideTransition</code> <strong class="text-primary">fork</strong></td><td><code>type</code>, <code>duration</code>, <code>advance_on_click</code>, <code>advance_after_time</code>; assign via <code>slide.transition = Fade(0.3)</code> or <code>prs.set_default_transition(...)</code></td></tr>
+    </tbody>
+  </table>
+  <Code code={s2} />
+
+  <h2 id="core-properties">Core properties</h2>
+  <p>
+    <code>prs.core_properties</code> exposes Dublin Core metadata: <code>author</code>,
+    <code>title</code>, <code>subject</code>, <code>keywords</code>, <code>category</code>,
+    <code>comments</code>, <code>created</code>, <code>modified</code>, <code>revision</code>,
+    <code>version</code>, <code>last_modified_by</code>.
+  </p>
+
+  <h2 id="audit"><code>power_pptx.audit</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s3} />
+</DocsLayout>

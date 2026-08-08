@@ -1,0 +1,76 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const s0 = `tf = shape.text_frame
+
+tf.text = "Line one\\nLine two"     # \\n → paragraph breaks
+tf.word_wrap = True
+tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+tf.margin_left / .margin_right / .margin_top / .margin_bottom
+tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+
+tf.paragraphs                      # sequence of _Paragraph (fresh objects!)
+tf.fit_text(font_family="Inter", max_size=24)   # fork`;
+
+const s1 = `p = tf.paragraphs[0]
+p.text = "Hello"                   # replaces runs
+p.alignment = PP_ALIGN.CENTER
+p.level = 1                        # indent level 0..8
+p.line_spacing = 1.2               # float (multiple) or Pt
+p.space_before, p.space_after      # Pt
+p.runs                             # sequence of _Run
+
+r = p.add_run()
+r.text = "world"
+r.font.size = Pt(18)
+r.font.bold = True
+r.font.italic = False
+r.font.name = "Inter"
+r.font.color.rgb = "#0B5CFF"       # hex / tuple / RGBColor
+r.font.underline = True
+r.hyperlink.address = "https://example.com"`;
+
+const s2 = `from power_pptx.text.layout import TextFitter
+
+fitter = TextFitter(text_frame=tf, font_family="Inter")
+size = fitter.best_fit_font_size(max_size=24)   # Pt
+
+# fonts.py helpers
+from power_pptx.text.fonts import register_font_directory
+register_font_directory("./fonts")`;
+---
+
+<DocsLayout
+  title="API: Text"
+  description="TextFrame, _Paragraph, _Run, Font, fit_text and the TextFitter measurement engine."
+>
+  <h2 id="textframe"><code>TextFrame</code></h2>
+  <Code code={s0} />
+
+  <h2 id="paragraphs">Paragraphs, runs, fonts</h2>
+  <p>
+    <strong>Important:</strong> <code>tf.paragraphs</code> and <code>p.runs</code> return
+    <em>fresh wrapper objects</em> on every access — never compare them with <code>is</code>. For
+    replace-text-keep-formatting use <code>shape.set_text_preserving_format(new_text)</code>.
+  </p>
+  <Code code={s1} />
+
+  <h2 id="fit"><code>fit_text</code> and <code>TextFitter</code> <strong class="text-primary">fork</strong></h2>
+  <p>
+    <code>fit_text</code> measures the actual string with Pillow font metrics and writes the
+    largest size that fits into the XML before save.
+  </p>
+  <Code code={s2} />
+
+  <h2 id="enums">Text enumerations</h2>
+  <table>
+    <thead><tr><th>Enum</th><th>Members (selection)</th></tr></thead>
+    <tbody>
+      <tr><td><code>MSO_AUTO_SIZE</code></td><td><code>NONE</code>, <code>SHAPE_TO_FIT_TEXT</code>, <code>TEXT_TO_FIT_SHAPE</code></td></tr>
+      <tr><td><code>PP_ALIGN</code></td><td><code>LEFT</code>, <code>CENTER</code>, <code>RIGHT</code>, <code>JUSTIFY</code>, …</td></tr>
+      <tr><td><code>MSO_VERTICAL_ANCHOR</code> (alias <code>MSO_ANCHOR</code>)</td><td><code>TOP</code>, <code>MIDDLE</code>, <code>BOTTOM</code></td></tr>
+      <tr><td><code>MSO_UNDERLINE</code></td><td><code>NONE</code>, <code>SINGLE</code>, <code>DOUBLE</code>, …</td></tr>
+    </tbody>
+  </table>
+</DocsLayout>

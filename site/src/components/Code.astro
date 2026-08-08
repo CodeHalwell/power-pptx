@@ -1,0 +1,14 @@
+---
+/**
+ * Code block that renders its snippet literally. Defining the snippet as a
+ * frontmatter string avoids Astro's template-expression parsing of `{` and
+ * `[` inside <pre><code> bodies.
+ */
+interface Props {
+  code: string;
+}
+
+const { code } = Astro.props;
+---
+
+<pre class="overflow-x-auto rounded-lg border border-border bg-muted/50 p-4 text-sm leading-relaxed"><code>{code}</code></pre>

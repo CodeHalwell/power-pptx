@@ -1,0 +1,59 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath
+
+anims = slide.animations
+anims.add(shape, Entrance.FADE)
+anims.add(shape, Entrance.FLY_IN, direction="from-left", duration=0.5)
+anims.add(shape, Emphasis.PULSE, trigger="with-previous")
+anims.add(shape, Exit.WIPE, trigger="after-previous", delay=0.2)
+
+# Motion path preset
+anims.add(shape, MotionPath.ARC_DOWN, duration=1.0)`;
+
+const snippet1 = `# Reveal each bullet on click, in order
+anims.add(textbox, Entrance.FADE, by_paragraph=True)`;
+
+const snippet2 = `with anims.sequence() as seq:
+    seq.add(title, Entrance.FADE)
+    seq.add(chart, Entrance.ZOOM, trigger="after-previous")
+    seq.add(footnote, Entrance.FLY_IN, direction="from-bottom")`;
+
+const snippet3 = `from power_pptx.transitions import Morph, Fade, Wipe
+
+# Per slide
+slide.transition = Morph(duration=0.6)
+slide.transition = Fade(duration=0.3)
+
+# Deck-wide
+prs.set_default_transition(Wipe(direction="from-right", duration=0.4))`;
+
+---
+
+<DocsLayout
+  title="Animations & Transitions"
+  description="Entrance, exit and emphasis presets, motion paths, per-paragraph reveal, sequencing, and deck-wide transitions including Morph."
+>
+  <p class="lead">
+    power-pptx exposes PowerPoint's animation model from Python: preset effects, motion paths,
+    per-paragraph reveal, and a sequencing context manager — plus per-slide and deck-wide
+    transitions.
+  </p>
+
+  <h2 id="animations">Animations</h2>
+  <Code code={snippet0} />
+
+  <h2 id="paragraph-reveal">Per-paragraph reveal</h2>
+  <Code code={snippet1} />
+
+  <h2 id="sequencing">Sequencing</h2>
+  <Code code={snippet2} />
+
+  <h2 id="transitions">Transitions</h2>
+  <Code code={snippet3} />
+  <p>
+    Morph and the other <code>p14:</code> extension transitions are first-class — PowerPoint 2019+
+    renders them natively and older versions degrade gracefully.
+  </p>
+</DocsLayout>
