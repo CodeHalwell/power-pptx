@@ -6,7 +6,7 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { useMemo } from "react";
-import { useTheme } from "./ThemeProvider";
+import { useSiteTheme } from "@/lib/theme";
 
 const metrics = [
   { label: "Public API modules", value: "24", progress: 92 },
@@ -20,7 +20,7 @@ const metrics = [
  * site-wide light/dark toggle so both component systems stay in sync.
  */
 export default function MuiShowcase() {
-  const { theme } = useTheme();
+  const theme = useSiteTheme() ?? "light";
 
   const muiTheme = useMemo(
     () =>

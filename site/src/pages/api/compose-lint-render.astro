@@ -2,13 +2,21 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
 
-const s0 = `from power_pptx.compose import from_spec, import_slide, apply_template
+const s0 = `from power_pptx import Presentation
+from power_pptx.compose import from_spec
 
-prs = from_spec(spec: dict, lint="raise")     # raise | warn | off
-import_slide(prs, source_slide)               # deep-copy between decks
-apply_template(prs, "corporate.potx")         # masters, layouts, theme`;
+spec = {
+    "slides": [{"layout": "title", "title": "Q4 Review"}],
+    "lint": "raise",                          # raise | warn | off
+}
+prs = from_spec(spec)
 
-const s1 = `report = slide.lint()              # SlideLintReport
+source = Presentation("template.pptx")
+prs.import_slide(source.slides[0])            # deep-copy between decks
+prs.apply_template("corporate.potx")          # masters, layouts, theme`;
+
+const s1 = `slide = prs.slides[0]
+report = slide.lint()                # SlideLintReport
 report.issues                        # list[LintIssue]
 report.auto_fix()                    # mutates: nudges OffSlide back in
 slide.tidy()                         # one-call lint + safe fixes
@@ -31,31 +39,43 @@ render_slides(prs, slides=[0, 1], out_dir="thumbs",
 
 # raises ThumbnailRendererUnavailable without soffice on PATH`;
 
-const s3 = `from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath
+const s3 = `from power_pptx import BBox
+from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+from power_pptx.util import Inches
 
-slide.animations.add(shape, Entrance.FADE, duration=0.5)
-slide.animations.add(shape, Entrance.FLY_IN, direction="from-left")
-slide.animations.add(shape, Emphasis.PULSE, trigger="with-previous")
-slide.animations.add(shape, Exit.WIPE, trigger="after-previous")
-slide.animations.add(textbox, Entrance.FADE, by_paragraph=True)
-slide.animations.add(shape, MotionPath.ARC_DOWN, duration=1.0)
+shape = slide.shapes.add_text(BBox.from_inches(1, 2, 4, 1), text="Animate me")
 
-with slide.animations.sequence() as seq:
-    seq.add(a, Entrance.FADE)
-    seq.add(b, Entrance.ZOOM, trigger="after-previous")
+Entrance.fade(slide, shape)
+Entrance.fly_in(slide, shape, direction="left")
+Emphasis.pulse(slide, shape, trigger=Trigger.WITH_PREVIOUS)
+Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS)
+Entrance.fade(slide, shape.text_frame, by_paragraph=True)
+MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)
 
-slide.transition = Morph(duration=0.6)
-prs.set_default_transition(Fade(duration=0.3))`;
+with slide.animations.sequence():
+    Entrance.fade(slide, shape)      # first: on click
+    Emphasis.pulse(slide, shape)     # then: after previous
 
-const s4 = `theme = prs.theme
-theme.colors.accent1                 # read
-theme.colors.set("accent1", "#0B5CFF")   # write srgbClr
-theme.fonts.major_latin
-theme.fonts.set_major("Inter Display")
-theme.fonts.set_minor("Inter")
+slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
+slide.transition.duration = 600      # ms
+prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=300)`;
+
+const s4 = `from power_pptx.dml.color import RGBColor
+from power_pptx.enum.dml import MSO_THEME_COLOR
+
+deck = Presentation("deck.pptx")
+theme = deck.theme
+theme.colors[MSO_THEME_COLOR.ACCENT_1]               # read -> RGBColor
+theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor.from_hex("#0B5CFF")
+theme.fonts.major                    # heading font
+theme.fonts.major = "Inter Display"
+theme.fonts.minor = "Inter"
+theme.to_dark_mode()                 # one-call dark palette
 
 from power_pptx.inherit import resolve_color
-rgb = resolve_color(shape)           # placeholder → layout → master → theme`;
+run = shape.text_frame.paragraphs[0].runs[0]
+rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 ---
 
 <DocsLayout

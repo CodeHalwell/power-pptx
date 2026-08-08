@@ -2,6 +2,7 @@
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { SITE } from "@/lib/site";
 import { withBase } from "@/lib/utils";
+import Code from "@/components/Code.astro";
 import CopyButton from "@/components/react/CopyButton";
 import MuiShowcase from "@/components/react/MuiShowcase";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -178,9 +179,7 @@ prs.save("out.pptx")`;
           </a>
         </div>
       </div>
-      <pre
-        class="overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed shadow-sm"
-      ><code>{quickstart}</code></pre>
+      <Code code={quickstart} />
     </div>
   </section>
 

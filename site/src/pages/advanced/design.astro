@@ -1,7 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `from power_pptx.design import DesignTokens
+const snippet0 = `from power_pptx.design.tokens import DesignTokens
 
 tokens = DesignTokens.from_dict({
     "palette": {
@@ -10,57 +10,110 @@ tokens = DesignTokens.from_dict({
         "ink": "#0D0D0D",
     },
     "typography": {
-        "heading": {"family": "Inter", "size": 44.0},   # float = points
+        "heading": {"family": "Inter", "size": 44.0, "bold": True},
         "body":    {"family": "Inter", "size": 18.0},
     },
-    "radii": {"card": 8},
-    "spacings": {"gutter": 0.2},
+    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+    "radii": {"card": 8.0},          # bare floats are points; ints are EMU
+    "spacings": {"sm": 8.0, "md": 16.0},
 })
 
-# …or from YAML (needs pyyaml) or extracted from an existing .pptx
-tokens = DesignTokens.from_yaml("brand.yaml")
-tokens = DesignTokens.from_pptx("brand-deck.pptx")`;
+# ...or from YAML (needs pyyaml) or extracted from an existing .pptx
+tokens_from_yaml = DesignTokens.from_yaml("brand.yaml")
+tokens_from_deck = DesignTokens.from_pptx("brand-deck.pptx")   # accent1..6, fonts`;
 
-const snippet1 = `shape.style(tokens, fill="primary", line="ink", radius="card", shadow="sm")`;
+const snippet1 = `from power_pptx import Presentation, BBox
+from power_pptx.enum.shapes import MSO_SHAPE
 
-const snippet2 = `from power_pptx.design import Grid, Stack
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+shape = slide.shapes.add_shape(
+    MSO_SHAPE.ROUNDED_RECTANGLE, *BBox.from_inches(1, 1, 3, 2)
+)
 
-grid = Grid(slide, rows=2, cols=3, gutter=Inches(0.2), margin=Inches(0.5))
-for i, cell in enumerate(grid.cells()):
-    slide.shapes.add_text(cell, text=f"Tile {i + 1}", align="center")
+# Attribute setters fan out to the low-level fill/line/font/effect proxies
+shape.style.fill = tokens.palette["primary"]
+shape.style.line = tokens.palette["ink"]
+shape.style.text_color = tokens.palette["surface"]
+shape.style.font = tokens.typography["body"]
+shape.style.shadow = tokens.shadows["card"]   # assign None to clear`;
 
-stack = Stack.vertical(slide, BBox.from_inches(1, 1, 8, 5), gap=Inches(0.15))
-for region in stack:
-    ...`;
+const snippet2 = `from power_pptx.design.layout import Grid, Stack
+from power_pptx.util import Inches, Pt
+
+# Grid computes cells; place() moves an existing shape into a cell span
+grid = Grid(slide, cols=3, rows=2, gutter=Pt(12), margin=Pt(48))
+for i in range(3):
+    cell = grid.cell(col=i, row=0)           # a Box — splats into add_*
+    slide.shapes.add_text(*cell, text=f"Tile {i + 1}", align="center")
+
+# Stack walks a cursor down (or across) as you place shapes
+stack = Stack(direction="vertical", gap=Pt(8),
+              left=Inches(1), top=Inches(4), width=Inches(8))
+caption = slide.shapes.add_text(BBox.from_inches(1, 4, 8, 0.6), text="Caption")
+stack.place(caption, height=Pt(28))`;
 
 const snippet3 = `from power_pptx.design.recipes import (
     title_slide, bullet_slide, kpi_slide, quote_slide, image_hero_slide,
 )
 
-title_slide(prs, tokens, title="Q4 Review", subtitle="Engineering")
-bullet_slide(prs, tokens, title="Highlights", bullets=[...])
-kpi_slide(prs, tokens, title="KPIs", kpis=[{"label": "ARR", "value": "$4.2M"}])
-quote_slide(prs, tokens, quote="Ship it.", attribution="The team")
-image_hero_slide(prs, tokens, image="hero.png", title="Big news")`;
+title_slide(prs, title="Q4 Review", subtitle="Engineering", tokens=tokens)
+bullet_slide(prs, title="Highlights",
+             bullets=["Shipped v2.10", "Lint pass clean"], tokens=tokens)
+kpi_slide(prs, title="KPIs",
+          kpis=[{"label": "ARR", "value": "$4.2M", "delta": +0.08}],
+          tokens=tokens)
+quote_slide(prs, quote="Ship it.", attribution="The team", tokens=tokens)
+image_hero_slide(prs, title="Big news", image="hero.png", tokens=tokens)`;
 
 const snippet4 = `from power_pptx import (
     add_kpi_card, add_progress_bar, add_gauge,
     add_status_pill, add_stat_strip, add_article_card,
 )
+from power_pptx.util import Inches
 
-kpi = add_kpi_card(slide, bb, tokens, label="MRR", value="$120k", delta="+8%")
-bar = add_progress_bar(slide, bb, tokens, value=0.72, label="Migration")
-gauge = add_gauge(slide, bb, tokens, value=0.6)
-pill = add_status_pill(slide, bb, tokens, text="On track", tone="success")
-strip = add_stat_strip(slide, bb, tokens, stats=[...])
-card = add_article_card(slide, bb, tokens, title="…", dek="…")`;
+canvas = prs.slides.add_slide(prs.slide_layouts[6])
 
-const snippet5 = `from power_pptx import (
-    add_plotly_figure, add_matplotlib_figure, add_svg_figure, add_html_figure,
-)
+kpi = add_kpi_card(canvas, left=Inches(0.5), top=Inches(0.5),
+                   width=Inches(2.5), height=Inches(1.9),
+                   label="MRR", value="$120k", delta={"delta": +0.08},
+                   tokens=tokens)
+kpi.card, kpi.value_box              # constituent shapes stay tweakable
 
-add_plotly_figure(slide, bb, fig)          # Plotly → PNG → picture
-add_matplotlib_figure(slide, bb, fig)      # Matplotlib → PNG → picture`;
+add_progress_bar(canvas, left=Inches(0.5), top=Inches(2.8),
+                 width=Inches(6), height=Inches(0.3),
+                 fraction=0.72, tokens=tokens)
+add_gauge(canvas, left=Inches(0.5), top=Inches(3.4),
+          width=Inches(4), height=Inches(0.3),
+          fraction=0.6, target=0.8, tokens=tokens)
+add_status_pill(canvas, left=Inches(0.5), top=Inches(4.1),
+                width=Inches(1.6), height=Inches(0.5),
+                text="On track", tokens=tokens)
+add_stat_strip(canvas, left=Inches(0.5), top=Inches(4.9),
+               width=Inches(9), height=Inches(1.6),
+               items=[{"label": "ARR", "value": "$182M"},
+                      {"label": "NDR", "value": "131%", "delta": +0.03}],
+               tokens=tokens)
+add_article_card(canvas, left=Inches(7.2), top=Inches(0.5),
+                 width=Inches(2.5), height=Inches(3),
+                 title="Q4 wrap", blurb="Highlights from the quarter",
+                 cta_text="Read more", tokens=tokens)`;
+
+const snippet5 = `from power_pptx import add_matplotlib_figure, add_svg_figure
+from power_pptx.util import Inches
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(4, 3))
+ax.plot([1, 2, 3, 4], [2, 4, 3, 5])
+
+add_matplotlib_figure(slide, fig, Inches(1), Inches(1), Inches(4), Inches(3))
+add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
+
+# add_plotly_figure(slide, fig, ...) works the same way (needs kaleido);
+# all figure helpers raise FigureBackendUnavailable when the backend is missing`;
 
 ---
 

@@ -5,8 +5,9 @@ import Code from "@/components/Code.astro";
 const s0 = `from power_pptx.enum.shapes import (
     MSO_SHAPE,           # autoshape types: RECTANGLE, OVAL, CHEVRON, ...
     MSO_CONNECTOR,       # STRAIGHT, ELBOW, CURVE
-    MSO_SHAPE_TYPE,       # AUTO_SHAPE, PICTURE, GROUP, PLACEHOLDER, ...
+    MSO_SHAPE_TYPE,      # AUTO_SHAPE, PICTURE, GROUP, PLACEHOLDER, ...
     PP_PLACEHOLDER,      # TITLE, BODY, CENTER_TITLE, PICTURE, ...
+    PP_MEDIA_TYPE,       # MOVIE, SOUND, OTHER
 )
 from power_pptx.enum.text import (
     MSO_AUTO_SIZE,       # NONE, SHAPE_TO_FIT_TEXT, TEXT_TO_FIT_SHAPE
@@ -21,15 +22,13 @@ from power_pptx.enum.chart import (
 from power_pptx.enum.dml import (
     MSO_LINE_DASH_STYLE, MSO_THEME_COLOR, MSO_PATTERN_TYPE,
     MSO_FILL_TYPE,
+    BevelPreset, PresetMaterial,        # fork: 3-D
 )
-from power_pptx.enum.presentation import (
-    PP_MEDIA_TYPE, PP_SLIDE_SIZE_TYPE,
-)
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE   # fork
 from power_pptx.enum.action import PP_ACTION          # click actions
 from power_pptx.enum.lang import MSO_LANGUAGE_ID
-from power_pptx.enum.animation import (               # fork
-    MSO_ANIMATION_TRIGGER, MSO_ANIMATION_DIRECTION, ...
-)`;
+from power_pptx.enum.animation import PP_ANIM_TRIGGER # fork; alias:
+from power_pptx.animation import Trigger              #   Trigger`;
 
 const s1 = `from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
 
@@ -39,7 +38,16 @@ Inches(1) + Pt(72) == Inches(2)       # Length arithmetic works
 from power_pptx.dml.color import RGBColor
 RGBColor(0x0B, 0x5C, 0xFF)
 RGBColor.from_string("0B5CFF")
-RGBColor(0x0B, 0x5C, 0xFF).alpha(0.5)   # fork: alpha tint`;
+
+# fork: alpha lives on the colour proxies (fill / font / line), not RGBColor
+from power_pptx import Presentation, BBox
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+shape = slide.shapes.add_text(BBox.from_inches(1, 1, 3, 1), text="Tinted")
+shape.fill.solid()
+shape.fill.fore_color.rgb = RGBColor(0x0B, 0x5C, 0xFF)
+shape.fill.fore_color.alpha = 0.5     # fork: alpha tint`;
 ---
 
 <DocsLayout

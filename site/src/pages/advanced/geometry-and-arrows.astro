@@ -1,15 +1,21 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `from power_pptx import BBox
+const snippet0 = `from power_pptx import Presentation, BBox
 from power_pptx.util import Inches
 
-bb = BBox.from_inches(1, 2, 8, 4)          # x, y, width, height
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide.shapes.title.text = "Geometry demo"
+
+bb = BBox.from_inches(1, 2, 8, 4)          # left, top, width, height
 left, right = bb.split_h([1, 1], gap=Inches(0.2))
 top, bottom  = bb.split_v([2, 1], gap=Inches(0.1))
 inner        = bb.inset(all=Inches(0.2))
-cells        = bb.grid(rows=2, cols=3, gap=Inches(0.1))
-bb.contains(other)                         # bool
+cells        = bb.grid(cols=3, rows=2, gap_x=Inches(0.1), gap_y=Inches(0.1))
+
+other = bb.sub(0.25, 0.25, 0.5, 0.5)       # fractional sub-region
+bb.contains(other)                         # True
 bb.intersection(other)                     # BBox | None`;
 
 const snippet1 = `slide.shapes.add_text(
@@ -20,9 +26,8 @@ const snippet1 = `slide.shapes.add_text(
 
 const snippet2 = `from power_pptx.enum.shapes import MSO_SHAPE
 
-slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
-    .fill_hex("#FFFFFF") \
-    .line_hex("#0D0D0D", weight_pt=1.25)`;
+card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb)
+card.fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)`;
 
 const snippet3 = `start = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
 end   = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
@@ -34,18 +39,24 @@ slide.shapes.add_arrow(
 )`;
 
 const snippet4 = `# Replace text but keep the template formatting
+title_shape = slide.shapes.title
 title_shape.set_text_preserving_format("New title")
 
 # Swap a broken / sub-quality picture for native shapes,
 # sized to the enclosing card rather than the picture bbox
+picture = slide.shapes.add_picture("logo.png", *BBox.from_inches(6, 1, 2, 2))
 container = picture.enclosing_container()
-picture.replace_with(lambda slide, bbox: ..., padding=Inches(0.1))
+
+def builder(slide, bbox):
+    slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bbox).fill_hex("#0B5CFF")
+
+picture.replace_with(builder, padding=Inches(0.1))
 
 # One-call cleanup
 slide.tidy()            # lint + safe auto-fixes
 
 # Find a free region for greenfield placement
-free = slide.find_empty_region(min_size=Inches(2))`;
+free = slide.find_empty_region(min_width=Inches(2), min_height=Inches(1))`;
 
 ---
 

@@ -10,12 +10,18 @@ prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[5])
 slide.shapes.title.text = "Q4 Review"
 
-# Body box that has to swallow runtime-supplied text
+# Runtime-supplied text: an LLM answer, a DB row, a CLI argument...
+user_supplied_body = (
+    "Revenue grew 27% QoQ driven by the new enterprise tier, "
+    "while churn fell below 2% for the first time."
+)
+
+# Body box that has to swallow that text
 box = slide.shapes.add_textbox(Inches(0.6), Inches(1.6),
-                               Inches(12), Inches(5))
+                               Inches(8.5), Inches(5))
 tf = box.text_frame
 tf.word_wrap = True
-tf.text = USER_SUPPLIED_BODY
+tf.text = user_supplied_body
 
 # Belt: pick a determined size now using Pillow font metrics
 tf.fit_text(font_family="Inter", max_size=24)
@@ -28,15 +34,22 @@ slide.tidy()
 report = slide.lint()
 errors = [i for i in report.issues if i.severity.value == "error"]
 if errors:
-    raise RuntimeError("\n".join(str(e) for e in errors))
+    raise RuntimeError("\\n".join(str(e) for e in errors))
 
 prs.save("out.pptx")`;
 
 const snippet1 = `from power_pptx.text.layout import TextFitter
+from power_pptx.util import Inches, Pt
 
-fitter = TextFitter(text_frame=tf, font_family="Inter")
-size = fitter.best_fit_font_size(max_size=24)   # returns a Pt length
-tf.paragraphs[0].runs[0].font.size = size`;
+# Size text for a known box but leave the styling to someone else
+best_pt = TextFitter.best_fit_font_size(
+    text="Q4 2026 Customer Outcomes Review",
+    extents=(Inches(8), Inches(1.5)),
+    max_size=44,
+    font_file=None,               # falls back to Pillow's bundled font
+)
+if best_pt is not None:
+    tf.paragraphs[0].runs[0].font.size = Pt(best_pt)`;
 
 const snippet2 = `from power_pptx import audit
 

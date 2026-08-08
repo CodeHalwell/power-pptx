@@ -2,17 +2,27 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
 
-const s0 = `from power_pptx.chart.data import CategoryChartData, XyChartData, BubbleChartData
+const s0 = `from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData, XyChartData, BubbleChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
 
 data = CategoryChartData()
 data.categories = ["Q1", "Q2", "Q3", "Q4"]
 data.add_series("Revenue", (1.2, 1.8, 2.4, 3.1))
 
+x, y, cx, cy = Inches(1), Inches(1), Inches(8), Inches(4.5)
 chart = slide.shapes.add_chart(
     XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, cx, cy, data
 ).chart`;
 
-const s1 = `chart.chart_type
+const s1 = `from power_pptx.enum.chart import XL_LEGEND_POSITION
+from power_pptx.enum.dml import MSO_PATTERN_TYPE
+
+chart.chart_type
 chart.plots                        # sequence of Plot
 plot = chart.plots[0]
 plot.series                        # sequence of Series
@@ -22,11 +32,12 @@ plot.vary_by_categories
 series = plot.series[0]
 series.name, series.values
 series.format.fill.gradient(kind="linear", angle=0)   # fork
-series.format.fill.pattern(MSO_PATTERN_TYPE.PERCENT_40)
+series.format.fill.patterned()
+series.format.fill.pattern = MSO_PATTERN_TYPE.PERCENT_40
 
-chart.category_axis / .value_axis
-axis.has_major_gridlines, axis.tick_labels,
-axis.maximum_scale / .minimum_scale
+axis = chart.value_axis            # or chart.category_axis
+axis.has_major_gridlines, axis.tick_labels
+axis.maximum_scale, axis.minimum_scale
 chart.category_axis.reverse_order  # BAR_* defaults True (fork)
 
 chart.has_legend = True
@@ -35,12 +46,14 @@ chart.chart_style = 10             # built-in style index 1..48`;
 
 const s2 = `from power_pptx.chart import palettes, quick_layouts
 
-chart.recolour("ocean")            # fork: one call, dispatches per type
-chart.apply_palette(palettes.OCEAN)  # warns on pie/doughnut
+chart.recolour("vibrant")          # fork: one call, dispatches per type
+chart.apply_palette("modern")      # warns + reroutes on pie/doughnut
 chart.apply_dark_theme(text="#E5E7EB", line="#374151")   # fork
 chart.line_color = "#9CA3AF"       # fork
 
-quick_layouts.apply_quick_layout(chart, "minimal")  # 10 presets`;
+chart.apply_quick_layout("minimal")     # 10 presets
+palettes.palette_names()           # modern, classic, editorial, vibrant, ...
+quick_layouts.layout_names()       # title_legend_right, minimal, dense, ...`;
 ---
 
 <DocsLayout

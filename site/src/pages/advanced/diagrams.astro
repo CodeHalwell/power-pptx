@@ -1,7 +1,11 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `from power_pptx.diagrams import horizontal_pipeline, vertical_pipeline
+const snippet0 = `from power_pptx import Presentation, BBox
+from power_pptx.diagrams import horizontal_pipeline, vertical_pipeline
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
 
 horizontal_pipeline(
     slide, BBox.from_inches(0.5, 2.5, 9, 2.2),
@@ -34,7 +38,10 @@ const snippet3 = `from power_pptx.diagrams import decision_tree
 decision_tree(
     slide, BBox.from_inches(1, 1, 8, 5.5),
     root="Cache hit?",
-    branches={"yes": ["Serve cached"], "no": ["Compute", "Store"]},
+    branches=[
+        {"label": "Yes", "children": ["Serve cached"]},
+        {"label": "No", "children": ["Compute", "Store"]},
+    ],
 )`;
 
 const snippet4 = `from power_pptx.diagrams import comparison_columns

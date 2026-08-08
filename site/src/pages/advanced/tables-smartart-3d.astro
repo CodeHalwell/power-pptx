@@ -1,7 +1,13 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `rows, cols = 4, 3
+const snippet0 = `from power_pptx import Presentation, BBox
+from power_pptx.util import Pt
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+
+rows, cols = 4, 3
 table = slide.shapes.add_table(
     rows, cols, *BBox.from_inches(1, 1.5, 8, 4),
     style="clean",                # disables every inherited style flag
@@ -12,15 +18,31 @@ cell.text = "Quarter"
 cell.fill.solid()
 cell.fill.fore_color.rgb = "#0B5CFF"
 
-# Per-cell borders (fork addition)
-cell.borders.bottom = {"color": "#0D0D0D", "width_pt": 1.5}`;
+# Per-cell borders (fork addition): per-edge LineFormat proxies
+cell.borders.bottom.color.rgb = "#0D0D0D"
+cell.borders.bottom.width = Pt(1.5)
+cell.borders.all(width=Pt(0.5), color="#E5E7EB")   # or outer() / none()`;
 
 const snippet1 = `# Replace the text inside an existing template's SmartArt
-slide.smart_art[0].set_text(["Discover", "Design", "Deliver"])`;
+sa_prs = Presentation("org-chart-template.pptx")
+sa = sa_prs.slides[0].smart_art[0]
+print(sa.texts)                          # existing node text, document order
 
-const snippet2 = `shape.three_d.bevel(top="circle", top_width=Pt(6), top_height=Pt(6))
-shape.three_d.extrusion(depth=Pt(12), color="#0B5CFF")
-shape.three_d.rotation(x=15, y=20, z=0)`;
+sa.set_text(["Discover", "Design", "Deliver"])   # must match node count
+sa.set_text(["Alex", "Priya"], strict=False)     # or truncate/pad`;
+
+const snippet2 = `from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.dml import BevelPreset, PresetMaterial
+
+shape = slide.shapes.add_shape(MSO_SHAPE.OVAL, *BBox.from_inches(1, 1, 2, 2))
+
+td = shape.three_d
+td.bevel_top.preset = BevelPreset.CIRCLE
+td.bevel_top.width = Pt(6)
+td.bevel_top.height = Pt(6)
+td.extrusion_height = Pt(12)
+td.extrusion_color = "#0B5CFF"
+td.preset_material = PresetMaterial.METAL`;
 
 ---
 
