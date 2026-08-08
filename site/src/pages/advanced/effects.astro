@@ -1,44 +1,82 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `shape.effect.outer_shadow(
-    blur_radius=Pt(8), distance=Pt(4), direction=45,
-    color="#000000", alpha=0.35,
+const snippet0 = `from power_pptx import Presentation, BBox
+from power_pptx.util import Pt
+from power_pptx.enum.shapes import MSO_SHAPE
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+card = slide.shapes.add_shape(
+    MSO_SHAPE.ROUNDED_RECTANGLE, *BBox.from_inches(1, 1.5, 4, 2.5)
+).fill_hex("#FFFFFF")
+
+card.shadow.blur_radius = Pt(8)        # outer shadow
+card.shadow.distance = Pt(4)
+card.shadow.direction = 90.0           # degrees; 90 = straight down
+card.shadow.color.rgb = "#000000"
+card.shadow.color.alpha = 0.35
+
+card.glow.radius = Pt(12)
+card.glow.color.rgb = "#0B5CFF"
+card.soft_edges.radius = Pt(6)
+card.blur.radius = Pt(3)
+card.reflection.blur_radius = Pt(4)
+card.reflection.distance = Pt(2)
+card.reflection.start_alpha = 0.4
+
+# Clear an effect: assign None; the element is dropped with its last property
+card.glow.radius = None`;
+
+const snippet1 = `card.fill.solid()
+card.fill.fore_color.rgb = "#0B5CFF"
+card.fill.fore_color.alpha = 0.5       # 50% translucent "glassy" fill
+
+# alpha is on the colour proxy, so fonts and lines work the same way
+card.line.color.rgb = "#0D0D0D"
+card.line.color.alpha = 0.8`;
+
+const snippet2 = `fill = card.fill
+fill.gradient(kind="linear", angle=90)   # linear | radial | rectangular | shape
+
+stops = fill.gradient_stops              # mutable stop list
+stops.replace([
+    (0.0, "#0B5CFF"),
+    (1.0, "#00D4FF"),
+])
+stops.append(0.85, "#A8C0FF")            # OOXML requires at least two stops`;
+
+const snippet3 = `from power_pptx.util import Inches
+from power_pptx.enum.dml import (
+    MSO_LINE_CAP_STYLE, MSO_LINE_COMPOUND_STYLE, MSO_LINE_JOIN_STYLE,
+    MSO_LINE_END_TYPE, MSO_LINE_END_SIZE,
 )
-shape.effect.glow(radius=Pt(12), color="#0B5CFF")
-shape.effect.soft_edges(radius=Pt(6))
-shape.effect.blur(radius=Pt(3))
-shape.effect.reflection(blur=Pt(4), distance=Pt(2), alpha=0.4)
 
-# Clear an effect
-shape.effect.glow(None)`;
+arrow = slide.shapes.add_arrow(
+    start=(Inches(1), Inches(5)), end=(Inches(5), Inches(5)), color="#0B5CFF"
+)
+line = arrow.line
+line.head_end.type = MSO_LINE_END_TYPE.TRIANGLE
+line.head_end.width = MSO_LINE_END_SIZE.MEDIUM
+line.tail_end.type = MSO_LINE_END_TYPE.OVAL
+line.cap = MSO_LINE_CAP_STYLE.ROUND       # FLAT | ROUND | SQUARE
+line.join = MSO_LINE_JOIN_STYLE.BEVEL     # MITER | BEVEL | ROUND
+line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE`;
 
-const snippet1 = `from power_pptx.dml.color import RGBColor
+const snippet4 = `pic = slide.shapes.add_picture("logo.png", *BBox.from_inches(5.5, 1.5, 2, 2))
 
-shape.fill.fore_color.rgb = RGBColor(0x0B, 0x5C, 0xFF).alpha(0.5)`;
-
-const snippet2 = `fill = shape.fill
-fill.gradient(kind="linear", angle=90)     # linear | radial | rectangular | shape
-fill.stops[0].color = "#0B5CFF"
-fill.stops[0].position = 0.0
-fill.stops[1].color = "#00D4FF"
-fill.stops[1].position = 1.0`;
-
-const snippet3 = `line = shape.line
-line.end_arrowhead = "triangle"
-line.start_arrowhead = "circle"
-line.cap = "round"            # flat | square | round
-line.join = "round"           # miter | bevel | round
-line.compound = "double"      # single | double | thick-thin | thin-thick`;
-
-const snippet4 = `picture.transparency = 0.25
-picture.brightness = 0.1
-picture.contrast = -0.2
-picture.recolor("grayscale")   # grayscale | sepia | washout | duotone`;
+pic.effects.transparency = 0.25        # 0..1
+pic.effects.brightness = 0.10          # -1..1
+pic.effects.contrast = -0.20
+pic.effects.recolor = "grayscale"      # grayscale | sepia | washout | duotone
+pic.effects.set_duotone((0x0B, 0x1B, 0x2A), (0xE8, 0xF0, 0xFF))`;
 
 const snippet5 = `# Embeds the SVG with a PNG fallback for older PowerPoint versions.
-# Needs cairosvg installed to rasterise, or pass png_fallback=...
-slide.shapes.add_svg_picture("diagram.svg", *bb, png_fallback="diagram.png")`;
+# Auto-rasterises via cairosvg when installed, or pass png_fallback=...
+slide.shapes.add_svg_picture(
+    "diagram.svg", *BBox.from_inches(1, 4.5, 3, 2),
+    png_fallback="diagram.png",
+)`;
 
 ---
 

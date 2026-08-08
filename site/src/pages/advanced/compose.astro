@@ -1,11 +1,11 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const fromSpec = `from power_pptx.compose import from_spec
 
 prs = from_spec({
-    "meta": {"title": "Quarterly Review"},
     "slides": [
         {"layout": "title",
          "title": "Q4 Review",
@@ -13,21 +13,21 @@ prs = from_spec({
         {"layout": "bullets",
          "title": "Highlights",
          "bullets": ["Shipped v2.10", "Lint pass clean"]},
-        {"layout": "pipeline",
-         "title": "How it works",
-         "steps": ["Extract", "Classify", "Enrich", "Output"]},
+        {"layout": "kpi",
+         "title": "Run-rate metrics",
+         "kpis": [{"label": "ARR", "value": "$4.2M", "delta": +0.08},
+                  {"label": "NDR", "value": "131%", "delta": +0.03}]},
     ],
-}, lint="raise")       # built-in lint gate: raise | warn | off
+    "lint": "raise",       # built-in lint gate: raise | warn | off
+})
 
 prs.save("q4.pptx")`;
-const snippet0 = `from power_pptx.compose import import_slide
+const snippet0 = `from power_pptx import Presentation
 
 source = Presentation("template.pptx")
-import_slide(prs, source.slides[2])     # deep-copies slide + related parts`;
+prs.import_slide(source.slides[2])      # deep-copies slide + related parts`;
 
-const snippet1 = `from power_pptx.compose import apply_template
-
-apply_template(prs, "corporate.potx")   # masters, layouts and theme`;
+const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and theme`;
 
 ---
 
@@ -36,22 +36,32 @@ apply_template(prs, "corporate.potx")   # masters, layouts and theme`;
   description="Build decks from JSON specs, import slides between decks, and apply templates — with a built-in lint gate."
 >
   <p class="lead">
-    <code>power_pptx.compose</code> covers JSON-first authoring and cross-presentation operations:
-    <code>from_spec</code>, <code>import_slide</code> and <code>apply_template</code>.
+    <code>power_pptx.compose</code> covers JSON-first authoring with <code>from_spec</code>, and the
+    <code>Presentation</code> methods <code>import_slide</code> / <code>apply_template</code> cover
+    cross-presentation operations.
   </p>
 
   <h2 id="from-spec">from_spec — JSON authoring</h2>
   <Code code={fromSpec} />
   <p>
-    With <code>lint="raise"</code> the build fails fast on geometry errors — ideal in CI or agent
-    pipelines where a broken deck is worse than no deck.
+    With <code>"lint": "raise"</code> in the spec the build fails fast on geometry errors — ideal in
+    CI or agent pipelines where a broken deck is worse than no deck.
   </p>
 
   <h2 id="import-slide">import_slide — copy slides between decks</h2>
   <Code code={snippet0} />
+  <p>
+    Image renames, layout references and master/theme parts are handled automatically;
+    <code>merge_master="dedupe"</code> (the default) reuses an equivalent master in the destination,
+    <code>"clone"</code> always brings a fresh copy.
+  </p>
 
   <h2 id="apply-template">apply_template</h2>
   <Code code={snippet1} />
+  <p>
+    Re-points every slide's layout/master/theme at the template's masters (name → type → first
+    layout matching); slide content is preserved and unreferenced old parts are dropped on save.
+  </p>
 
   <h2 id="when">When to use which</h2>
   <table>
@@ -62,7 +72,7 @@ apply_template(prs, "corporate.potx")   # masters, layouts and theme`;
       <tr><td>Deck from LLM/DB/JSON output</td><td><code>from_spec</code></td></tr>
       <tr><td>Reuse slides across decks</td><td><code>import_slide</code></td></tr>
       <tr><td>Re-skin an existing deck</td><td><code>apply_template</code></td></tr>
-      <tr><td>Re-palette + re-font only</td><td><a href="theme">theme writer</a></td></tr>
+      <tr><td>Re-palette + re-font only</td><td><a href={withBase("/advanced/theme")}>theme writer</a></td></tr>
     </tbody>
   </table>
 </DocsLayout>

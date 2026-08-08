@@ -2,18 +2,28 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
 
-const s0 = `tf = shape.text_frame
+const s0 = `from power_pptx import Presentation
+from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR
+from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+tf = shape.text_frame
 
 tf.text = "Line one\\nLine two"     # \\n → paragraph breaks
 tf.word_wrap = True
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
-tf.margin_left / .margin_right / .margin_top / .margin_bottom
+tf.margin_left, tf.margin_right    # also margin_top / margin_bottom
 tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
 
 tf.paragraphs                      # sequence of _Paragraph (fresh objects!)
 tf.fit_text(font_family="Inter", max_size=24)   # fork`;
 
-const s1 = `p = tf.paragraphs[0]
+const s1 = `from power_pptx.enum.text import PP_ALIGN
+from power_pptx.util import Pt
+
+p = tf.paragraphs[0]
 p.text = "Hello"                   # replaces runs
 p.alignment = PP_ALIGN.CENTER
 p.level = 1                        # indent level 0..8
@@ -22,7 +32,7 @@ p.space_before, p.space_after      # Pt
 p.runs                             # sequence of _Run
 
 r = p.add_run()
-r.text = "world"
+r.text = " world"
 r.font.size = Pt(18)
 r.font.bold = True
 r.font.italic = False
@@ -33,12 +43,16 @@ r.hyperlink.address = "https://example.com"`;
 
 const s2 = `from power_pptx.text.layout import TextFitter
 
-fitter = TextFitter(text_frame=tf, font_family="Inter")
-size = fitter.best_fit_font_size(max_size=24)   # Pt
+# The engine behind fit_text: measure once, style yourself
+best_pt = TextFitter.best_fit_font_size(
+    text="Q4 2026 Customer Outcomes Review",
+    extents=(Inches(8), Inches(1.5)),   # available (width, height)
+    max_size=44,
+    font_file=None,        # a .ttf path pins the metrics; None = bundled font
+)
 
-# fonts.py helpers
-from power_pptx.text.fonts import register_font_directory
-register_font_directory("./fonts")`;
+# fit_text accepts the same font_file to measure with a specific face
+tf.fit_text(font_family="Inter", max_size=24, font_file=None)`;
 ---
 
 <DocsLayout

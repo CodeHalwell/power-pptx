@@ -10,8 +10,9 @@ prs = from_spec({
         {"layout": "title", "title": "Q4 Review", "subtitle": "Engineering"},
         {"layout": "bullets", "title": "Highlights",
          "bullets": ["Shipped v2.10", "Lint pass clean", "Zero overflow"]},
-    ]
-}, lint="raise")
+    ],
+    "lint": "raise",
+})
 prs.save("q4.pptx")`;
 const snippet0 = `pip install power-pptx
 python -m power_pptx.skill install`;
@@ -20,7 +21,7 @@ const snippet1 = `# Print the skill source path inside the installed package
 python -m power_pptx.skill path
 
 # Install into a custom directory
-python -m power_pptx.skill install --target /path/to/skills/power-pptx
+python -m power_pptx.skill install /path/to/skills/power-pptx
 
 # Refuse to overwrite an existing install
 python -m power_pptx.skill install --no-overwrite`;
@@ -43,7 +44,7 @@ python -m power_pptx.skill install --no-overwrite`;
     The skill files live inside the pip package. Install them into your local Claude Code skills
     directory with:
   </p>
-  <Code code={snippet0} />
+  <Code code={snippet0} lang="bash" />
   <p>
     This copies <code>SKILL.md</code> and the <code>references/</code> directory into
     <code>~/.claude/skills/power-pptx/</code>. Claude Code (and any compatible Claude Agent SDK
@@ -51,7 +52,7 @@ python -m power_pptx.skill install --no-overwrite`;
   </p>
 
   <h3 id="skill-commands">Skill commands</h3>
-  <Code code={snippet1} />
+  <Code code={snippet1} lang="bash" />
 
   <h2 id="what-agent-gets">What your agent gets</h2>
   <table>

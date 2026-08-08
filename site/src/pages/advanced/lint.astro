@@ -17,7 +17,10 @@ slide.tidy()`;
 
 const snippet2 = `from power_pptx.compose import from_spec
 
-prs = from_spec(spec, lint="raise")   # raise | warn | off`;
+prs = from_spec({
+    "slides": [{"layout": "title", "title": "Q4 Review"}],
+    "lint": "raise",                  # raise | warn | off
+})`;
 
 const snippet3 = `from power_pptx import audit
 

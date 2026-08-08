@@ -2,69 +2,93 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
 
-const bbox = `from power_pptx import BBox
+const bbox = `from power_pptx import Presentation, BBox
 from power_pptx.util import Inches
 
-bb = BBox.from_inches(x=1, y=2, w=8, h=4)
-BBox.from_shape(shape)         # wrap an existing shape's frame
-BBox.from_slide(slide)         # the whole slide canvas
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-bb.right, bb.bottom            # far edges (EMU)
-bb.cx, bb.cy                   # centre (EMU)
+bb = BBox.from_inches(1, 2, 8, 4)     # left, top, width, height
+BBox.from_slide(slide)                # the whole slide canvas
+
+bb.right, bb.bottom                   # far edges (EMU)
+bb.cx, bb.cy                          # centre (EMU)
 bb.area
-*bb                            # splats to (left, top, width, height)
+left, top, width, height = bb         # unpacks — so *bb splats into add_*
 bb.as_tuple()
 
-bb.shifted(dx=..., dy=...)
-bb.resized(w=..., h=..., anchor="center")
-bb.inset(all=Inches(0.2))      # or x=/y=/left=/right=/top=/bottom=
-bb.sub(fx=0, fy=0, fw=0.5, fh=1)      # fractional sub-region
+bb.shifted(dx=Inches(1), dy=Inches(0.5))
+bb.resized(width=Inches(6), height=Inches(3))
+bb.inset(all=Inches(0.2))             # or x=/y=/left=/right=/top=/bottom=
+other = bb.sub(0.25, 0.25, 0.5, 0.5)  # fractional (fx, fy, fw, fh) sub-region
 bb.split_h([1, 1], gap=Inches(0.2))   # columns by ratio
 bb.split_v([2, 1], gap=Inches(0.1))   # rows by ratio
-bb.grid(rows=2, cols=3, gap=Inches(0.1))
+bb.grid(cols=3, rows=2, gap_x=Inches(0.1), gap_y=Inches(0.1))
 bb.contains(other, tol=0)
 bb.intersects(other)
-bb.intersection(other)         # BBox | None
-bb.union(other)
-bb.apply_to(shape)             # move/resize a shape in place`;
+bb.intersection(other)                # BBox | None
+bb.union(other)`;
 
-const tree = `shapes = slide.shapes
+const tree = `from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
+
+shapes = slide.shapes
 
 shapes.add_text(bb, text="Hi", size_pt=24, bold=True,
                 color="#0B5CFF", align="center", anchor="middle")
-shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb, anchor="center")
+card = shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb, anchor="center")
+card.bbox.apply_to(card)              # push a BBox back onto a shape
 shapes.add_textbox(*bb)
-shapes.add_picture("img.png", *bb, anchor="center")
-shapes.add_table(rows, cols, *bb, style="clean")
-shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, cx, cy, chart_data)
-shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x1, y1, x2, y2)   # bare line!
-shapes.add_arrow(start=shape_a, end=shape_b, head="triangle",
-                 color="#0B5CFF", weight_pt=1.5, inset_pt=6)
-shapes.add_group_shape()
-shapes.build_freeform(start_x, start_y, scale)
-shapes.add_svg_picture("diagram.svg", *bb, png_fallback="d.png")
-shapes.clone_layout_placeholders(slide_layout)
-shapes.add_movie("clip.mp4", x, y, w, h, poster_frame_image=None)`;
+shapes.add_picture("img.png", *bb.sub(0, 0, 0.3, 0.3), anchor="center")
+shapes.add_table(3, 4, *bb.sub(0.5, 0.5, 0.5, 0.5), style="clean")
 
-const shape = `shape.left / .top / .width / .height   # EMU, mutable
+chart_data = CategoryChartData()
+chart_data.categories = ["A", "B"]
+chart_data.add_series("S1", (1, 2))
+shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED,
+                 Inches(1), Inches(1), Inches(6), Inches(4), chart_data)
+
+shapes.add_connector(MSO_CONNECTOR.STRAIGHT,
+                     Inches(1), Inches(6), Inches(4), Inches(6))  # bare line!
+arrow = shapes.add_arrow(start=card, end=(Inches(9), Inches(6)),
+                         head="triangle", color="#0B5CFF",
+                         weight_pt=1.5, inset_pt=6)
+shapes.add_group_shape()
+shapes.build_freeform(Inches(1), Inches(1), scale=1.0)
+shapes.add_svg_picture("diagram.svg", *bb.sub(0.7, 0, 0.3, 0.3),
+                       png_fallback="d.png")
+shapes.add_movie("clip.mp4", Inches(5), Inches(5), Inches(3), Inches(2),
+                 poster_frame_image=None)`;
+
+const shape = `shape = card                   # any autoshape
+shape.left, shape.top, shape.width, shape.height   # EMU, mutable
 shape.name, shape.shape_id, shape.shape_type
 shape.rotation, shape.shadow
 shape.click_action             # hyperlinks / jump targets
-shape.fill / .line             # FillFormat / LineFormat
+shape.fill, shape.line         # FillFormat / LineFormat
 shape.fill_hex("#0B5CFF")      # fork: chainable hex helpers
 shape.line_hex("#0D0D0D", weight_pt=1.25)
-shape.effect                   # fork: shadow/glow/soft-edges/blur/reflection
-shape.three_d                  # fork: bevel / extrusion / rotation
+shape.glow, shape.soft_edges   # fork: effect proxies (also shadow, blur,
+shape.reflection               #   inner_shadow, preset_shadow, reflection)
+shape.three_d                  # fork: bevels / extrusion / material
 shape.set_text_preserving_format("New text")   # fork
-shape.bbox                     # fork: BBox view of the frame`;
+shape.bbox                     # fork: BBox snapshot of the frame`;
 
-const pic = `picture.image                # Image (blob, filename, size, ext)
-picture.crop_left / .crop_top / .crop_right / .crop_bottom
-picture.transparency           # fork: 0..1
-picture.brightness, .contrast  # fork
-picture.recolor("grayscale")   # fork: grayscale | sepia | washout | duotone
+const pic = `picture = shapes.add_picture("img.png", Inches(8), Inches(1), Inches(2))
+
+picture.image                  # Image (blob, filename, size, ext)
+picture.crop_left, picture.crop_top          # also crop_right / crop_bottom
+picture.effects.transparency = 0.25          # fork: 0..1
+picture.effects.brightness = 0.1             # fork: -1..1
+picture.effects.contrast = -0.2              # fork
+picture.effects.recolor = "grayscale"        # fork: sepia | washout | duotone
 picture.enclosing_container()  # fork: the surrounding card, if any
-picture.replace_with(builder, padding=...)     # fork`;
+
+def builder(slide, bbox):      # fork: swap picture for native shapes
+    slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bbox).fill_hex("#0B5CFF")
+
+picture.replace_with(builder, padding=Inches(0.05))`;
 ---
 
 <DocsLayout

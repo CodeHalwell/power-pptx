@@ -1,33 +1,51 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
+from power_pptx.util import Inches
 
-anims = slide.animations
-anims.add(shape, Entrance.FADE)
-anims.add(shape, Entrance.FLY_IN, direction="from-left", duration=0.5)
-anims.add(shape, Emphasis.PULSE, trigger="with-previous")
-anims.add(shape, Exit.WIPE, trigger="after-previous", delay=0.2)
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide.shapes.title.text = "Animated demo"
+shape = slide.shapes.add_text(
+    Inches(1), Inches(2), Inches(4), Inches(1), text="Hello"
+)
+
+Entrance.fade(slide, shape)                                    # default: ON_CLICK
+Entrance.fly_in(slide, shape, direction="left")                # top/bottom/left/right
+Emphasis.pulse(slide, shape, trigger=Trigger.WITH_PREVIOUS)
+Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=200)   # delay in ms
 
 # Motion path preset
-anims.add(shape, MotionPath.ARC_DOWN, duration=1.0)`;
+MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)`;
 
-const snippet1 = `# Reveal each bullet on click, in order
-anims.add(textbox, Entrance.FADE, by_paragraph=True)`;
+const snippet1 = `# Reveal a text frame one paragraph per click, in order
+body = slide.shapes.add_textbox(Inches(1), Inches(3.4), Inches(8), Inches(2))
+body.text_frame.text = "First point\\nSecond point\\nThird point"
 
-const snippet2 = `with anims.sequence() as seq:
-    seq.add(title, Entrance.FADE)
-    seq.add(chart, Entrance.ZOOM, trigger="after-previous")
-    seq.add(footnote, Entrance.FLY_IN, direction="from-bottom")`;
+Entrance.fade(slide, body.text_frame, by_paragraph=True)`;
 
-const snippet3 = `from power_pptx.transitions import Morph, Fade, Wipe
+const snippet2 = `badge = slide.shapes.add_text(
+    Inches(6.5), Inches(1.2), Inches(2.5), Inches(0.6), text="NEW"
+)
 
-# Per slide
-slide.transition = Morph(duration=0.6)
-slide.transition = Fade(duration=0.3)
+# First effect fires on click; the rest chain with AFTER_PREVIOUS
+with slide.animations.sequence():
+    Entrance.fade(slide, slide.shapes.title)
+    Entrance.zoom(slide, badge)
+    Emphasis.pulse(slide, badge)`;
 
-# Deck-wide
-prs.set_default_transition(Wipe(direction="from-right", duration=0.4))`;
+const snippet3 = `from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+
+# Deck-wide default first...
+prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)   # milliseconds
+
+# ...then override individual slides (Morph is a first-class p14 kind)
+slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
+slide.transition.duration = 1500
+
+prs.save("animated.pptx")`;
 
 ---
 

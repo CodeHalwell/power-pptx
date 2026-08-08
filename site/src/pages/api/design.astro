@@ -2,38 +2,53 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
 
-const s0 = `from power_pptx.design import DesignTokens
+const s0 = `from power_pptx.design.tokens import DesignTokens
 
-DesignTokens.from_dict({...})          # dict-shaped tokens
-DesignTokens.from_yaml("brand.yaml")   # needs pyyaml
-DesignTokens.from_pptx("brand.pptx")   # lift palette+fonts from a deck
+tokens = DesignTokens.from_dict({      # dict-shaped tokens
+    "palette": {"primary": "#0B5CFF", "ink": "#0D0D0D"},
+    "typography": {"heading": {"family": "Inter", "size": 44.0},
+                   "body": {"family": "Inter", "size": 18.0}},
+    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+})
+tokens = DesignTokens.from_yaml("brand.yaml")   # needs pyyaml
+tokens = DesignTokens.from_pptx("brand.pptx")   # lift palette+fonts from a deck
 
 # token namespaces: palette, typography, shadows, radii, spacings
-tokens.palette["primary"]
-tokens.typography["heading"]           # {"family": ..., "size": ...}`;
+tokens.palette["accent1"]              # -> RGBColor (pass straight to setters)
+tokens.typography["body"]              # -> TypographyToken (family, size, ...)`;
 
-const s1 = `from power_pptx.design import Grid, Stack
+const s1 = `from power_pptx import Presentation, BBox
+from power_pptx.design.layout import Grid, Stack
+from power_pptx.util import Inches, Pt
+from power_pptx.enum.shapes import MSO_SHAPE
 
-grid = Grid(slide, rows=2, cols=3,
-            gutter=Inches(0.2), margin=Inches(0.5))
-for cell in grid.cells():              # each cell is a BBox
-    ...
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-stack = Stack.vertical(slide, bbox, gap=Inches(0.15))
-stack_h = Stack.horizontal(slide, bbox, gap=Inches(0.15))
+grid = Grid(slide, cols=12, rows=6, gutter=Pt(12), margin=Pt(48))
+card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(1, 1, 2, 2))
+grid.place(card, col=0, row=0, col_span=6, row_span=4)   # move into a span
+box = grid.cell(col=6, row=0, col_span=6, row_span=4)    # or just compute one
 
-# token-resolving style facade
-shape.style(tokens, fill="primary", line="ink", radius="card")`;
+stack = Stack(direction="vertical", gap=Pt(8),
+              left=Inches(1), top=Inches(4), width=Inches(8))
+stack.place(card, height=Pt(120))      # walks the cursor down per placement
+
+# token-resolving style facade: attribute setters fan out to proxies
+card.style.fill = tokens.palette["accent1"]
+card.style.line = tokens.palette["accent2"]`;
 
 const s2 = `from power_pptx.design.recipes import (
     title_slide, bullet_slide, kpi_slide, quote_slide, image_hero_slide,
 )
 
-title_slide(prs, tokens, title=..., subtitle=...)
-bullet_slide(prs, tokens, title=..., bullets=[...])
-kpi_slide(prs, tokens, title=..., kpis=[...])
-quote_slide(prs, tokens, quote=..., attribution=...)
-image_hero_slide(prs, tokens, image=..., title=...)`;
+title_slide(prs, title="Q4", subtitle="Engineering", tokens=tokens)
+bullet_slide(prs, title="Highlights", bullets=["One", "Two"], tokens=tokens)
+kpi_slide(prs, title="KPIs",
+          kpis=[{"label": "ARR", "value": "$4.2M", "delta": +0.08}],
+          tokens=tokens)
+quote_slide(prs, quote="Ship it.", attribution="The team", tokens=tokens)
+image_hero_slide(prs, title="Big news", image="hero.png", tokens=tokens)`;
 
 const s3 = `from power_pptx import (
     add_kpi_card, add_progress_bar, add_gauge,
@@ -41,16 +56,20 @@ const s3 = `from power_pptx import (
     KpiCard, ProgressBar, Gauge, StatusPill, StatStrip, ArticleCard,
 )
 
-kpi = add_kpi_card(slide, bbox, tokens, label="MRR",
-                   value="$120k", delta="+8%")
-kpi.value_shape   # constituent shapes stay tweakable
+kpi = add_kpi_card(slide, left=Inches(1), top=Inches(1),
+                   width=Inches(2.5), height=Inches(1.9),
+                   label="MRR", value="$120k",
+                   delta={"delta": +0.08}, tokens=tokens)
+kpi.card, kpi.value_box, kpi.delta_box   # constituent shapes stay tweakable
 
 from power_pptx import (
     add_plotly_figure, add_matplotlib_figure,
     add_svg_figure, add_html_figure, FigureBackendUnavailable,
 )
 
-add_plotly_figure(slide, bbox, fig)      # lazy third-party deps`;
+add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
+# add_matplotlib_figure / add_plotly_figure take (slide, figure, left, top, ...)
+# and raise FigureBackendUnavailable when the backend isn't installed`;
 ---
 
 <DocsLayout

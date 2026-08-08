@@ -1,9 +1,14 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `from power_pptx.chart.data import CategoryChartData
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide.shapes.title.text = "Revenue"
 
 chart_data = CategoryChartData()
 chart_data.categories = ["Q1", "Q2", "Q3", "Q4"]
@@ -15,24 +20,32 @@ chart = slide.shapes.add_chart(
 ).chart`;
 
 const snippet1 = `# Single entry point — dispatches per chart type
-chart.recolour("ocean")        # per-point on pie/doughnut, per-series otherwise
+chart.recolour("vibrant")      # per-point on pie/doughnut, per-series otherwise
+chart.recolour(["#4F9DFF", "#7FCFA1", "#F7B500"])   # explicit colours work too
+
+# Built-ins: modern, classic, editorial, vibrant,
+#            monochrome_blue, monochrome_warm
 
 # Dark-deck styling: pin axis lines + gridlines
 chart.apply_dark_theme(text="#E5E7EB", line="#374151")
 chart.line_color = "#9CA3AF"`;
 
-const snippet2 = `from power_pptx.chart.quick_layouts import apply_quick_layout
+const snippet2 = `chart.apply_quick_layout("minimal")       # one of ten presets
 
-apply_quick_layout(chart, "minimal")      # one of ten presets`;
+from power_pptx.chart.quick_layouts import layout_names
+print(layout_names())   # title_legend_right, title_legend_bottom, ...`;
 
 const snippet3 = `series = chart.series[0]
 series.format.fill.gradient(kind="linear", angle=0)
-series.format.fill.stops[0].color = "#0B5CFF"
-series.format.fill.stops[1].color = "#00D4FF"
+series.format.fill.gradient_stops.replace([
+    (0.0, "#0B5CFF"),
+    (1.0, "#00D4FF"),
+])
 
 # Pattern fill
 from power_pptx.enum.dml import MSO_PATTERN_TYPE
-series.format.fill.pattern(MSO_PATTERN_TYPE.PERCENT_40)`;
+series.format.fill.patterned()
+series.format.fill.pattern = MSO_PATTERN_TYPE.PERCENT_40`;
 
 const snippet4 = `chart.category_axis.reverse_order = False`;
 

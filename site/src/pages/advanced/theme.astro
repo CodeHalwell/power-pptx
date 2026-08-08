@@ -1,22 +1,37 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
-const snippet0 = `theme = prs.theme
-print(theme.colors.accent1)        # RGBColor or theme reference
-print(theme.fonts.major_latin)     # e.g. "Calibri Light"`;
+import { withBase } from "@/lib/utils";
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.enum.dml import MSO_THEME_COLOR
 
-const snippet1 = `theme.colors.set("accent1", "#0B5CFF")   # writes a fresh srgbClr
-theme.fonts.set_major("Inter Display")
-theme.fonts.set_minor("Inter")`;
+prs = Presentation()
+theme = prs.theme
+print(theme.colors[MSO_THEME_COLOR.ACCENT_1])   # RGBColor
+print(theme.fonts.major)                        # heading font, e.g. "Calibri Light"
+print(theme.fonts.minor)                        # body font`;
 
-const snippet2 = `from power_pptx.theme import apply_theme
+const snippet1 = `from power_pptx.dml.color import RGBColor
 
-apply_theme(prs, "brand.potx")     # copies the theme part across`;
+theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor.from_hex("#0B5CFF")
+theme.fonts.major = "Inter Display"
+theme.fonts.minor = "Inter"`;
 
-const snippet3 = `from power_pptx.inherit import resolve_color
+const snippet2 = `brand = Presentation("brand.potx")
+prs.theme.apply(brand.theme)       # copies palette + major/minor fonts across
 
-# Walks placeholder → layout → master → theme to the final RGB
-rgb = resolve_color(shape)`;
+prs.theme.to_dark_mode()           # one-call dark palette; accents stay legible`;
+
+const snippet3 = `from power_pptx import BBox
+from power_pptx.inherit import resolve_color
+
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+shape = slide.shapes.add_text(BBox.from_inches(1, 2, 4, 1), text="Hello")
+run = shape.text_frame.paragraphs[0].runs[0]
+
+# Explicit RGB comes back as-is, scheme colours resolve through the
+# theme, unset colours return None — reads never mutate XML.
+rgb = resolve_color(run.font.color, theme=prs.theme)`;
 
 ---
 
@@ -45,7 +60,7 @@ rgb = resolve_color(shape)`;
   <h2 id="tips">Tips</h2>
   <ul>
     <li>Shapes referencing theme colours update automatically when you rewrite the scheme.</li>
-    <li>Combine with <a href="design">DesignTokens.from_pptx</a> to lift a brand out of an existing deck.</li>
+    <li>Combine with <a href={withBase("/advanced/design")}>DesignTokens.from_pptx</a> to lift a brand out of an existing deck.</li>
     <li>Theme edits are XML-level and round-trip safely — the schema test-suite covers them.</li>
   </ul>
 </DocsLayout>
