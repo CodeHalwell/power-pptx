@@ -1,0 +1,72 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `shape.effect.outer_shadow(
+    blur_radius=Pt(8), distance=Pt(4), direction=45,
+    color="#000000", alpha=0.35,
+)
+shape.effect.glow(radius=Pt(12), color="#0B5CFF")
+shape.effect.soft_edges(radius=Pt(6))
+shape.effect.blur(radius=Pt(3))
+shape.effect.reflection(blur=Pt(4), distance=Pt(2), alpha=0.4)
+
+# Clear an effect
+shape.effect.glow(None)`;
+
+const snippet1 = `from power_pptx.dml.color import RGBColor
+
+shape.fill.fore_color.rgb = RGBColor(0x0B, 0x5C, 0xFF).alpha(0.5)`;
+
+const snippet2 = `fill = shape.fill
+fill.gradient(kind="linear", angle=90)     # linear | radial | rectangular | shape
+fill.stops[0].color = "#0B5CFF"
+fill.stops[0].position = 0.0
+fill.stops[1].color = "#00D4FF"
+fill.stops[1].position = 1.0`;
+
+const snippet3 = `line = shape.line
+line.end_arrowhead = "triangle"
+line.start_arrowhead = "circle"
+line.cap = "round"            # flat | square | round
+line.join = "round"           # miter | bevel | round
+line.compound = "double"      # single | double | thick-thin | thin-thick`;
+
+const snippet4 = `picture.transparency = 0.25
+picture.brightness = 0.1
+picture.contrast = -0.2
+picture.recolor("grayscale")   # grayscale | sepia | washout | duotone`;
+
+const snippet5 = `# Embeds the SVG with a PNG fallback for older PowerPoint versions.
+# Needs cairosvg installed to rasterise, or pass png_fallback=...
+slide.shapes.add_svg_picture("diagram.svg", *bb, png_fallback="diagram.png")`;
+
+---
+
+<DocsLayout
+  title="Effects & Gradients"
+  description="Shadow, glow, soft edges, blur, reflection, alpha-tinted colours, gradient fills and line-end formatting."
+>
+  <p class="lead">
+    Visual effects are exposed as <strong>non-mutating proxies</strong> on every shape: reading an
+    unset property returns <code>None</code>; assign <code>None</code> to clear. No XML surgery
+    required.
+  </p>
+
+  <h2 id="shape-effects">Shape effects</h2>
+  <Code code={snippet0} />
+
+  <h2 id="alpha">Alpha-tinted colours</h2>
+  <Code code={snippet1} />
+
+  <h2 id="gradients">Gradient fills</h2>
+  <Code code={snippet2} />
+
+  <h2 id="lines">Line ends, caps, joins, compound lines</h2>
+  <Code code={snippet3} />
+
+  <h2 id="picture-effects">Picture effects</h2>
+  <Code code={snippet4} />
+
+  <h2 id="svg">Native SVG embedding</h2>
+  <Code code={snippet5} />
+</DocsLayout>

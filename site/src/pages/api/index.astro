@@ -1,0 +1,107 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import { SITE } from "@/lib/site";
+import { withBase } from "@/lib/utils";
+import Code from "@/components/Code.astro";
+
+const topLevel = `from power_pptx import (
+    Presentation,          # factory: Presentation() or Presentation("file.pptx")
+    BBox,                  # immutable rectangular region; splats into add_* APIs
+    audit, AuditReport,    # one-call deck audit → markdown report
+    # Figure adapters (lazy third-party deps)
+    add_plotly_figure, add_matplotlib_figure,
+    add_svg_figure, add_html_figure, FigureBackendUnavailable,
+    # Shape-level building blocks (token-driven)
+    add_kpi_card, add_progress_bar, add_gauge,
+    add_status_pill, add_stat_strip, add_article_card,
+    KpiCard, ProgressBar, Gauge, StatusPill, StatStrip, ArticleCard,
+)`;
+
+const sections = [
+  {
+    href: withBase("/api/presentation"),
+    title: "Presentation & Slides",
+    body: "Presentation factory, slide collection, slide masters/layouts, notes, core properties, transitions, audit().",
+  },
+  {
+    href: withBase("/api/shapes"),
+    title: "Shapes & Geometry",
+    body: "BBox, shape tree, autoshapes, pictures, connectors, groups, freeforms, tables, placeholders, diagrams.",
+  },
+  {
+    href: withBase("/api/text"),
+    title: "Text",
+    body: "TextFrame, paragraphs, runs, fonts, fit_text, TextFitter, auto-size behaviour.",
+  },
+  {
+    href: withBase("/api/charts"),
+    title: "Charts",
+    body: "Chart, plots, series, axes, legends, data labels, chart data, palettes, quick layouts.",
+  },
+  {
+    href: withBase("/api/design"),
+    title: "Design System",
+    body: "DesignTokens, style facade, Grid/Stack, slide recipes, shape components, figure adapters.",
+  },
+  {
+    href: withBase("/api/compose-lint-render"),
+    title: "Compose, Lint & Render",
+    body: "from_spec, import_slide, apply_template, slide.lint()/tidy(), audit, thumbnail renderer, animations, theme.",
+  },
+  {
+    href: withBase("/api/enumerations"),
+    title: "Enumerations",
+    body: "MSO_SHAPE, MSO_AUTO_SIZE, PP_ALIGN, XL_CHART_TYPE, MSO_PATTERN_TYPE and friends.",
+  },
+];
+---
+
+<DocsLayout
+  title="API Reference"
+  description="The full public API surface of power-pptx: packages, classes and functions."
+>
+  <p class="lead">
+    This reference covers the public API of <code>power-pptx</code> v{SITE.version}. Everything on
+    the 1.0.2 upstream surface still works; fork additions are marked
+    <strong class="text-primary">fork</strong>. The
+    <a href={SITE.upstreamDocs} target="_blank" rel="noopener noreferrer">upstream Sphinx docs</a>
+    provide prose deep-dives; this section is the structured map of the surface.
+  </p>
+
+  <h2 id="top-level">Top-level package: <code>power_pptx</code></h2>
+  <Code code={topLevel} />
+
+  <h2 id="modules">Module map</h2>
+  <div class="not-prose grid gap-4 sm:grid-cols-2">
+    {
+      sections.map((s) => (
+        <a
+          href={s.href}
+          class="block rounded-lg border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/50 hover:bg-accent/40"
+        >
+          <p class="font-semibold">{s.title}</p>
+          <p class="mt-1 text-sm text-muted-foreground">{s.body}</p>
+        </a>
+      ))
+    }
+  </div>
+
+  <h2 id="reading">Reading the signatures</h2>
+  <ul>
+    <li>
+      Lengths are EMU-backed <code>int</code> subclasses: <code>Inches</code>, <code>Pt</code>,
+      <code>Cm</code>, <code>Emu</code>, <code>Mm</code> from <code>power_pptx.util</code>.
+    </li>
+    <li>
+      Colours accept hex strings, <code>(r, g, b)</code> tuples, or <code>RGBColor</code>.
+    </li>
+    <li>
+      Unset optional properties return <code>None</code>; assign <code>None</code> to clear them.
+    </li>
+    <li>
+      Exceptions live in <code>power_pptx.exc</code> — e.g.
+      <code>PackageNotFoundError</code>, <code>CairoSvgUnavailable</code>,
+      <code>ThumbnailRendererUnavailable</code>, <code>FigureBackendUnavailable</code>.
+    </li>
+  </ul>
+</DocsLayout>

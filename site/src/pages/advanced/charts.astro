@@ -1,0 +1,76 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx.chart.data import CategoryChartData
+from power_pptx.enum.chart import XL_CHART_TYPE
+from power_pptx.util import Inches
+
+chart_data = CategoryChartData()
+chart_data.categories = ["Q1", "Q2", "Q3", "Q4"]
+chart_data.add_series("Revenue", (1.2, 1.8, 2.4, 3.1))
+
+x, y, cx, cy = Inches(1), Inches(1.5), Inches(8), Inches(5)
+chart = slide.shapes.add_chart(
+    XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, cx, cy, chart_data
+).chart`;
+
+const snippet1 = `# Single entry point — dispatches per chart type
+chart.recolour("ocean")        # per-point on pie/doughnut, per-series otherwise
+
+# Dark-deck styling: pin axis lines + gridlines
+chart.apply_dark_theme(text="#E5E7EB", line="#374151")
+chart.line_color = "#9CA3AF"`;
+
+const snippet2 = `from power_pptx.chart.quick_layouts import apply_quick_layout
+
+apply_quick_layout(chart, "minimal")      # one of ten presets`;
+
+const snippet3 = `series = chart.series[0]
+series.format.fill.gradient(kind="linear", angle=0)
+series.format.fill.stops[0].color = "#0B5CFF"
+series.format.fill.stops[1].color = "#00D4FF"
+
+# Pattern fill
+from power_pptx.enum.dml import MSO_PATTERN_TYPE
+series.format.fill.pattern(MSO_PATTERN_TYPE.PERCENT_40)`;
+
+const snippet4 = `chart.category_axis.reverse_order = False`;
+
+---
+
+<DocsLayout
+  title="Charts"
+  description="Chart palettes, ten quick layouts, per-series gradient and pattern fills, and the inherited chart API."
+>
+  <p class="lead">
+    The full python-pptx charting surface works unchanged; the fork adds palette presets
+    independent of <code>chart_style</code>, quick layouts, and per-series gradient/pattern fills.
+  </p>
+
+  <h2 id="create">Creating a chart</h2>
+  <Code code={snippet0} />
+
+  <h2 id="recolour">Palettes and recolouring</h2>
+  <Code code={snippet1} />
+  <p>
+    <code>chart.apply_palette(...)</code> on a pie/doughnut warns and routes through
+    <code>color_by_category</code> — call <code>chart.recolour(...)</code> directly to silence it.
+  </p>
+
+  <h2 id="layouts">Quick layouts</h2>
+  <Code code={snippet2} />
+
+  <h2 id="series-fills">Per-series fills</h2>
+  <Code code={snippet3} />
+  <p>
+    Note: <code>MSO_PATTERN_TYPE.ERCENT_40</code> is the upstream typo and raises
+    <code>DeprecationWarning</code> — use <code>PERCENT_40</code>.
+  </p>
+
+  <h2 id="bar-order">Horizontal bar reading order</h2>
+  <p>
+    Horizontal bar charts (<code>BAR_*</code>) default to top-to-bottom reading order
+    (<code>reverse_order=True</code>). Restore legacy ordering with:
+  </p>
+  <Code code={snippet4} />
+</DocsLayout>

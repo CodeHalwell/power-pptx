@@ -1,0 +1,79 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const s0 = `from power_pptx.compose import from_spec, import_slide, apply_template
+
+prs = from_spec(spec: dict, lint="raise")     # raise | warn | off
+import_slide(prs, source_slide)               # deep-copy between decks
+apply_template(prs, "corporate.potx")         # masters, layouts, theme`;
+
+const s1 = `report = slide.lint()              # SlideLintReport
+report.issues                        # list[LintIssue]
+report.auto_fix()                    # mutates: nudges OffSlide back in
+slide.tidy()                         # one-call lint + safe fixes
+
+from power_pptx.lint import (
+    LintSeverity, LintIssue,
+    TextOverflow, OffSlide, OffSlideShadow,
+    ShapeCollision, ShapeCollisionShadow,
+    MinFontSize, OffGridDrift, LowContrast,
+    ZOrderAnomaly, MasterPlaceholderCollision,
+)
+
+errors = [i for i in report.issues if i.severity is LintSeverity.ERROR]`;
+
+const s2 = `prs.render_thumbnails(out_dir="thumbs")
+
+from power_pptx.render import render_slides
+render_slides(prs, slides=[0, 1], out_dir="thumbs",
+              name_template="slide-{:02d}.png")
+
+# raises ThumbnailRendererUnavailable without soffice on PATH`;
+
+const s3 = `from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath
+
+slide.animations.add(shape, Entrance.FADE, duration=0.5)
+slide.animations.add(shape, Entrance.FLY_IN, direction="from-left")
+slide.animations.add(shape, Emphasis.PULSE, trigger="with-previous")
+slide.animations.add(shape, Exit.WIPE, trigger="after-previous")
+slide.animations.add(textbox, Entrance.FADE, by_paragraph=True)
+slide.animations.add(shape, MotionPath.ARC_DOWN, duration=1.0)
+
+with slide.animations.sequence() as seq:
+    seq.add(a, Entrance.FADE)
+    seq.add(b, Entrance.ZOOM, trigger="after-previous")
+
+slide.transition = Morph(duration=0.6)
+prs.set_default_transition(Fade(duration=0.3))`;
+
+const s4 = `theme = prs.theme
+theme.colors.accent1                 # read
+theme.colors.set("accent1", "#0B5CFF")   # write srgbClr
+theme.fonts.major_latin
+theme.fonts.set_major("Inter Display")
+theme.fonts.set_minor("Inter")
+
+from power_pptx.inherit import resolve_color
+rgb = resolve_color(shape)           # placeholder → layout → master → theme`;
+---
+
+<DocsLayout
+  title="API: Compose, Lint & Render"
+  description="from_spec, import_slide, apply_template; slide.lint()/tidy(); audit; the thumbnail renderer; animations and theme."
+>
+  <h2 id="compose"><code>power_pptx.compose</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s0} />
+
+  <h2 id="lint"><code>power_pptx.lint</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s1} />
+
+  <h2 id="render"><code>power_pptx.render</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s2} />
+
+  <h2 id="animation"><code>power_pptx.animation</code> &amp; transitions <strong class="text-primary">fork</strong></h2>
+  <Code code={s3} />
+
+  <h2 id="theme"><code>power_pptx.theme</code> &amp; <code>inherit</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s4} />
+</DocsLayout>

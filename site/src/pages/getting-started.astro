@@ -1,0 +1,131 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { SITE } from "@/lib/site";
+import { withBase } from "@/lib/utils";
+const snippet0 = `pip install power-pptx`;
+
+const snippet1 = `# before
+from pptx import Presentation
+
+# after
+from power_pptx import Presentation`;
+
+const snippet2 = `from power_pptx import Presentation, BBox, audit
+from power_pptx.diagrams import horizontal_pipeline
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
+slide.shapes.title.text = "Pipeline overview"
+
+horizontal_pipeline(
+    slide,
+    BBox.from_inches(0.5, 2.5, 9, 2.2),
+    steps=["Extract", "Classify", "Enrich", "Output"],
+    accent="#0B5CFF",
+)
+
+slide.shapes.add_text(
+    BBox.from_inches(0.5, 5.5, 9, 1),
+    text="Four-stage data pipeline.",
+    align="center", size_pt=14, color="#666666",
+)
+
+slide.tidy()                  # lint + safe auto-fixes
+print(audit(prs).markdown())  # optional whole-deck report
+prs.save("out.pptx")`;
+
+---
+
+<DocsLayout
+  title="Getting Started"
+  description="Install power-pptx and build your first PowerPoint deck from Python in five minutes."
+>
+  <p class="lead">
+    <code>power-pptx</code> is the actively-maintained fork of <code>python-pptx</code>. It creates,
+    reads and updates PowerPoint 2007+ (<code>.pptx</code>) files on any Python-capable platform —
+    no Microsoft PowerPoint required. This guide gets you from zero to a saved deck.
+  </p>
+
+  <h2 id="requirements">Requirements</h2>
+  <ul>
+    <li>Python {SITE.python} (3.9 through 3.13 are tested in CI)</li>
+    <li>
+      Runtime dependencies install automatically: <code>Pillow</code>, <code>XlsxWriter</code>,
+      <code>lxml</code>, <code>typing_extensions</code>
+    </li>
+  </ul>
+
+  <h2 id="install">Install</h2>
+  <Code code={snippet0} />
+  <p>
+    The distribution is named <code>power-pptx</code> on PyPI but imports as
+    <code>power_pptx</code>. The 2.0 release renamed the package from <code>pptx</code> so the fork
+    and upstream <code>python-pptx</code> can be installed side-by-side.
+  </p>
+
+  <h3 id="optional">Optional dependencies</h3>
+  <table>
+    <thead>
+      <tr><th>Extra</th><th>Needed for</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>cairosvg</code></td><td>Auto-rasterising the PNG fallback in <code>add_svg_picture(...)</code></td></tr>
+      <tr><td><code>pyyaml</code></td><td><code>DesignTokens.from_yaml(...)</code></td></tr>
+      <tr><td><code>soffice</code> (LibreOffice) on <code>PATH</code></td><td><code>Presentation.render_thumbnails()</code></td></tr>
+      <tr><td><code>pdftoppm</code> / <code>pypdfium2</code></td><td>The PDF→PNG split path in the thumbnail renderer</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="migrating">Migrating from python-pptx</h2>
+  <p>
+    The fork is drop-in compatible with upstream 1.0.2. Replace <code>pptx</code> with
+    <code>power_pptx</code> in your imports and everything else keeps working:
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="first-deck">Your first deck</h2>
+  <p>
+    A minimal end-to-end pattern — open, add a slide, a diagram, some text, tidy up, save:
+  </p>
+  <Code code={snippet2} />
+
+  <h2 id="concepts">Core concepts in sixty seconds</h2>
+  <ul>
+    <li>
+      <strong>Presentation</strong> — the deck. <code>Presentation()</code> starts blank;
+      <code>Presentation("file.pptx")</code> opens an existing one. Call
+      <code>prs.save("out.pptx")</code> once at the end.
+    </li>
+    <li>
+      <strong>Slides &amp; layouts</strong> — <code>prs.slides.add_slide(prs.slide_layouts[i])</code>
+      appends a slide from a layout (index 5 = Title Only, 6 = Blank in the default template).
+    </li>
+    <li>
+      <strong>BBox</strong> — an immutable rectangular region in EMU.
+      <code>BBox.from_inches(x, y, w, h)</code> splats directly into every <code>add_*</code> API.
+      Never write raw EMU integers — use <code>Inches</code>, <code>Pt</code>, <code>Cm</code>.
+    </li>
+    <li>
+      <strong>Colours</strong> — hex strings (<code>"#0B5CFF"</code>), tuples and
+      <code>RGBColor</code> all work anywhere a colour is accepted.
+    </li>
+    <li>
+      <strong>Space-aware authoring</strong> — the reason this fork exists. Read
+      <a href={withBase("/advanced/space-aware-authoring")}>Space-Aware Authoring</a> before
+      generating decks from dynamic content.
+    </li>
+  </ul>
+
+  <h2 id="next">Where next</h2>
+  <ul>
+    <li><a href={withBase("/advanced/space-aware-authoring")}>Advanced usage</a> — geometry, effects, animations, charts, themes</li>
+    <li><a href={withBase("/agents")}>Coding agents</a> — install the bundled skill for Claude Code and friends</li>
+    <li><a href={withBase("/api")}>API reference</a> — the full public surface</li>
+    <li>
+      <a href={`${SITE.github}/tree/master/examples`} target="_blank" rel="noopener noreferrer">
+        Examples in the repo
+      </a> — ten real-world decks built end-to-end
+    </li>
+  </ul>
+</DocsLayout>

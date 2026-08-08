@@ -1,0 +1,114 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx.design import DesignTokens
+
+tokens = DesignTokens.from_dict({
+    "palette": {
+        "primary": "#0B5CFF",
+        "surface": "#FFFFFF",
+        "ink": "#0D0D0D",
+    },
+    "typography": {
+        "heading": {"family": "Inter", "size": 44.0},   # float = points
+        "body":    {"family": "Inter", "size": 18.0},
+    },
+    "radii": {"card": 8},
+    "spacings": {"gutter": 0.2},
+})
+
+# …or from YAML (needs pyyaml) or extracted from an existing .pptx
+tokens = DesignTokens.from_yaml("brand.yaml")
+tokens = DesignTokens.from_pptx("brand-deck.pptx")`;
+
+const snippet1 = `shape.style(tokens, fill="primary", line="ink", radius="card", shadow="sm")`;
+
+const snippet2 = `from power_pptx.design import Grid, Stack
+
+grid = Grid(slide, rows=2, cols=3, gutter=Inches(0.2), margin=Inches(0.5))
+for i, cell in enumerate(grid.cells()):
+    slide.shapes.add_text(cell, text=f"Tile {i + 1}", align="center")
+
+stack = Stack.vertical(slide, BBox.from_inches(1, 1, 8, 5), gap=Inches(0.15))
+for region in stack:
+    ...`;
+
+const snippet3 = `from power_pptx.design.recipes import (
+    title_slide, bullet_slide, kpi_slide, quote_slide, image_hero_slide,
+)
+
+title_slide(prs, tokens, title="Q4 Review", subtitle="Engineering")
+bullet_slide(prs, tokens, title="Highlights", bullets=[...])
+kpi_slide(prs, tokens, title="KPIs", kpis=[{"label": "ARR", "value": "$4.2M"}])
+quote_slide(prs, tokens, quote="Ship it.", attribution="The team")
+image_hero_slide(prs, tokens, image="hero.png", title="Big news")`;
+
+const snippet4 = `from power_pptx import (
+    add_kpi_card, add_progress_bar, add_gauge,
+    add_status_pill, add_stat_strip, add_article_card,
+)
+
+kpi = add_kpi_card(slide, bb, tokens, label="MRR", value="$120k", delta="+8%")
+bar = add_progress_bar(slide, bb, tokens, value=0.72, label="Migration")
+gauge = add_gauge(slide, bb, tokens, value=0.6)
+pill = add_status_pill(slide, bb, tokens, text="On track", tone="success")
+strip = add_stat_strip(slide, bb, tokens, stats=[...])
+card = add_article_card(slide, bb, tokens, title="…", dek="…")`;
+
+const snippet5 = `from power_pptx import (
+    add_plotly_figure, add_matplotlib_figure, add_svg_figure, add_html_figure,
+)
+
+add_plotly_figure(slide, bb, fig)          # Plotly → PNG → picture
+add_matplotlib_figure(slide, bb, fig)      # Matplotlib → PNG → picture`;
+
+---
+
+<DocsLayout
+  title="Design System"
+  description="DesignTokens, the shape.style facade, Grid/Stack layout primitives, slide recipes and shape-level building blocks."
+>
+  <p class="lead">
+    The design layer gives generated decks a consistent visual language: tokens for palette,
+    typography, shadows, radii and spacing; a token-resolving style facade; geometry-safe layout
+    primitives; and opinionated recipes for whole slides.
+  </p>
+
+  <h2 id="tokens">DesignTokens</h2>
+  <Code code={snippet0} />
+  <p>
+    <strong>Gotcha:</strong> bare-int sizes in typography are interpreted as EMU, not points — use
+    floats (<code>44.0</code>) or <code>Pt(44)</code>.
+  </p>
+
+  <h2 id="style">The shape.style facade</h2>
+  <Code code={snippet1} />
+
+  <h2 id="layout">Grid and Stack</h2>
+  <p>
+    Layout primitives compute geometry from the slide's real dimensions, so you can't walk off the
+    right edge:
+  </p>
+  <Code code={snippet2} />
+
+  <h2 id="recipes">Slide recipes</h2>
+  <Code code={snippet3} />
+  <p>
+    Recipes use the Blank layout, so <code>slide.shapes.title</code> is <code>None</code> — address
+    shapes by index.
+  </p>
+
+  <h2 id="components">Shape-level building blocks</h2>
+  <p>
+    Token-driven cards that return small dataclasses exposing their constituent shapes for further
+    tweaks:
+  </p>
+  <Code code={snippet4} />
+
+  <h2 id="figures">Figure adapters</h2>
+  <Code code={snippet5} />
+  <p>
+    Third-party deps import lazily; a missing backend raises
+    <code>FigureBackendUnavailable</code> naming the exact pip package to install.
+  </p>
+</DocsLayout>

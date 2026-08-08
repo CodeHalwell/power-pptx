@@ -1,0 +1,112 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+slide.shapes.title.text = "Q4 Review"
+
+# Body box that has to swallow runtime-supplied text
+box = slide.shapes.add_textbox(Inches(0.6), Inches(1.6),
+                               Inches(12), Inches(5))
+tf = box.text_frame
+tf.word_wrap = True
+tf.text = USER_SUPPLIED_BODY
+
+# Belt: pick a determined size now using Pillow font metrics
+tf.fit_text(font_family="Inter", max_size=24)
+
+# Braces: let PowerPoint shrink on the way down if edited later
+tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+# Catch anything that slipped through
+slide.tidy()
+report = slide.lint()
+errors = [i for i in report.issues if i.severity.value == "error"]
+if errors:
+    raise RuntimeError("\n".join(str(e) for e in errors))
+
+prs.save("out.pptx")`;
+
+const snippet1 = `from power_pptx.text.layout import TextFitter
+
+fitter = TextFitter(text_frame=tf, font_family="Inter")
+size = fitter.best_fit_font_size(max_size=24)   # returns a Pt length
+tf.paragraphs[0].runs[0].font.size = size`;
+
+const snippet2 = `from power_pptx import audit
+
+report = audit(prs)          # lint + broken pictures + empty slides
+                             # + uncommon fonts + oversized pictures
+print(report.markdown())     # ready to paste into a chat reply`;
+
+---
+
+<DocsLayout
+  title="Space-Aware Authoring"
+  description="The headline feature of power-pptx: three layered tools that keep text inside its box and shapes on the slide."
+>
+  <p class="lead">
+    The single biggest reason this fork exists is making programmatically-generated decks
+    <strong>physically correct</strong>: text that doesn't overflow its container, shapes that
+    don't slide off the edges. Three layered tools — used together — catch nearly all real-world
+    layout issues.
+  </p>
+
+  <h2 id="layers">The three layers</h2>
+  <ol>
+    <li>
+      <strong><code>TextFrame.fit_text(...)</code></strong> — measures the actual text with Pillow
+      font metrics and bakes a fitting font size into the XML <em>before</em> save. Deterministic:
+      the deck leaves your process already correct.
+    </li>
+    <li>
+      <strong><code>text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE</code></strong> — lets
+      PowerPoint shrink the text at render time as a fallback when someone edits the deck later.
+    </li>
+    <li>
+      <strong><code>slide.lint()</code></strong> — reports what slipped through (text overflow,
+      off-slide shapes, collisions). <code>auto_fix()</code> nudges off-slide shapes back inside;
+      <code>slide.tidy()</code> is the one-call wrapper.
+    </li>
+  </ol>
+
+  <h2 id="pattern">The pattern to reach for</h2>
+  <Code code={snippet0} />
+
+  <h2 id="fit-text">fit_text and the text-fit estimator</h2>
+  <p>
+    <code>fit_text</code> measures your exact string against the box geometry using real font
+    metrics — not heuristics. You can also use the estimator directly when you want the size
+    without mutating the frame:
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="lint">What the linter reports</h2>
+  <table>
+    <thead>
+      <tr><th>Issue</th><th>Meaning</th><th>Auto-fixable</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds the shape's frame</td><td>No — use <code>fit_text</code> or <code>auto_size</code></td></tr>
+      <tr><td><code>OffSlide</code></td><td>Shape extends beyond the slide bounds</td><td>Yes — nudged back inside</td></tr>
+      <tr><td><code>ShapeCollision</code></td><td>Two shapes overlap unintentionally</td><td>Reported; fix placement with Grid/Stack</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Each issue carries a <code>LintSeverity</code> (<code>"error"</code> / <code>"warning"</code>)
+    so CI can fail hard on errors while tolerating warnings.
+  </p>
+
+  <h2 id="audit">Whole-deck audit</h2>
+  <Code code={snippet2} />
+
+  <p>
+    Next: <a href={withBase("/advanced/geometry-and-arrows")}>Geometry &amp; Arrows</a> — the BBox
+    value object and one-call helpers that make placement pleasant.
+  </p>
+</DocsLayout>

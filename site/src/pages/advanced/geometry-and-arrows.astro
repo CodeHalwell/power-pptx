@@ -1,0 +1,85 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx import BBox
+from power_pptx.util import Inches
+
+bb = BBox.from_inches(1, 2, 8, 4)          # x, y, width, height
+left, right = bb.split_h([1, 1], gap=Inches(0.2))
+top, bottom  = bb.split_v([2, 1], gap=Inches(0.1))
+inner        = bb.inset(all=Inches(0.2))
+cells        = bb.grid(rows=2, cols=3, gap=Inches(0.1))
+bb.contains(other)                         # bool
+bb.intersection(other)                     # BBox | None`;
+
+const snippet1 = `slide.shapes.add_text(
+    bb, text="Hello",
+    size_pt=24, bold=True,
+    color="#0B5CFF", align="center", anchor="middle",
+)`;
+
+const snippet2 = `from power_pptx.enum.shapes import MSO_SHAPE
+
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
+    .fill_hex("#FFFFFF") \
+    .line_hex("#0D0D0D", weight_pt=1.25)`;
+
+const snippet3 = `start = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
+end   = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
+
+slide.shapes.add_arrow(
+    start=start, end=end,
+    head="triangle", color="#0B5CFF",
+    weight_pt=1.5, inset_pt=6,
+)`;
+
+const snippet4 = `# Replace text but keep the template formatting
+title_shape.set_text_preserving_format("New title")
+
+# Swap a broken / sub-quality picture for native shapes,
+# sized to the enclosing card rather than the picture bbox
+container = picture.enclosing_container()
+picture.replace_with(lambda slide, bbox: ..., padding=Inches(0.1))
+
+# One-call cleanup
+slide.tidy()            # lint + safe auto-fixes
+
+# Find a free region for greenfield placement
+free = slide.find_empty_region(min_size=Inches(2))`;
+
+---
+
+<DocsLayout
+  title="Geometry & Arrows"
+  description="The BBox value object, one-call text and shape helpers, and real arrows with auto-routed endpoints."
+>
+  <p class="lead">
+    The v2.8 geometry layer collapses the historical seven-line styling ritual into single calls,
+    and gives you a proper value object for rectangular regions.
+  </p>
+
+  <h2 id="bbox">BBox — the region value object</h2>
+  <Code code={snippet0} />
+  <p>
+    <code>BBox</code> splats into every <code>add_*</code> call (<code>*bb</code> expands to
+    left, top, width, height). Float arithmetic on lengths is coerced at the setter, so
+    expressions like <code>(Inches(10) - gutter) / 2</code> are safe.
+  </p>
+
+  <h2 id="one-call-text">One-call text</h2>
+  <Code code={snippet1} />
+
+  <h2 id="chainable-shapes">Chainable shape colours</h2>
+  <Code code={snippet2} />
+
+  <h2 id="arrows">Real arrows</h2>
+  <p>
+    <code>add_connector(MSO_CONNECTOR.STRAIGHT, ...)</code> draws a bare line — no arrowhead.
+    <code>add_arrow</code> produces a connector with a real arrowhead and auto-routed endpoints
+    (mid-edge of the target shape, pulled back by <code>inset_pt</code>):
+  </p>
+  <Code code={snippet3} />
+
+  <h2 id="helpers">More helpers</h2>
+  <Code code={snippet4} />
+</DocsLayout>

@@ -14,6 +14,22 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+Unreleased
+++++++++++
+
+Added
+.....
+
+* Documentation site under ``site/`` — Astro + TypeScript + React with
+  shadcn-style UI primitives and MUI islands, deployed to GitHub Pages
+  via ``.github/workflows/pages.yml``. Covers the starter guide,
+  advanced usage, coding-agent (skill) usage, and the full API surface,
+  with a light-by-default theme and a persisted dark-mode toggle.
+* ``README.rst`` gained a header block with PyPI / Python-version / CI /
+  license / docs badges and a library-information table linking the new
+  documentation pages.
+
+
 2.10.0 (2026-07-12)
 +++++++++++++++++++
 

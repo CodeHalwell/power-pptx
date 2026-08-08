@@ -1,0 +1,56 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `from power_pptx import Presentation
+
+prs = Presentation("deck.pptx")
+prs.render_thumbnails(out_dir="thumbs")        # every slide → PNG`;
+
+const snippet1 = `from power_pptx.render import render_slides
+
+# Selected slides with a name template
+render_slides(
+    prs,
+    slides=[0, 1, 2],
+    out_dir="thumbs",
+    name_template="slide-{:02d}.png",
+)`;
+
+---
+
+<DocsLayout
+  title="Rendering Thumbnails"
+  description="Render slides to PNG via LibreOffice — for previews, agent feedback loops and CI visual diffs."
+>
+  <p class="lead">
+    The thumbnail renderer shells out to LibreOffice (<code>soffice</code>) to produce PNG previews
+    of slides — handy for agent feedback loops, CI visual diffs, or gallery pages like this one.
+  </p>
+
+  <h2 id="requirements">Requirements</h2>
+  <ul>
+    <li><code>soffice</code> (LibreOffice) on <code>PATH</code></li>
+    <li>
+      <code>pdftoppm</code> (Poppler) <em>or</em> <code>pypdfium2</code> for the PDF→PNG split path
+    </li>
+  </ul>
+  <p>
+    Without them you get <code>ThumbnailRendererUnavailable</code> — catch it to degrade gracefully.
+  </p>
+
+  <h2 id="usage">Usage</h2>
+  <Code code={snippet0} />
+
+  <Code code={snippet1} />
+
+  <h2 id="agent-loop">The agent feedback loop</h2>
+  <ol>
+    <li>Agent generates the deck and calls <code>slide.tidy()</code>.</li>
+    <li><code>render_thumbnails()</code> produces PNGs of the result.</li>
+    <li>The agent (or a human) inspects the thumbnails and iterates.</li>
+  </ol>
+  <p>
+    Combined with <code>audit(prs).markdown()</code>, this closes the loop between generation and
+    verification without ever opening PowerPoint.
+  </p>
+</DocsLayout>

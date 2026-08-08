@@ -1,0 +1,51 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `theme = prs.theme
+print(theme.colors.accent1)        # RGBColor or theme reference
+print(theme.fonts.major_latin)     # e.g. "Calibri Light"`;
+
+const snippet1 = `theme.colors.set("accent1", "#0B5CFF")   # writes a fresh srgbClr
+theme.fonts.set_major("Inter Display")
+theme.fonts.set_minor("Inter")`;
+
+const snippet2 = `from power_pptx.theme import apply_theme
+
+apply_theme(prs, "brand.potx")     # copies the theme part across`;
+
+const snippet3 = `from power_pptx.inherit import resolve_color
+
+# Walks placeholder → layout → master → theme to the final RGB
+rgb = resolve_color(shape)`;
+
+---
+
+<DocsLayout
+  title="Themes"
+  description="Read and write theme colours and fonts, apply a theme from a .potx, and resolve theme-aware colours."
+>
+  <p class="lead">
+    power-pptx reads and writes the theme embedded in every deck: the colour scheme
+    (<code>clrScheme</code>) and the major/minor fonts. Apply a brand once and every
+    theme-referencing shape follows.
+  </p>
+
+  <h2 id="read">Reading a theme</h2>
+  <Code code={snippet0} />
+
+  <h2 id="write">Writing a theme</h2>
+  <Code code={snippet1} />
+
+  <h2 id="apply">Applying a theme from a template</h2>
+  <Code code={snippet2} />
+
+  <h2 id="resolve">Theme-aware colour resolution</h2>
+  <Code code={snippet3} />
+
+  <h2 id="tips">Tips</h2>
+  <ul>
+    <li>Shapes referencing theme colours update automatically when you rewrite the scheme.</li>
+    <li>Combine with <a href="design">DesignTokens.from_pptx</a> to lift a brand out of an existing deck.</li>
+    <li>Theme edits are XML-level and round-trip safely — the schema test-suite covers them.</li>
+  </ul>
+</DocsLayout>

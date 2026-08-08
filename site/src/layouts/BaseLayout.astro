@@ -1,0 +1,134 @@
+---
+import "@/styles/global.css";
+import { SITE, TOP_NAV } from "@/lib/site";
+import { withBase } from "@/lib/utils";
+import ThemeProvider from "@/components/react/ThemeProvider";
+import ThemeToggle from "@/components/react/ThemeToggle";
+import MobileNav from "@/components/react/MobileNav";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description = SITE.description } = Astro.props;
+const pageTitle = title ? `${title} · ${SITE.title}` : `${SITE.title} — ${SITE.tagline}`;
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href={withBase("favicon.svg")} />
+    <title>{pageTitle}</title>
+    <!-- No-flash theme init: default light, restore saved choice before paint. -->
+    <script is:inline>
+      (function () {
+        var theme = "light";
+        try {
+          var stored = window.localStorage.getItem("theme");
+          if (stored === "dark") theme = "dark";
+        } catch (e) {}
+        if (theme === "dark") document.documentElement.classList.add("dark");
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen">
+    <ThemeProvider client:load>
+      <header
+        class="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+      >
+        <div class="mx-auto flex h-14 max-w-8xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+          <MobileNav currentPath={currentPath} client:load />
+          <a href={withBase("/")} class="flex items-center gap-2 font-semibold">
+            <svg
+              class="h-6 w-6 text-primary"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+              <path d="M7 7h6M7 11h10"></path>
+            </svg>
+            <span>{SITE.title}</span>
+            <span
+              class="hidden rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground sm:inline-block"
+              >v{SITE.version}</span
+            >
+          </a>
+          <nav class="ml-6 hidden items-center gap-1 lg:flex" aria-label="Primary">
+            {
+              TOP_NAV.map((link) => (
+                <a
+                  href={link.href}
+                  class:list={[
+                    "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    currentPath.startsWith(link.href)
+                      ? "text-foreground"
+                      : "text-muted-foreground",
+                  ]}
+                >
+                  {link.label}
+                </a>
+              ))
+            }
+          </nav>
+          <div class="ml-auto flex items-center gap-2">
+            <a
+              href={SITE.github}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub repository"
+              class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                ></path>
+              </svg>
+            </a>
+            <ThemeToggle client:load />
+          </div>
+        </div>
+      </header>
+
+      <slot />
+
+      <footer class="border-t border-border py-10">
+        <div
+          class="mx-auto flex max-w-8xl flex-col items-center justify-between gap-4 px-4 text-sm text-muted-foreground sm:px-6 md:flex-row lg:px-8"
+        >
+          <p>
+            {SITE.title} is a fork of
+            <a
+              href="https://github.com/scanny/python-pptx"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="font-medium text-foreground underline-offset-4 hover:underline">python-pptx</a
+            >
+            by Steve Canny, released under the {SITE.license} License.
+          </p>
+          <p class="flex gap-4">
+            <a href={SITE.github} target="_blank" rel="noopener noreferrer" class="hover:text-foreground">GitHub</a>
+            <a href={SITE.pypi} target="_blank" rel="noopener noreferrer" class="hover:text-foreground">PyPI</a>
+            <a href={withBase("/api")} class="hover:text-foreground">API</a>
+          </p>
+        </div>
+      </footer>
+    </ThemeProvider>
+  </body>
+</html>

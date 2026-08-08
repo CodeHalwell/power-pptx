@@ -1,0 +1,56 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const snippet0 = `rows, cols = 4, 3
+table = slide.shapes.add_table(
+    rows, cols, *BBox.from_inches(1, 1.5, 8, 4),
+    style="clean",                # disables every inherited style flag
+).table
+
+cell = table.cell(0, 0)
+cell.text = "Quarter"
+cell.fill.solid()
+cell.fill.fore_color.rgb = "#0B5CFF"
+
+# Per-cell borders (fork addition)
+cell.borders.bottom = {"color": "#0D0D0D", "width_pt": 1.5}`;
+
+const snippet1 = `# Replace the text inside an existing template's SmartArt
+slide.smart_art[0].set_text(["Discover", "Design", "Deliver"])`;
+
+const snippet2 = `shape.three_d.bevel(top="circle", top_width=Pt(6), top_height=Pt(6))
+shape.three_d.extrusion(depth=Pt(12), color="#0B5CFF")
+shape.three_d.rotation(x=15, y=20, z=0)`;
+
+---
+
+<DocsLayout
+  title="Tables, SmartArt & 3D"
+  description="The inherited table API plus Cell.borders, SmartArt text substitution, and bevel/extrusion 3D primitives."
+>
+  <p class="lead">
+    Three smaller but powerful corners of the API: styled tables, text substitution inside
+    SmartArt, and real 3D bevel/extrusion primitives.
+  </p>
+
+  <h2 id="tables">Tables</h2>
+  <Code code={snippet0} />
+  <p>
+    Use <code>style="clean"</code> whenever you'll set custom cell borders or fills — inherited
+    style flags otherwise fight your formatting.
+  </p>
+
+  <h2 id="smartart">SmartArt text substitution</h2>
+  <Code code={snippet1} />
+  <p>
+    This is the pragmatic way to use SmartArt: design the diagram once in PowerPoint, then fill it
+    from Python at generation time.
+  </p>
+
+  <h2 id="three-d">3D primitives</h2>
+  <Code code={snippet2} />
+  <p>
+    Bevels and extrusion are real DrawingML — they stay editable in PowerPoint and respect the
+    theme's lighting rig.
+  </p>
+</DocsLayout>

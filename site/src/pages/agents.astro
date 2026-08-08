@@ -1,0 +1,158 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const jsonSpec = `from power_pptx.compose import from_spec
+
+prs = from_spec({
+    "slides": [
+        {"layout": "title", "title": "Q4 Review", "subtitle": "Engineering"},
+        {"layout": "bullets", "title": "Highlights",
+         "bullets": ["Shipped v2.10", "Lint pass clean", "Zero overflow"]},
+    ]
+}, lint="raise")
+prs.save("q4.pptx")`;
+const snippet0 = `pip install power-pptx
+python -m power_pptx.skill install`;
+
+const snippet1 = `# Print the skill source path inside the installed package
+python -m power_pptx.skill path
+
+# Install into a custom directory
+python -m power_pptx.skill install --target /path/to/skills/power-pptx
+
+# Refuse to overwrite an existing install
+python -m power_pptx.skill install --no-overwrite`;
+
+---
+
+<DocsLayout
+  title="Using power-pptx with Coding Agents"
+  description="power-pptx ships its own Claude Code skill — install it with one command and give your coding agent the cheat sheet, recipes and anti-patterns for generating decks."
+>
+  <p class="lead">
+    <code>power-pptx</code> was designed for programmatic generation — and that includes code
+    written by AI coding agents. The package ships its own <strong>Claude Code skill</strong>: a
+    curated cheat sheet, sixteen focused reference docs, and an explicit anti-patterns list of the
+    mistakes LLMs most commonly make when generating decks.
+  </p>
+
+  <h2 id="install-skill">Install the bundled skill</h2>
+  <p>
+    The skill files live inside the pip package. Install them into your local Claude Code skills
+    directory with:
+  </p>
+  <Code code={snippet0} />
+  <p>
+    This copies <code>SKILL.md</code> and the <code>references/</code> directory into
+    <code>~/.claude/skills/power-pptx/</code>. Claude Code (and any compatible Claude Agent SDK
+    harness) picks it up automatically the next time it starts.
+  </p>
+
+  <h3 id="skill-commands">Skill commands</h3>
+  <Code code={snippet1} />
+
+  <h2 id="what-agent-gets">What your agent gets</h2>
+  <table>
+    <thead>
+      <tr><th>Reference doc</th><th>What it covers</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>space-aware-authoring.md</code></td><td><strong>Read first.</strong> fit_text, auto_size flags, the linter, robust layout patterns</td></tr>
+      <tr><td><code>geometry-and-arrows.md</code></td><td>BBox, add_text / add_arrow, hex helpers, replace_with, tidy(), diagram recipes, audit</td></tr>
+      <tr><td><code>basics.md</code></td><td>The upstream 1.0.2 surface: slides, placeholders, shapes, textboxes, tables, pictures, charts</td></tr>
+      <tr><td><code>design.md</code></td><td>DesignTokens, shape.style, Grid/Stack layout, slide recipes, starter pack</td></tr>
+      <tr><td><code>effects.md</code></td><td>Shadow, glow, soft edges, blur, reflection, alpha colours, gradient fills, line ends</td></tr>
+      <tr><td><code>animations.md</code></td><td>Entrance/Exit/Emphasis presets, triggers, by-paragraph reveal, motion paths</td></tr>
+      <tr><td><code>transitions.md</code></td><td>Per-slide and deck-wide transitions including Morph</td></tr>
+      <tr><td><code>compose.md</code></td><td>from_spec (JSON authoring), import_slide, apply_template</td></tr>
+      <tr><td><code>theme.md</code></td><td>Theme palette/font reading and writing, theme-aware colour resolution</td></tr>
+      <tr><td><code>charts.md</code></td><td>Chart palettes, quick layouts, per-series gradient/pattern fills</td></tr>
+      <tr><td><code>picture-effects.md</code></td><td>Transparency, brightness, contrast, recolor, SVG embedding</td></tr>
+      <tr><td><code>tables.md</code></td><td>The inherited table API plus Cell.borders</td></tr>
+      <tr><td><code>three-d.md</code></td><td>Bevels and extrusion via shape.three_d</td></tr>
+      <tr><td><code>smart-art.md</code></td><td>Text substitution inside SmartArt</td></tr>
+      <tr><td><code>lint.md</code></td><td>slide.lint(), issue types, auto_fix, from_spec lint hook</td></tr>
+      <tr><td><code>render.md</code></td><td>Slide thumbnails via LibreOffice</td></tr>
+      <tr><td><code>end-to-end-deck.md</code></td><td>A complete worked example with a lint pass before save</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="prompting">Prompting patterns that work</h2>
+  <p>Agents produce the best decks when you:</p>
+  <ul>
+    <li>
+      <strong>Ask for the space-aware workflow explicitly</strong> — "use fit_text or
+      TEXT_TO_FIT_SHAPE for runtime text, then slide.tidy() before save".
+    </li>
+    <li>
+      <strong>Give content, not coordinates</strong> — "a four-step pipeline from Extract to
+      Output" maps cleanly onto <code>horizontal_pipeline(slide, bb, steps=[…])</code>; pixel-level
+      instructions fight the layout primitives.
+    </li>
+    <li>
+      <strong>Request an audit</strong> — "end with a call to <code>audit(prs).markdown()</code> so
+      I can see what the linter found".
+    </li>
+    <li>
+      <strong>Pin the version</strong> in generated requirements files:
+      <code>power-pptx&gt;=2.8.0</code> is the minimum that ships the BBox / add_text / add_arrow /
+      diagrams / audit surface.
+    </li>
+  </ul>
+
+  <h2 id="house-rules">House rules the skill teaches</h2>
+  <ol>
+    <li>Always <code>from power_pptx import Presentation</code> — never another import path.</li>
+    <li>Default to space-aware patterns for any runtime-supplied text.</li>
+    <li>Reads should not mutate — unset effect properties return <code>None</code>; assign <code>None</code> to clear.</li>
+    <li>Use <code>Inches</code> / <code>Pt</code> / <code>Cm</code> helpers, never raw EMU integers.</li>
+    <li>Use <code>Grid</code> / <code>Stack</code> for placement when a slide has more than two shapes.</li>
+    <li>Prefer slide recipes for whole-slide layouts; drop to <code>add_shape</code> only when recipes don't fit.</li>
+    <li>Save once at the end — build in memory, then <code>prs.save(...)</code>.</li>
+  </ol>
+
+  <h2 id="anti-patterns">Anti-patterns the skill warns about</h2>
+  <ul>
+    <li>
+      <strong>Comparing wrapper objects with <code>is</code></strong> — <code>tf.paragraphs</code>
+      returns fresh objects every call. Use <code>set_text_preserving_format(new_text)</code> for
+      replace-text-keep-formatting.
+    </li>
+    <li>
+      <strong>Expecting arrowheads from <code>add_connector</code></strong> — it draws a bare line.
+      Use <code>slide.shapes.add_arrow(start, end, head="triangle")</code>.
+    </li>
+    <li>
+      <strong>Sizing a diagram to a broken picture's bbox</strong> — use
+      <code>picture.enclosing_container()</code> then <code>picture.replace_with(builder)</code>.
+    </li>
+    <li>
+      <strong>Mutating shapes while iterating</strong> — process in reverse index order or capture
+      shapes before iterating.
+    </li>
+    <li>
+      <strong>Importing enums for every styling call</strong> — use hex strings and short-name
+      kwargs: <code>add_text(bb, text="…", color="#0B5CFF", align="center")</code>.
+    </li>
+    <li>
+      <strong>Raw EMU integers</strong> — <code>BBox.from_inches(1, 2, 8, 4)</code>,
+      <code>Inches(1)</code>, <code>Pt(12)</code>.
+    </li>
+    <li>
+      <strong>lint → auto_fix → lint loops</strong> — <code>slide.tidy()</code> is the one-call wrapper.
+    </li>
+  </ul>
+
+  <h2 id="json-spec">JSON spec authoring for agents</h2>
+  <p>
+    When an agent already has a content plan as JSON, <code>from_spec</code> turns it straight into
+    a deck — with an optional built-in lint gate:
+  </p>
+  <Code code={jsonSpec} />
+  <p>
+    See <a href={withBase("/advanced/compose")}>Compose &amp; Templates</a> for the full spec
+    schema, and <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for the lint gate.
+  </p>
+</DocsLayout>
