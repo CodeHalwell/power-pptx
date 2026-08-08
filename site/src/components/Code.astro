@@ -1,14 +1,28 @@
 ---
+import { Code as AstroCode } from "astro:components";
+import type { ComponentProps } from "astro/types";
+
 /**
- * Code block that renders its snippet literally. Defining the snippet as a
- * frontmatter string avoids Astro's template-expression parsing of `{` and
- * `[` inside <pre><code> bodies.
+ * Syntax-highlighted code block. Defining the snippet as a frontmatter string
+ * avoids Astro's template-expression parsing of `{` and `[` inside code.
+ *
+ * Highlighting uses Shiki's dual-theme output with `defaultColor: false`, so
+ * every token carries `--shiki-light`/`--shiki-dark` variables and the
+ * `.astro-code` rules in global.css pick the right palette per theme. Without
+ * this, prose styling painted light text onto the light background.
  */
 interface Props {
   code: string;
+  lang?: ComponentProps<typeof AstroCode>["lang"];
 }
 
-const { code } = Astro.props;
+const { code, lang = "python" } = Astro.props;
 ---
 
-<pre class="overflow-x-auto rounded-lg border border-border bg-muted/50 p-4 text-sm leading-relaxed"><code>{code}</code></pre>
+<AstroCode
+  code={code}
+  lang={lang}
+  themes={{ light: "github-light", dark: "github-dark" }}
+  defaultColor={false}
+  class="overflow-x-auto rounded-lg border border-border p-4 text-sm leading-relaxed"
+/>
