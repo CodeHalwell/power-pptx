@@ -9,12 +9,8 @@ export default function CopyButton({ text, label = "Copy" }: { text: string; lab
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      const area = document.createElement("textarea");
-      area.value = text;
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      document.body.removeChild(area);
+      // Clipboard API unavailable (e.g. insecure context); ignore.
+      return;
     }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);

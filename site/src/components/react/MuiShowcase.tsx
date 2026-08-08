@@ -9,10 +9,10 @@ import { useMemo } from "react";
 import { useTheme } from "./ThemeProvider";
 
 const metrics = [
-  { label: "Public API modules", value: "24" },
-  { label: "Diagram recipes", value: "6" },
-  { label: "Skill reference docs", value: "16" },
-  { label: "Python versions", value: "3.9–3.13" },
+  { label: "Public API modules", value: "24", progress: 92 },
+  { label: "Diagram recipes", value: "6", progress: 70 },
+  { label: "Skill reference docs", value: "16", progress: 84 },
+  { label: "Python versions", value: "3.9–3.13", progress: 100 },
 ];
 
 /**
@@ -37,7 +37,7 @@ export default function MuiShowcase() {
   return (
     <MuiThemeProvider theme={muiTheme}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ width: "100%" }}>
-        {metrics.map((metric, i) => (
+        {metrics.map((metric) => (
           <Card key={metric.label} variant="outlined" sx={{ flex: 1, bgcolor: "background.paper" }}>
             <CardContent>
               <Typography variant="h5" component="p" sx={{ fontWeight: 700 }}>
@@ -48,11 +48,11 @@ export default function MuiShowcase() {
               </Typography>
               <LinearProgress
                 variant="determinate"
-                value={[92, 70, 84, 100][i]}
+                value={metric.progress}
                 aria-label={`${metric.label} indicator`}
               />
               <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-                <Chip label={i === 0 ? "stable" : "included"} size="small" color="primary" variant="outlined" />
+                <Chip label="included" size="small" color="primary" variant="outlined" />
               </Stack>
             </CardContent>
           </Card>

@@ -58,8 +58,9 @@ RGBColor(0x0B, 0x5C, 0xFF).alpha(0.5)   # fork: alpha tint`;
   <h2 id="gotchas">Gotchas</h2>
   <ul>
     <li>
-      <code>MSO_PATTERN_TYPE.ERCENT_40</code> is an upstream typo retained for compatibility; it
-      raises <code>DeprecationWarning</code>. Use <code>PERCENT_40</code>.
+      <code>MSO_PATTERN_TYPE</code> contains an upstream typo — the member literally named
+      <code>ERCENT_40</code> (missing the leading "P") is retained for compatibility and raises
+      <code>DeprecationWarning</code>. Use <code>PERCENT_40</code>.
     </li>
     <li>
       Enum members compare equal across aliases (<code>MSO_ANCHOR.MIDDLE is MSO_VERTICAL_ANCHOR.MIDDLE</code>).
