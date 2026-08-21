@@ -14,8 +14,14 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
-Unreleased
-++++++++++
+2.11.0 (2026-08-21)
++++++++++++++++++++
+
+An ergonomics release from dogfooding the library on a real nine-slide
+deck: the shadow that would not turn off, corner radius spelled as a
+fraction, column arithmetic written out by hand, table styling that
+dropped back to raw python-pptx, and a text fit that quietly guessed
+when the brand font was missing.
 
 Added
 .....
