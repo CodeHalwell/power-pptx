@@ -30,18 +30,72 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build distribution
+  # A workflow_run start says only "the release workflow finished", not
+  # "it cut a release".  That workflow succeeds as a no-op when
+  # ``__version__`` already matches a tag, so an ordinary master push
+  # after a release would otherwise start a second publish from the
+  # *later* commit — building the released version number out of code the
+  # tag does not point at, and racing the real release's upload while the
+  # index is still empty.  ``--check-url`` cannot close that: it skips
+  # files that already exist, which is neither atomic nor proof of
+  # provenance.
+  #
+  # So gate on the tag itself: publish only when ``v$__version__``
+  # resolves to exactly the commit being built.  That is true for the
+  # release run that just cut the tag and false for every later no-op.
+  guard:
+    name: Confirm the version tag points at this commit
     runs-on: ubuntu-latest
-    # For a workflow_run start, only proceed when the release workflow
-    # actually succeeded on the default branch.  That workflow is a no-op
-    # when ``__version__`` matches an existing tag, so this can still run
-    # with nothing new to publish — ``--check-url`` below makes that
-    # harmless rather than a failed upload.
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
     if: >-
       github.event_name != 'workflow_run'
       || (github.event.workflow_run.conclusion == 'success'
           && github.event.workflow_run.head_branch == 'master')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed to resolve the version tag; a shallow clone
+          # has no tag refs.
+          fetch-depth: 0
+          ref: >-
+            ${{ github.event_name == 'workflow_run'
+                && github.event.workflow_run.head_sha
+                || github.ref }}
+
+      - name: Check the version tag against this commit
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_run" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "$EVENT_NAME start — publishing as before."
+            exit 0
+          fi
+          version=$(python -c "import re; print(re.search(r'__version__\s*=\s*[\"\']([^\"\']+)[\"\']', open('src/power_pptx/__init__.py').read()).group(1))")
+          tag="v$version"
+          if ! tagged=$(git rev-parse -q --verify "refs/tags/$tag^{commit}"); then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No $tag tag — the release workflow cut nothing. Skipping."
+            exit 0
+          fi
+          if [ "$tagged" != "$HEAD_SHA" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "$tag points at $tagged, not the commit being built ($HEAD_SHA)."
+            echo "This run carried no version bump. Skipping."
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "$tag == $HEAD_SHA — this run cut the release. Publishing."
+
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    needs: guard
+    if: needs.guard.outputs.publish == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,7 +129,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: build
+    needs: [guard, build]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -94,8 +148,10 @@ jobs:
 
       - name: Publish to PyPI
         # ``--check-url`` skips files the index already has instead of
-        # failing the run, so a workflow_run start that carried no version
-        # bump is a clean no-op.
+        # failing the run.  The ``guard`` job is what keeps an unreleased
+        # commit from ever being built under a released version number;
+        # this only keeps a re-run or a manual dispatch of an
+        # already-published version from failing.
         run: |
           uv publish --trusted-publishing always \
             --check-url https://pypi.org/simple/power-pptx/
