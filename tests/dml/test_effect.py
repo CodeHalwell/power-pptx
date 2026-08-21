@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from power_pptx import Presentation
 from power_pptx.dml.effect import BlurFormat, ReflectionFormat, ShadowFormat
-from power_pptx.util import Emu
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.oxml.ns import qn
+from power_pptx.util import Emu, Inches
 
 from ..unitutil.cxml import element, xml
 
@@ -459,3 +462,65 @@ class DescribeShadowEffectsSchemaValidity(object):
         buf = io.BytesIO()
         _deck_with_shadow_effects().save(buf)
         assert list(iter_schema_violations(buf.getvalue())) == []
+
+
+class DescribeShadowFormatClear(object):
+    """Unit-test suite for `ShadowFormat.clear()`."""
+
+    def it_removes_every_explicit_shadow_element(self):
+        shadow = ShadowFormat(
+            element("p:spPr/a:effectLst/(a:innerShdw,a:outerShdw,a:prstShdw{prst=shdw1})")
+        )
+        shadow.clear()
+        assert shadow._element.xml == xml("p:spPr/a:effectLst")
+
+    def it_keeps_non_shadow_effects(self):
+        shadow = ShadowFormat(element("p:spPr/a:effectLst/(a:glow{rad=50800},a:outerShdw)"))
+        shadow.clear()
+        assert shadow._element.xml == xml("p:spPr/a:effectLst/a:glow{rad=50800}")
+
+    def it_writes_an_empty_effectLst_when_there_was_none(self):
+        shadow = ShadowFormat(element("p:spPr{a:b=c}"))
+        shadow.clear()
+        assert shadow._element.xml == xml("p:spPr{a:b=c}/a:effectLst")
+
+    def it_is_idempotent(self):
+        shadow = ShadowFormat(element("p:spPr{a:b=c}"))
+        assert shadow.clear().clear()._element.xml == xml("p:spPr{a:b=c}/a:effectLst")
+
+    def it_suppresses_the_theme_effect_style_of_an_autoshape(self):
+        shape = _autoshape()
+        assert _effect_ref_idx(shape) == "2"  # theme's soft drop shadow
+
+        shape.shadow.clear()
+
+        assert _effect_ref_idx(shape) == "0"
+        assert shape.shadow.blur_radius is None
+
+    def it_suppresses_the_theme_effect_style_for_the_deprecated_inherit_False(self):
+        shape = _autoshape()
+        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+            shape.shadow.inherit = False
+        assert _effect_ref_idx(shape) == "0"
+
+    def it_leaves_a_shape_without_a_style_element_alone(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+
+        textbox.shadow.clear()  # no <p:style> to re-point — must not raise
+
+        assert textbox._element.find(qn("p:style")) is None
+
+
+def _autoshape():
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    return slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(2)
+    )
+
+
+def _effect_ref_idx(shape):
+    style = shape._element.find(qn("p:style"))
+    return style.find(qn("a:effectRef")).get("idx")

@@ -34,6 +34,31 @@ def _ensure_effect_color(el) -> None:
     ColorFormat.from_colorchoice_parent(el).rgb = RGBColor(0x00, 0x00, 0x00)
 
 
+def _suppress_theme_effect_ref(spPr) -> None:
+    """Point the shape's `<a:effectRef>` at the "no effect" style-matrix slot.
+
+    Auto shapes created by ``shapes.add_shape()`` carry a ``<p:style>`` with
+    ``<a:effectRef idx="2"/>``, which resolves against the theme's effect-style
+    list — in most themes a soft drop shadow.  An empty ``<a:effectLst/>`` in
+    ``<p:spPr>`` is *supposed* to override that, but renderers disagree (the
+    "phantom shadow I never asked for" bug), so clearing a shadow also has to
+    re-point the style reference at ``idx="0"``, the well-known empty slot.
+
+    A no-op for shapes with no ``<p:style>`` (text boxes, placeholders,
+    pictures) and for group shapes, whose ``grpSpPr`` has no style sibling.
+    """
+    sp = spPr.getparent()
+    if sp is None:
+        return
+    style = sp.find(qn("p:style"))
+    if style is None:
+        return
+    effectRef = style.find(qn("a:effectRef"))
+    if effectRef is None:
+        return
+    effectRef.set("idx", "0")
+
+
 if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.dml import MSO_COLOR_TYPE, MSO_PRESET_SHADOW
@@ -195,7 +220,47 @@ class ShadowFormat(object):
         if bool(value):
             self._element._remove_effectLst()  # pyright: ignore[reportPrivateUsage]
         else:
-            self._element.get_or_add_effectLst()
+            # Historically this only wrote an empty `<a:effectLst/>`, which
+            # leaves a theme effect-style shadow visible in most renderers —
+            # silently wrong output for the very caller trying to turn a shadow
+            # off.  Delegate to `clear()` so the intent actually holds.
+            self.clear()
+
+    # ------------------------------------------------------------------
+    # Suppression
+    # ------------------------------------------------------------------
+
+    def clear(self) -> "ShadowFormat":
+        """Guarantee this shape renders with no shadow, and return self.
+
+        Removes every explicit shadow element (`<a:outerShdw>`,
+        `<a:innerShdw>`, `<a:prstShdw>`) from the shape's `<a:effectLst>`,
+        writes the empty `<a:effectLst/>` that overrides inherited effects,
+        and re-points any `<a:effectRef>` in the shape's `<p:style>` at the
+        theme's empty effect slot (``idx="0"``).
+
+        That last step is what assigning ``None`` to the individual shadow
+        properties (or the deprecated ``shadow.inherit = False``) does not do:
+        auto shapes ship with ``<a:effectRef idx="2"/>``, which in most themes
+        is a soft drop shadow, so clearing only the explicit element leaves a
+        phantom shadow behind::
+
+            card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+            card.shadow.clear()          # flat card, no theme shadow
+
+        Non-shadow effects already on the shape (glow, soft edges, blur,
+        reflection) are preserved.  Idempotent, and safe on shapes that never
+        had a shadow.
+        """
+        effectLst = self._element.get_or_add_effectLst()
+        for remove in (
+            "_remove_outerShdw",
+            "_remove_innerShdw",
+            "_remove_prstShdw",
+        ):
+            getattr(effectLst, remove)()
+        _suppress_theme_effect_ref(self._element)
+        return self
 
     # ------------------------------------------------------------------
     # New Phase-3 properties — all non-mutating on read
