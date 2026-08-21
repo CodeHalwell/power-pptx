@@ -248,7 +248,7 @@ class DescribeTextFrame(object):
         text_frame.fit_text(family, max_size, bold, italic, font_file)
 
         _best_fit_font_size_.assert_called_once_with(
-            text_frame, family, max_size, bold, italic, font_file, False
+            text_frame, family, max_size, bold, italic, font_file, False, warn_on_fallback=True
         )
         _apply_fit_.assert_called_once_with(text_frame, family, font_size, bold, italic)
 
@@ -1721,12 +1721,21 @@ class DescribeFitTextFontMetrics(object):
         with pytest.warns(FontMetricsWarning, match="'Instrument Serif' is not installed"):
             text_frame_.fit_text("Instrument Serif", max_size=40)
 
-    def but_it_stays_quiet_for_the_unnamed_default_family(self, text_frame_, request):
+    def but_it_stays_quiet_when_no_family_was_asked_for(self, text_frame_, request):
         function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             text_frame_.fit_text(max_size=40)  # no family asked for, no promise broken
+
+    def and_it_warns_for_an_explicit_Calibri_that_is_not_installed(self, text_frame_, request):
+        # An omitted argument and an explicit "Calibri" are different requests:
+        # the second one names a face, so a fallback breaks a promise made to
+        # that caller and has to be audible.
+        function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
+
+        with pytest.warns(FontMetricsWarning, match="'Calibri' is not installed"):
+            text_frame_.fit_text("Calibri", max_size=40)
 
     def and_it_stays_quiet_when_given_an_explicit_font_file(self, text_frame_, request):
         # Measurement is mocked out so this holds on a container with no fonts

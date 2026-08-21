@@ -40,9 +40,10 @@ if TYPE_CHECKING:
     from power_pptx.types import ProvidesExtents, ProvidesPart
 
 
-#: Family `TextFrame.fit_text` measures with when the caller names none.  A
-#: fallback to Pillow's default metrics warns only when the caller asked for
-#: some *other* family — see `TextFrame.fit_text`.
+#: Family `TextFrame.fit_text` measures with when the caller names none.  An
+#: omitted `font_family` is told apart from an explicit one by the `None`
+#: default, so a fallback to Pillow's metrics warns whenever a face was actually
+#: asked for — this one included.  See `TextFrame.fit_text`.
 _DEFAULT_FIT_FAMILY = "Calibri"
 
 
@@ -90,7 +91,7 @@ class TextFrame(Subshape):
 
     def fit_text(
         self,
-        font_family: str = _DEFAULT_FIT_FAMILY,
+        font_family: str | None = None,
         max_size: int = 18,
         bold: bool = False,
         italic: bool = False,
@@ -109,15 +110,17 @@ class TextFrame(Subshape):
         best efforts are made to locate a font file with matching `font_family`, `bold`, and
         `italic` installed on the current system (usually succeeds if the font is installed).
 
+        `font_family` defaults to ``"Calibri"`` when omitted.
+
         **The fit is only as good as the metrics it measures against.**  When neither `font_file`
         nor an installed `font_family` can be found, measurement falls back to Pillow's bundled
         default font: the result is a plausible estimate, not the guarantee this method usually
-        provides, and a display face can still overflow.  Naming a family that isn't installed —
+        provides, and a display face can still overflow.  *Naming* a family that isn't installed —
         the brand-font-in-a-container case — emits a
-        :class:`~power_pptx.exc.FontMetricsWarning` (taking the ``"Calibri"`` default does not,
-        since no particular face was asked for).  ``strict=True`` turns *any* fallback, default
-        family included, into a |ValueError|, which is what a build that must be exact should
-        do::
+        :class:`~power_pptx.exc.FontMetricsWarning`.  Omitting the argument does not, since no
+        particular face was asked for; passing ``"Calibri"`` explicitly does, because that is a
+        request like any other.  ``strict=True`` turns *any* fallback into a |ValueError|, which
+        is what a build that must be exact should do::
 
             # bundle the real metrics with the deck build
             tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif.ttf")
@@ -132,8 +135,19 @@ class TextFrame(Subshape):
         if self.text == "":
             return None  # pragma: no cover
 
-        font_size = self._best_fit_font_size(font_family, max_size, bold, italic, font_file, strict)
-        self._apply_fit(font_family, font_size, bold, italic)
+        family = _DEFAULT_FIT_FAMILY if font_family is None else font_family
+        font_size = self._best_fit_font_size(
+            family,
+            max_size,
+            bold,
+            italic,
+            font_file,
+            strict,
+            # Only a caller who *named* a face is owed a warning; an omitted
+            # argument expresses no requirement to break.
+            warn_on_fallback=font_family is not None,
+        )
+        self._apply_fit(family, font_size, bold, italic)
         return font_size
 
     @property
@@ -376,6 +390,8 @@ class TextFrame(Subshape):
         italic: bool,
         font_file: str | None,
         strict: bool = False,
+        *,
+        warn_on_fallback: bool = True,
     ) -> int:
         """Return font-size in points that best fits text in this text-frame.
 
@@ -406,11 +422,7 @@ class TextFrame(Subshape):
                         "file for this family, or choose an installed family "
                         "(power_pptx.text.fonts.installed_font_families() lists them)."
                     )
-                if family != _DEFAULT_FIT_FAMILY:
-                    # Only a caller who *named* a face is owed a warning: they
-                    # asked for metrics the machine can't supply.  Taking the
-                    # default family expresses no such requirement, and warning
-                    # on it would fire on essentially every Linux build.
+                if warn_on_fallback:
                     warnings.warn(
                         f"{detail}. Pass font_file=, use strict=True to make this an error, or "
                         "check power_pptx.text.fonts.font_is_installed() first.",

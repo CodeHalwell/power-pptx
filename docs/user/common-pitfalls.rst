@@ -237,8 +237,10 @@ falls back to Pillow's bundled default font, and the "text will not
 overflow" guarantee degrades to a best guess.
 
 Naming a family that isn't installed now emits a
-:class:`~power_pptx.exc.FontMetricsWarning` (taking the ``"Calibri"``
-default does not).  Three ways to keep the guarantee, best first::
+:class:`~power_pptx.exc.FontMetricsWarning`.  Omitting ``font_family``
+does not — no particular face was requested — while passing
+``"Calibri"`` explicitly does.  Three ways to keep the guarantee, best
+first::
 
     # 1. ship the metrics with the build
     tf.fit_text("Instrument Serif", max_size=44,

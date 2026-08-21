@@ -304,8 +304,10 @@ These changes ship after v2.5 and are easy to miss:
 - **`fit_text` is explicit about fallback metrics.** It returns the size
   it applied, and warns (`FontMetricsWarning`) when a *named* family
   isn't installed and measurement silently drops to Pillow's default
-  font. `strict=True` raises instead;
-  `power_pptx.text.fonts.font_is_installed("Inter")` checks up front.
+  font — naming one is what makes it audible, so omitting `font_family`
+  stays quiet while `font_family="Calibri"` does not. `strict=True`
+  raises instead; `power_pptx.text.fonts.font_is_installed("Inter")`
+  checks up front.
 - **Float coordinates from arithmetic are coerced** at constructor
   entry and at `shape.left/top/width/height` setters, so
   `(Inches(N) - gutter) / 2` style expressions can be passed straight

@@ -75,7 +75,10 @@ Added
   family isn't installed and measurement silently falls back to Pillow's
   default metrics, and accepts ``strict=True`` to raise instead. The
   space-aware guarantee is only as good as the metrics behind it; this
-  makes the degradation visible rather than silent.
+  makes the degradation visible rather than silent. ``font_family`` now
+  defaults to ``None`` (meaning ``"Calibri"``) so an omitted argument is
+  told apart from an explicit ``"Calibri"`` — only the latter is a
+  request that a fallback breaks.
 
 Changed
 .......

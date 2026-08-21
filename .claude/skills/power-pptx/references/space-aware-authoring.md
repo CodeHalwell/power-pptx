@@ -58,9 +58,10 @@ font_is_installed("Inter", bold=True)   # -> False in most containers
 installed_font_families()               # what this machine can actually measure
 ```
 
-* Naming a family that isn't installed emits a `FontMetricsWarning`
-  (taking the default `"Calibri"` does not — no particular face was
-  asked for).
+* Naming a family that isn't installed emits a `FontMetricsWarning`.
+  Omitting the argument does not — no particular face was asked for —
+  but passing `"Calibri"` explicitly does, because that's a request
+  like any other.
 * `strict=True` turns any fallback into a `ValueError`, so a build that
   must be exact fails loudly instead of shipping a guess.
 

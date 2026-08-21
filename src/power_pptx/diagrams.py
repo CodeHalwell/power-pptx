@@ -178,7 +178,7 @@ def _fit_circular_label(
     tf.margin_top = tf.margin_bottom = v_inset
     try:
         tf.fit_text(
-            font_family=font or "Calibri",
+            font_family=font,
             max_size=max(1, int(round(max_size_pt))),
             bold=bold,
             italic=italic,
@@ -233,7 +233,7 @@ def _card(
         # (the rectangular siblings of the already-fitted circular nodes).
         try:
             tf.fit_text(
-                font_family=font or "Calibri",
+                font_family=font,
                 max_size=max(1, int(round(size_pt))),
                 bold=bool(bold),
             )
@@ -745,7 +745,7 @@ def comparison_columns(
                 run.font.color.rgb = coerce_color(text_color)
         # Shrink a long body so it doesn't overflow the column card / slide.
         try:
-            tf.fit_text(font_family=font or "Calibri", max_size=max(1, int(round(body_size_pt))))
+            tf.fit_text(font_family=font, max_size=max(1, int(round(body_size_pt))))
         except (ValueError, OSError):
             pass
         built_headers.append(header)
