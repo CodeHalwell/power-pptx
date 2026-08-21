@@ -59,6 +59,10 @@ bb = BBox.from_inches(1, 2, 8, 4)
 left, right = bb.split_h([1, 1], gap=Inches(0.2))
 inner = bb.inset(all=Inches(0.2))
 
+# --- n-up rows/grids: never hand-compute (avail - (n-1)*gap) / n ---
+for cell in bb.columns(3, gap=Pt(16)):     # equal columns; .rows(n) too
+    slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *cell)
+
 # --- text (one call) ---
 slide.shapes.add_text(bb, text="Hello",
                       size_pt=24, bold=True,
@@ -67,6 +71,11 @@ slide.shapes.add_text(bb, text="Hello",
 # --- shape with chainable colour ---
 slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
     .fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)
+
+# --- flat card: no theme drop-shadow, radius in points ---
+card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *inner)
+card.shadow.clear()                        # kills the inherited effectRef too
+card.corner_radius = Pt(6)                 # not adjustments[0]
 
 # --- arrow with proper triangular head + auto edge routing ---
 start_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
@@ -85,8 +94,12 @@ horizontal_pipeline(slide, bb, steps=["Extract", "Classify", "Enrich"])
 hub_and_spoke(slide, bb, centre="Agent",
               spokes=["Memory", "Tools", "Planning"])
 
-# --- space-aware fit ---
-tf.fit_text(font_family="Inter", max_size=24)
+# --- table styling without dropping to raw fill/font loops ---
+table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
+table.format_cells(rows=slice(1, None), size_pt=11, align="right")
+
+# --- space-aware fit (returns the size it applied) ---
+size = tf.fit_text(font_family="Inter", max_size=24)
 
 # --- single-call cleanup before save ---
 slide.tidy()                               # lints + safe auto-fixes
@@ -140,11 +153,11 @@ collections. Read just the file you need — they're self-contained.
 | File | What it covers |
 |---|---|
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
-| `references/geometry-and-arrows.md` | `BBox` value object, `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
+| `references/geometry-and-arrows.md` | `BBox` value object (`columns`/`rows`/`split_h`/`grid`), `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
 | `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
 | `references/design.md` | `DesignTokens`, `shape.style` facade, `Grid` / `Stack` layout primitives (geometry-safe placement), slide recipes (`title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, `image_hero_slide`), starter pack. **Phase 9.** |
 | `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts. Quick-reference cheatsheet. |
-| `references/effects.md` | Shadow, glow, soft edges, blur, reflection, alpha-tinted colors, gradient fills (linear / radial / rectangular / shape), line ends/caps/joins/compound. **Phase 3 + Phase 6.** |
+| `references/effects.md` | **The canonical fills-and-effects reference.** Shadow (including `shadow.clear()`), glow, soft edges, blur, reflection, alpha-tinted colors, gradient fills (linear / radial / rectangular / shape), line ends/caps/joins/compound. Other files link here rather than repeat it. **Phase 3 + Phase 6.** |
 | `references/animations.md` | `Entrance` / `Exit` / `Emphasis` presets, triggers, by-paragraph reveal, sequencing context manager, motion paths. **Phase 5.** |
 | `references/transitions.md` | Per-slide and deck-wide transitions including Morph and other `p14:` extensions. **Phase 4.** |
 | `references/compose.md` | `from_spec` (JSON authoring with built-in lint), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
@@ -154,7 +167,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/render.md` | Slide thumbnails via LibreOffice. **Phase 10.** |
 | `references/three-d.md` | Bevels and extrusion via `shape.three_d`. **Phase 8.** |
 | `references/smart-art.md` | Text substitution inside an existing template's SmartArt. **Phase 8.** |
-| `references/tables.md` | The inherited table API, plus `Cell.borders`. **Phase 4.** |
+| `references/tables.md` | The inherited table API, plus `cell.format(...)` / `table.format_cells(...)` styling, `Cell.borders`, and `fit_to_box`. |
 | `references/end-to-end-deck.md` | A complete worked example: tokens, recipes, animations, transitions, charts, **and a lint pass before save**. |
 
 ## Top-level imports beyond `Presentation`
@@ -194,9 +207,11 @@ from power_pptx import (
    clear.
 4. **Use EMU through helpers**: `Inches`, `Pt`, `Emu`, `Cm` from
    `power_pptx.util`. Never write raw EMU integers when a helper exists.
-5. **Use `Grid` / `Stack` for placement** when you have more than two
-   shapes on a slide — they compute geometry from the slide's real
-   dimensions, so you can't accidentally walk off the right edge.
+5. **Use `BBox` / `Grid` / `Stack` for placement** when you have more
+   than two shapes on a slide — they compute geometry from the slide's
+   real dimensions (or a region you hand them), so you can't
+   accidentally walk off the right edge, and there's no column
+   arithmetic to get wrong.
 6. **Prefer recipes for whole-slide layouts** when the user wants a
    "good enough" pitch deck; drop down to direct `add_shape` /
    `add_textbox` only when the recipes don't fit.
@@ -267,6 +282,30 @@ These changes ship after v2.5 and are easy to miss:
 - **`add_kpi_card(slide, ...)` / `add_progress_bar(slide, ...)`** —
   shape-level building blocks beneath the slide-level recipes
   (see `references/design.md`).
+- **`shape.shadow.clear()`** is the way to guarantee *no* shadow.
+  Clearing the individual shadow properties (or the deprecated
+  `shadow.inherit = False`) leaves the shape's `<a:effectRef idx="2"/>`
+  in place — a soft drop shadow in most themes — so cards keep a
+  phantom shadow nobody asked for. `clear()` drops the explicit shadow
+  elements *and* re-points the effect reference, keeping glow / soft
+  edges / blur / reflection intact.
+- **`shape.corner_radius`** reads and writes a rounded rectangle's
+  radius as a real length (`card.corner_radius = Pt(6)`), instead of the
+  `adjustments[0]` fraction-of-the-shorter-side that has to be eyeballed
+  per shape size.
+- **`BBox.columns(n, gap=...)` / `BBox.rows(n, gap=...)`** replace the
+  `(available - (n - 1) * gap) / n` loop for card rows, stat grids, and
+  panels. `Grid.from_box(box, cols=..., rows=...)` puts a full grid over
+  a region rather than the whole slide.
+- **`cell.format(...)` / `table.format_cells(rows=..., cols=..., ...)`**
+  style table cells with the same keywords as `add_text` (`fill`,
+  `color`, `bold`, `size_pt`, `align`, `anchor`, `margin`) — no more
+  `cell.fill.solid(); cell.fill.fore_color.rgb = ...` loops.
+- **`fit_text` is explicit about fallback metrics.** It returns the size
+  it applied, and warns (`FontMetricsWarning`) when a *named* family
+  isn't installed and measurement silently drops to Pillow's default
+  font. `strict=True` raises instead;
+  `power_pptx.text.fonts.font_is_installed("Inter")` checks up front.
 - **Float coordinates from arithmetic are coerced** at constructor
   entry and at `shape.left/top/width/height` setters, so
   `(Inches(N) - gutter) / 2` style expressions can be passed straight
@@ -304,12 +343,41 @@ Flagging them up front saves the trial-and-error round.
   arithmetic on EMU is fine — coordinates are coerced at the setter.
 - **Don't** lint + auto_fix + lint again to clear safe issues. Use
   `slide.tidy()` — it's the one-call wrapper.
+- **Don't** hand-roll `col_w = (avail - (n - 1) * gap) / n` and a running
+  cursor for card rows or stat grids. `bb.columns(n, gap=Pt(16))` (and
+  `bb.rows(...)`, `bb.grid(cols, rows)`, `Grid.from_box(bb, cols=...)`)
+  return exact, drift-free boxes.
+- **Don't** try to remove a shadow by assigning `None` to
+  `shadow.blur_radius` / `distance`, or by `shadow.inherit = False`.
+  Neither touches the theme effect style, so the shadow is still
+  rendered. Use `shape.shadow.clear()`.
+- **Don't** set a corner radius by guessing `adjustments[0]` (it's a
+  fraction of the shorter side, so the same value means a different
+  radius on every differently-sized card). Use
+  `shape.corner_radius = Pt(6)`.
+- **Don't** style table cells with `cell.fill.solid()` +
+  `cell.fill.fore_color.rgb` + per-run font loops. Use
+  `cell.format(...)` / `table.format_cells(...)` — and note that a
+  cell's anchor and insets belong on the cell, not on its text frame.
+- **Don't** trust `fit_text` when the font isn't installed. The
+  measurement falls back to Pillow's default metrics and the result is
+  an estimate — bundle the `.ttf` and pass `font_file=`, or pass
+  `strict=True` so the build fails instead of shipping a guess.
 
 ## Common pitfalls
 
 - **Calling `shape.shadow.inherit`** raises `DeprecationWarning`. Read
   individual properties (`blur_radius`, `distance`, `direction`,
-  `color`) and check for `None` instead.
+  `color`) and check for `None` instead; to *remove* a shadow call
+  `shape.shadow.clear()`.
+- **`fit_text` degrades to a best guess for uninstalled fonts.** Font
+  metrics come from the machine running the build, so a brand face that
+  isn't installed (the usual case in a container or CI) is measured with
+  Pillow's default font. Check with
+  `power_pptx.text.fonts.font_is_installed(...)`, pass `font_file=` with
+  the real `.ttf`, or use `strict=True`. `slide.lint()` is unaffected —
+  its overflow check is font-agnostic — which is why the lint pass is
+  worth keeping even when the metrics are exact.
 - **Bare-int sizes in `DesignTokens` typography** are interpreted as
   **EMU**, not points. Use floats (`44.0`) or `Pt(44)` to mean
   44-point font.

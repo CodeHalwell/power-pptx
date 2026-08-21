@@ -64,12 +64,32 @@ bb.sub(0.25, 0, 0.5, 1.0)                # normalised sub-box
 ### Splits
 
 ```python
+bb.columns(3, gap=Pt(16))                # n equal columns  ← the n-up case
+bb.rows(2, gap=Pt(12))                   # n equal rows
 bb.split_h([1, 1])                       # two equal columns
-bb.split_h([2, 1])                       # 66%/33%
+bb.split_h([2, 1])                       # 66%/33% — unequal, so ratios
 bb.split_h([1, 1, 1], gap=Inches(0.1))
 bb.split_v([1, 2])                       # vertical
 bb.grid(3, 2, gap_x=Inches(0.1))         # row-major 3x2 cells
 ```
+
+**Never hand-compute `col_w = (avail - (n - 1) * gap) / n`.** That
+arithmetic is what `columns` / `rows` / `grid` are for, and they
+apportion widths so the cells partition the box *exactly* — no rounding
+drift accumulating into the last column:
+
+```python
+row = BBox.from_inches(0.75, 2.4, 11.8, 2.2)
+for box, item in zip(row.columns(3, gap=Pt(16)), items):
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+    card.shadow.clear()
+    card.corner_radius = Pt(6)
+```
+
+For a 5-column × 2-row panel, `row.grid(5, 2, gap_x=Pt(12), gap_y=Pt(12))`
+returns the ten cells row-major — or use
+`Grid.from_box(row, cols=5, rows=2, gutter=Pt(12))` when you want
+span-aware placement (see `design.md`).
 
 ### Predicates
 

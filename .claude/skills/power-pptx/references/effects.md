@@ -1,8 +1,15 @@
-# Visual effects (Phase 3 + Phase 6)
+# Fills and visual effects (Phase 3 + Phase 6)
+
+**This is the canonical reference for fills, colour alpha, gradients,
+and effects.** Other files link here rather than repeat it.
 
 Every shape in `power-pptx` exposes non-mutating effect proxies. Reads
 return `None` when nothing is set; writes lazily create the underlying
 `<a:effectLst>` / `<a:ln>` element.
+
+Contents: outer shadow · removing a shadow · glow · soft edges · blur ·
+reflection · the card look · corner radius · alpha-tinted fills ·
+gradient fills · line ends/caps/joins.
 
 ## Outer shadow
 
@@ -18,11 +25,34 @@ shadow.color.rgb   = RGBColor(0, 0, 0)
 shadow.color.alpha = 0.35          # 35% opacity
 ```
 
-To clear, assign `None` to each property — the `<a:outerShdw>` element
-is dropped when the last attribute goes away, restoring inheritance.
+To restore inheritance, assign `None` to each property — the
+`<a:outerShdw>` element is dropped when the last attribute goes away.
+
+### Removing a shadow entirely: `shadow.clear()`
+
+Restoring inheritance is **not** the same as having no shadow. Auto
+shapes created by `add_shape` carry a `<p:style>` with
+`<a:effectRef idx="2"/>`, which resolves against the theme's effect
+styles — a soft drop shadow in most themes. Clear the explicit
+properties and that inherited shadow is what you're left with: the
+"phantom shadow I never asked for".
+
+```python
+card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+card.shadow.clear()          # flat card, guaranteed
+```
+
+`clear()` drops every explicit shadow element (outer, inner, preset),
+writes the empty `<a:effectLst/>` that overrides inherited effects, and
+re-points `<a:effectRef>` at the theme's empty slot (`idx="0"`). Other
+effects on the shape — glow, soft edges, blur, reflection — are kept.
+It's idempotent and safe on shapes that never had a shadow, including
+text boxes and pictures (which have no `<p:style>` to re-point).
 
 > ⚠ `shadow.inherit` (read or write) emits a `DeprecationWarning` in
-> 1.1+. Read individual properties for `None` instead.
+> 1.1+. Read individual properties for `None`; use `clear()` to remove.
+> (`inherit = False` now performs the same full suppression as
+> `clear()`, but it still warns — prefer `clear()`.)
 
 ## Glow
 
@@ -68,6 +98,8 @@ card.fill.solid()
 card.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 card.line.fill.background()                       # no border
 
+card.corner_radius      = Pt(6)                   # not adjustments[0]
+
 card.shadow.blur_radius = Pt(18)
 card.shadow.distance    = Pt(4)
 card.shadow.direction   = 90.0
@@ -76,6 +108,26 @@ card.shadow.color.alpha = 0.18
 
 card.soft_edges.radius  = Pt(1)
 ```
+
+For a **flat** card, swap the four shadow lines for `card.shadow.clear()`
+— see above; assigning `None` to them is not equivalent.
+
+### Corner radius in points
+
+`shape.corner_radius` reads and writes a rounded rectangle's radius as a
+length, converting to and from the fraction-of-the-shorter-side that
+OOXML stores in `adjustments[0]`:
+
+```python
+card.corner_radius = Pt(6)
+card.corner_radius.pt        # -> 6.0
+```
+
+Defined for `ROUNDED_RECTANGLE`, `ROUND_1_RECTANGLE`,
+`ROUND_2_SAME_RECTANGLE`, and `ROUND_2_DIAG_RECTANGLE` (the two-radius
+geometries keep their second corner pair on `adjustments[1]`). Raises
+rather than silently clipping when the radius exceeds half the shorter
+side.
 
 ## Alpha-tinted fills
 
@@ -93,7 +145,23 @@ title_run.font.color.rgb   = RGBColor(0x1F, 0x29, 0x37)
 title_run.font.color.alpha = 0.9
 ```
 
-## Gradient fills with kinds and mutable stops
+## Gradient fills
+
+The two-liner most decks want — a multi-stop linear gradient at an
+angle:
+
+```python
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient(
+    [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
+    angle=45,
+)
+```
+
+`angle` follows the OOXML convention: `0` is left→right, `90` is
+top→bottom, `180` is right→left, `270` is bottom→top.
+
+### Other kinds, and mutable stops
 
 ```python
 fill = card.fill

@@ -28,6 +28,53 @@ Added
 * ``README.rst`` gained a header block with PyPI / Python-version / CI /
   license / docs badges and a library-information table linking the new
   documentation pages.
+* ``shape.shadow.clear()`` — one call that guarantees a shape renders with
+  no shadow. It drops every explicit shadow element *and* re-points the
+  shape's ``<a:effectRef>`` at the theme's empty effect slot, which is what
+  clearing the individual properties never did: auto shapes ship with
+  ``<a:effectRef idx="2"/>``, a soft drop shadow in most themes, so a
+  "cleared" card kept a phantom shadow. Non-shadow effects (glow, soft
+  edges, blur, reflection) are preserved.
+* ``shape.corner_radius`` on rounded-rectangle auto shapes — read/write in
+  length units (``card.corner_radius = Pt(6)``) instead of the raw
+  ``adjustments[0]`` fraction-of-the-shorter-side, so corner radius can be
+  specified the way it is designed. Raises rather than silently clipping
+  when the radius exceeds half the shorter side.
+* ``BBox.columns(n, gap=...)`` / ``BBox.rows(n, gap=...)`` — the n-up
+  shorthand for the ``(available - (n - 1) * gap) / n`` arithmetic every
+  card row and stat grid would otherwise hand-roll. Widths partition the
+  box exactly, with no rounding drift on the last column.
+* ``Grid.from_box(box, cols=..., rows=...)`` — a ``design.layout.Grid``
+  over an arbitrary region (a ``BBox``, ``Box``, or 4-tuple) rather than
+  the whole slide, so a panel can carry its own grid with no slide
+  reference.
+* ``cell.format(...)`` and ``table.format_cells(rows=..., cols=..., ...)``
+  — fill plus text styling for table cells in the same keyword vocabulary
+  as ``shapes.add_text`` (``fill``, ``color``, ``bold``, ``size_pt``,
+  ``align``, ``anchor``, ``margin``), replacing loops over
+  ``cell.fill.fore_color.rgb``. Selections accept an int, a slice, an
+  iterable of indices, or ``None`` for all; the anchor and insets are
+  written to ``<a:tcPr>`` where PowerPoint actually reads them.
+* ``power_pptx.text.fonts.find_font_file()``, ``font_is_installed()``, and
+  ``installed_font_families()`` — check up front whether a build
+  environment can measure a font, instead of discovering it from a
+  render.
+* ``TextFrame.fit_text()`` now returns the point size it applied, warns
+  with the new ``power_pptx.exc.FontMetricsWarning`` when a *named* font
+  family isn't installed and measurement silently falls back to Pillow's
+  default metrics, and accepts ``strict=True`` to raise instead. The
+  space-aware guarantee is only as good as the metrics behind it; this
+  makes the degradation visible rather than silent.
+
+Changed
+.......
+
+* ``shadow.inherit = False`` (deprecated since 1.1) now performs the full
+  suppression that ``shadow.clear()`` does. It previously wrote an empty
+  ``<a:effectLst/>`` and left the theme effect style in place, so the
+  shape still rendered a shadow — silently wrong output for the one
+  caller trying to turn a shadow off. It still emits a
+  ``DeprecationWarning``; prefer ``shadow.clear()``.
 
 
 2.10.0 (2026-07-12)

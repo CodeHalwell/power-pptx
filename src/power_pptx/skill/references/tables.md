@@ -1,7 +1,9 @@
 # Tables
 
 Most of the table API is unchanged from upstream `python-pptx`. The
-post-fork addition is `Cell.borders` — see the bottom of this file.
+post-fork additions are `cell.format(...)` / `table.format_cells(...)`
+styling, `Cell.borders`, and `Table.fit_to_box` — reach for those before
+dropping to raw fill/font mutation.
 
 ## Adding a table
 
@@ -22,10 +24,7 @@ table = shape.table
 ```python
 HEADERS = ["Metric", "Value", "Δ QoQ"]
 for col, label in enumerate(HEADERS):
-    cell = table.cell(0, col)
-    cell.text = label
-    cell.text_frame.paragraphs[0].font.bold = True
-    cell.text_frame.paragraphs[0].font.size = Pt(14)
+    table.cell(0, col).text = label
 
 ROWS = [
     ("ARR",         "$182M", "+27%"),
@@ -49,22 +48,50 @@ for r in range(1, len(table.rows)):
     table.rows[r].height = Inches(0.5)
 ```
 
-## Cell fill
+## Styling cells: `format` and `format_cells`
+
+`cell.format(...)` sets fill and text styling in one call, using the
+same keyword vocabulary as `slide.shapes.add_text(...)`. Every argument
+is optional and `None` means "leave alone", so calls layer:
 
 ```python
-cell = table.cell(0, 0)
-cell.fill.solid()
-cell.fill.fore_color.rgb = RGBColor(0x1F, 0x29, 0x37)
-cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+table.cell(0, 0).format(
+    fill="#1F2937",        # hex / (r, g, b) / RGBColor — or "none"
+    color="#FFFFFF",       # text colour
+    font="Inter",
+    size_pt=12,
+    bold=True,
+    italic=False,
+    align="center",        # left / center / right / justify
+    anchor="middle",       # top / middle / bottom
+    margin=(2, 8, 2, 8),   # points: scalar, or (top, right, bottom, left)
+    word_wrap=True,
+)
 ```
 
-## Vertical anchor
+`table.format_cells(rows=..., cols=..., ...)` applies the same keywords
+across a selection. `rows` / `cols` each accept `None` (all), an `int`
+(negative counts from the end), a `slice`, or any iterable of indices —
+so a whole table's look is a handful of calls:
 
 ```python
-from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
-
-cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
+table.format_cells(rows=slice(1, None), size_pt=11, anchor="middle")
+table.format_cells(rows=range(2, len(table.rows), 2), fill="#F6F7F9")  # banding
+table.format_cells(cols=-1, align="right")                            # numbers
 ```
+
+Both return the cell / table, so they chain. Spanned (merged-away)
+cells are skipped; style the merge origin instead.
+
+> A cell's vertical anchor and insets live on `<a:tcPr>`, not on its
+> text frame's `<a:bodyPr>` — PowerPoint reads the cell properties and
+> ignores the body ones. `format(anchor=..., margin=...)` writes them to
+> the right place; setting `cell.text_frame.vertical_anchor` does not.
+
+The low-level surface is still there when you need it
+(`cell.fill.solid()`, `cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE`,
+per-run `font` objects) — `format` just removes the loop.
 
 ## Detaching the default table style
 
@@ -80,13 +107,8 @@ When you want full control of every cell's appearance, detach the
 default style outright:
 
 ```python
-table.clear_style()           # drops <a:tableStyleId>
-# now style every cell explicitly:
-for r in range(len(table.rows)):
-    for c in range(len(table.columns)):
-        cell = table.cell(r, c)
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+table.clear_style()                       # drops <a:tableStyleId>
+table.format_cells(fill="#FFFFFF")        # now every cell is yours
 ```
 
 ## Cell borders (Phase 4 — post-fork addition)

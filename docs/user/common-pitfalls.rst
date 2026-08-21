@@ -193,3 +193,65 @@ The default off-grid drift tolerance was relaxed from 0.01" to 0.05"
 (IMPROVEMENT_PLAN item 10).  An ``Inches(0.6)`` divider next to an
 ``Inches(0.62)`` eyebrow no longer lights up a warning on section
 headers.  Genuine drift between 0.05" and 0.10" is still flagged.
+
+Phantom shadows on auto shapes
+------------------------------
+
+A shape from ``shapes.add_shape()`` is born with a ``<p:style>``
+containing ``<a:effectRef idx="2"/>`` — a reference into the theme's
+effect-style list, which in most themes is a soft drop shadow.  Nothing
+in the shape's own ``<a:spPr>`` mentions a shadow, so code that clears
+``shadow.blur_radius`` / ``distance`` / ``color`` (or sets the
+deprecated ``shadow.inherit = False``) looks like it turned the shadow
+off — and the rendered card still has one.
+
+**Workaround**: call :meth:`ShadowFormat.clear
+<power_pptx.dml.effect.ShadowFormat.clear>`.  It drops the explicit
+shadow elements *and* re-points the effect reference at the theme's
+empty slot, leaving other effects (glow, soft edges, blur, reflection)
+intact::
+
+    card.shadow.clear()
+
+Corner radius is a fraction, not a length
+-----------------------------------------
+
+``adjustments[0]`` on a rounded rectangle is a fraction of the shorter
+side, so ``0.045`` is a different physical radius on every
+differently-sized card — which is why hand-tuned values never quite
+match across a deck.  Use :attr:`Shape.corner_radius
+<power_pptx.shapes.autoshape.Shape.corner_radius>`, which converts to
+and from a real length::
+
+    card.corner_radius = Pt(6)
+
+``fit_text`` needs the font to be installed
+-------------------------------------------
+
+:meth:`TextFrame.fit_text <power_pptx.text.text.TextFrame.fit_text>`
+measures with real font metrics read from the machine running the
+build.  When the requested family isn't installed — the normal case for
+a brand display face inside a container or CI runner — measurement
+falls back to Pillow's bundled default font, and the "text will not
+overflow" guarantee degrades to a best guess.
+
+Naming a family that isn't installed now emits a
+:class:`~power_pptx.exc.FontMetricsWarning` (taking the ``"Calibri"``
+default does not).  Three ways to keep the guarantee, best first::
+
+    # 1. ship the metrics with the build
+    tf.fit_text("Instrument Serif", max_size=44,
+                font_file="fonts/InstrumentSerif-Regular.ttf")
+
+    # 2. fail the build rather than ship an estimate
+    tf.fit_text("Inter", max_size=24, strict=True)
+
+    # 3. degrade deliberately to a family you know is present
+    from power_pptx.text.fonts import font_is_installed
+    family = "Inter" if font_is_installed("Inter") else "DejaVu Sans"
+    tf.fit_text(family, max_size=24)
+
+:func:`power_pptx.text.fonts.installed_font_families` lists what the
+build machine can actually measure.  ``slide.lint()`` is unaffected —
+its overflow check uses a font-agnostic character-width heuristic — so
+the lint pass remains worth running when the metrics are approximate.

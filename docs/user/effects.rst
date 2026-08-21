@@ -39,6 +39,50 @@ Shadow, glow, soft edges, blur, reflection
 Setting every explicit property to |None| drops the corresponding XML
 element again so the shape inherits the master/theme value.
 
+Removing a shadow: ``shadow.clear()``
+-------------------------------------
+
+Restoring inheritance is not the same as having no shadow.  An auto
+shape created by ``shapes.add_shape()`` carries a ``<p:style>`` with
+``<a:effectRef idx="2"/>``, which resolves against the theme's effect
+styles — a soft drop shadow in most themes.  Clearing only the explicit
+properties leaves that inherited shadow rendering, which reads as a
+phantom shadow nobody asked for.
+
+``ShadowFormat.clear()`` is the guaranteed-flat form::
+
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+    card.shadow.clear()
+
+It drops every explicit shadow element (outer, inner, preset), writes
+the empty ``<a:effectLst/>`` that overrides inherited effects, and
+re-points ``<a:effectRef>`` at the theme's empty slot (``idx="0"``).
+Non-shadow effects already on the shape — glow, soft edges, blur,
+reflection — are preserved.  It is idempotent, and a no-op on shapes
+with no ``<p:style>`` (text boxes, pictures, placeholders).
+
+.. note::
+   The deprecated ``shadow.inherit = False`` now performs the same full
+   suppression, but still emits a ``DeprecationWarning``.  Prefer
+   ``shadow.clear()``.
+
+Corner radius in points
+-----------------------
+
+A rounded rectangle stores its corner radius as ``adjustments[0]``, a
+fraction of the shorter side — so the same value means a different
+radius on every differently-sized shape.  ``Shape.corner_radius`` reads
+and writes it as a real length instead::
+
+    card.corner_radius = Pt(6)
+    card.corner_radius.pt    # -> 6.0
+
+Defined for ``ROUNDED_RECTANGLE``, ``ROUND_1_RECTANGLE``,
+``ROUND_2_SAME_RECTANGLE`` and ``ROUND_2_DIAG_RECTANGLE``; raises
+|ValueError| for any other geometry, for a shape with no extents yet,
+and when the radius exceeds half the shorter side (the maximum a preset
+rounded rectangle can express).
+
 Alpha and gradient fills
 ------------------------
 

@@ -121,33 +121,26 @@ card.line.width = Pt(1)
 ### Per-color alpha (transparency)
 
 Both fill and line colours expose `alpha` in the `[0.0, 1.0]` range —
-useful for glow shapes, depth effects, and translucent overlays.
+useful for hairline dividers, glow shapes, and translucent overlays.
 Assign after a colour is set:
 
 ```python
-glow = slide.shapes.add_shape(MSO_SHAPE.OVAL, ...)
-glow.fill.solid()
-glow.fill.fore_color.rgb = RGBColor(0x06, 0xD6, 0xFE)
-glow.fill.fore_color.alpha = 0.12   # 12% opaque
+divider.line.color.rgb   = RGBColor(0x0D, 0x0D, 0x0D)
+divider.line.color.alpha = 0.08     # 8% opaque hairline
 ```
-
-`shape.line.color.alpha` and gradient stop colour alphas
-(`stops[0].color.alpha`) work the same way. Assigning `None` removes
-the explicit alpha and restores full opacity.
 
 ### Two-stop linear gradients
 
 ```python
 bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
-# Multi-stop:
-bar.fill.linear_gradient(
-    [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
-    angle=45,
-)
 ```
 
 `angle` follows the OOXML convention: `0` is left→right, `90` is
 top→bottom, `180` is right→left, `270` is bottom→top.
+
+→ **Multi-stop gradients, gradient kinds, mutable stop lists, and the
+full alpha surface live in `effects.md`** — the canonical fills and
+effects reference. Don't go looking in two places.
 
 ## Pictures
 
