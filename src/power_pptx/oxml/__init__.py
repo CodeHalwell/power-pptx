@@ -515,6 +515,7 @@ from power_pptx.oxml.text import (  # noqa: E402
     CT_TextField,
     CT_TextFont,
     CT_TextLineBreak,
+    CT_TextListStyle,
     CT_TextNormalAutofit,
     CT_TextParagraph,
     CT_TextParagraphProperties,
@@ -533,6 +534,8 @@ register_element_cls("a:lnSpc", CT_TextSpacing)
 register_element_cls("a:normAutofit", CT_TextNormalAutofit)
 register_element_cls("a:r", CT_RegularTextRun)
 register_element_cls("a:p", CT_TextParagraph)
+register_element_cls("a:lstStyle", CT_TextListStyle)
+register_element_cls("a:lvl1pPr", CT_TextParagraphProperties)
 register_element_cls("a:pPr", CT_TextParagraphProperties)
 register_element_cls("c:rich", CT_TextBody)
 register_element_cls("a:rPr", CT_TextCharacterProperties)

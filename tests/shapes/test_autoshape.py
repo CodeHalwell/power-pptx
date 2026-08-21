@@ -8,13 +8,16 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from power_pptx import Presentation
 from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import qn
 from power_pptx.oxml.shapes.autoshape import CT_PresetGeometry2D, CT_Shape
 from power_pptx.shapes.autoshape import Adjustment, AdjustmentCollection, AutoShapeType, Shape
 from power_pptx.text.text import TextFrame
+from power_pptx.util import Emu, Inches, Pt
 
 from ..oxml.unitdata.shape import (
     a_cNvSpPr,
@@ -489,3 +492,115 @@ class DescribeShape(object):
     @pytest.fixture
     def text_frame_prop_(self, request):
         return property_mock(request, Shape, "text_frame")
+
+
+class DescribeShapeCornerRadius(object):
+    """Unit-test suite for `Shape.corner_radius`."""
+
+    def it_reads_the_default_radius_in_length_units(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        # roundRect's default adjustment is 0.16667 of the shorter side (2")
+        assert round(shape.corner_radius.pt, 2) == round(0.16667 * 144, 2)
+
+    def it_round_trips_a_point_valued_radius(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+
+        shape.corner_radius = Pt(6)
+
+        # exact to the precision an adjustment value can carry (1e-5 of 2")
+        assert abs(shape.corner_radius.pt - 6) < 0.01
+
+    def it_scales_the_adjustment_to_the_shorter_side(self):
+        wide = _rounded_rect(width=Inches(8), height=Inches(1))
+        tall = _rounded_rect(width=Inches(1), height=Inches(8))
+
+        wide.corner_radius = Pt(9)
+        tall.corner_radius = Pt(9)
+
+        assert abs(wide.adjustments[0] - tall.adjustments[0]) < 1e-6
+        assert abs(wide.corner_radius.pt - 9) < 0.01
+
+    def it_accepts_a_zero_radius(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        shape.corner_radius = Pt(0)
+        assert int(shape.corner_radius) == 0
+
+    def it_works_on_the_other_rounded_rectangle_geometries(self):
+        shape = _rounded_rect(
+            prst=MSO_SHAPE.ROUND_2_SAME_RECTANGLE, width=Inches(3), height=Inches(1.5)
+        )
+        shape.corner_radius = Pt(8)
+        assert abs(shape.corner_radius.pt - 8) < 0.01
+
+    def it_writes_a_legal_adjustment_at_the_exact_maximum(self):
+        # The setter nudges past the integer it should land on, because
+        # `Adjustment._denormalize` truncates.  At the documented maximum the
+        # nudge must still truncate back to 50000 (0.5) — never above it,
+        # which would be an out-of-range corner-radius fraction.
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+
+        shape.corner_radius = Emu(int(Inches(2)) // 2)
+
+        assert shape.adjustments[0] == 0.5
+        gd = shape._element.spPr.find(qn("a:prstGeom")).find(qn("a:avLst"))[0]
+        assert gd.get("fmla") == "val 50000"
+
+    def it_reports_an_out_of_range_adjustment_as_rendered(self):
+        # roundRect and friends pin their adjustment with `pin 0 adj 50000`, so
+        # a value set through `adjustments[0]` (or authored in another tool)
+        # outside 0..0.5 draws at the nearest legal radius.  The reader must
+        # agree with what renders, not with the raw guide.
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        half_the_shorter_side = Emu(int(Inches(2)) // 2)
+
+        shape.adjustments[0] = 0.9
+        assert shape.corner_radius == half_the_shorter_side
+
+        shape.adjustments[0] = -0.2
+        assert int(shape.corner_radius) == 0
+
+    def it_rejects_a_radius_larger_than_half_the_shorter_side(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(1))
+        with pytest.raises(ValueError, match="exceeds half the shorter side"):
+            shape.corner_radius = Pt(40)
+
+    def it_accepts_a_zero_radius_on_a_collapsed_shape(self):
+        # `add_shape` accepts zero extents (a shape sized later), where zero is
+        # the only radius that can be expressed.  The setter must agree with
+        # the getter, which reports 0 for such a shape, rather than dividing by
+        # the zero shorter side.
+        shape = _rounded_rect(width=Emu(0), height=Emu(0))
+
+        shape.corner_radius = Pt(0)
+
+        assert int(shape.corner_radius) == 0
+        assert shape.adjustments[0] == 0.0
+
+    def but_a_collapsed_shape_still_rejects_a_real_radius(self):
+        shape = _rounded_rect(width=Emu(0), height=Emu(0))
+        with pytest.raises(ValueError, match="exceeds half the shorter side"):
+            shape.corner_radius = Pt(4)
+
+    def it_rejects_a_negative_radius(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        with pytest.raises(ValueError, match="must be non-negative"):
+            shape.corner_radius = Pt(-1)
+
+    def but_it_raises_for_a_geometry_with_no_corner_radius(self):
+        shape = _rounded_rect(prst=MSO_SHAPE.RECTANGLE, width=Inches(4), height=Inches(2))
+        with pytest.raises(ValueError, match="only defined for rounded-rectangle"):
+            shape.corner_radius
+        with pytest.raises(ValueError, match="only defined for rounded-rectangle"):
+            shape.corner_radius = Pt(4)
+
+    def and_it_raises_when_the_shape_has_no_extents(self):
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        shape._element.spPr._remove_xfrm()
+        with pytest.raises(ValueError, match="known width and height"):
+            shape.corner_radius
+
+
+def _rounded_rect(prst=MSO_SHAPE.ROUNDED_RECTANGLE, *, width, height):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    return slide.shapes.add_shape(prst, Inches(1), Inches(1), width, height)

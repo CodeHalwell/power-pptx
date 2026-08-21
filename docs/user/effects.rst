@@ -39,6 +39,67 @@ Shadow, glow, soft edges, blur, reflection
 Setting every explicit property to |None| drops the corresponding XML
 element again so the shape inherits the master/theme value.
 
+Removing a shadow: ``shadow.clear()``
+-------------------------------------
+
+Restoring inheritance is not the same as having no shadow.  An auto
+shape created by ``shapes.add_shape()`` carries a ``<p:style>`` with
+``<a:effectRef idx="2"/>``, which resolves against the theme's effect
+styles — a soft drop shadow in most themes.  Clearing only the explicit
+properties leaves that inherited shadow rendering, which reads as a
+phantom shadow nobody asked for.
+
+``ShadowFormat.clear()`` is the guaranteed-flat form::
+
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+    card.shadow.clear()
+
+It drops every explicit shadow element (outer, inner, preset), writes
+the empty ``<a:effectLst/>`` that overrides inherited effects, and
+re-points ``<a:effectRef>`` at the theme's empty slot (``idx="0"``).
+Non-shadow effects written on the shape itself — glow, soft edges, blur,
+reflection — are preserved.  Theme-derived effects are not:
+``<a:effectRef>`` references one whole entry in the theme's effect-style
+list, so a custom theme pairing its shadow with a glow loses the glow as
+well; re-apply it explicitly on the shape if you need it.  (Stock Office
+themes reference shadow-only styles.)  It is idempotent, and a no-op on
+shapes with no ``<p:style>`` (text boxes, pictures, placeholders).
+
+A shape whose effects are expressed as an ``<a:effectDag>`` has its
+shadow nodes pruned from that tree instead.  ``<a:effectLst>`` and
+``<a:effectDag>`` are the two arms of one ``EG_EffectProperties``
+choice, so adding a sibling list would make the deck schema-invalid and
+leave the DAG's own shadow rendering.
+
+.. note::
+   The deprecated ``shadow.inherit = False`` does *not* do this.  It writes
+   the empty ``<a:effectLst/>`` and nothing else, so that ``inherit = True``
+   can put the shape back exactly as it found it — the original
+   ``effectRef`` index is not recoverable once overwritten.  An inherited
+   theme shadow therefore survives it; use ``shadow.clear()``.
+
+Corner radius in points
+-----------------------
+
+A rounded rectangle stores its corner radius as ``adjustments[0]``, a
+fraction of the shorter side — so the same value means a different
+radius on every differently-sized shape.  ``Shape.corner_radius`` reads
+and writes it as a real length instead::
+
+    card.corner_radius = Pt(6)
+    card.corner_radius.pt    # -> 6.0
+
+Defined for ``ROUNDED_RECTANGLE``, ``ROUND_1_RECTANGLE``,
+``ROUND_2_SAME_RECTANGLE`` and ``ROUND_2_DIAG_RECTANGLE``; raises
+|ValueError| for any other geometry, for a shape with no extents yet,
+and when the radius exceeds half the shorter side (the maximum a preset
+rounded rectangle can express).
+
+Reads report the radius as rendered.  These geometries pin their
+adjustment with ``pin 0 adj 50000``, so a shape carrying an out-of-range
+value — set through ``adjustments[0]`` or authored in another tool —
+draws at the nearest legal radius and reads back as that.
+
 Alpha and gradient fills
 ------------------------
 

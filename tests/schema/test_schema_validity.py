@@ -441,6 +441,58 @@ def _deck_run_properties() -> bytes:
     return _saved(prs)
 
 
+def _deck_ergonomics() -> bytes:
+    """Shadow suppression, point-valued corner radius, and cell formatting."""
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+
+    card = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(2)
+    )
+    card.corner_radius = Pt(6)
+    card.shadow.clear()  # empty <a:effectLst/> + <a:effectRef idx="0"/>
+
+    glowing = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6), Inches(1), Inches(3), Inches(2)
+    )
+    glowing.glow.radius = Pt(6)
+    glowing.shadow.clear()  # a surviving sibling effect must stay schema-valid
+
+    # A shape whose effects are an <a:effectDag>: clearing must prune the
+    # shadow nodes rather than add a sibling <a:effectLst>, which would put two
+    # arms of the EG_EffectProperties choice in one <a:spPr>.
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    dagged = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(3.4), Inches(3), Inches(1.2)
+    )
+    dagged._element.spPr.append(
+        parse_xml(
+            '<a:effectDag %s name="dag"><a:cont>'
+            '<a:outerShdw blurRad="50800"><a:srgbClr val="000000"/></a:outerShdw>'
+            '<a:glow rad="50800"><a:srgbClr val="4F9DFF"/></a:glow>'
+            "</a:cont></a:effectDag>" % nsdecls("a")
+        )
+    )
+    dagged.shadow.clear()
+
+    table = s.shapes.add_table(3, 3, Inches(1), Inches(4), Inches(8), Inches(2)).table
+    for r in range(3):
+        for c in range(3):
+            table.cell(r, c).text = "r%dc%d" % (r, c)
+    table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
+    # style-then-populate: writes <a:lstStyle>/<a:lvl1pPr> text-body defaults
+    empty = s.shapes.add_table(1, 2, Inches(1), Inches(6.2), Inches(4), Inches(0.6)).table
+    empty.format_cells(color="#111111", bold=True, size_pt=11, align="center")
+    empty.cell(0, 0).text = "styled first"
+    table.format_cells(rows=slice(1, None), size_pt=11, align="right", margin=(2, 8, 2, 8))
+    table.cell(2, 0).format(fill="none")
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -464,6 +516,7 @@ _DECK_BUILDERS = {
     "picture_washout": _deck_picture_washout,
     "recipes": _deck_recipes,
     "diagrams": _deck_diagrams,
+    "ergonomics": _deck_ergonomics,
 }
 
 

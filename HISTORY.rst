@@ -14,8 +14,14 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
-Unreleased
-++++++++++
+2.11.0 (2026-08-21)
++++++++++++++++++++
+
+An ergonomics release from dogfooding the library on a real nine-slide
+deck: the shadow that would not turn off, corner radius spelled as a
+fraction, column arithmetic written out by hand, table styling that
+dropped back to raw python-pptx, and a text fit that quietly guessed
+when the brand font was missing.
 
 Added
 .....
@@ -28,6 +34,62 @@ Added
 * ``README.rst`` gained a header block with PyPI / Python-version / CI /
   license / docs badges and a library-information table linking the new
   documentation pages.
+* ``shape.shadow.clear()`` — one call that guarantees a shape renders with
+  no shadow. It drops every explicit shadow element *and* re-points the
+  shape's ``<a:effectRef>`` at the theme's empty effect slot, which is what
+  clearing the individual properties never did: auto shapes ship with
+  ``<a:effectRef idx="2"/>``, a soft drop shadow in most themes, so a
+  "cleared" card kept a phantom shadow. Non-shadow effects (glow, soft
+  edges, blur, reflection) are preserved, and a shape whose effects are
+  an ``<a:effectDag>`` has its shadow nodes pruned from that tree rather
+  than gaining a schema-invalid sibling ``<a:effectLst>``.
+* ``shape.corner_radius`` on rounded-rectangle auto shapes — read/write in
+  length units (``card.corner_radius = Pt(6)``) instead of the raw
+  ``adjustments[0]`` fraction-of-the-shorter-side, so corner radius can be
+  specified the way it is designed. Raises rather than silently clipping
+  when the radius exceeds half the shorter side.
+* ``BBox.columns(n, gap=...)`` / ``BBox.rows(n, gap=...)`` — the n-up
+  shorthand for the ``(available - (n - 1) * gap) / n`` arithmetic every
+  card row and stat grid would otherwise hand-roll. Widths partition the
+  box exactly, with no rounding drift on the last column.
+* ``Grid.from_box(box, cols=..., rows=...)`` — a ``design.layout.Grid``
+  over an arbitrary region (a ``BBox``, ``Box``, or 4-tuple) rather than
+  the whole slide, so a panel can carry its own grid with no slide
+  reference.
+* ``cell.format(...)`` and ``table.format_cells(rows=..., cols=..., ...)``
+  — fill plus text styling for table cells in the same keyword vocabulary
+  as ``shapes.add_text`` (``fill``, ``color``, ``bold``, ``size_pt``,
+  ``align``, ``anchor``, ``margin``), replacing loops over
+  ``cell.fill.fore_color.rgb``. Selections accept an int, a slice, an
+  iterable of indices, or ``None`` for all; the anchor and insets are
+  written to ``<a:tcPr>`` where PowerPoint actually reads them, and the
+  text styling is recorded in the cell's ``<a:lstStyle>`` text-body
+  defaults as well as on its runs, so styling a header row *before*
+  populating it survives the later ``cell.text`` assignment.
+* ``power_pptx.text.fonts.find_font_file()``, ``font_is_installed()``, and
+  ``installed_font_families()`` — check up front whether a build
+  environment can measure a font, instead of discovering it from a
+  render.
+* ``TextFrame.fit_text()`` now returns the point size it applied, warns
+  with the new ``power_pptx.exc.FontMetricsWarning`` when a *named* font
+  family isn't installed and measurement silently falls back to Pillow's
+  default metrics, and accepts ``strict=True`` to raise instead. The
+  space-aware guarantee is only as good as the metrics behind it; this
+  makes the degradation visible rather than silent. ``font_family`` now
+  defaults to ``None`` (meaning ``"Calibri"``) so an omitted argument is
+  told apart from an explicit ``"Calibri"`` — only the latter is a
+  request that a fallback breaks.
+
+Changed
+.......
+
+* ``shadow.inherit``'s deprecation warning now names ``shadow.clear()``
+  and says plainly that ``inherit = False`` writes only an empty
+  ``<a:effectLst/>`` and leaves an inherited theme shadow rendering. The
+  property's XML behaviour is unchanged and stays symmetric — ``False``
+  then ``True`` returns the shape to where it started, which delegating
+  to ``clear()`` could not do, since the original ``effectRef`` index
+  isn't recoverable once overwritten.
 
 
 2.10.0 (2026-07-12)

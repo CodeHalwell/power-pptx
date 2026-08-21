@@ -267,6 +267,50 @@ Note that the content migration performed as part of the `.merge()` operation
 was not reversed.
 
 
+Styling cells
+-------------
+
+``_Cell.format()`` sets a cell's fill and text styling in one call,
+using the same keyword vocabulary as ``shapes.add_text()``.  Every
+argument is optional and |None| means "leave alone", so calls layer::
+
+    table.cell(0, 0).format(
+        fill="#1F2937",        # hex / (r, g, b) / RGBColor — or "none"
+        color="#FFFFFF",       # text colour
+        font="Inter",
+        size_pt=12,
+        bold=True,
+        align="center",        # left / center / right / justify
+        anchor="middle",       # top / middle / bottom
+        margin=(2, 8, 2, 8),   # points; scalar or (top, right, bottom, left)
+    )
+
+``Table.format_cells()`` applies the same keywords across a selection.
+``rows`` and ``cols`` each accept |None| (all of them), an ``int``
+(negative counts from the end), a ``slice``, or any iterable of
+indices::
+
+    table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
+    table.format_cells(rows=slice(1, None), size_pt=11, anchor="middle")
+    table.format_cells(rows=range(2, len(table.rows), 2), fill="#F6F7F9")
+    table.format_cells(cols=-1, align="right")
+
+Both return the cell / table so calls chain, and spanned cells are
+skipped — style the merge origin instead.
+
+Either order works.  The formatting is recorded as the cell's text-body
+defaults (``<a:lstStyle>``) as well as on its current runs, so a header
+row styled *before* it is populated keeps that styling when
+``cell.text`` is assigned — a text assignment replaces the paragraphs
+but leaves the defaults alone.
+
+.. note::
+   A cell's vertical anchor and insets belong on ``<a:tcPr>``, not on
+   its text frame's ``<a:bodyPr>``; PowerPoint reads the cell
+   properties and ignores the body ones.  ``format(anchor=...,
+   margin=...)`` writes them to the right place.
+
+
 A few snippets that might be handy
 ----------------------------------
 

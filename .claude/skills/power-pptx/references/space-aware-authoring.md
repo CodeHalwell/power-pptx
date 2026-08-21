@@ -35,9 +35,57 @@ tf.fit_text(font_family="Inter", max_size=44, bold=True)
 ```
 
 `fit_text` also sets `auto_size = MSO_AUTO_SIZE.NONE`, so PowerPoint
-won't second-guess the size at render time. On Linux / serverless
-environments without the requested font installed, it falls back to
-Pillow's bundled default — you still get a usable size, no exception.
+won't second-guess the size at render time, and returns the point size
+it applied.
+
+### The guarantee is only as good as the font metrics
+
+**Read this before trusting `fit_text` with a brand font.** The fit is
+computed from the metrics of the font *on the machine running the
+build*. If the requested family isn't installed — the usual case for a
+display face like Instrument Serif or Inter inside a container or CI
+runner — measurement silently falls back to Pillow's bundled default
+font. You still get a number, and it's usually in the right
+neighbourhood, but it is an **estimate**: a wider real face can still
+overflow the box.
+
+power-pptx makes that visible rather than silent:
+
+```python
+from power_pptx.text.fonts import font_is_installed, installed_font_families
+
+font_is_installed("Inter", bold=True)   # -> False in most containers
+installed_font_families()               # what this machine can actually measure
+```
+
+* Naming a family that isn't installed emits a `FontMetricsWarning`.
+  Omitting the argument does not — no particular face was asked for —
+  but passing `"Calibri"` explicitly does, because that's a request
+  like any other.
+* `strict=True` turns any fallback into a `ValueError`, so a build that
+  must be exact fails loudly instead of shipping a guess.
+
+Three ways to keep the guarantee, best first:
+
+```python
+# 1. Ship the metrics with the build — exact, works anywhere
+tf.fit_text("Instrument Serif", max_size=44,
+            font_file="fonts/InstrumentSerif-Regular.ttf")
+
+# 2. Fail the build rather than ship an estimate
+tf.fit_text("Inter", max_size=24, strict=True)
+
+# 3. Degrade deliberately to a family you know is present
+family = "Inter" if font_is_installed("Inter") else "DejaVu Sans"
+tf.fit_text(family, max_size=24)
+```
+
+When none of those apply, treat the display-font sizes as
+hand-tunable and verify with a real render
+(`power_pptx.render.render_slides`, needs LibreOffice). Note that
+`slide.lint()` is **not** affected — its overflow check uses a
+font-agnostic character-width heuristic — which is why layer 3 below
+still earns its keep when the metrics are approximate.
 
 For finer control (e.g. you want to size text *for* a known box but
 leave styling to a recipe), use the underlying fitter directly:

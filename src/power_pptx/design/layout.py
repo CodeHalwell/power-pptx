@@ -119,6 +119,53 @@ class Grid:
         gutter: int = 0,
         margin: MarginSpec = 0,
     ):
+        slide_w, slide_h = _slide_dimensions(slide)
+        self._init_extent(cols, rows, gutter, margin, slide_w, slide_h, 0, 0)
+        self._slide_width = slide_w
+        self._slide_height = slide_h
+
+    @classmethod
+    def from_box(
+        cls,
+        box: "Box | tuple[int, int, int, int]",
+        cols: int,
+        rows: int = 1,
+        gutter: int = 0,
+        margin: MarginSpec = 0,
+    ) -> "Grid":
+        """Return a grid that spans `box` rather than the whole slide.
+
+        `box` is any ``(left, top, width, height)`` sequence — a
+        :class:`Box`, a :class:`~power_pptx.geometry.BBox`, or a plain
+        4-tuple — so a panel, card row, or content column can carry its own
+        grid without a slide reference::
+
+            panel = BBox.from_inches(0.75, 2.4, 11.8, 3.6)
+            grid = Grid.from_box(panel, cols=5, rows=2, gutter=Pt(12))
+            grid.place(card, col=2, row=1)
+
+        No slide is touched, so :attr:`slide_width`-style questions don't
+        arise; cells are positioned relative to `box`'s own origin.
+        """
+        left, top, width, height = (int(v) for v in tuple(box))
+        grid = cls.__new__(cls)
+        grid._init_extent(cols, rows, gutter, margin, Emu(width), Emu(height), left, top)
+        grid._slide_width = None
+        grid._slide_height = None
+        return grid
+
+    def _init_extent(
+        self,
+        cols: int,
+        rows: int,
+        gutter: int,
+        margin: MarginSpec,
+        extent_w: Length,
+        extent_h: Length,
+        origin_left: int,
+        origin_top: int,
+    ) -> None:
+        """Shared constructor body for the slide-spanning and box-spanning cases."""
         if cols < 1:
             raise ValueError("Grid.cols must be >= 1, got %r" % cols)
         if rows < 1:
@@ -130,13 +177,11 @@ class Grid:
         self._top_m, self._right_m, self._bottom_m, self._left_m = self._coerce_margin(
             margin
         )
+        self._origin_left = Emu(int(origin_left))
+        self._origin_top = Emu(int(origin_top))
 
-        slide_w, slide_h = _slide_dimensions(slide)
-        self._slide_width = slide_w
-        self._slide_height = slide_h
-
-        usable_w = slide_w - self._left_m - self._right_m - self._gutter * (self._cols - 1)
-        usable_h = slide_h - self._top_m - self._bottom_m - self._gutter * (self._rows - 1)
+        usable_w = extent_w - self._left_m - self._right_m - self._gutter * (self._cols - 1)
+        usable_h = extent_h - self._top_m - self._bottom_m - self._gutter * (self._rows - 1)
         if usable_w <= 0 or usable_h <= 0:
             raise ValueError(
                 "grid margins+gutters consume the entire slide; reduce them"
@@ -170,8 +215,8 @@ class Grid:
                 "%dx%d grid" % (col, row, col_span, row_span, self._cols, self._rows)
             )
 
-        left = self._left_m + (self._col_w + self._gutter) * col
-        top = self._top_m + (self._row_h + self._gutter) * row
+        left = self._origin_left + self._left_m + (self._col_w + self._gutter) * col
+        top = self._origin_top + self._top_m + (self._row_h + self._gutter) * row
         width = self._col_w * col_span + self._gutter * (col_span - 1)
         height = self._row_h * row_span + self._gutter * (row_span - 1)
         return Box(

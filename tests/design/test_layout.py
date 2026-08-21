@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from power_pptx import Presentation
+from power_pptx import BBox, Presentation
 from power_pptx.design.layout import Box, Grid, Stack
 from power_pptx.util import Emu, Inches, Pt
 
@@ -205,3 +205,55 @@ class DescribeStack:
         assert returned is shape
         assert (shape.left, shape.top) == (Inches(0), Inches(0))
         assert (shape.width, shape.height) == (Inches(2), Inches(1))
+
+
+class DescribeGridFromBox:
+    """`Grid.from_box` — a grid over a region rather than the whole slide."""
+
+    def it_positions_cells_relative_to_the_box(self):
+        region = BBox.from_inches(1, 2, 6, 2)
+        grid = Grid.from_box(region, cols=3)
+
+        first, last = grid.cell(0, 0), grid.cell(2, 0)
+
+        assert int(first.left) == int(region.left)
+        assert int(first.top) == int(region.top)
+        assert int(first.height) == int(region.height)
+        assert int(last.left) + int(last.width) == int(region.right)
+
+    def it_accepts_a_plain_four_tuple(self):
+        grid = Grid.from_box((int(Inches(1)), int(Inches(1)), int(Inches(4)), int(Inches(2))), 2)
+        assert int(grid.cell(0, 0).width) == int(Inches(2))
+
+    def it_honours_gutters_and_margins(self):
+        region = BBox.from_inches(0, 0, 10, 4)
+        grid = Grid.from_box(region, cols=2, rows=2, gutter=Pt(12), margin=Inches(0.5))
+
+        cell = grid.cell(0, 0)
+
+        assert int(cell.left) == int(Inches(0.5))
+        assert int(cell.width) == int((Inches(10) - Inches(1) - Pt(12)) / 2)
+
+    def it_needs_no_slide(self):
+        # A Box from another layout call is a valid region — no presentation
+        # in sight, so a panel can carry its own grid.
+        grid = Grid.from_box(Box(Emu(0), Emu(0), Inches(4), Inches(1)), cols=4, rows=1)
+        assert [int(grid.cell(c, 0).width) for c in range(4)] == [int(Inches(1))] * 4
+
+    def it_rejects_invalid_construction(self):
+        with pytest.raises(ValueError, match="cols must be >= 1"):
+            Grid.from_box(BBox.from_inches(0, 0, 4, 4), cols=0)
+
+    def it_can_place_a_shape_into_a_cell(self, slide):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        region = BBox.from_inches(1, 1, 6, 2)
+        grid = Grid.from_box(region, cols=2)
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(1)
+        )
+
+        grid.place(shape, col=1)
+
+        assert int(shape.left) == int(grid.cell(1, 0).left)
+        assert int(shape.width) == int(grid.cell(1, 0).width)

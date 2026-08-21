@@ -108,6 +108,23 @@ grid.place(card2, col=6, row=0, col_span=6, row_span=4)
 box = grid.cell(col=0, row=4, col_span=12, row_span=2)
 ```
 
+A grid doesn't have to span the whole slide — `Grid.from_box` puts one
+over any region (a `BBox`, a `Box`, or a plain `(left, top, width,
+height)` tuple), so a panel can carry its own grid with no slide
+reference:
+
+```python
+from power_pptx import BBox
+
+panel = BBox.from_inches(0.75, 2.4, 11.8, 3.6)
+grid = Grid.from_box(panel, cols=5, rows=2, gutter=Pt(12))
+grid.place(card, col=2, row=1)
+```
+
+For the plain "n equal boxes across this region" case, `panel.columns(5,
+gap=Pt(12))` / `panel.rows(2, ...)` from `BBox` are shorter — reach for
+`Grid` when you need column spans.
+
 ### Stack
 
 ```python

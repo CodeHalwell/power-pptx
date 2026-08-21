@@ -176,3 +176,44 @@ class DescribeIntersectsTouching:
         assert not a.intersects(c)
         d = BBox.from_inches(2, 2, 2, 2)   # corner touch
         assert not a.intersects(d)
+
+
+class DescribeColumnsAndRows:
+    """`BBox.columns` / `BBox.rows` — the n-up shorthand over `split_h`/`split_v`."""
+
+    def it_returns_n_equal_columns(self):
+        bb = BBox.from_inches(1, 2, 9, 3)
+        cols = bb.columns(3)
+        assert [int(c.width) for c in cols] == [int(Inches(3))] * 3
+        assert [int(c.left) for c in cols] == [
+            int(Inches(1)),
+            int(Inches(4)),
+            int(Inches(7)),
+        ]
+
+    def it_leaves_a_gap_between_columns_without_losing_span(self):
+        bb = BBox.from_inches(0, 0, 10, 2)
+        gap = int(Pt(13))  # odd number, to stress the apportioning
+        cols = bb.columns(4, gap=gap)
+        assert sum(int(c.width) for c in cols) + gap * 3 == int(bb.width)
+        assert int(cols[-1].left) + int(cols[-1].width) == int(bb.right)
+
+    def it_returns_n_equal_rows(self):
+        bb = BBox.from_inches(0, 0, 4, 8)
+        rows = bb.rows(4, gap=Pt(6))
+        assert len({int(r.height) for r in rows}) == 1
+        assert int(rows[0].top) == int(bb.top)
+        assert int(rows[-1].top) + int(rows[-1].height) == int(bb.bottom)
+
+    def it_keeps_the_cross_axis_untouched(self):
+        bb = BBox.from_inches(1, 2, 9, 3)
+        for col in bb.columns(3, gap=Pt(8)):
+            assert int(col.top) == int(bb.top)
+            assert int(col.height) == int(bb.height)
+
+    def it_rejects_a_count_below_one(self):
+        bb = BBox.from_inches(0, 0, 4, 4)
+        with pytest.raises(ValueError, match="needs n >= 1"):
+            bb.columns(0)
+        with pytest.raises(ValueError, match="needs n >= 1"):
+            bb.rows(-2)
