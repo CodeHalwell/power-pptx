@@ -545,6 +545,20 @@ class DescribeShapeCornerRadius(object):
         gd = shape._element.spPr.find(qn("a:prstGeom")).find(qn("a:avLst"))[0]
         assert gd.get("fmla") == "val 50000"
 
+    def it_reports_an_out_of_range_adjustment_as_rendered(self):
+        # roundRect and friends pin their adjustment with `pin 0 adj 50000`, so
+        # a value set through `adjustments[0]` (or authored in another tool)
+        # outside 0..0.5 draws at the nearest legal radius.  The reader must
+        # agree with what renders, not with the raw guide.
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+        half_the_shorter_side = Emu(int(Inches(2)) // 2)
+
+        shape.adjustments[0] = 0.9
+        assert shape.corner_radius == half_the_shorter_side
+
+        shape.adjustments[0] = -0.2
+        assert int(shape.corner_radius) == 0
+
     def it_rejects_a_radius_larger_than_half_the_shorter_side(self):
         shape = _rounded_rect(width=Inches(4), height=Inches(1))
         with pytest.raises(ValueError, match="exceeds half the shorter side"):

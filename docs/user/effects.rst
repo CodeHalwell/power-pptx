@@ -85,6 +85,11 @@ Defined for ``ROUNDED_RECTANGLE``, ``ROUND_1_RECTANGLE``,
 and when the radius exceeds half the shorter side (the maximum a preset
 rounded rectangle can express).
 
+Reads report the radius as rendered.  These geometries pin their
+adjustment with ``pin 0 adj 50000``, so a shape carrying an out-of-range
+value — set through ``adjustments[0]`` or authored in another tool —
+draws at the nearest legal radius and reads back as that.
+
 Alpha and gradient fills
 ------------------------
 

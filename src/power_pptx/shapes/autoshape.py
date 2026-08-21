@@ -290,13 +290,20 @@ class Shape(BaseShape):
             card.corner_radius = Pt(6)
             card.corner_radius.pt    # -> 6.0
 
+        Reads report the radius as *rendered*.  Each of these geometries pins its
+        adjustment with ``pin 0 adj 50000``, so a shape carrying an out-of-range
+        value — set through ``adjustments[0]`` or authored elsewhere — draws at
+        the nearest legal radius, and this property says so rather than
+        reporting a negative radius or one bigger than the shape.
+
         Raises |ValueError| for a shape whose geometry has no corner-radius
         adjustment (anything other than a rounded rectangle), when the shape has
         no width/height yet, or when the assigned radius exceeds half the shorter
         side — the maximum a preset rounded rectangle can express.
         """
         extent = self._corner_radius_extent  # validates geometry before indexing
-        return Emu(int(round(self.adjustments[0] * extent)))
+        pinned = min(max(self.adjustments[0], 0.0), 0.5)
+        return Emu(int(round(pinned * extent)))
 
     @corner_radius.setter
     def corner_radius(self, value: Length | int):
