@@ -61,6 +61,12 @@ Non-shadow effects already on the shape — glow, soft edges, blur,
 reflection — are preserved.  It is idempotent, and a no-op on shapes
 with no ``<p:style>`` (text boxes, pictures, placeholders).
 
+A shape whose effects are expressed as an ``<a:effectDag>`` has its
+shadow nodes pruned from that tree instead.  ``<a:effectLst>`` and
+``<a:effectDag>`` are the two arms of one ``EG_EffectProperties``
+choice, so adding a sibling list would make the deck schema-invalid and
+leave the DAG's own shadow rendering.
+
 .. note::
    The deprecated ``shadow.inherit = False`` does *not* do this.  It writes
    the empty ``<a:effectLst/>`` and nothing else, so that ``inherit = True``

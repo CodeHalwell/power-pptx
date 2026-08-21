@@ -34,6 +34,11 @@ def _ensure_effect_color(el) -> None:
     ColorFormat.from_colorchoice_parent(el).rgb = RGBColor(0x00, 0x00, 0x00)
 
 
+#: The three shadow effects, wherever they appear — a flat `<a:effectLst>` or
+#: nested anywhere inside an `<a:effectDag>` container tree.
+_SHADOW_TAGS = tuple(qn(t) for t in ("a:outerShdw", "a:innerShdw", "a:prstShdw"))
+
+
 def _suppress_theme_effect_ref(spPr) -> None:
     """Point the shape's `<a:effectRef>` at the "no effect" style-matrix slot.
 
@@ -256,14 +261,27 @@ class ShadowFormat(object):
         Non-shadow effects already on the shape (glow, soft edges, blur,
         reflection) are preserved.  Idempotent, and safe on shapes that never
         had a shadow.
+
+        A shape whose effects are expressed as an `<a:effectDag>` — legal, and
+        seen on decks authored outside PowerPoint — has its shadow nodes pruned
+        from that tree instead.  `<a:effectLst>` and `<a:effectDag>` are the two
+        arms of one `EG_EffectProperties` choice, so writing a sibling list
+        would make the deck schema-invalid *and* leave the DAG's own shadow
+        rendering.
         """
-        effectLst = self._element.get_or_add_effectLst()
-        for remove in (
-            "_remove_outerShdw",
-            "_remove_innerShdw",
-            "_remove_prstShdw",
-        ):
-            getattr(effectLst, remove)()
+        effectDag = self._element.find(qn("a:effectDag"))
+        if effectDag is not None:
+            for tag in _SHADOW_TAGS:
+                for node in list(effectDag.iterdescendants(tag)):
+                    node.getparent().remove(node)
+        else:
+            effectLst = self._element.get_or_add_effectLst()
+            for remove in (
+                "_remove_outerShdw",
+                "_remove_innerShdw",
+                "_remove_prstShdw",
+            ):
+                getattr(effectLst, remove)()
         _suppress_theme_effect_ref(self._element)
         return self
 

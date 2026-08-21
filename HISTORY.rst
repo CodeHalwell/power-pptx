@@ -34,7 +34,9 @@ Added
   clearing the individual properties never did: auto shapes ship with
   ``<a:effectRef idx="2"/>``, a soft drop shadow in most themes, so a
   "cleared" card kept a phantom shadow. Non-shadow effects (glow, soft
-  edges, blur, reflection) are preserved.
+  edges, blur, reflection) are preserved, and a shape whose effects are
+  an ``<a:effectDag>`` has its shadow nodes pruned from that tree rather
+  than gaining a schema-invalid sibling ``<a:effectLst>``.
 * ``shape.corner_radius`` on rounded-rectangle auto shapes — read/write in
   length units (``card.corner_radius = Pt(6)``) instead of the raw
   ``adjustments[0]`` fraction-of-the-shorter-side, so corner radius can be

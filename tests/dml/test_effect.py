@@ -513,6 +513,23 @@ class DescribeShadowFormatClear(object):
         assert _effect_ref_idx(shape) == "2"
         assert shape._element.spPr.effectLst is None
 
+    def it_prunes_shadows_from_an_effect_dag_instead_of_adding_a_list(self):
+        # <a:effectLst> and <a:effectDag> are the two arms of one
+        # EG_EffectProperties choice, so a sibling list would be schema-invalid
+        # and would leave the DAG's own shadow rendering.
+        shadow = ShadowFormat(
+            element(
+                "p:spPr/a:effectDag/(a:cont/(a:outerShdw,a:glow{rad=50800}),a:innerShdw)"
+            )
+        )
+
+        shadow.clear()
+
+        assert shadow._element.xml == xml(
+            "p:spPr/a:effectDag/a:cont/a:glow{rad=50800}"
+        )
+        assert shadow._element.effectLst is None
+
     def it_leaves_a_shape_without_a_style_element_alone(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])

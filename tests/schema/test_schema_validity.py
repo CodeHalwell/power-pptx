@@ -460,6 +460,25 @@ def _deck_ergonomics() -> bytes:
     glowing.glow.radius = Pt(6)
     glowing.shadow.clear()  # a surviving sibling effect must stay schema-valid
 
+    # A shape whose effects are an <a:effectDag>: clearing must prune the
+    # shadow nodes rather than add a sibling <a:effectLst>, which would put two
+    # arms of the EG_EffectProperties choice in one <a:spPr>.
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    dagged = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(3.4), Inches(3), Inches(1.2)
+    )
+    dagged._element.spPr.append(
+        parse_xml(
+            '<a:effectDag %s name="dag"><a:cont>'
+            '<a:outerShdw blurRad="50800"><a:srgbClr val="000000"/></a:outerShdw>'
+            '<a:glow rad="50800"><a:srgbClr val="4F9DFF"/></a:glow>'
+            "</a:cont></a:effectDag>" % nsdecls("a")
+        )
+    )
+    dagged.shadow.clear()
+
     table = s.shapes.add_table(3, 3, Inches(1), Inches(4), Inches(8), Inches(2)).table
     for r in range(3):
         for c in range(3):

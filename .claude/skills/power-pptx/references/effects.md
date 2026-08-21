@@ -47,7 +47,11 @@ writes the empty `<a:effectLst/>` that overrides inherited effects, and
 re-points `<a:effectRef>` at the theme's empty slot (`idx="0"`). Other
 effects on the shape — glow, soft edges, blur, reflection — are kept.
 It's idempotent and safe on shapes that never had a shadow, including
-text boxes and pictures (which have no `<p:style>` to re-point).
+text boxes and pictures (which have no `<p:style>` to re-point). On a
+shape imported with an `<a:effectDag>` (an effect tree rather than a
+flat list) the shadow nodes are pruned from that tree instead — the two
+are mutually exclusive in the schema, so writing a list alongside one
+would produce a deck PowerPoint offers to repair.
 
 > ⚠ `shadow.inherit` (read or write) emits a `DeprecationWarning` in
 > 1.1+. Read individual properties for `None`; use `clear()` to remove.
