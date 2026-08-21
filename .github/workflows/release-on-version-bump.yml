@@ -3,10 +3,16 @@ name: release-on-version-bump
 # Watches pushes to the default branch (the only path version bumps land
 # on after a merge) and, when ``power_pptx.__version__`` differs from
 # the most recent ``vX.Y.Z`` tag, automatically creates the tag and a
-# GitHub release.  The existing ``publish.yml`` workflow already
-# triggers on ``v*`` tag pushes, so this chain is:
+# GitHub release.  ``publish.yml`` then picks that up, so the chain is:
 #
 #     PR merged to master  →  this workflow tags + releases  →  publish.yml builds + uploads to PyPI
+#
+# The hand-off runs on ``publish.yml``'s ``workflow_run`` trigger, *not*
+# on the tag push.  The tag below is created with the default
+# ``GITHUB_TOKEN``, and GitHub does not start workflow runs from events
+# raised with that token, so ``publish.yml``'s ``push: tags`` trigger
+# never fires for an automated release.  See the trigger notes at the
+# top of ``publish.yml``.
 #
 # The workflow is a no-op when ``__version__`` matches an existing tag,
 # so safety-net pushes that don't bump the version don't produce
