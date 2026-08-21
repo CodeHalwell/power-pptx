@@ -564,6 +564,23 @@ class DescribeShapeCornerRadius(object):
         with pytest.raises(ValueError, match="exceeds half the shorter side"):
             shape.corner_radius = Pt(40)
 
+    def it_accepts_a_zero_radius_on_a_collapsed_shape(self):
+        # `add_shape` accepts zero extents (a shape sized later), where zero is
+        # the only radius that can be expressed.  The setter must agree with
+        # the getter, which reports 0 for such a shape, rather than dividing by
+        # the zero shorter side.
+        shape = _rounded_rect(width=Emu(0), height=Emu(0))
+
+        shape.corner_radius = Pt(0)
+
+        assert int(shape.corner_radius) == 0
+        assert shape.adjustments[0] == 0.0
+
+    def but_a_collapsed_shape_still_rejects_a_real_radius(self):
+        shape = _rounded_rect(width=Emu(0), height=Emu(0))
+        with pytest.raises(ValueError, match="exceeds half the shorter side"):
+            shape.corner_radius = Pt(4)
+
     def it_rejects_a_negative_radius(self):
         shape = _rounded_rect(width=Inches(4), height=Inches(2))
         with pytest.raises(ValueError, match="must be non-negative"):

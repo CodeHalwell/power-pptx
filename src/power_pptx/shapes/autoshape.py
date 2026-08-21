@@ -318,6 +318,14 @@ class Shape(BaseShape):
                 f"this shape ({Emu(int(max_radius)).pt:.4g}pt), the maximum a preset rounded "
                 f"rectangle can express; use a smaller radius or a larger shape"
             )
+        if extent == 0:
+            # A collapsed shape (zero width or height) can only express a zero
+            # radius, and the guard above has already rejected anything larger.
+            # Accepting it keeps the setter consistent with the getter, which
+            # reports 0 for the same shape, and lets a shape be sized after it
+            # is styled.
+            self.adjustments[0] = 0.0
+            return
         # Adjustment values are stored as integers on a 100,000 unit basis and
         # `Adjustment._denormalize` *truncates*, so hand it a value already
         # nudged past the integer it should land on — otherwise `Pt(6)` comes
