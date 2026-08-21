@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Iterator, cast
 
 from power_pptx.dml.color import _LazyColorFormat
@@ -10,10 +11,11 @@ from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.enum.lang import MSO_LANGUAGE_ID
 from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_UNDERLINE, MSO_VERTICAL_ANCHOR
+from power_pptx.exc import FontMetricsWarning
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.oxml.simpletypes import ST_TextWrappingType
 from power_pptx.shapes import Subshape
-from power_pptx.text.fonts import FontFiles
+from power_pptx.text.fonts import find_font_file
 from power_pptx.text.layout import TextFitter
 from power_pptx.util import Centipoints, Emu, Length, Pt, lazyproperty
 
@@ -36,6 +38,12 @@ if TYPE_CHECKING:
     from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import Slide
     from power_pptx.types import ProvidesExtents, ProvidesPart
+
+
+#: Family `TextFrame.fit_text` measures with when the caller names none.  A
+#: fallback to Pillow's default metrics warns only when the caller asked for
+#: some *other* family — see `TextFrame.fit_text`.
+_DEFAULT_FIT_FAMILY = "Calibri"
 
 
 class TextFrame(Subshape):
@@ -82,29 +90,51 @@ class TextFrame(Subshape):
 
     def fit_text(
         self,
-        font_family: str = "Calibri",
+        font_family: str = _DEFAULT_FIT_FAMILY,
         max_size: int = 18,
         bold: bool = False,
         italic: bool = False,
         font_file: str | None = None,
-    ):
+        strict: bool = False,
+    ) -> int | None:
         """Fit text-frame text entirely within bounds of its shape.
 
         Make the text in this text frame fit entirely within the bounds of its shape by setting
-        word wrap on and applying the "best-fit" font size to all the text it contains.
+        word wrap on and applying the "best-fit" font size to all the text it contains.  Returns
+        the point size applied (|None| when the frame is empty and nothing was done).
 
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
         be set larger than `max_size` points. If the path to a matching TrueType font is provided
         as `font_file`, that font file will be used for the font metrics. If `font_file` is |None|,
         best efforts are made to locate a font file with matchhing `font_family`, `bold`, and
         `italic` installed on the current system (usually succeeds if the font is installed).
+
+        **The fit is only as good as the metrics it measures against.**  When neither `font_file`
+        nor an installed `font_family` can be found, measurement falls back to Pillow's bundled
+        default font: the result is a plausible estimate, not the guarantee this method usually
+        provides, and a display face can still overflow.  Naming a family that isn't installed —
+        the brand-font-in-a-container case — emits a
+        :class:`~power_pptx.exc.FontMetricsWarning` (taking the ``"Calibri"`` default does not,
+        since no particular face was asked for).  ``strict=True`` turns *any* fallback, default
+        family included, into a |ValueError|, which is what a build that must be exact should
+        do::
+
+            # bundle the real metrics with the deck build
+            tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif.ttf")
+
+            # or fail the build rather than ship a guess
+            tf.fit_text("Inter", max_size=18, strict=True)
+
+        :func:`power_pptx.text.fonts.font_is_installed` answers the same question up front,
+        without measuring anything.
         """
         # ---no-op when empty as fit behavior not defined for that case---
         if self.text == "":
-            return  # pragma: no cover
+            return None  # pragma: no cover
 
-        font_size = self._best_fit_font_size(font_family, max_size, bold, italic, font_file)
+        font_size = self._best_fit_font_size(font_family, max_size, bold, italic, font_file, strict)
         self._apply_fit(font_family, font_size, bold, italic)
+        return font_size
 
     @property
     def margin_bottom(self) -> Length:
@@ -339,7 +369,13 @@ class TextFrame(Subshape):
         self._set_font(font_family, font_size, is_bold, is_italic)
 
     def _best_fit_font_size(
-        self, family: str, max_size: int, bold: bool, italic: bool, font_file: str | None
+        self,
+        family: str,
+        max_size: int,
+        bold: bool,
+        italic: bool,
+        font_file: str | None,
+        strict: bool = False,
     ) -> int:
         """Return font-size in points that best fits text in this text-frame.
 
@@ -356,10 +392,31 @@ class TextFrame(Subshape):
         setter with a confusing ``TypeError`` from inside ``Pt(None)``.
         """
         if font_file is None:
-            try:
-                font_file = FontFiles.find(family, bold, italic)
-            except (KeyError, OSError):
-                font_file = None
+            font_file = find_font_file(family, bold, italic)
+            if font_file is None:
+                style = "".join((" bold" if bold else "", " italic" if italic else ""))
+                detail = (
+                    f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
+                    "default font instead of real metrics — the chosen size is an estimate and "
+                    "the text may still overflow when rendered with the intended face"
+                )
+                if strict:
+                    raise ValueError(
+                        f"fit_text(strict=True): {detail}. Pass font_file= with a TrueType "
+                        "file for this family, or choose an installed family "
+                        "(power_pptx.text.fonts.installed_font_families() lists them)."
+                    )
+                if family != _DEFAULT_FIT_FAMILY:
+                    # Only a caller who *named* a face is owed a warning: they
+                    # asked for metrics the machine can't supply.  Taking the
+                    # default family expresses no such requirement, and warning
+                    # on it would fire on essentially every Linux build.
+                    warnings.warn(
+                        f"{detail}. Pass font_file=, use strict=True to make this an error, or "
+                        "check power_pptx.text.fonts.font_is_installed() first.",
+                        FontMetricsWarning,
+                        stacklevel=3,
+                    )
         size = TextFitter.best_fit_font_size(self.text, self._extents, max_size, font_file)
         if size is None:
             raise ValueError(

@@ -17,6 +17,9 @@ from power_pptx.text.fonts import (
     _NameTable,
     _Stream,
     _TableFactory,
+    find_font_file,
+    font_is_installed,
+    installed_font_families,
 )
 
 from ..unitutil.file import test_file_dir, testfile
@@ -740,3 +743,46 @@ class Describe_NameTable(object):
     @pytest.fixture
     def _table_bytes_prop_(self, request):
         return property_mock(request, _NameTable, "_table_bytes")
+
+
+class DescribeFontAvailability(object):
+    """Unit-test suite for the `find_font_file` / `font_is_installed` helpers."""
+
+    def it_finds_an_installed_font_file(self, request):
+        FontFiles_find = method_mock(request, FontFiles, "find", return_value="/f/Inter.ttf")
+
+        assert find_font_file("Inter", bold=True) == "/f/Inter.ttf"
+        assert FontFiles_find.call_args_list == [call("Inter", True, False)]
+
+    def it_returns_None_rather_than_raising_for_a_missing_font(self, request):
+        method_mock(request, FontFiles, "find", side_effect=KeyError(("Nope", False, False)))
+        assert find_font_file("Nope") is None
+
+    def it_returns_None_when_the_font_directories_are_unreadable(self, request):
+        method_mock(request, FontFiles, "find", side_effect=OSError("no such directory"))
+        assert find_font_file("Nope") is None
+
+    def it_answers_whether_a_font_is_installed(self, request):
+        method_mock(request, FontFiles, "find", return_value="/f/Inter.ttf")
+        assert font_is_installed("Inter") is True
+
+    def but_not_when_the_lookup_comes_up_empty(self, request):
+        method_mock(request, FontFiles, "find", side_effect=KeyError(("Nope", False, False)))
+        assert font_is_installed("Nope") is False
+
+    def it_lists_the_installed_families_sorted_and_deduplicated(self, request):
+        method_mock(
+            request,
+            FontFiles,
+            "_installed_fonts",
+            return_value={
+                ("Inter", False, False): "/f/Inter.ttf",
+                ("Inter", True, False): "/f/Inter-Bold.ttf",
+                ("Arial", False, False): "/f/Arial.ttf",
+            },
+        )
+        FontFiles._font_files = None
+        try:
+            assert installed_font_families() == ("Arial", "Inter")
+        finally:
+            FontFiles._font_files = None

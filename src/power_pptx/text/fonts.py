@@ -432,3 +432,44 @@ def _TableFactory(tag, stream, offset, length):
     """
     TableClass = {"head": _HeadTable, "name": _NameTable}.get(tag, _BaseTable)
     return TableClass(tag, stream, offset, length)
+
+
+def find_font_file(family_name: str, bold: bool = False, italic: bool = False) -> str | None:
+    """Return the path to the installed font file for `family_name`, or None.
+
+    The non-raising form of :meth:`FontFiles.find` — useful for deciding, up
+    front, whether font-metric measurement (`TextFrame.fit_text`, and any
+    layout maths derived from it) will be exact or a fallback estimate::
+
+        path = find_font_file("Inter", bold=True)
+        if path is None:
+            ...  # brand font missing in this environment
+    """
+    try:
+        return FontFiles.find(family_name, bold, italic)
+    except (KeyError, OSError):
+        return None
+
+
+def font_is_installed(family_name: str, bold: bool = False, italic: bool = False) -> bool:
+    """True when `family_name` (in the given style) is installed on this machine.
+
+    The space-aware guarantee degrades to a best guess for fonts that aren't
+    installed, so a build that must be exact can check first and either bundle
+    the font file (``fit_text(font_file=...)``) or fall back to a family it
+    knows is present::
+
+        family = "Inter" if font_is_installed("Inter") else "Arial"
+    """
+    return find_font_file(family_name, bold, italic) is not None
+
+
+def installed_font_families() -> tuple[str, ...]:
+    """Return the sorted family names of every font installed on this machine.
+
+    Handy when a deck renders with the wrong metrics in CI and you need to see
+    what the build box actually has.
+    """
+    if FontFiles._font_files is None:  # pyright: ignore[reportPrivateUsage]
+        FontFiles._font_files = FontFiles._installed_fonts()  # pyright: ignore[reportPrivateUsage]
+    return tuple(sorted({family for family, _, _ in FontFiles._font_files}))

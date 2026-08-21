@@ -4,20 +4,24 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from power_pptx import Presentation
 from power_pptx.dml.color import ColorFormat
 from power_pptx.dml.effect import GlowFormat, ShadowFormat
 from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.enum.lang import MSO_LANGUAGE_ID
 from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, MSO_UNDERLINE, PP_ALIGN
+from power_pptx.exc import FontMetricsWarning
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
 from power_pptx.oxml.ns import qn
 from power_pptx.shapes.autoshape import Shape
+from power_pptx.text.fonts import find_font_file
 from power_pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
 from power_pptx.util import Inches, Pt
 
@@ -25,6 +29,7 @@ from ..oxml.unitdata.text import a_p, a_t, an_hlinkClick, an_r, an_rPr
 from ..unitutil.cxml import element, xml
 from ..unitutil.mock import (
     class_mock,
+    function_mock,
     instance_mock,
     loose_mock,
     method_mock,
@@ -244,18 +249,18 @@ class DescribeTextFrame(object):
         text_frame.fit_text(family, max_size, bold, italic, font_file)
 
         _best_fit_font_size_.assert_called_once_with(
-            text_frame, family, max_size, bold, italic, font_file
+            text_frame, family, max_size, bold, italic, font_file, False
         )
         _apply_fit_.assert_called_once_with(text_frame, family, font_size, bold, italic)
 
     def it_calculates_its_best_fit_font_size_to_help_fit_text(self, size_font_fixture):
         text_frame, family, max_size, bold, italic = size_font_fixture[:5]
-        FontFiles_, TextFitter_, text, extents = size_font_fixture[5:9]
+        find_font_file_, TextFitter_, text, extents = size_font_fixture[5:9]
         font_file_, font_size_ = size_font_fixture[9:]
 
         font_size = text_frame._best_fit_font_size(family, max_size, bold, italic, None)
 
-        FontFiles_.find.assert_called_once_with(family, bold, italic)
+        find_font_file_.assert_called_once_with(family, bold, italic)
         TextFitter_.best_fit_font_size.assert_called_once_with(text, extents, max_size, font_file_)
         assert font_size is font_size_
 
@@ -408,13 +413,13 @@ class DescribeTextFrame(object):
         return text_frame, family, size, bold, italic, expected_xml
 
     @pytest.fixture
-    def size_font_fixture(self, FontFiles_, TextFitter_, text_prop_, _extents_prop_):
+    def size_font_fixture(self, find_font_file_, TextFitter_, text_prop_, _extents_prop_):
         text_frame = TextFrame(None, None)
         family, max_size, bold, italic = "Family", 42, True, False
         text, extents, font_size, font_file = "text", (111, 222), 21, "f.ttf"
         text_prop_.return_value = text
         _extents_prop_.return_value = extents
-        FontFiles_.find.return_value = font_file
+        find_font_file_.return_value = font_file
         TextFitter_.best_fit_font_size.return_value = font_size
         return (
             text_frame,
@@ -422,7 +427,7 @@ class DescribeTextFrame(object):
             max_size,
             bold,
             italic,
-            FontFiles_,
+            find_font_file_,
             TextFitter_,
             text,
             extents,
@@ -497,8 +502,8 @@ class DescribeTextFrame(object):
         return property_mock(request, TextFrame, "_extents")
 
     @pytest.fixture
-    def FontFiles_(self, request):
-        return class_mock(request, "power_pptx.text.text.FontFiles")
+    def find_font_file_(self, request):
+        return function_mock(request, "power_pptx.text.text.find_font_file")
 
     @pytest.fixture
     def paragraphs_prop_(self, request):
@@ -1699,3 +1704,66 @@ class DescribeTextLayoutIntegration(object):
         buf = io.BytesIO()
         prs.save(buf)
         assert list(iter_schema_violations(buf.getvalue())) == []
+
+
+class DescribeFitTextFontMetrics(object):
+    """`TextFrame.fit_text` is honest about measuring with fallback metrics."""
+
+    def it_returns_the_size_it_applied(self, text_frame_):
+        size = text_frame_.fit_text("DejaVu Sans", max_size=40)
+
+        assert isinstance(size, int)
+        assert 1 <= size <= 40
+        assert text_frame_.paragraphs[0].runs[0].font.size == Pt(size)
+
+    def it_warns_when_the_named_family_is_not_installed(self, text_frame_, request):
+        function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
+
+        with pytest.warns(FontMetricsWarning, match="'Instrument Serif' is not installed"):
+            text_frame_.fit_text("Instrument Serif", max_size=40)
+
+    def but_it_stays_quiet_for_the_unnamed_default_family(self, text_frame_, request):
+        function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            text_frame_.fit_text(max_size=40)  # no family asked for, no promise broken
+
+    def and_it_stays_quiet_when_given_an_explicit_font_file(self, text_frame_, request):
+        find_font_file_ = function_mock(request, "power_pptx.text.text.find_font_file")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            text_frame_.fit_text("Whatever", max_size=40, font_file=_a_font_file())
+
+        find_font_file_.assert_not_called()
+
+    def it_raises_under_strict_when_metrics_are_unavailable(self, text_frame_, request):
+        function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
+
+        with pytest.raises(ValueError, match="fit_text.strict=True."):
+            text_frame_.fit_text("Inter", max_size=40, strict=True)
+
+    def and_strict_covers_the_default_family_too(self, text_frame_, request):
+        function_mock(request, "power_pptx.text.text.find_font_file", return_value=None)
+
+        with pytest.raises(ValueError, match="not installed"):
+            text_frame_.fit_text(max_size=40, strict=True)
+
+    @pytest.fixture
+    def text_frame_(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        shape.text_frame.text = "Space-aware authoring, measured"
+        return shape.text_frame
+
+
+def _a_font_file() -> str:
+    from power_pptx.text.fonts import installed_font_families
+
+    for family in installed_font_families():
+        path = find_font_file(family)
+        if path is not None:
+            return path
+    raise AssertionError("no font files at all on this machine")  # pragma: no cover
