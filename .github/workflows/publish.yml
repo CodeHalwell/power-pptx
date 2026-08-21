@@ -1,19 +1,56 @@
 name: publish
 
+# NOTE ON TRIGGERS
+#
+# ``release-on-version-bump`` creates the ``vX.Y.Z`` tag and the GitHub
+# release using the default ``GITHUB_TOKEN``.  GitHub deliberately does
+# **not** start new workflow runs from events raised with that token
+# (the documented anti-recursion rule), so neither the ``push: tags``
+# nor the ``release: published`` trigger below ever fires for an
+# automated release — which is why every publish in this repo's history
+# was a manual ``workflow_dispatch``.
+#
+# ``workflow_run`` is not subject to that restriction: it fires on the
+# *completion of a workflow*, not on a token-raised event.  It also
+# keeps this file as the run's entrypoint workflow, which matters
+# because PyPI Trusted Publishing matches on the entrypoint workflow
+# filename — calling this workflow from the other one via
+# ``workflow_call`` would change that claim and break the upload.
+#
+# The two original triggers are kept for tags pushed by a human.
 on:
   push:
     tags:
       - "v*"
   release:
     types: [published]
+  workflow_run:
+    workflows: ["release-on-version-bump"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
+    # For a workflow_run start, only proceed when the release workflow
+    # actually succeeded on the default branch.  That workflow is a no-op
+    # when ``__version__`` matches an existing tag, so this can still run
+    # with nothing new to publish — ``--check-url`` below makes that
+    # harmless rather than a failed upload.
+    if: >-
+      github.event_name != 'workflow_run'
+      || (github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.head_branch == 'master')
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run checks out the default branch by default; pin to
+          # the commit the release was actually cut from.
+          ref: >-
+            ${{ github.event_name == 'workflow_run'
+                && github.event.workflow_run.head_sha
+                || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -56,4 +93,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Publish to PyPI
-        run: uv publish --trusted-publishing always
+        # ``--check-url`` skips files the index already has instead of
+        # failing the run, so a workflow_run start that carried no version
+        # bump is a clean no-op.
+        run: |
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/power-pptx/
