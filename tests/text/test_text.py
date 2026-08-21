@@ -21,7 +21,6 @@ from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
 from power_pptx.oxml.ns import qn
 from power_pptx.shapes.autoshape import Shape
-from power_pptx.text.fonts import find_font_file
 from power_pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
 from power_pptx.util import Inches, Pt
 
@@ -1730,12 +1729,19 @@ class DescribeFitTextFontMetrics(object):
             text_frame_.fit_text(max_size=40)  # no family asked for, no promise broken
 
     def and_it_stays_quiet_when_given_an_explicit_font_file(self, text_frame_, request):
+        # Measurement is mocked out so this holds on a container with no fonts
+        # installed at all — the point under test is that an explicit
+        # `font_file` short-circuits the lookup, not how it measures.
         find_font_file_ = function_mock(request, "power_pptx.text.text.find_font_file")
+        function_mock(
+            request, "power_pptx.text.text.TextFitter.best_fit_font_size", return_value=12
+        )
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            text_frame_.fit_text("Whatever", max_size=40, font_file=_a_font_file())
+            size = text_frame_.fit_text("Whatever", max_size=40, font_file="/no/such/font.ttf")
 
+        assert size == 12
         find_font_file_.assert_not_called()
 
     def it_raises_under_strict_when_metrics_are_unavailable(self, text_frame_, request):
@@ -1757,13 +1763,3 @@ class DescribeFitTextFontMetrics(object):
         shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
         shape.text_frame.text = "Space-aware authoring, measured"
         return shape.text_frame
-
-
-def _a_font_file() -> str:
-    from power_pptx.text.fonts import installed_font_families
-
-    for family in installed_font_families():
-        path = find_font_file(family)
-        if path is not None:
-            return path
-    raise AssertionError("no font files at all on this machine")  # pragma: no cover

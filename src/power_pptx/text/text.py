@@ -106,7 +106,7 @@ class TextFrame(Subshape):
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
         be set larger than `max_size` points. If the path to a matching TrueType font is provided
         as `font_file`, that font file will be used for the font metrics. If `font_file` is |None|,
-        best efforts are made to locate a font file with matchhing `font_family`, `bold`, and
+        best efforts are made to locate a font file with matching `font_family`, `bold`, and
         `italic` installed on the current system (usually succeeds if the font is installed).
 
         **The fit is only as good as the metrics it measures against.**  When neither `font_file`

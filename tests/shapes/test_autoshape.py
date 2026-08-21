@@ -13,10 +13,11 @@ from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import qn
 from power_pptx.oxml.shapes.autoshape import CT_PresetGeometry2D, CT_Shape
 from power_pptx.shapes.autoshape import Adjustment, AdjustmentCollection, AutoShapeType, Shape
 from power_pptx.text.text import TextFrame
-from power_pptx.util import Inches, Pt
+from power_pptx.util import Emu, Inches, Pt
 
 from ..oxml.unitdata.shape import (
     a_cNvSpPr,
@@ -530,6 +531,19 @@ class DescribeShapeCornerRadius(object):
         )
         shape.corner_radius = Pt(8)
         assert abs(shape.corner_radius.pt - 8) < 0.01
+
+    def it_writes_a_legal_adjustment_at_the_exact_maximum(self):
+        # The setter nudges past the integer it should land on, because
+        # `Adjustment._denormalize` truncates.  At the documented maximum the
+        # nudge must still truncate back to 50000 (0.5) — never above it,
+        # which would be an out-of-range corner-radius fraction.
+        shape = _rounded_rect(width=Inches(4), height=Inches(2))
+
+        shape.corner_radius = Emu(int(Inches(2)) // 2)
+
+        assert shape.adjustments[0] == 0.5
+        gd = shape._element.spPr.find(qn("a:prstGeom")).find(qn("a:avLst"))[0]
+        assert gd.get("fmla") == "val 50000"
 
     def it_rejects_a_radius_larger_than_half_the_shorter_side(self):
         shape = _rounded_rect(width=Inches(4), height=Inches(1))

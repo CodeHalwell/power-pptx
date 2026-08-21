@@ -47,8 +47,13 @@ def _resolve_selector(selector: _CellSelector, count: int, name: str) -> list[in
     """Return the concrete indices `selector` picks out of `count` rows/columns.
 
     ``None`` means all of them; an ``int`` picks one (negative counts from the
-    end); a ``slice`` or any iterable of ints picks several.  Out-of-range
-    indices raise :class:`IndexError` rather than silently selecting nothing.
+    end); an iterable of ints picks several.  An out-of-range index raises
+    :class:`IndexError` rather than silently selecting nothing — a typo'd row
+    number should not read as "styled zero cells, all good".
+
+    A ``slice`` is the exception: it follows ordinary Python slicing, so
+    ``slice(1, None)`` on a one-row table yields no cells rather than raising,
+    the same as ``rows[1:]`` would.
     """
     if selector is None:
         return list(range(count))
