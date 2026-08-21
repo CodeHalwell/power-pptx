@@ -231,6 +231,30 @@ class BBox:
         """Split vertically into N rows with the given ratios."""
         return _split(self, ratios, gap, axis="v")
 
+    def columns(self, n: int, gap: int = 0) -> list["BBox"]:
+        """Return `n` equal-width columns of this box, separated by `gap`.
+
+        The shorthand for the arithmetic every multi-column layout would
+        otherwise hand-roll (``col_w = (avail - (n - 1) * gap) / n`` and a
+        running cursor)::
+
+            for box, item in zip(row.columns(3, gap=Pt(16)), items):
+                card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+
+        Widths are apportioned so the columns partition the box exactly — no
+        rounding drift on the last column.  For unequal columns use
+        :meth:`split_h` with explicit ratios.
+        """
+        return _split(self, [1] * _positive_count(n, "columns"), gap, axis="h")
+
+    def rows(self, n: int, gap: int = 0) -> list["BBox"]:
+        """Return `n` equal-height rows of this box, separated by `gap`.
+
+        The vertical twin of :meth:`columns`; use :meth:`split_v` for
+        unequal rows.
+        """
+        return _split(self, [1] * _positive_count(n, "rows"), gap, axis="v")
+
     def grid(
         self,
         cols: int,
@@ -301,6 +325,14 @@ class BBox:
         shape.width = self.width
         shape.height = self.height
         return shape
+
+
+def _positive_count(n: int, name: str) -> int:
+    """Return `n` as an int, rejecting counts below 1."""
+    count = int(n)
+    if count < 1:
+        raise ValueError(f"BBox.{name}() needs n >= 1, got {n!r}")
+    return count
 
 
 def _resolve_inset(
