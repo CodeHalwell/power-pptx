@@ -12,7 +12,7 @@ from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_SHAPE_TYPE
 from power_pptx.shapes.base import BaseShape
 from power_pptx.spec import autoshape_types
 from power_pptx.text.text import TextFrame
-from power_pptx.util import lazyproperty
+from power_pptx.util import Emu, Length, lazyproperty
 
 if TYPE_CHECKING:
     from power_pptx.oxml.shapes.autoshape import CT_GeomGuide, CT_PresetGeometry2D, CT_Shape
@@ -205,7 +205,8 @@ class AutoShapeType:
         # -- raise on bad autoshape_type_id --
         if autoshape_type_id not in autoshape_types:
             raise KeyError(
-                "no autoshape type with id '%s' in power_pptx.spec.autoshape_types" % autoshape_type_id
+                "no autoshape type with id '%s' in power_pptx.spec.autoshape_types"
+                % autoshape_type_id
             )
         # -- otherwise initialize new instance --
         autoshape_type = autoshape_types[autoshape_type_id]
@@ -267,6 +268,77 @@ class Shape(BaseShape):
     def adjustments(self) -> AdjustmentCollection:
         """Read-only reference to |AdjustmentCollection| instance for this shape."""
         return AdjustmentCollection(self._sp.prstGeom)
+
+    # Preset geometries whose first adjustment is a corner radius expressed as
+    # a fraction of the shorter side (``ss`` in the OOXML shape guides).  Only
+    # ``adjustments[0]`` is written by `corner_radius`, so the second corner
+    # pair of the two-radius geometries stays under explicit
+    # ``adjustments[1]`` control.
+    _CORNER_RADIUS_GEOMS = frozenset(
+        ("roundRect", "round1Rect", "round2DiagRect", "round2SameRect")
+    )
+
+    @property
+    def corner_radius(self) -> Length:
+        """Corner radius of a rounded-rectangle auto shape, as a |Length|.
+
+        Read/write.  OOXML stores this as `adjustments[0]`, a *fraction* of the
+        shorter side of the shape — so a "6pt radius" is a different fraction on
+        every differently-sized card.  This property does the conversion, letting
+        corner radius be specified the way designers spec it::
+
+            card.corner_radius = Pt(6)
+            card.corner_radius.pt    # -> 6.0
+
+        Raises |ValueError| for a shape whose geometry has no corner-radius
+        adjustment (anything other than a rounded rectangle), when the shape has
+        no width/height yet, or when the assigned radius exceeds half the shorter
+        side — the maximum a preset rounded rectangle can express.
+        """
+        extent = self._corner_radius_extent  # validates geometry before indexing
+        return Emu(int(round(self.adjustments[0] * extent)))
+
+    @corner_radius.setter
+    def corner_radius(self, value: Length | int):
+        extent = self._corner_radius_extent
+        radius = int(value)
+        if radius < 0:
+            raise ValueError(f"corner radius must be non-negative, got {Emu(radius).pt}pt")
+        max_radius = extent / 2
+        if radius > max_radius:
+            raise ValueError(
+                f"corner radius of {Emu(radius).pt:.4g}pt exceeds half the shorter side of "
+                f"this shape ({Emu(int(max_radius)).pt:.4g}pt), the maximum a preset rounded "
+                f"rectangle can express; use a smaller radius or a larger shape"
+            )
+        # Adjustment values are stored as integers on a 100,000 unit basis and
+        # `Adjustment._denormalize` *truncates*, so hand it a value already
+        # nudged past the integer it should land on — otherwise `Pt(6)` comes
+        # back as 5.999pt.
+        self.adjustments[0] = (round(radius / extent * 100000) + 0.5) / 100000.0
+
+    @property
+    def _corner_radius_extent(self) -> float:
+        """The shorter side of this shape in EMU, the basis for a corner radius.
+
+        Raises |ValueError| when this shape's geometry has no corner-radius
+        adjustment or its extents aren't known yet.
+        """
+        prstGeom = self._sp.prstGeom
+        prst = None if prstGeom is None else prstGeom.prst
+        if prst is None or str(getattr(prst, "xml_value", prst)) not in self._CORNER_RADIUS_GEOMS:
+            raise ValueError(
+                "corner_radius is only defined for rounded-rectangle auto shapes "
+                "(MSO_SHAPE.ROUNDED_RECTANGLE, ROUND_1_RECTANGLE, ROUND_2_SAME_RECTANGLE, "
+                f"ROUND_2_DIAG_RECTANGLE); this shape's geometry is {prst!r}"
+            )
+        width, height = self.width, self.height
+        if width is None or height is None:
+            raise ValueError(
+                "corner_radius requires a shape with a known width and height; "
+                "set shape.width and shape.height first"
+            )
+        return float(min(int(width), int(height)))
 
     @property
     def auto_shape_type(self):
