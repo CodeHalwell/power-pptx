@@ -191,3 +191,43 @@ class DescribeThemeWriterRoundTrip:
         prs.theme.fonts.major = "Inter"
         prs.theme.fonts.minor = "Inter"
         assert_round_trip(prs)
+
+
+class DescribeErgonomicsRoundTrip:
+    """The dogfooding-feedback APIs must survive save → open → save."""
+
+    def it_round_trips_a_cleared_shadow(self):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(2)
+        )
+        card.glow.radius = Pt(6)
+        card.shadow.clear()
+        assert_round_trip(prs)
+
+    def it_round_trips_a_point_valued_corner_radius(self):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(2)
+        )
+        card.corner_radius = Pt(6)
+        assert_round_trip(prs)
+
+    def it_round_trips_formatted_table_cells(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        table = slide.shapes.add_table(
+            3, 2, Inches(1), Inches(1), Inches(6), Inches(2)
+        ).table
+        for r in range(3):
+            for c in range(2):
+                table.cell(r, c).text = "r%dc%d" % (r, c)
+        table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
+        table.format_cells(rows=slice(1, None), size_pt=11, align="right", margin=4)
+        assert_round_trip(prs)

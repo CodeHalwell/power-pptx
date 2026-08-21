@@ -441,6 +441,35 @@ def _deck_run_properties() -> bytes:
     return _saved(prs)
 
 
+def _deck_ergonomics() -> bytes:
+    """Shadow suppression, point-valued corner radius, and cell formatting."""
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+
+    card = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(2)
+    )
+    card.corner_radius = Pt(6)
+    card.shadow.clear()  # empty <a:effectLst/> + <a:effectRef idx="0"/>
+
+    glowing = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6), Inches(1), Inches(3), Inches(2)
+    )
+    glowing.glow.radius = Pt(6)
+    glowing.shadow.clear()  # a surviving sibling effect must stay schema-valid
+
+    table = s.shapes.add_table(3, 3, Inches(1), Inches(4), Inches(8), Inches(2)).table
+    for r in range(3):
+        for c in range(3):
+            table.cell(r, c).text = "r%dc%d" % (r, c)
+    table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
+    table.format_cells(rows=slice(1, None), size_pt=11, align="right", margin=(2, 8, 2, 8))
+    table.cell(2, 0).format(fill="none")
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -464,6 +493,7 @@ _DECK_BUILDERS = {
     "picture_washout": _deck_picture_washout,
     "recipes": _deck_recipes,
     "diagrams": _deck_diagrams,
+    "ergonomics": _deck_ergonomics,
 }
 
 
