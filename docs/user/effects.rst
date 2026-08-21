@@ -57,9 +57,13 @@ phantom shadow nobody asked for.
 It drops every explicit shadow element (outer, inner, preset), writes
 the empty ``<a:effectLst/>`` that overrides inherited effects, and
 re-points ``<a:effectRef>`` at the theme's empty slot (``idx="0"``).
-Non-shadow effects already on the shape — glow, soft edges, blur,
-reflection — are preserved.  It is idempotent, and a no-op on shapes
-with no ``<p:style>`` (text boxes, pictures, placeholders).
+Non-shadow effects written on the shape itself — glow, soft edges, blur,
+reflection — are preserved.  Theme-derived effects are not:
+``<a:effectRef>`` references one whole entry in the theme's effect-style
+list, so a custom theme pairing its shadow with a glow loses the glow as
+well; re-apply it explicitly on the shape if you need it.  (Stock Office
+themes reference shadow-only styles.)  It is idempotent, and a no-op on
+shapes with no ``<p:style>`` (text boxes, pictures, placeholders).
 
 A shape whose effects are expressed as an ``<a:effectDag>`` has its
 shadow nodes pruned from that tree instead.  ``<a:effectLst>`` and

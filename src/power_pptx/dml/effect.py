@@ -258,9 +258,17 @@ class ShadowFormat(object):
             card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
             card.shadow.clear()          # flat card, no theme shadow
 
-        Non-shadow effects already on the shape (glow, soft edges, blur,
-        reflection) are preserved.  Idempotent, and safe on shapes that never
-        had a shadow.
+        Non-shadow effects written **on the shape** (glow, soft edges, blur,
+        reflection in its own `<a:effectLst>`) are preserved.  Theme-derived
+        effects are not: `<a:effectRef>` is a single all-or-nothing reference
+        to one entry in the theme's effect-style list, so a theme whose
+        referenced style pairs its shadow with a glow loses that glow too.
+        There is no way to keep one and drop the other through the reference
+        itself; re-apply the effect explicitly on the shape if you need it.
+        (Stock Office themes reference shadow-only styles, so this is only a
+        consideration for custom themes.)
+
+        Idempotent, and safe on shapes that never had a shadow.
 
         A shape whose effects are expressed as an `<a:effectDag>` — legal, and
         seen on decks authored outside PowerPoint — has its shadow nodes pruned

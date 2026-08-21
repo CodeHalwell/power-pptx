@@ -468,8 +468,15 @@ def installed_font_families() -> tuple[str, ...]:
     """Return the sorted family names of every font installed on this machine.
 
     Handy when a deck renders with the wrong metrics in CI and you need to see
-    what the build box actually has.
+    what the build box actually has.  Font files that report no family name are
+    skipped rather than breaking the listing.
     """
     if FontFiles._font_files is None:  # pyright: ignore[reportPrivateUsage]
         FontFiles._font_files = FontFiles._installed_fonts()  # pyright: ignore[reportPrivateUsage]
-    return tuple(sorted({family for family, _, _ in FontFiles._font_files}))
+    # A font file whose `name` table carries no family record for platform 0, 1
+    # or 3 is keyed under `None`.  One such file on the machine would otherwise
+    # make this diagnostic helper raise `TypeError` from `sorted()` — the least
+    # helpful moment for a diagnostic to fail.
+    return tuple(
+        sorted({family for family, _, _ in FontFiles._font_files if isinstance(family, str)})
+    )

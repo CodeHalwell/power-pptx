@@ -45,7 +45,11 @@ card.shadow.clear()          # flat card, guaranteed
 `clear()` drops every explicit shadow element (outer, inner, preset),
 writes the empty `<a:effectLst/>` that overrides inherited effects, and
 re-points `<a:effectRef>` at the theme's empty slot (`idx="0"`). Other
-effects on the shape — glow, soft edges, blur, reflection — are kept.
+effects written on the shape — glow, soft edges, blur, reflection — are
+kept. Theme-derived ones are not: `effectRef` names one whole entry in
+the theme's effect-style list, so if a custom theme pairs its shadow
+with a glow, that glow goes too — re-apply it explicitly on the shape.
+Stock Office themes reference shadow-only styles, so this rarely bites.
 It's idempotent and safe on shapes that never had a shadow, including
 text boxes and pictures (which have no `<p:style>` to re-point). On a
 shape imported with an `<a:effectDag>` (an effect tree rather than a

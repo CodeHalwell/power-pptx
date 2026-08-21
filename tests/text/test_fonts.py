@@ -770,6 +770,25 @@ class DescribeFontAvailability(object):
         method_mock(request, FontFiles, "find", side_effect=KeyError(("Nope", False, False)))
         assert font_is_installed("Nope") is False
 
+    def it_skips_font_files_that_report_no_family_name(self, request):
+        # A file whose `name` table has no family record for platform 0, 1 or 3
+        # is keyed under None; sorting it next to real names would raise
+        # TypeError and take out the diagnostic with it.
+        method_mock(
+            request,
+            FontFiles,
+            "_installed_fonts",
+            return_value={
+                ("Inter", False, False): "/f/Inter.ttf",
+                (None, False, False): "/f/nameless.ttf",
+            },
+        )
+        FontFiles._font_files = None
+        try:
+            assert installed_font_families() == ("Inter",)
+        finally:
+            FontFiles._font_files = None
+
     def it_lists_the_installed_families_sorted_and_deduplicated(self, request):
         method_mock(
             request,
