@@ -51,8 +51,9 @@ text boxes and pictures (which have no `<p:style>` to re-point).
 
 > ⚠ `shadow.inherit` (read or write) emits a `DeprecationWarning` in
 > 1.1+. Read individual properties for `None`; use `clear()` to remove.
-> (`inherit = False` now performs the same full suppression as
-> `clear()`, but it still warns — prefer `clear()`.)
+> `inherit = False` only writes the empty `<a:effectLst/>` — it stays
+> symmetric with `inherit = True` and so cannot touch the theme effect
+> reference. It does **not** remove an inherited shadow; `clear()` does.
 
 ## Glow
 

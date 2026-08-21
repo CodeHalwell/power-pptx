@@ -134,9 +134,51 @@ def apply_text_style(
                 f.color.rgb = rgb
 
 
+def apply_body_defaults(
+    tf: Any,
+    *,
+    font: str | None = None,
+    size_pt: float | None = None,
+    bold: bool | None = None,
+    italic: bool | None = None,
+    color: Any = None,
+    align: str | None = None,
+) -> None:
+    """Write text styling to `tf`'s text-body defaults (`<a:lstStyle>`).
+
+    Styling only the existing paragraphs and runs is lost the moment the frame
+    is repopulated: ``TextFrame.text = ...`` drops every ``<a:p>`` and builds
+    fresh, unstyled ones.  `<a:lstStyle>` survives that (``clear_content()``
+    removes only the paragraphs), so defaults written here still apply to text
+    assigned afterwards — which is what makes "style the header row, then fill
+    in the cells" behave the way it reads.
+
+    Only level-1 defaults are written; explicit run properties still win.
+    """
+    from power_pptx.text.text import Font
+
+    lvl1pPr = tf._txBody.get_or_add_lstStyle().get_or_add_lvl1pPr()
+    if align is not None:
+        lvl1pPr.algn = coerce_align(align)
+    if all(v is None for v in (font, size_pt, bold, italic, color)):
+        return
+    default_font = Font(lvl1pPr.get_or_add_defRPr())
+    if font is not None:
+        default_font.name = font
+    if size_pt is not None:
+        default_font.size = coerce_length(size_pt)
+    if bold is not None:
+        default_font.bold = bool(bold)
+    if italic is not None:
+        default_font.italic = bool(italic)
+    if color is not None:
+        default_font.color.rgb = coerce_color(color)
+
+
 __all__ = [
     "ALIGN_MAP",
     "ANCHOR_MAP",
+    "apply_body_defaults",
     "apply_margins",
     "apply_text_style",
     "coerce_align",

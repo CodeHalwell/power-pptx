@@ -497,11 +497,21 @@ class DescribeShadowFormatClear(object):
         assert _effect_ref_idx(shape) == "0"
         assert shape.shadow.blur_radius is None
 
-    def it_suppresses_the_theme_effect_style_for_the_deprecated_inherit_False(self):
+    def but_the_deprecated_inherit_False_stays_symmetric(self):
+        # `inherit` has to round-trip: `clear()` edits <p:style>, which
+        # `inherit = True` could never put back, so the deprecated property
+        # keeps its historical effectLst-only behaviour and its warning names
+        # `clear()` as the way to actually remove a shadow.
         shape = _autoshape()
-        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+
+        with pytest.warns(DeprecationWarning, match=r"clear\(\)"):
             shape.shadow.inherit = False
-        assert _effect_ref_idx(shape) == "0"
+        assert _effect_ref_idx(shape) == "2"
+
+        with pytest.warns(DeprecationWarning, match="ShadowFormat.inherit"):
+            shape.shadow.inherit = True
+        assert _effect_ref_idx(shape) == "2"
+        assert shape._element.spPr.effectLst is None
 
     def it_leaves_a_shape_without_a_style_element_alone(self):
         prs = Presentation()

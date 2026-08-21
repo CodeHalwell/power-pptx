@@ -54,7 +54,10 @@ Added
   ``align``, ``anchor``, ``margin``), replacing loops over
   ``cell.fill.fore_color.rgb``. Selections accept an int, a slice, an
   iterable of indices, or ``None`` for all; the anchor and insets are
-  written to ``<a:tcPr>`` where PowerPoint actually reads them.
+  written to ``<a:tcPr>`` where PowerPoint actually reads them, and the
+  text styling is recorded in the cell's ``<a:lstStyle>`` text-body
+  defaults as well as on its runs, so styling a header row *before*
+  populating it survives the later ``cell.text`` assignment.
 * ``power_pptx.text.fonts.find_font_file()``, ``font_is_installed()``, and
   ``installed_font_families()`` — check up front whether a build
   environment can measure a font, instead of discovering it from a
@@ -69,12 +72,13 @@ Added
 Changed
 .......
 
-* ``shadow.inherit = False`` (deprecated since 1.1) now performs the full
-  suppression that ``shadow.clear()`` does. It previously wrote an empty
-  ``<a:effectLst/>`` and left the theme effect style in place, so the
-  shape still rendered a shadow — silently wrong output for the one
-  caller trying to turn a shadow off. It still emits a
-  ``DeprecationWarning``; prefer ``shadow.clear()``.
+* ``shadow.inherit``'s deprecation warning now names ``shadow.clear()``
+  and says plainly that ``inherit = False`` writes only an empty
+  ``<a:effectLst/>`` and leaves an inherited theme shadow rendering. The
+  property's XML behaviour is unchanged and stays symmetric — ``False``
+  then ``True`` returns the shape to where it started, which delegating
+  to ``clear()`` could not do, since the original ``effectRef`` index
+  isn't recoverable once overwritten.
 
 
 2.10.0 (2026-07-12)

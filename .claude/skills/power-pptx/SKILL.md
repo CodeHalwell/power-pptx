@@ -350,7 +350,7 @@ Flagging them up front saves the trial-and-error round.
 - **Don't** try to remove a shadow by assigning `None` to
   `shadow.blur_radius` / `distance`, or by `shadow.inherit = False`.
   Neither touches the theme effect style, so the shadow is still
-  rendered. Use `shape.shadow.clear()`.
+  rendered. Use `shape.shadow.clear()` — the only call that does.
 - **Don't** set a corner radius by guessing `adjustments[0]` (it's a
   fraction of the shorter side, so the same value means a different
   radius on every differently-sized card). Use

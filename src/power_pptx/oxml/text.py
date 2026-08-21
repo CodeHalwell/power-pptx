@@ -95,9 +95,13 @@ class CT_TextBody(BaseOxmlElement):
 
     add_p: Callable[[], CT_TextParagraph]
     p_lst: list[CT_TextParagraph]
+    get_or_add_lstStyle: Callable[[], CT_TextListStyle]
 
     bodyPr: CT_TextBodyProperties = OneAndOnlyOne(  # pyright: ignore[reportAssignmentType]
         "a:bodyPr"
+    )
+    lstStyle: CT_TextListStyle | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:lstStyle", successors=("a:p",)
     )
     p: CT_TextParagraph = OneOrMore("a:p")  # pyright: ignore[reportAssignmentType]
 
@@ -207,6 +211,27 @@ class CT_TextBody(BaseOxmlElement):
         return "<p:txBody %s>\n  <a:bodyPr/>\n  <a:lstStyle/>\n  <a:p/>\n</p:txBody>\n" % (
             nsdecls("a", "p")
         )
+
+
+class CT_TextListStyle(BaseOxmlElement):
+    """`a:lstStyle` custom element class.
+
+    The per-indent-level default text properties of a text body.  Only
+    `a:lvl1pPr` is modelled; the other eight levels are rarely addressed
+    programmatically and are preserved verbatim when present.
+
+    Defaults written here outlive a text replacement — ``TextFrame.text = ...``
+    removes the `a:p` children and nothing else — which is what makes this the
+    right home for "style this text frame, populate it later".
+    """
+
+    get_or_add_lvl1pPr: Callable[[], CT_TextParagraphProperties]
+
+    _lvl_tag_seq = tuple("a:lvl%dpPr" % n for n in range(1, 10)) + ("a:extLst",)
+    lvl1pPr: CT_TextParagraphProperties | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "a:lvl1pPr", successors=_lvl_tag_seq[1:]
+    )
+    del _lvl_tag_seq
 
 
 class CT_TextBodyProperties(BaseOxmlElement):

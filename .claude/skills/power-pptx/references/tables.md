@@ -84,6 +84,11 @@ table.format_cells(cols=-1, align="right")                            # numbers
 Both return the cell / table, so they chain. Spanned (merged-away)
 cells are skipped; style the merge origin instead.
 
+Either order works — style an empty header row and then assign
+`cell.text`, or populate first and style afterwards. The formatting is
+recorded as the cell's text-body defaults (`<a:lstStyle>`) as well as on
+its current runs, and a text replacement leaves those defaults alone.
+
 > A cell's vertical anchor and insets live on `<a:tcPr>`, not on its
 > text frame's `<a:bodyPr>` — PowerPoint reads the cell properties and
 > ignores the body ones. `format(anchor=..., margin=...)` writes them to

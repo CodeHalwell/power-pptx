@@ -202,8 +202,9 @@ containing ``<a:effectRef idx="2"/>`` — a reference into the theme's
 effect-style list, which in most themes is a soft drop shadow.  Nothing
 in the shape's own ``<a:spPr>`` mentions a shadow, so code that clears
 ``shadow.blur_radius`` / ``distance`` / ``color`` (or sets the
-deprecated ``shadow.inherit = False``) looks like it turned the shadow
-off — and the rendered card still has one.
+deprecated ``shadow.inherit = False``, which only writes an empty
+``<a:effectLst/>``) looks like it turned the shadow off — and the
+rendered card still has one.
 
 **Workaround**: call :meth:`ShadowFormat.clear
 <power_pptx.dml.effect.ShadowFormat.clear>`.  It drops the explicit

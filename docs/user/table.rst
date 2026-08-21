@@ -298,6 +298,12 @@ indices::
 Both return the cell / table so calls chain, and spanned cells are
 skipped — style the merge origin instead.
 
+Either order works.  The formatting is recorded as the cell's text-body
+defaults (``<a:lstStyle>``) as well as on its current runs, so a header
+row styled *before* it is populated keeps that styling when
+``cell.text`` is assigned — a text assignment replaces the paragraphs
+but leaves the defaults alone.
+
 .. note::
    A cell's vertical anchor and insets belong on ``<a:tcPr>``, not on
    its text frame's ``<a:bodyPr>``; PowerPoint reads the cell

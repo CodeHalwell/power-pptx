@@ -231,3 +231,14 @@ class DescribeErgonomicsRoundTrip:
         table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
         table.format_cells(rows=slice(1, None), size_pt=11, align="right", margin=4)
         assert_round_trip(prs)
+
+    def it_round_trips_cells_styled_before_they_were_populated(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        table = slide.shapes.add_table(
+            2, 2, Inches(1), Inches(1), Inches(6), Inches(1.5)
+        ).table
+        table.format_cells(rows=0, color="#FFFFFF", bold=True, size_pt=12, align="center")
+        for c in range(2):
+            table.cell(0, c).text = "header %d" % c
+        assert_round_trip(prs)

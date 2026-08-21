@@ -465,6 +465,10 @@ def _deck_ergonomics() -> bytes:
         for c in range(3):
             table.cell(r, c).text = "r%dc%d" % (r, c)
     table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
+    # style-then-populate: writes <a:lstStyle>/<a:lvl1pPr> text-body defaults
+    empty = s.shapes.add_table(1, 2, Inches(1), Inches(6.2), Inches(4), Inches(0.6)).table
+    empty.format_cells(color="#111111", bold=True, size_pt=11, align="center")
+    empty.cell(0, 0).text = "styled first"
     table.format_cells(rows=slice(1, None), size_pt=11, align="right", margin=(2, 8, 2, 8))
     table.cell(2, 0).format(fill="none")
     return _saved(prs)

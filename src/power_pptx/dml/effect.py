@@ -213,18 +213,23 @@ class ShadowFormat(object):
     def inherit(self, value: bool):
         warnings.warn(
             "ShadowFormat.inherit is deprecated; assign individual properties "
-            "to None to clear them. Will be removed in power-pptx 2.0.",
+            "to None to clear them, or call ShadowFormat.clear() to remove the "
+            "shadow entirely — `inherit = False` only writes an empty "
+            "<a:effectLst/> and leaves an inherited theme shadow rendering. "
+            "Will be removed in power-pptx 2.0.",
             DeprecationWarning,
             stacklevel=2,
         )
+        # Deliberately symmetric: `False` writes the empty `<a:effectLst/>` and
+        # `True` removes it again, so a round-trip through this deprecated
+        # property leaves the shape's XML as it found it.  Suppressing the
+        # theme effect style is what `clear()` is for — it edits `<p:style>`,
+        # which `inherit = True` could not put back (the original `effectRef`
+        # index isn't recoverable once overwritten).
         if bool(value):
             self._element._remove_effectLst()  # pyright: ignore[reportPrivateUsage]
         else:
-            # Historically this only wrote an empty `<a:effectLst/>`, which
-            # leaves a theme effect-style shadow visible in most renderers —
-            # silently wrong output for the very caller trying to turn a shadow
-            # off.  Delegate to `clear()` so the intent actually holds.
-            self.clear()
+            self._element.get_or_add_effectLst()
 
     # ------------------------------------------------------------------
     # Suppression

@@ -62,9 +62,11 @@ reflection — are preserved.  It is idempotent, and a no-op on shapes
 with no ``<p:style>`` (text boxes, pictures, placeholders).
 
 .. note::
-   The deprecated ``shadow.inherit = False`` now performs the same full
-   suppression, but still emits a ``DeprecationWarning``.  Prefer
-   ``shadow.clear()``.
+   The deprecated ``shadow.inherit = False`` does *not* do this.  It writes
+   the empty ``<a:effectLst/>`` and nothing else, so that ``inherit = True``
+   can put the shape back exactly as it found it — the original
+   ``effectRef`` index is not recoverable once overwritten.  An inherited
+   theme shadow therefore survives it; use ``shadow.clear()``.
 
 Corner radius in points
 -----------------------

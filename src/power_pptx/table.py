@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Sequence, Union
 
 from power_pptx._color import coerce_color
-from power_pptx._textstyle import apply_text_style, coerce_anchor, coerce_length
+from power_pptx._textstyle import (
+    apply_body_defaults,
+    apply_text_style,
+    coerce_anchor,
+    coerce_length,
+)
 from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.oxml.table import TcRange
@@ -504,6 +509,10 @@ class _Cell(Subshape):
         `fill` also accepts the string ``"none"`` for a transparent cell.
         `margin` is in points — a scalar for all four insets, or a
         ``(top, right, bottom, left)`` 4-sequence.
+
+        Formatting is recorded as the cell's text-body defaults as well as on
+        its current text, so either order works — style an empty cell and then
+        assign ``cell.text``, or populate first and style afterwards.
         """
         if fill is not None:
             if isinstance(fill, str) and fill.lower() == "none":
@@ -518,8 +527,9 @@ class _Cell(Subshape):
             self.vertical_anchor = coerce_anchor(anchor)
         if margin is not None:
             _apply_cell_margins(self, margin)
+        text_frame = self.text_frame
         apply_text_style(
-            self.text_frame,
+            text_frame,
             font=font,
             size_pt=size_pt,
             bold=bold,
@@ -528,6 +538,18 @@ class _Cell(Subshape):
             align=align,
             word_wrap=word_wrap,
             paragraph_defaults=True,
+        )
+        # Also record the styling as the text body's defaults, so a cell
+        # formatted *before* it is populated keeps that styling when
+        # `cell.text = ...` replaces its paragraphs.
+        apply_body_defaults(
+            text_frame,
+            font=font,
+            size_pt=size_pt,
+            bold=bold,
+            italic=italic,
+            color=color,
+            align=align,
         )
         return self
 

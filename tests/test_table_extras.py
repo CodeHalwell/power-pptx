@@ -12,6 +12,7 @@ import pytest
 
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
+from power_pptx.oxml.ns import qn
 from power_pptx.util import Inches, Pt
 
 
@@ -235,7 +236,7 @@ class DescribeCellFormat:
         assert cell.margin_top == Pt(2)
         assert cell.margin_left == Pt(8)
 
-    def it_styles_paragraph_defaults_so_later_text_inherits(self):
+    def it_styles_paragraph_defaults_so_later_runs_inherit(self):
         _, _, table = _new_table()
         cell = table.cell(0, 0)
         cell.text = "before"
@@ -244,6 +245,26 @@ class DescribeCellFormat:
         cell.text_frame.paragraphs[0].add_run().text = "after"
 
         assert cell.text_frame.paragraphs[0].font.size == Pt(9)
+
+    def it_survives_text_assigned_after_the_formatting(self):
+        # `cell.text = ...` drops every <a:p> and builds fresh ones, so run and
+        # paragraph styling alone would silently vanish for anyone who styles a
+        # header row before populating it.  The styling is also recorded in the
+        # text body's <a:lstStyle>, which a text replacement leaves alone.
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+
+        cell.format(color="#FFFFFF", bold=True, size_pt=12, align="center")
+        cell.text = "Metric"
+
+        lvl1pPr = cell.text_frame._txBody.lstStyle.lvl1pPr
+        assert str(lvl1pPr.algn) == "CENTER (2)"
+        defRPr = lvl1pPr.defRPr
+        assert defRPr.b is True
+        assert defRPr.sz == 1200
+        assert defRPr.find(qn("a:solidFill"))[0].get("val") == "FFFFFF"
+        # ...and the new run carries no rPr of its own, so it inherits them
+        assert cell.text_frame.paragraphs[0].runs[0]._r.rPr is None
 
     def it_rejects_an_unknown_alignment_word(self):
         _, _, table = _new_table()
