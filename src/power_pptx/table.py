@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Sequence, Union
 
+from power_pptx._color import coerce_color
+from power_pptx._textstyle import apply_text_style, coerce_anchor, coerce_length
 from power_pptx.dml.fill import FillFormat
 from power_pptx.dml.line import LineFormat
 from power_pptx.oxml.table import TcRange
@@ -30,6 +32,50 @@ else:
     # precise union above is type-checker-only, since RGBColor is not imported
     # at runtime here).
     _ColorLike = Any
+
+
+#: What `Table.format_cells` accepts for its `rows` / `cols` arguments.
+_CellSelector = Union[None, int, slice, Iterable[int]]
+
+
+def _resolve_selector(selector: _CellSelector, count: int, name: str) -> list[int]:
+    """Return the concrete indices `selector` picks out of `count` rows/columns.
+
+    ``None`` means all of them; an ``int`` picks one (negative counts from the
+    end); a ``slice`` or any iterable of ints picks several.  Out-of-range
+    indices raise :class:`IndexError` rather than silently selecting nothing.
+    """
+    if selector is None:
+        return list(range(count))
+    if isinstance(selector, slice):
+        return list(range(count))[selector]
+    idxs = [selector] if isinstance(selector, int) else list(selector)
+    out: list[int] = []
+    for idx in idxs:
+        i = int(idx)
+        if i < 0:
+            i += count
+        if not 0 <= i < count:
+            raise IndexError(f"{name} index {idx} out of range for table with {count} {name}")
+        out.append(i)
+    return out
+
+
+def _apply_cell_margins(
+    cell: "_Cell", margin: "float | Length | Sequence[float | Length]"
+) -> None:
+    """Set a cell's four insets from a scalar or ``(top, right, bottom, left)``."""
+    if isinstance(margin, (tuple, list)):
+        if len(margin) != 4:
+            raise ValueError(
+                "margin tuple must have 4 elements (top, right, bottom, left); "
+                f"got {len(margin)}"
+            )
+        top, right, bottom, left = (coerce_length(v) for v in margin)
+    else:
+        top = right = bottom = left = coerce_length(margin)
+    cell.margin_top, cell.margin_right = top, right
+    cell.margin_bottom, cell.margin_left = bottom, left
 
 
 class Table(object):
@@ -209,7 +255,7 @@ class Table(object):
 
         Parameters mirror :meth:`TextFrame.fit_text`.
         """
-        from power_pptx.text.fonts import FontFiles
+        from power_pptx.text.fonts import find_font_file
         from power_pptx.text.layout import TextFitter
         from power_pptx.util import Emu, Pt
 
@@ -219,10 +265,7 @@ class Table(object):
             )
 
         if font_file is None:
-            try:
-                font_file = FontFiles.find(font_family, bold, italic)
-            except (KeyError, OSError):
-                font_file = None
+            font_file = find_font_file(font_family, bold, italic)
 
         # Default cell margins per OOXML: 0.1" left/right, 0.05" top/bottom.
         DEFAULT_MARG_LR = 91440
@@ -271,6 +314,38 @@ class Table(object):
                     run.font.size = Pt(target)
 
         return int(target)
+
+    def format_cells(
+        self,
+        rows: "_CellSelector" = None,
+        cols: "_CellSelector" = None,
+        **style: Any,
+    ) -> "Table":
+        """Apply cell styling to a rectangular selection of cells; return self.
+
+        `rows` and `cols` each accept ``None`` (every row / column), an ``int``
+        (negative counts from the end), a ``slice``, or any iterable of ints.
+        The remaining keyword arguments are those of :meth:`_Cell.format`, so
+        the whole of a table's look is a handful of calls rather than a nest of
+        loops over ``cell.fill.fore_color.rgb``::
+
+            table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
+            table.format_cells(rows=slice(1, None), size_pt=11, anchor="middle")
+            table.format_cells(rows=range(2, len(table.rows), 2), fill="#F6F7F9")
+            table.format_cells(cols=-1, align="right")
+
+        Merged cells are styled through their origin cell only; spanned cells
+        carry no formatting of their own.
+        """
+        row_idxs = _resolve_selector(rows, len(self.rows), "rows")
+        col_idxs = _resolve_selector(cols, len(self.columns), "cols")
+        for r in row_idxs:
+            for c in col_idxs:
+                cell = self.cell(r, c)
+                if cell.is_spanned:
+                    continue
+                cell.format(**style)
+        return self
 
     @property
     def vert_banding(self) -> bool:
@@ -401,6 +476,60 @@ class _Cell(Subshape):
         """
         tcPr = self._tc.get_or_add_tcPr()
         return FillFormat.from_fill_parent(tcPr)
+
+    def format(
+        self,
+        *,
+        fill: "_ColorLike | str | None" = None,
+        color: "_ColorLike | None" = None,
+        font: str | None = None,
+        size_pt: float | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        align: str | None = None,
+        anchor: str | None = None,
+        margin: "float | Length | Sequence[float | Length] | None" = None,
+        word_wrap: bool | None = None,
+    ) -> "_Cell":
+        """Style this cell's fill and text in one call; return self.
+
+        Every argument is optional and ``None`` means "leave alone", so calls
+        layer.  The keyword vocabulary is the same as
+        :meth:`ShapeTree.add_text`, and colours accept anything the rest of the
+        library does — hex string, ``(r, g, b)`` tuple, or ``RGBColor``::
+
+            table.cell(0, 0).format(fill="#1F2937", color="#FFFFFF", bold=True)
+            table.cell(3, 2).format(align="right", size_pt=11, margin=(2, 8, 2, 8))
+
+        `fill` also accepts the string ``"none"`` for a transparent cell.
+        `margin` is in points — a scalar for all four insets, or a
+        ``(top, right, bottom, left)`` 4-sequence.
+        """
+        if fill is not None:
+            if isinstance(fill, str) and fill.lower() == "none":
+                self.fill.background()
+            else:
+                self.fill.solid()
+                self.fill.fore_color.rgb = coerce_color(fill)
+        # A cell's anchor and insets live on `<a:tcPr>`, not on the text
+        # frame's `<a:bodyPr>` — PowerPoint reads the cell properties and
+        # ignores the body ones, so route those two through `_Cell`.
+        if anchor is not None:
+            self.vertical_anchor = coerce_anchor(anchor)
+        if margin is not None:
+            _apply_cell_margins(self, margin)
+        apply_text_style(
+            self.text_frame,
+            font=font,
+            size_pt=size_pt,
+            bold=bold,
+            italic=italic,
+            color=color,
+            align=align,
+            word_wrap=word_wrap,
+            paragraph_defaults=True,
+        )
+        return self
 
     @property
     def is_merge_origin(self) -> bool:

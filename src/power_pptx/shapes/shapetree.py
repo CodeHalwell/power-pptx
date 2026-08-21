@@ -929,13 +929,8 @@ class _BaseGroupShapes(_BaseShapes):
         Returns the textbox :class:`Shape` so further mutation works as
         normal.
         """
-        from power_pptx._color import coerce_color
-        from power_pptx.enum.text import (
-            MSO_VERTICAL_ANCHOR,
-            PP_PARAGRAPH_ALIGNMENT,
-        )
+        from power_pptx._textstyle import apply_margins, apply_text_style, coerce_anchor
         from power_pptx.geometry import BBox
-        from power_pptx.util import Pt
 
         if len(bbox_or_positional) == 1 and isinstance(bbox_or_positional[0], BBox):
             box = bbox_or_positional[0]
@@ -954,72 +949,26 @@ class _BaseGroupShapes(_BaseShapes):
             tf.word_wrap = bool(word_wrap)
 
         if margin_pt is not None:
-            if isinstance(margin_pt, (tuple, list)):
-                if len(margin_pt) != 4:
-                    raise ValueError(
-                        "margin_pt tuple must have 4 elements (top, right, "
-                        "bottom, left)"
-                    )
-                tf.margin_top = Pt(float(margin_pt[0]))
-                tf.margin_right = Pt(float(margin_pt[1]))
-                tf.margin_bottom = Pt(float(margin_pt[2]))
-                tf.margin_left = Pt(float(margin_pt[3]))
-            else:
-                v = Pt(float(margin_pt))
-                tf.margin_top = v
-                tf.margin_right = v
-                tf.margin_bottom = v
-                tf.margin_left = v
-
-        _ANCHOR_MAP = {
-            "top": MSO_VERTICAL_ANCHOR.TOP,
-            "middle": MSO_VERTICAL_ANCHOR.MIDDLE,
-            "center": MSO_VERTICAL_ANCHOR.MIDDLE,
-            "centre": MSO_VERTICAL_ANCHOR.MIDDLE,
-            "bottom": MSO_VERTICAL_ANCHOR.BOTTOM,
-        }
-        if anchor is not None:
-            try:
-                tf.vertical_anchor = _ANCHOR_MAP[anchor.lower()]
-            except KeyError:
+            if isinstance(margin_pt, (tuple, list)) and len(margin_pt) != 4:
                 raise ValueError(
-                    f"anchor must be one of {sorted(set(_ANCHOR_MAP))}; got {anchor!r}"
+                    "margin_pt tuple must have 4 elements (top, right, bottom, left)"
                 )
+            apply_margins(tf, margin_pt)
+
+        if anchor is not None:
+            tf.vertical_anchor = coerce_anchor(anchor)
 
         tf.text = text or ""
 
-        _ALIGN_MAP = {
-            "left": PP_PARAGRAPH_ALIGNMENT.LEFT,
-            "right": PP_PARAGRAPH_ALIGNMENT.RIGHT,
-            "center": PP_PARAGRAPH_ALIGNMENT.CENTER,
-            "centre": PP_PARAGRAPH_ALIGNMENT.CENTER,
-            "justify": PP_PARAGRAPH_ALIGNMENT.JUSTIFY,
-        }
-        align_value = None
-        if align is not None:
-            try:
-                align_value = _ALIGN_MAP[align.lower()]
-            except KeyError:
-                raise ValueError(
-                    f"align must be one of {sorted(set(_ALIGN_MAP))}; got {align!r}"
-                )
-
-        rgb = coerce_color(color) if color is not None else None
-        for paragraph in tf.paragraphs:
-            if align_value is not None:
-                paragraph.alignment = align_value
-            for run in paragraph.runs:
-                f = run.font
-                if font is not None:
-                    f.name = font
-                if size_pt is not None:
-                    f.size = Pt(float(size_pt))
-                if bold is not None:
-                    f.bold = bool(bold)
-                if italic is not None:
-                    f.italic = bool(italic)
-                if rgb is not None:
-                    f.color.rgb = rgb
+        apply_text_style(
+            tf,
+            font=font,
+            size_pt=size_pt,
+            bold=bold,
+            italic=italic,
+            color=color,
+            align=align,
+        )
 
         return shape
 

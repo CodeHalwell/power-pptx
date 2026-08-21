@@ -182,3 +182,119 @@ class DescribeCellFitText:
         size = cell.text_frame.paragraphs[0].runs[0].font.size
         assert size is not None
         assert size.pt < 18
+
+
+class DescribeCellFormat:
+    """``cell.format(...)`` — fill + text styling in one call."""
+
+    def it_sets_fill_and_text_style_together(self):
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+        cell.text = "Metric"
+
+        returned = cell.format(
+            fill="#1F2937", color=(255, 255, 255), bold=True, size_pt=12, align="center"
+        )
+
+        assert returned is cell
+        assert cell.fill.fore_color.rgb == RGBColor(0x1F, 0x29, 0x37)
+        font = cell.text_frame.paragraphs[0].runs[0].font
+        assert font.color.rgb == RGBColor(0xFF, 0xFF, 0xFF)
+        assert font.bold is True
+        assert font.size == Pt(12)
+        assert str(cell.text_frame.paragraphs[0].alignment) == "CENTER (2)"
+
+    def it_leaves_unmentioned_properties_alone(self):
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+        cell.text = "Metric"
+        cell.format(bold=True, size_pt=14)
+
+        cell.format(color="#112233")
+
+        font = cell.text_frame.paragraphs[0].runs[0].font
+        assert font.bold is True
+        assert font.size == Pt(14)
+
+    def it_makes_a_cell_transparent_for_fill_none(self):
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+        cell.format(fill="#FF0000")
+
+        cell.format(fill="none")
+
+        assert str(cell.fill.type) == "BACKGROUND (5)"
+
+    def it_sets_vertical_anchor_and_margins(self):
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+
+        cell.format(anchor="middle", margin=(2, 8, 2, 8))
+
+        assert str(cell.vertical_anchor) == "MIDDLE (3)"
+        assert cell.margin_top == Pt(2)
+        assert cell.margin_left == Pt(8)
+
+    def it_styles_paragraph_defaults_so_later_text_inherits(self):
+        _, _, table = _new_table()
+        cell = table.cell(0, 0)
+        cell.text = "before"
+
+        cell.format(size_pt=9)
+        cell.text_frame.paragraphs[0].add_run().text = "after"
+
+        assert cell.text_frame.paragraphs[0].font.size == Pt(9)
+
+    def it_rejects_an_unknown_alignment_word(self):
+        _, _, table = _new_table()
+        with pytest.raises(ValueError, match="align must be one of"):
+            table.cell(0, 0).format(align="middle")
+
+
+class DescribeTableFormatCells:
+    """``table.format_cells(...)`` — the same styling over a row/column selection."""
+
+    def it_styles_every_cell_by_default(self):
+        _, _, table = _new_table(rows=3, cols=3)
+
+        returned = table.format_cells(size_pt=10)
+
+        assert returned is table
+        for cell in table.iter_cells():
+            assert cell.text_frame.paragraphs[0].font.size == Pt(10)
+
+    def it_selects_a_single_row_by_index(self):
+        _, _, table = _new_table(rows=3, cols=2)
+
+        table.format_cells(rows=0, fill="#1F2937")
+
+        assert table.cell(0, 1).fill.fore_color.rgb == RGBColor(0x1F, 0x29, 0x37)
+        assert str(table.cell(1, 0).fill.type) == "None"
+
+    def it_selects_with_a_slice_an_iterable_and_a_negative_index(self):
+        _, _, table = _new_table(rows=4, cols=3)
+
+        table.format_cells(rows=slice(1, None), size_pt=11)
+        table.format_cells(rows=range(1, 4, 2), fill="#F6F7F9")
+        table.format_cells(cols=-1, align="right")
+
+        assert table.cell(3, 0).text_frame.paragraphs[0].font.size == Pt(11)
+        assert table.cell(1, 0).fill.fore_color.rgb == RGBColor(0xF6, 0xF7, 0xF9)
+        assert str(table.cell(2, 0).fill.type) == "None"
+        assert str(table.cell(0, 2).text_frame.paragraphs[0].alignment) == "RIGHT (3)"
+
+    def it_skips_spanned_cells(self):
+        _, _, table = _new_table(rows=2, cols=3)
+        table.cell(0, 0).merge(table.cell(0, 1))
+
+        table.format_cells(rows=0, fill="#101010")
+
+        assert table.cell(0, 0).fill.fore_color.rgb == RGBColor(0x10, 0x10, 0x10)
+        assert table.cell(0, 1).is_spanned
+
+    def it_raises_for_an_out_of_range_selection(self):
+        _, _, table = _new_table(rows=2, cols=2)
+        with pytest.raises(IndexError, match="rows index 5 out of range"):
+            table.format_cells(rows=5, fill="#000000")
+        with pytest.raises(IndexError, match="cols index -3 out of range"):
+            table.format_cells(cols=-3, fill="#000000")
