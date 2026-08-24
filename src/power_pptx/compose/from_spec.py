@@ -127,6 +127,13 @@ def from_spec(
         legacy layouts (``title``, ``bullets``, ``two_column``, …)
         populate the standard placeholder layouts.
 
+        A slide dict may also carry a ``shapes`` list of extra shapes
+        drawn on top of whatever the layout produced — see
+        :func:`_add_spec_shapes` for the full shape-entry surface,
+        including the ``lint_group`` / ``allow_overlap_with`` /
+        ``layer`` / ``layer_above`` fields that declare an overlap as
+        intentional at generation time.
+
     ``tokens`` *(optional)*
         Either a preset name (``{"preset": "modern_light"}``), a path
         to a YAML file (``{"yaml": "brand.yml"}``), an inline token
@@ -198,8 +205,19 @@ def from_spec(
     if slide_size is not None:
         _apply_slide_size(prs, slide_size)
 
-    for slide_spec in spec.get("slides", []):
-        _add_slide(prs, slide_spec, tokens)
+    slide_specs = spec.get("slides", [])
+    # Shape names are collected up-front so a bad ``allow_overlap_with``
+    # reference can say *why* it failed — unknown everywhere vs. defined
+    # on a different slide (see ``_apply_overlap_allowances``).
+    deck_shape_names = _collect_shape_names(slide_specs)
+    for slide_index, slide_spec in enumerate(slide_specs):
+        _add_slide(
+            prs,
+            slide_spec,
+            tokens,
+            slide_index=slide_index,
+            deck_shape_names=deck_shape_names,
+        )
 
     lint_mode = spec.get("lint", "off")
     if lint_mode != "off":
@@ -330,7 +348,14 @@ def _resolve_layout(prs: Any, layout_name: str) -> Any:
     )
 
 
-def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:
+def _add_slide(
+    prs: Any,
+    slide_spec: dict[str, Any],
+    tokens: Any = None,
+    *,
+    slide_index: int = 0,
+    deck_shape_names: Optional[Mapping[str, list[int]]] = None,
+) -> Any:
     """Add a single slide to *prs* according to *slide_spec*.
 
     When the layout name matches a styled recipe (``kpi``, ``chart``,
@@ -345,6 +370,11 @@ def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:
     user's tokens were silently ignored, producing a default-styled
     slide while ``lint`` and ``save`` succeeded.  See IMPROVEMENTS
     item 9.
+
+    A ``shapes`` list on the slide spec is applied last, on top of
+    whatever the layout produced — see :func:`_add_spec_shapes`.
+    *slide_index* and *deck_shape_names* only feed error messages and
+    cross-slide reference detection there.
     """
     layout_name = (slide_spec.get("layout") or "blank").lower()
 
@@ -354,14 +384,22 @@ def _add_slide(prs: Any, slide_spec: dict[str, Any], tokens: Any = None) -> Any:
             layout_name = upgrade
 
     if layout_name in _RECIPE_LAYOUTS:
-        return _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+        slide = _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+    else:
+        layout = _resolve_layout(prs, layout_name)
+        slide = prs.slides.add_slide(layout)
 
-    layout = _resolve_layout(prs, layout_name)
-    slide = prs.slides.add_slide(layout)
+        _set_title(slide, slide_spec.get("title"))
+        _set_subtitle_or_body(slide, slide_spec, layout_name)
+        _set_transition(slide, slide_spec.get("transition"))
 
-    _set_title(slide, slide_spec.get("title"))
-    _set_subtitle_or_body(slide, slide_spec, layout_name)
-    _set_transition(slide, slide_spec.get("transition"))
+    if "shapes" in slide_spec:
+        _add_spec_shapes(
+            slide,
+            slide_spec["shapes"],
+            slide_index=slide_index,
+            deck_shape_names=deck_shape_names or {},
+        )
 
     return slide
 
@@ -375,7 +413,9 @@ _LEGACY_TO_RECIPE: dict[str, str] = {
 }
 
 
-_RECIPE_NEVER_KWARGS = frozenset({"layout"})
+# Slide-spec keys handled by the dispatcher itself and therefore never
+# forwarded to a recipe (which would reject them as unknown kwargs).
+_RECIPE_NEVER_KWARGS = frozenset({"layout", "shapes"})
 
 
 def _add_recipe_slide(
@@ -502,6 +542,309 @@ def _set_transition(slide: Any, transition: str | None) -> None:
     slide.transition.kind = getattr(MSO_TRANSITION_TYPE, member_name)
 
 
+# ---------------------------------------------------------------------------
+# Per-slide ``shapes`` entries — extra shapes plus lint-intent declarations
+# ---------------------------------------------------------------------------
+
+# Keys accepted on a single ``shapes`` entry.  Fail-closed like every
+# other key set in this module: an unrecognised key raises rather than
+# being silently dropped, so ``lint_groupp`` doesn't quietly leave the
+# overlap undeclared.
+_VALID_SHAPE_KEYS = frozenset(
+    {
+        "name",
+        "shape",
+        "text",
+        "left",
+        "top",
+        "width",
+        "height",
+        "lint_group",
+        "layer",
+        "layer_above",
+        "allow_overlap_with",
+    }
+)
+
+# Geometry is mandatory — a shape entry with no box has nothing to draw.
+_REQUIRED_SHAPE_KEYS = ("left", "top", "width", "height")
+
+# Value of the ``shape`` key that means "plain text box" rather than an
+# ``MSO_SHAPE`` autoshape.  Also the default when ``shape`` is omitted.
+_TEXTBOX_SHAPE_NAME = "textbox"
+
+
+def _collect_shape_names(slide_specs: Any) -> dict[str, list[int]]:
+    """Map every ``shapes`` entry name in the deck to the slides defining it.
+
+    Collected before any slide is built so an ``allow_overlap_with``
+    reference to a shape on a *different* slide can be reported as
+    exactly that, rather than as a plain "unknown shape" — including
+    when the other slide comes later in the spec.
+    """
+    names: dict[str, list[int]] = {}
+    if not isinstance(slide_specs, list):
+        return names
+    for slide_index, slide_spec in enumerate(slide_specs):
+        if not isinstance(slide_spec, Mapping):
+            continue
+        entries = slide_spec.get("shapes")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            name = entry.get("name")
+            if isinstance(name, str) and name.strip():
+                names.setdefault(name, []).append(slide_index)
+    return names
+
+
+def _add_spec_shapes(
+    slide: Any,
+    shape_specs: Any,
+    *,
+    slide_index: int,
+    deck_shape_names: Mapping[str, list[int]],
+) -> None:
+    """Add the slide spec's ``shapes`` entries to *slide*.
+
+    A shape entry is a mapping with a geometry box and, optionally, a
+    name, a shape type, text, and the linter's three intent
+    declarations::
+
+        {
+            "layout": "blank",
+            "shapes": [
+                {"name": "card",  "shape": "rounded_rectangle",
+                 "left": 1, "top": 1, "width": 4, "height": 2,
+                 "layer": "card"},
+                {"name": "badge", "shape": "oval",
+                 "left": 4.4, "top": 0.7, "width": 1.2, "height": 0.8,
+                 "layer_above": "card",
+                 "allow_overlap_with": "card"},
+            ],
+        }
+
+    Entry keys:
+
+    ``left`` / ``top`` / ``width`` / ``height`` *(required)*
+        Numbers are inches (matching ``slide_size``); pass a
+        :class:`~power_pptx.util.Length` to opt out.
+
+    ``name`` *(optional)*
+        The shape's name, which doubles as the spec-level handle
+        ``allow_overlap_with`` resolves against.  Names must be unique
+        within a slide.
+
+    ``shape`` *(optional)*
+        An ``MSO_SHAPE`` member name, case- and separator-insensitive
+        (``"rounded_rectangle"``, ``"Rounded Rectangle"``).  Defaults to
+        ``"textbox"``.
+
+    ``text`` *(optional)*
+        Text for the shape's text frame.
+
+    ``lint_group`` / ``layer`` / ``layer_above`` *(optional)*
+        Passed straight through to the matching
+        :class:`~power_pptx.shapes.base.BaseShape` property, which
+        validates them.
+
+    ``allow_overlap_with`` *(optional)*
+        A shape name, or a list of them, naming other shapes **on the
+        same slide**.  Resolved to real shape ids after every shape on
+        the slide exists, so forward references work.
+    """
+    where_slide = f"slides[{slide_index}]"
+    if not isinstance(shape_specs, list):
+        raise ValueError(
+            f"{where_slide}: 'shapes' must be a list of shape entries; got "
+            f"{type(shape_specs).__name__!r}"
+        )
+
+    built: list[tuple[Mapping[str, Any], Any]] = []
+    by_name: dict[str, Any] = {}
+    for pos, entry in enumerate(shape_specs):
+        where = f"{where_slide}.shapes[{pos}]"
+        shape = _add_spec_shape(slide, entry, where=where)
+        name = entry.get("name")
+        if name is not None:
+            if name in by_name:
+                raise ValueError(
+                    f"{where}: duplicate shape name {name!r} on {where_slide}. "
+                    "Shape names must be unique within a slide so "
+                    "'allow_overlap_with' can resolve them."
+                )
+            by_name[name] = shape
+        built.append((entry, shape))
+
+    # Second pass: every shape on the slide now exists (and has an id),
+    # so a reference may point forward as well as back.
+    for pos, (entry, shape) in enumerate(built):
+        _apply_overlap_allowances(
+            shape,
+            entry,
+            by_name,
+            where=f"{where_slide}.shapes[{pos}]",
+            slide_index=slide_index,
+            deck_shape_names=deck_shape_names,
+        )
+
+
+def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
+    """Create one shape from a ``shapes`` entry and return it."""
+    if not isinstance(entry, Mapping):
+        raise ValueError(
+            f"{where}: each 'shapes' entry must be a mapping; got "
+            f"{type(entry).__name__!r}"
+        )
+
+    unknown = set(entry) - _VALID_SHAPE_KEYS
+    if unknown:
+        raise ValueError(
+            f"{where}: unknown shape keys "
+            f"{_format_unknown(unknown, _VALID_SHAPE_KEYS)}. "
+            f"Valid keys: {sorted(_VALID_SHAPE_KEYS)}"
+        )
+
+    name = entry.get("name")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        raise ValueError(
+            f"{where}: shape 'name' must be a non-empty string; got {name!r}"
+        )
+
+    missing = [k for k in _REQUIRED_SHAPE_KEYS if k not in entry]
+    if missing:
+        raise ValueError(
+            f"{where}: shape entries require keys "
+            f"{list(_REQUIRED_SHAPE_KEYS)}; missing {missing}"
+        )
+    box = tuple(
+        _coerce_length(entry[k], f"{where}: {k!r}") for k in _REQUIRED_SHAPE_KEYS
+    )
+
+    kind = entry.get("shape", _TEXTBOX_SHAPE_NAME)
+    if not isinstance(kind, str):
+        raise ValueError(
+            f"{where}: 'shape' must be a string naming an MSO_SHAPE member or "
+            f"{_TEXTBOX_SHAPE_NAME!r}; got {type(kind).__name__!r}"
+        )
+    if kind.strip().lower() == _TEXTBOX_SHAPE_NAME:
+        shape = slide.shapes.add_textbox(*box)
+    else:
+        shape = slide.shapes.add_shape(_resolve_autoshape(kind, where=where), *box)
+
+    if name is not None:
+        shape.name = name
+
+    text = entry.get("text")
+    if text is not None:
+        shape.text_frame.text = str(text)
+
+    # The three lint-intent scalars are plain pass-throughs: the shape
+    # properties own their validation, so a bad value fails the same way
+    # (and with the same exception type) whether it came from Python or
+    # from a spec.  Only the location is added, so a rejected value in a
+    # 40-slide spec is findable.
+    for field in ("lint_group", "layer", "layer_above"):
+        if field not in entry:
+            continue
+        try:
+            setattr(shape, field, entry[field])
+        except (TypeError, ValueError) as exc:
+            raise type(exc)(f"{where}: {field!r}: {exc}") from exc
+
+    return shape
+
+
+def _resolve_autoshape(kind: str, *, where: str) -> Any:
+    """Return the ``MSO_SHAPE`` member named by *kind*.
+
+    Accepts the member name in any case and with spaces or hyphens
+    standing in for underscores, so ``"rounded rectangle"`` and
+    ``"ROUNDED_RECTANGLE"`` both land on the same member.
+    """
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    member = kind.strip().upper().replace(" ", "_").replace("-", "_")
+    try:
+        return getattr(MSO_SHAPE, member)
+    except AttributeError:
+        pass
+    candidates = [m.name.lower() for m in MSO_SHAPE] + [_TEXTBOX_SHAPE_NAME]
+    raise ValueError(
+        f"{where}: unknown shape type {kind!r}"
+        f"{_did_you_mean(member.lower(), candidates)}. Valid values are "
+        f"{_TEXTBOX_SHAPE_NAME!r} or any MSO_SHAPE member name, e.g. "
+        "'rectangle', 'rounded_rectangle', 'oval'."
+    )
+
+
+def _apply_overlap_allowances(
+    shape: Any,
+    entry: Mapping[str, Any],
+    by_name: Mapping[str, Any],
+    *,
+    where: str,
+    slide_index: int,
+    deck_shape_names: Mapping[str, list[int]],
+) -> None:
+    """Resolve an entry's ``allow_overlap_with`` names and apply them.
+
+    Shape ids are assigned by the library at creation time, so a spec
+    names its peers instead; resolution happens here, once every shape
+    on the slide exists.  Ids are only unique within a slide, so a
+    reference to a shape on another slide is rejected rather than
+    silently ignored.
+    """
+    raw = entry.get("allow_overlap_with")
+    if raw is None:
+        return
+    if isinstance(raw, str):
+        refs: list[Any] = [raw]
+    elif isinstance(raw, (list, tuple)):
+        refs = list(raw)
+    else:
+        raise ValueError(
+            f"{where}: 'allow_overlap_with' must be a shape name or a list of "
+            f"shape names; got {type(raw).__name__!r}"
+        )
+
+    own_name = entry.get("name")
+    targets = []
+    for ref in refs:
+        if not isinstance(ref, str) or not ref.strip():
+            raise ValueError(
+                f"{where}: 'allow_overlap_with' entries must be non-empty "
+                f"shape names; got {ref!r}"
+            )
+        if ref == own_name:
+            raise ValueError(
+                f"{where}: 'allow_overlap_with' names this shape itself "
+                f"({ref!r}); an allowance always describes a pair of shapes."
+            )
+        target = by_name.get(ref)
+        if target is None:
+            elsewhere = sorted(set(deck_shape_names.get(ref, ())) - {slide_index})
+            if elsewhere:
+                raise ValueError(
+                    f"{where}: 'allow_overlap_with' names shape {ref!r}, which "
+                    f"is defined on slides {elsewhere} — an overlap allowance "
+                    "is keyed on shape id, and shape ids are only unique "
+                    "within a slide, so it can only name a shape on "
+                    f"slides[{slide_index}]."
+                )
+            raise ValueError(
+                f"{where}: 'allow_overlap_with' names unknown shape {ref!r}"
+                f"{_did_you_mean(ref, by_name)} on slides[{slide_index}]. "
+                f"Named shapes on that slide: {sorted(by_name)}"
+            )
+        targets.append(target)
+
+    if targets:
+        shape.allow_overlap_with(*targets)
+
+
 def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
     """Add KPI card shapes to *slide* — label, value, and optional delta."""
     from power_pptx.enum.text import PP_ALIGN
@@ -622,6 +965,34 @@ _SLIDE_SIZE_PRESETS: dict[str, tuple[float, float]] = {
 }
 
 
+def _coerce_length(value: Any, what: str) -> Any:
+    """Return *value* as a :class:`~power_pptx.util.Length`.
+
+    Bare numbers are inches — the convention the rest of the spec uses
+    (``slide_size``, shape geometry) — so a spec never has to name a raw
+    EMU integer.  *what* names the offending field in the error message.
+    """
+    from power_pptx.util import Inches, Length
+
+    if isinstance(value, Length):
+        return value
+    # ``bool`` is a subclass of ``int``, so the ``isinstance(value,
+    # (int, float))`` branch below would silently accept
+    # ``slide_size=(True, False)`` as a 1" × 0" canvas.  Reject it
+    # explicitly — matches the boolean-rejection rule that
+    # ``power_pptx.util._coerce_emu`` applies for shape coordinates.
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{what} must be a number (inches) or Length; got bool: {value!r}"
+        )
+    if isinstance(value, (int, float)):
+        return Inches(float(value))
+    raise ValueError(
+        f"{what} must be a number (inches) or Length; "
+        f"got {type(value).__name__!r}: {value!r}"
+    )
+
+
 def _apply_slide_size(prs: Any, slide_size: Any) -> None:
     """Set ``prs.slide_width`` / ``prs.slide_height`` from a spec value.
 
@@ -630,27 +1001,10 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
     :class:`~power_pptx.util.Length`).  Numbers are interpreted as inches;
     pass an explicit ``Length`` to opt out.  See IMPROVEMENTS item 10.
     """
-    from power_pptx.util import Inches, Length
+    from power_pptx.util import Inches
 
-    def _to_emu(value: Any) -> Length:
-        if isinstance(value, Length):
-            return value
-        # ``bool`` is a subclass of ``int``, so the ``isinstance(value,
-        # (int, float))`` branch below would silently accept
-        # ``slide_size=(True, False)`` as a 1" × 0" canvas.  Reject it
-        # explicitly — matches the boolean-rejection rule that
-        # ``power_pptx.util._coerce_emu`` applies for shape coordinates.
-        if isinstance(value, bool):
-            raise ValueError(
-                f"slide_size dimension must be a number (inches) or Length; "
-                f"got bool: {value!r}"
-            )
-        if isinstance(value, (int, float)):
-            return Inches(float(value))
-        raise ValueError(
-            f"slide_size dimension must be a number (inches) or Length; "
-            f"got {type(value).__name__!r}: {value!r}"
-        )
+    def _to_emu(value: Any) -> Any:
+        return _coerce_length(value, "slide_size dimension")
 
     if isinstance(slide_size, str):
         key = slide_size.lower()
