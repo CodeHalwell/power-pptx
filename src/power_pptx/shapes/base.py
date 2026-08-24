@@ -607,13 +607,15 @@ class BaseShape(object):
             ids.discard(self._require_shape_id(other))
         _write_lint_allow(cNvPr, ids)
 
-    @staticmethod
-    def _require_shape_id(shape: "BaseShape") -> int:
-        """Return *shape*'s id, raising a useful error when it has none.
+    def _require_shape_id(self, shape: "BaseShape") -> int:
+        """Return *shape*'s id, raising a useful error when it is unusable.
 
-        Group members, and any shape whose element lacks ``cNvPr``, cannot
-        take part in a pairwise allowance because there is nothing stable to
-        key it on.
+        Two things make a shape unusable as an allowance target. It may have
+        no ``cNvPr`` and therefore no id to key on. Or it may live on a
+        different slide: shape ids are unique only *within* a slide, so an
+        id borrowed from another slide either collides with this shape's own
+        id — reading as a bogus self-reference — or silently matches an
+        unrelated shape here and suppresses a collision that was real.
         """
         try:
             shape_id = shape.shape_id
@@ -623,7 +625,26 @@ class BaseShape(object):
                 "part in an overlap allowance; tag both shapes with a shared "
                 "lint_group instead"
             ) from exc
+        if not self._on_same_slide_as(shape):
+            raise ValueError(
+                f"cannot record an overlap allowance with {shape.name!r}: it "
+                "is on a different slide. Shape ids are only unique within a "
+                "slide, so an allowance can only name a shape on this one."
+            )
         return shape_id
+
+    def _on_same_slide_as(self, shape: "BaseShape") -> bool:
+        """Return True unless *shape* is known to live on another slide.
+
+        Shapes on one slide share a part, including shapes nested in groups.
+        When either part cannot be resolved — a shape built outside a
+        package, as unit tests do — this answers ``True``: the check exists
+        to catch a real mistake, not to make detached shapes unusable.
+        """
+        try:
+            return self.part is shape.part
+        except Exception:
+            return True
 
     @property
     def overlap_allowances(self) -> frozenset[int]:

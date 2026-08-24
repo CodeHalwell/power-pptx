@@ -134,7 +134,11 @@ print(report.markdown())`;
       <tr>
         <td><code>allow_overlap_with</code></td>
         <td>one pair</td>
-        <td>Exactly one overlap is meant to be legal and you want the rest still policed</td>
+        <td>
+          Exactly one overlap is meant to be legal and you want the rest still policed. Both
+          shapes must be on the same slide — allowances are keyed on a shape id, which repeats
+          across a deck, so naming a shape from another slide raises <code>ValueError</code>.
+        </td>
       </tr>
       <tr>
         <td><code>layer</code> / <code>layer_above</code></td>
