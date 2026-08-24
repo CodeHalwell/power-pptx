@@ -2092,3 +2092,83 @@ class DescribeCrossSlideOverlapAllowance:
         p.allow_overlap_with(inner)
 
         assert inner.shape_id in p.overlap_allowances
+
+
+class DescribeAllowanceCleanupOnDelete:
+    """Deleting a shape must not leave allowances pointing at its id.
+
+    Shape ids are recycled: the allocator hands out ``max(existing) + 1``,
+    so deleting the highest-id shape frees its id for the next shape added
+    after a save/reopen. A leftover allowance would then match that
+    unrelated newcomer and silently suppress a real collision.
+    """
+
+    def _overlapping_pair(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
+        b = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
+        a.allow_overlap_with(b)
+        return prs, slide, a, b
+
+    def it_drops_the_deleted_shapes_id_from_allowances(self):
+        _, _, a, b = self._overlapping_pair()
+        assert b.shape_id in a.overlap_allowances
+
+        b.delete()
+
+        assert a.overlap_allowances == frozenset()
+
+    def it_keeps_allowances_naming_other_shapes(self):
+        from power_pptx.util import Inches
+
+        _, slide, a, b = self._overlapping_pair()
+        other = slide.shapes.add_textbox(
+            Inches(6), Inches(1), Inches(1), Inches(1)
+        )
+        a.allow_overlap_with(other)
+
+        b.delete()
+
+        assert a.overlap_allowances == frozenset({other.shape_id})
+
+    def it_purges_allowances_held_by_shapes_inside_groups(self):
+        from power_pptx.util import Inches
+
+        _, slide, _, b = self._overlapping_pair()
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_textbox(
+            Inches(1), Inches(1), Inches(1), Inches(1)
+        )
+        inner.allow_overlap_with(b)
+
+        b.delete()
+
+        assert inner.overlap_allowances == frozenset()
+
+    def it_does_not_suppress_a_collision_with_a_shape_reusing_the_id(self):
+        import io
+
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs, _, _, b = self._overlapping_pair()
+        deleted_id = b.shape_id
+        b.delete()
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        slide = Presentation(buf).slides[0]
+
+        # The allocator recycles the freed id for the next shape added.
+        newcomer = slide.shapes.add_textbox(
+            Inches(2), Inches(1), Inches(3), Inches(2)
+        )
+        assert newcomer.shape_id == deleted_id
+
+        codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
+        assert codes, "a real collision must not be suppressed by a stale allowance"
