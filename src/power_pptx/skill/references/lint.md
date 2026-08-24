@@ -42,6 +42,9 @@ for issue in report.issues:
               "intersection_pct", issue.intersection_pct)
 ```
 
+`LayerOrderViolation` carries the declared `layer` name, and its
+`shapes` tuple is `(declaring_shape, layer_shape)`.
+
 Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the
 shapes it implicates.
@@ -59,12 +62,79 @@ preview = report.auto_fix(dry_run=True)    # no mutation; returns list[str]
 What's currently fixable:
 
 - **`OffSlide`** → translates the shape so it sits inside the slide
-  bounds. Returns a one-line description of each nudge.
-- **`TextOverflow`** → reported only. Auto-fitting requires designer
-  judgment on font size vs content; do it manually with
-  ``text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE``.
-- **`ShapeCollision`** → reported only. Auto-nudging would almost
-  always break the design.
+  bounds (shrinking it first if it is larger than the slide). Returns a
+  one-line description of each nudge.
+- **`TextOverflow`** → flips the frame to
+  `MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE` so PowerPoint shrinks the runs at
+  render time. Non-destructive: the text is preserved verbatim.
+- **`OffGridDrift`** → snaps the drifted edge onto the dominant grid
+  line.
+- **`LayerOrderViolation`** → restacks the shape that declared
+  `layer_above` so the drawing order matches what you declared.
+  Geometry is untouched.
+
+Reported only, never auto-fixed:
+
+- **`ShapeCollision`** → auto-nudging would almost always break the
+  design. Declare the overlap instead — see below.
+- **`LowContrast`**, **`MinFontSize`**, **`ZOrderAnomaly`**,
+  **`MasterPlaceholderCollision`** → need designer judgment.
+
+`slide.tidy()` is the one-call wrapper: it lints, then applies the safe
+subset (`fix_offslide`, `fix_overflow`, `fix_layer_order` on by default;
+`fix_grid_drift` off).
+
+## Declaring an overlap is intentional
+
+`ShapeCollision` is the noisiest rule, because deliberate layering —
+a badge on a card, an accent bar on a panel — looks identical to a
+copy-paste bug from a bounding box alone. Tell the linter what you
+meant and it stops guessing. Three ways, narrowest last:
+
+```python
+# 1. Group tag — n-ary and symmetric. Everything sharing a non-empty
+#    tag may overlap everything else in the tag.
+card.lint_group = "kpi-1"
+accent.lint_group = "kpi-1"
+slide.lint_group("kpi-1", card, accent, label)     # batch form
+slide.lint_group_overlaps(card, accent, label)     # auto-names the group
+
+# 2. Pairwise allowance — licenses exactly one pair, nothing else.
+badge.allow_overlap_with(card)
+badge.disallow_overlap_with(card)                  # revoke
+badge.overlap_allowances                           # frozenset[int] of shape ids
+
+# 3. Layer hints — the only form that also asserts z-order.
+card.layer = "card"
+badge.layer_above = "card"
+```
+
+Use a **group** when several shapes form one visual cluster; a
+**pairwise allowance** when only one specific overlap is meant to be
+legal and you want the rest still policed; **layer hints** when the
+stacking order itself matters.
+
+Layer hints are the only one that can *fail*. Declaring
+`layer_above = "card"` asserts this shape is painted on top of every
+overlapping shape whose `layer` is `"card"`. If the shape tree says
+otherwise — the shape claiming to be on top comes earlier in `spTree`
+and is drawn underneath — you get a `LayerOrderViolation` (severity
+ERROR), because the declaration records what you meant and the drawing
+order is what failed to deliver it:
+
+```python
+report = slide.lint()
+report.auto_fix()          # restacks it for you; geometry untouched
+```
+
+A shape name with a dotted prefix is grouped implicitly, so naming
+shapes `"card.bg"` / `"card.title"` groups them under `"card"` with no
+extra calls. Set `shape.lint_group = ""` to opt a dotted name out.
+
+All of it lives in the shape's `cNvPr/extLst`, the OOXML-sanctioned
+extension point, so it survives save/open and PowerPoint leaves it
+alone. Related but different: `shape.lint_skip = {"MinFontSize"}`
+silences a rule on a shape rather than declaring intent.
 
 ## Machine-readable output (for agents / CI)
 
@@ -115,6 +185,25 @@ prs = from_spec({
 
 `"warn"` logs every issue through stdlib `logging`; `"raise"` raises
 `power_pptx.exc.LintError` if any error-severity issue is found.
+
+## Save-time hooks (any presentation)
+
+Every `Presentation` has a `lint_on_save` switch, whatever built it:
+
+```python
+prs = power_pptx.Presentation("deck.pptx")
+prs.lint_on_save = "off"      # default — no checks, no cost
+prs.lint_on_save = "warn"     # log error-severity issues, still write the file
+prs.lint_on_save = "raise"    # raise LintError instead of writing the file
+
+prs.save("out.pptx")
+```
+
+Only **error**-severity issues count; warnings and info never trigger it.
+The lint pass runs *before* anything is written, so `"raise"` never leaves a
+bad file on disk. `"warn"` logs on the `power_pptx.presentation` logger. The
+setting lives on the in-memory object only — re-open the saved file and it is
+back to `"off"`.
 
 ## Recommended pattern for generators
 

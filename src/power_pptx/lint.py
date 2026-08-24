@@ -21,6 +21,14 @@ Issue types:
   shapes it visually contains.
 * ``MasterPlaceholderCollision`` — a shape sits exactly on a placeholder it
   should likely have inherited from the layout.
+* ``LayerOrderViolation``      — a shape declares ``layer_above`` but is drawn
+  below the layer it claims to sit on top of.
+
+Declaring intentional overlap (so the collision detector stays quiet)::
+
+    badge.lint_group = "card-1"           # n-ary: everything sharing a tag
+    badge.allow_overlap_with(card)        # pairwise: exactly this one pair
+    card.layer, badge.layer_above = "card", "card"   # asserts z-order too
 """
 
 from __future__ import annotations
@@ -364,6 +372,35 @@ class ZOrderAnomaly(LintIssue):
 
 
 @dataclass
+class LayerOrderViolation(LintIssue):
+    """A shape declares it sits above another layer but is drawn below it.
+
+    Emitted when ``shape.layer_above`` names a layer the shape actually
+    overlaps, *but* the z-order contradicts the declaration — the shape
+    that claims to be on top is earlier in ``spTree`` and is therefore
+    painted underneath.  The declaration is treated as the author's
+    intent, so the drawing order is what's reported as wrong.
+    """
+
+    #: The layer name the shape declared it sits above.
+    layer: str = ""
+
+    def __init__(self, above: BaseShape, below: BaseShape, layer: str):
+        super().__init__(
+            severity=LintSeverity.ERROR,
+            code="LayerOrderViolation",
+            message=(
+                f"Shape '{above.name}' declares layer_above={layer!r} but is "
+                f"drawn *below* '{below.name}' (layer={layer!r}); it will be "
+                f"hidden. Move '{above.name}' later in the shape tree, or drop "
+                f"the layer_above declaration."
+            ),
+            shapes=(above, below),
+        )
+        self.layer = layer
+
+
+@dataclass
 class MasterPlaceholderCollision(LintIssue):
     """A non-placeholder shape sits at exactly the position of a layout placeholder."""
 
@@ -475,10 +512,20 @@ class SlideLintReport:
           non-NONE auto-size are skipped (they should not have linted
           in the first place).
 
+        * ``LayerOrderViolation`` — restacks the shape that declared
+          ``layer_above`` to sit immediately after the layer it named, so
+          the drawing order matches the declaration.  Unlike the
+          collision fixes below this needs no designer judgment: the
+          author already stated which shape belongs on top, and the fix
+          only makes the z-order say the same thing.  Geometry is
+          untouched.
+
         Not auto-fixable:
 
         * ``ShapeCollision`` — nudging shapes apart almost always breaks intent;
-          tag intentional overlaps with ``shape.lint_group`` to suppress.
+          declare deliberate overlaps with ``shape.lint_group``,
+          ``shape.allow_overlap_with(...)``, or a ``layer`` /
+          ``layer_above`` pair to suppress.
         * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
           ``MasterPlaceholderCollision`` — require designer judgment.
         """
@@ -491,6 +538,9 @@ class SlideLintReport:
         # already-clamped shapes by id keeps the fix descriptions and
         # the resulting position consistent.
         clamped: set[int] = set()
+        # Same idea for layer restacks: at most one move per shape per
+        # auto_fix pass, so interacting declarations can't ping-pong.
+        restacked: set[int] = set()
 
         for issue in list(self._issues):
             if isinstance(issue, OffSlide):
@@ -570,6 +620,35 @@ class SlideLintReport:
                 fixes.append(desc)
                 if not dry_run:
                     tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+            elif isinstance(issue, LayerOrderViolation):
+                above, below = issue.shapes[0], issue.shapes[1]
+                above_el = above._element  # pyright: ignore[reportPrivateUsage]
+                below_el = below._element  # pyright: ignore[reportPrivateUsage]
+                # Only restack shapes that are actually siblings; a
+                # cross-container pair (one inside a group) has no
+                # single ordering to fix and is left for the author.
+                if above_el.getparent() is not below_el.getparent():
+                    continue
+                # A shape already moved by an earlier violation is left
+                # alone: with three-plus layers the moves interact, and
+                # re-running lint after the first pass gives a truer
+                # picture than stacking speculative restacks.
+                if id(above_el) in restacked:
+                    continue
+                desc = (
+                    f"Restacked '{above.name}' above '{below.name}' to honour "
+                    f"layer_above={issue.layer!r}."
+                )
+                # Record the move before the dry_run gate, so a preview
+                # reports exactly the fixes a real run would apply --
+                # matching how the OffSlide branch populates ``clamped``.
+                restacked.add(id(above_el))
+                fixes.append(desc)
+                if not dry_run:
+                    # ``addnext`` moves the element rather than copying
+                    # it, so this is a reorder, not a duplication.
+                    below_el.addnext(above_el)
 
             elif isinstance(issue, OffGridDrift):
                 shape = issue.shapes[0]
@@ -716,7 +795,8 @@ def _issue_fingerprint(issue: LintIssue) -> str:
 
     Encodes only the *content* of the issue: the rule code, the names
     of the involved shapes, and any classifying field (``side`` for
-    OffSlide, ``axis`` for OffGridDrift, ``kind`` for ShapeCollision).
+    OffSlide, ``axis`` for OffGridDrift, ``kind`` for ShapeCollision,
+    ``layer`` for LayerOrderViolation).
     Volatile fields like exact intersection area or absolute position
     are deliberately excluded so a CI baseline survives small layout
     nudges that don't fix the underlying issue.
@@ -729,7 +809,7 @@ def _issue_fingerprint(issue: LintIssue) -> str:
             parts.append(shape.name or "")
         except Exception:
             parts.append("?")
-    for attr in ("side", "axis", "kind"):
+    for attr in ("side", "axis", "kind", "layer"):
         val = getattr(issue, attr, None)
         if val:
             parts.append(f"{attr}={val}")
@@ -773,6 +853,9 @@ _RULE_DESCRIPTIONS: dict[str, str] = {
     "ZOrderAnomaly": "A filled shape is drawn above a shape it visually contains.",
     "MasterPlaceholderCollision": (
         "A shape sits at the position of an inheritable layout placeholder."
+    ),
+    "LayerOrderViolation": (
+        "A shape declares it sits above a layer but is drawn below it."
     ),
 }
 
@@ -1109,6 +1192,8 @@ _A_EXTLST = "{%s}extLst" % _A_NS
 _A_EXT = "{%s}ext" % _A_NS
 _PP_LINTGROUP = "{%s}lintGroup" % _LINT_NS
 _PP_LINTSKIP = "{%s}lintSkip" % _LINT_NS
+_PP_LINTALLOW = "{%s}lintAllow" % _LINT_NS
+_PP_LINTLAYER = "{%s}lintLayer" % _LINT_NS
 
 # Pre-2.1.1 layout stored the value as a custom-namespaced attribute
 # directly on ``cNvPr``. Read-only fallback so decks saved with the old
@@ -1151,23 +1236,14 @@ def _read_lint_group(cNvPr) -> str | None:
 
 
 def _write_lint_group(cNvPr, value: str) -> None:
-    """Store ``lint_group = value`` on *cNvPr* using ``a:extLst/a:ext``."""
+    """Store ``lint_group = value`` on *cNvPr* using ``a:extLst/a:ext``.
+
+    Any legacy-format attribute is dropped by :func:`_get_or_add_lint_ext`
+    and then overwritten here, so the new format is canonical.
+    """
     from lxml import etree
 
-    # Drop any legacy-format attribute so the new format is canonical.
-    if _LEGACY_LINT_GROUP_ATTR in cNvPr.attrib:
-        del cNvPr.attrib[_LEGACY_LINT_GROUP_ATTR]
-
-    # Go through the oxml descriptor so cNvPr's child ordering
-    # (hlinkClick → hlinkHover → extLst) is respected even when the
-    # other children are present.
-    extLst = cNvPr.get_or_add_extLst()
-
-    ext = _find_lint_ext(cNvPr)
-    if ext is None:
-        ext = etree.SubElement(extLst, _A_EXT)
-        ext.set("uri", _LINT_EXT_URI)
-
+    ext = _get_or_add_lint_ext(cNvPr)
     node = ext.find(_PP_LINTGROUP)
     if node is None:
         node = etree.SubElement(ext, _PP_LINTGROUP)
@@ -1259,34 +1335,19 @@ def _write_lint_skip(cNvPr, codes) -> None:
     """Store ``lint_skip = codes`` on *cNvPr* using ``a:extLst/a:ext``."""
     from lxml import etree
 
-    # Drop any pre-2.1.1 legacy attribute so the new format stays
-    # canonical.  Without this, decks created with 2.1.0 that touch
-    # ``lint_skip`` (and never ``lint_group``) keep emitting the
-    # schema-invalid custom-namespace attribute on cNvPr — the same
-    # XML PowerPoint "repairs and removes" on open.
-    if _LEGACY_LINT_GROUP_ATTR in cNvPr.attrib:
-        del cNvPr.attrib[_LEGACY_LINT_GROUP_ATTR]
-
-    # Go through the oxml descriptor so cNvPr's child ordering is
-    # respected — see ``_write_lint_group``.
-    extLst = cNvPr.get_or_add_extLst()
-
-    ext = _find_lint_ext(cNvPr)
-    if ext is None:
-        ext = etree.SubElement(extLst, _A_EXT)
-        ext.set("uri", _LINT_EXT_URI)
+    # ``_get_or_add_lint_ext`` drops the pre-2.1.1 legacy attribute —
+    # the schema-invalid XML PowerPoint "repairs and removes" on open —
+    # and migrates its value so writing ``lint_skip`` never costs the
+    # caller their group tag.
+    ext = _get_or_add_lint_ext(cNvPr)
 
     node = ext.find(_PP_LINTSKIP)
     if not codes:
-        # Empty assignment clears the node entirely.
+        # Empty assignment clears the node entirely, then drops the
+        # ext / extLst if nothing else lives in them.
         if node is not None:
             ext.remove(node)
-        # Drop the ext / extLst if nothing else lives in them, so the
-        # XML stays minimal.
-        if len(ext) == 0:
-            extLst.remove(ext)
-        if len(extLst) == 0:
-            cNvPr.remove(extLst)
+        _prune_lint_ext(cNvPr, ext, cNvPr.find(_A_EXTLST))
         return
 
     if node is None:
@@ -1303,6 +1364,189 @@ def _shape_lint_skip(shape: BaseShape) -> frozenset[str]:
     except AttributeError:
         return frozenset()
     return _read_lint_skip(cNvPr)
+
+
+def _shape_id(shape: BaseShape) -> int | None:
+    """Return the ``cNvPr/@id`` of *shape*, or ``None`` if unavailable.
+
+    Shape ids are unique within a slide and are what the pairwise
+    overlap allowances below are keyed on — unlike ``shape.name`` they
+    are guaranteed unique, and unlike ``id(shape)`` they survive a
+    save/open round trip.
+    """
+    cNvPr = _shape_cNvPr(shape)
+    if cNvPr is None:
+        return None
+    raw = cNvPr.get("id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _shape_cNvPr(shape: BaseShape):
+    """Return the shape's ``cNvPr`` element, or ``None`` if it has none."""
+    try:
+        return shape._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+    except AttributeError:
+        return None
+
+
+def _prune_lint_ext(cNvPr, ext, extLst) -> None:
+    """Drop *ext* / *extLst* once they hold no lint metadata.
+
+    Keeps the emitted XML minimal, so clearing the last lint setting on
+    a shape leaves no residue behind.
+    """
+    if len(ext) == 0:
+        extLst.remove(ext)
+    if len(extLst) == 0:
+        cNvPr.remove(extLst)
+
+
+def _get_or_add_lint_ext(cNvPr):
+    """Return the lint ``<a:ext>`` for *cNvPr*, creating it if absent.
+
+    Touching the ext also *migrates* any pre-2.1.1 legacy ``lint_group``
+    attribute into the canonical ``<pp:lintGroup>`` node.  The legacy
+    attribute is schema-invalid and has to go, but dropping it outright
+    would mean that writing an unrelated field — a layer name, an
+    overlap allowance, even a documented-no-op ``lint_skip = set()`` —
+    silently erased a group tag the caller never mentioned.
+    """
+    from lxml import etree
+
+    legacy = cNvPr.get(_LEGACY_LINT_GROUP_ATTR)
+    if _LEGACY_LINT_GROUP_ATTR in cNvPr.attrib:
+        del cNvPr.attrib[_LEGACY_LINT_GROUP_ATTR]
+
+    # Go through the oxml descriptor so cNvPr's child ordering
+    # (hlinkClick -> hlinkHover -> extLst) is respected.
+    extLst = cNvPr.get_or_add_extLst()
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        ext = etree.SubElement(extLst, _A_EXT)
+        ext.set("uri", _LINT_EXT_URI)
+
+    # Carry the legacy value across, unless the canonical node already
+    # exists (in which case it is authoritative and the attribute was
+    # stale residue).
+    if legacy and ext.find(_PP_LINTGROUP) is None:
+        node = etree.SubElement(ext, _PP_LINTGROUP)
+        node.set("name", legacy)
+    return ext
+
+
+def _read_lint_allow(cNvPr) -> frozenset[int]:
+    """Return the set of shape ids *cNvPr* is allowed to overlap."""
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        return frozenset()
+    node = ext.find(_PP_LINTALLOW)
+    if node is None:
+        return frozenset()
+    ids: set[int] = set()
+    for token in (node.get("ids") or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            ids.add(int(token))
+        except ValueError:
+            # Ignore junk rather than failing the whole lint run — the
+            # value may have been hand-edited or written by a future
+            # release using a wider id syntax.
+            continue
+    return frozenset(ids)
+
+
+def _write_lint_allow(cNvPr, ids) -> None:
+    """Store the pairwise overlap allowance set *ids* on *cNvPr*."""
+    from lxml import etree
+
+    ext = _get_or_add_lint_ext(cNvPr)
+    node = ext.find(_PP_LINTALLOW)
+    if not ids:
+        if node is not None:
+            ext.remove(node)
+        _prune_lint_ext(cNvPr, ext, cNvPr.find(_A_EXTLST))
+        return
+    if node is None:
+        node = etree.SubElement(ext, _PP_LINTALLOW)
+    # Sorted + comma-joined for stable round-trip diffs.
+    node.set("ids", ",".join(str(i) for i in sorted(ids)))
+
+
+def _shape_lint_allow(shape: BaseShape) -> frozenset[int]:
+    """Return the shape ids *shape* has been cleared to overlap."""
+    cNvPr = _shape_cNvPr(shape)
+    if cNvPr is None:
+        return frozenset()
+    return _read_lint_allow(cNvPr)
+
+
+def _read_lint_layer(cNvPr) -> tuple[str | None, str | None]:
+    """Return ``(layer, layer_above)`` declared on *cNvPr*."""
+    ext = _find_lint_ext(cNvPr)
+    if ext is None:
+        return None, None
+    node = ext.find(_PP_LINTLAYER)
+    if node is None:
+        return None, None
+    return node.get("name"), node.get("above")
+
+
+def _write_lint_layer(cNvPr, *, name: str | None, above: str | None) -> None:
+    """Store the layer declaration ``(name, above)`` on *cNvPr*.
+
+    Passing ``None`` for both clears the declaration entirely.
+    """
+    from lxml import etree
+
+    ext = _get_or_add_lint_ext(cNvPr)
+    node = ext.find(_PP_LINTLAYER)
+    if name is None and above is None:
+        if node is not None:
+            ext.remove(node)
+        _prune_lint_ext(cNvPr, ext, cNvPr.find(_A_EXTLST))
+        return
+    if node is None:
+        node = etree.SubElement(ext, _PP_LINTLAYER)
+    for attr, value in (("name", name), ("above", above)):
+        if value is None:
+            node.attrib.pop(attr, None)
+        else:
+            node.set(attr, value)
+
+
+def _shape_lint_layer(shape: BaseShape) -> tuple[str | None, str | None]:
+    """Return ``(layer, layer_above)`` for *shape*."""
+    cNvPr = _shape_cNvPr(shape)
+    if cNvPr is None:
+        return None, None
+    return _read_lint_layer(cNvPr)
+
+
+def _overlap_allowed(
+    shape_a: BaseShape,
+    shape_b: BaseShape,
+    allow_a: frozenset[int],
+    allow_b: frozenset[int],
+) -> bool:
+    """Return True if either shape has cleared the other to overlap it.
+
+    The relationship is declared one-sided but read symmetrically: it
+    takes only one of the pair to say "this overlap is deliberate" for
+    the collision to be suppressed, matching how a designer thinks
+    about it ("the badge is allowed to sit on the card") without
+    forcing them to tag both ends.
+    """
+    id_a, id_b = _shape_id(shape_a), _shape_id(shape_b)
+    if id_b is not None and id_b in allow_a:
+        return True
+    return id_a is not None and id_a in allow_b
 
 
 def _bbox_overlap(
@@ -1390,6 +1634,70 @@ def _classify_collision(
     return "partial", max(0.0, min(1.0, score))
 
 
+def _layers_consistent(
+    lower: tuple[str | None, str | None],
+    upper: tuple[str | None, str | None],
+) -> bool:
+    """Return True if a pair declares a *satisfied* layer relationship.
+
+    Both arguments are ``(layer, layer_above)`` pairs.  *lower* is the
+    shape painted first and *upper* the one painted over it, so callers
+    must pass them in ``spTree`` order.  The relationship holds when the
+    shape that is actually on top is the one that claimed to be: *upper*
+    declares ``layer_above`` naming *lower*'s ``layer``.
+
+    The mirror case — the shape claiming to sit above is drawn
+    underneath — is deliberately *not* handled here.  That is the
+    violation, and :func:`_check_layer_order` reports it.
+    """
+    lower_name, _ = lower
+    _, upper_above = upper
+    return bool(lower_name) and upper_above == lower_name
+
+
+def _check_layer_order(
+    shapes: Sequence[BaseShape],
+    *,
+    bbox_fn=None,
+) -> list[LintIssue]:
+    """Return LayerOrderViolation issues for contradicted layer hints.
+
+    A shape that declares ``layer_above = "card"`` asserts it is painted
+    on top of every shape whose ``layer`` is ``"card"`` that it overlaps.
+    When the shape tree says otherwise — the declaring shape comes
+    *earlier* in ``spTree`` and is therefore drawn underneath — the
+    declaration and the drawing order contradict each other.  The
+    declaration is taken as the author's intent, so the z-order is
+    reported as the bug.
+
+    Only overlapping pairs are considered: a layer declaration between
+    shapes that never touch is inert, not wrong.
+    """
+    bbox_fn = bbox_fn or _shape_bbox
+    layers = [_shape_lint_layer(s) for s in shapes]
+    # Nothing declared anywhere — skip the O(n^2) walk entirely.
+    if not any(name or above for name, above in layers):
+        return []
+
+    bboxes = [bbox_fn(s) for s in shapes]
+    issues: list[LintIssue] = []
+    for i in range(len(shapes)):
+        _name_i, above_i = layers[i]
+        if not above_i:
+            continue
+        for j in range(i + 1, len(shapes)):
+            name_j, _above_j = layers[j]
+            if not name_j or name_j != above_i:
+                continue
+            # ``i`` claims to sit above layer ``name_j``, but ``j`` is
+            # painted later and therefore covers it.
+            _area, pct = _bbox_overlap(bboxes[i], bboxes[j])
+            if pct < _COLLISION_THRESHOLD:
+                continue
+            issues.append(LayerOrderViolation(shapes[i], shapes[j], above_i))
+    return issues
+
+
 def _check_collisions(
     shapes: Sequence[BaseShape],
     *,
@@ -1402,6 +1710,18 @@ def _check_collisions(
     runs *before* scoring, since a tagged group is "intentional" by
     definition.  Shapes with no group, or shapes in different groups,
     continue through to scoring + classification.
+
+    Two further intent declarations suppress a collision, both checked
+    before scoring for the same reason:
+
+    * **Pairwise** — either shape has cleared the other via
+      ``shape_a.allow_overlap_with(shape_b)``.  Narrower than a
+      ``lint_group``: it licenses exactly one pair rather than a whole
+      tagged set.
+    * **Layer hints** — the shapes declare a consistent
+      ``layer`` / ``layer_above`` relationship (see
+      :func:`_check_layer_order`, which reports the *inconsistent* case
+      as a :class:`LayerOrderViolation` error).
 
     *bbox_fn* picks the bbox provider; defaults to :func:`_shape_bbox`.
     Pass :func:`_effective_bbox` to inflate by shadow blur radius.  When
@@ -1418,6 +1738,8 @@ def _check_collisions(
     using_bleed = bbox_fn is not _shape_bbox
     raw_bboxes = [_shape_bbox(s) for s in shapes] if using_bleed else None
     groups = [_shape_lint_group(s) for s in shapes]
+    allows = [_shape_lint_allow(s) for s in shapes]
+    layers = [_shape_lint_layer(s) for s in shapes]
 
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
@@ -1425,6 +1747,19 @@ def _check_collisions(
             # scoring — a tagged group is "intentional" by definition.
             gi, gj = groups[i], groups[j]
             if gi is not None and gi == gj:
+                continue
+
+            # Explicit pairwise allowance — one side naming the other is
+            # enough. Also intent, so it too runs before scoring.
+            if _overlap_allowed(shapes[i], shapes[j], allows[i], allows[j]):
+                continue
+
+            # Layer hints: an overlap that agrees with a declared
+            # layer relationship is intentional. Disagreement is *not*
+            # silently allowed — it surfaces as a LayerOrderViolation
+            # from _check_layer_order, so staying quiet here would drop
+            # the pair entirely.
+            if _layers_consistent(layers[i], layers[j]):
                 continue
 
             area, pct = _bbox_overlap(bboxes[i], bboxes[j])
@@ -1878,6 +2213,7 @@ def lint_slide(
     issues.extend(_check_collisions(shapes, bbox_fn=bbox_fn))
     issues.extend(_check_off_grid_drift(shapes))
     issues.extend(_check_z_order_anomalies(shapes))
+    issues.extend(_check_layer_order(shapes, bbox_fn=bbox_fn))
     issues.extend(_check_master_placeholder_collision(slide, shapes))
 
     # Per-shape opt-out: drop issues whose code is silenced on *every*

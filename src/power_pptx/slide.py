@@ -713,6 +713,7 @@ class Slide(_BaseSlide):
         fix_offslide: bool = True,
         fix_overflow: bool = True,
         fix_grid_drift: bool = False,
+        fix_layer_order: bool = True,
     ) -> list[str]:
         """One-call cleanup: lint then auto-fix the safe subset.
 
@@ -727,6 +728,10 @@ class Slide(_BaseSlide):
         * ``fix_grid_drift`` (default ``False``) snaps minor grid drift
           — off by default because the snap can move a shape by several
           EMU when the inferred grid is wrong.
+        * ``fix_layer_order`` (default ``True``) restacks shapes whose
+          ``layer_above`` declaration is contradicted by the drawing
+          order.  On by default because it only enforces an ordering
+          the author already declared, and it never moves geometry.
         """
         disable: list[str] = []
         if not fix_offslide:
@@ -735,6 +740,8 @@ class Slide(_BaseSlide):
             disable.append("TextOverflow")
         if not fix_grid_drift:
             disable.append("OffGridDrift")
+        if not fix_layer_order:
+            disable.append("LayerOrderViolation")
         report = self.lint(disable=disable)
         return report.auto_fix()
 

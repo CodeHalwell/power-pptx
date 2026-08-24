@@ -145,7 +145,7 @@ Initial issue types:
   WCAG 2.1 AA. Requires resolving theme colors, so depends on the
   Phase 5 theme reader; ships in 1.5.x or later.
 
-### Relationship model — declaring intentional overlaps
+### [x] Relationship model — declaring intentional overlaps
 
 Without intent markers, every shadow, badge, and layered card trips
 the collision detector. Three escape hatches:
@@ -154,13 +154,16 @@ the collision detector. Three escape hatches:
    as cooperating. Putting a badge and its underlying card in a group
    silences collisions between them.
 2. **Explicit pairwise.** `shape_a.allow_overlap_with(shape_b)`. Stored
-   on the shape's `<a:extLst>` under a private namespace
-   (`urn:power-pptx:lint`) so it round-trips through PowerPoint
-   without losing the marker.
+   on the shape's `<a:extLst>` under a private namespace so it
+   round-trips through PowerPoint without losing the marker. Shipped
+   with `disallow_overlap_with()` and an `overlap_allowances` property;
+   keyed on `cNvPr/@id` rather than shape name, since only the id is
+   guaranteed unique on a slide.
 3. **Layer hints.** `shape.layer = "badge"`,
    `shape.layer_above = "card"`. Asserts a deliberate z-order
    relationship; the linter treats overlaps consistent with the layer
-   declaration as intentional and inconsistent ones as errors.
+   declaration as intentional and inconsistent ones as errors — the new
+   `LayerOrderViolation`, which `auto_fix()` repairs by restacking.
 
 In JSON specs (below), all three are expressible as fields on a shape
 entry, so an LLM can declare its intent at generation time.
@@ -183,7 +186,7 @@ report.auto_fix()                      # mutates; returns list of fixes
 report.auto_fix(dry_run=True)          # preview; no mutation
 ```
 
-### Validation hooks
+### [x] Validation hooks
 
 ```python
 prs.lint_on_save = "off"               # default, no checks at save
