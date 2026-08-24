@@ -83,6 +83,12 @@ Added
 Fixed
 .....
 
+* ``Slide.follow_master_background``'s docstring described assigning
+  |True| / |False| to it, but the property has no setter and any
+  assignment raises ``AttributeError``. It now documents the real
+  mechanism: inheritance breaks as a side-effect of giving the slide its
+  own ``background``.
+
 * Writing any lint marker other than ``lint_group`` — a ``lint_skip``
   set, and now a layer name or an overlap allowance — silently discarded
   a ``lint_group`` stored in the pre-2.1.1 attribute format, including on

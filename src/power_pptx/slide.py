@@ -527,13 +527,19 @@ class Slide(_BaseSlide):
     def follow_master_background(self):
         """|True| if this slide inherits the slide master background.
 
-        Assigning |False| causes background inheritance from the master to be
-        interrupted; if there is no custom background for this slide,
-        a default background is added. If a custom background already exists
-        for this slide, assigning |False| has no effect.
+        Read-only.  Inheritance is broken as a side-effect of giving the
+        slide its own background rather than by assigning here: touching
+        :attr:`background` adds a ``<p:bg>`` element, after which this
+        reports |False|.
 
-        Assigning |True| causes any custom background for this slide to be
-        deleted and inheritance from the master restored.
+        ::
+
+            slide.follow_master_background          # True
+            slide.background.fill.solid()
+            slide.background.fill.fore_color.rgb = "#102030"
+            slide.follow_master_background          # now False
+
+        To restore inheritance, remove the slide's own background.
         """
         return self._element.bg is None
 

@@ -68,6 +68,43 @@ tokens = DesignTokens.from_pptx("template.pptx").merge(
 )
 ```
 
+## Per-slide appearance overrides
+
+A slide can depart from its master without you editing the master:
+
+```python
+slide.color_variant = "dark"            # swap bg/tx against the same theme
+slide.color_variant = "light"           # the master's default mapping
+slide.color_variant = None              # drop the override entirely
+
+# Backgrounds: give the slide its own and inheritance breaks itself.
+slide.background.fill.solid()
+slide.background.fill.fore_color.rgb = "#102030"
+slide.follow_master_background          # now False (read-only)
+```
+
+`color_variant` takes `"light"` / `"dark"` / `None` — **not** an index.
+`"dark"` swaps backgrounds and text (`bg1=dk1`, `tx1=lt1`, …) so one
+slide reads dark without touching the deck theme. Reading it back
+returns `None` when the slide carries a custom mapping matching neither
+named variant. For any other mapping use `set_clr_map_override(...)`.
+
+`slide.design_group("kpi-card")` is a context manager that tags every
+shape created inside it with the same `lint_group`, so a cluster of
+deliberately-overlapping shapes is declared once rather than per shape:
+
+```python
+with slide.design_group("kpi-card-1"):
+    card = slide.shapes.add_shape(...)
+    label = slide.shapes.add_textbox(...)   # both tagged "kpi-card-1"
+```
+
+There are two adjacent spellings — `slide.shapes.lint_group_scope(name=...)`
+is the same idea on the shape tree, and `slide.lint_group_overlaps(*shapes)`
+tags shapes you already made. Reach for `design_group` while building,
+`lint_group_overlaps` after the fact.
+
+
 ## Token-resolving shape style
 
 Every shape exposes a `ShapeStyle` facade. Setters fan assignments out

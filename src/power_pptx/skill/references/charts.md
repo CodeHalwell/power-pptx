@@ -29,6 +29,27 @@ chart_shape = slide.shapes.add_chart(
 chart = chart_shape.chart
 ```
 
+## Updating a chart's data in place
+
+`replace_data` swaps the whole categories-and-series payload while
+keeping the chart's formatting, palette and layout — the right move when
+refreshing a templated deck, since rebuilding the chart would discard
+every style you applied:
+
+```python
+from power_pptx.chart.data import CategoryChartData
+
+data = CategoryChartData()
+data.categories = ["Q1", "Q2", "Q3", "Q4"]
+data.add_series("FY27", (18.2, 19.6, 21.4, 24.9))
+
+chart.replace_data(data)      # formatting survives; the embedded
+                              # worksheet is rewritten to match
+```
+
+Adding or removing series works too — the plot re-reads the series count
+from the new data.
+
 ## Recolouring (recommended entry point)
 
 `Chart.recolour(palette, by="auto")` is the single entry point you
