@@ -114,6 +114,12 @@ Use a **group** when several shapes form one visual cluster; a
 legal and you want the rest still policed; **layer hints** when the
 stacking order itself matters.
 
+An allowance may only name a shape on the **same slide**, and passing
+one from another slide raises `ValueError`. Allowances are keyed on
+`cNvPr/@id`, which is unique per slide but repeats across a deck — so a
+borrowed id would either read as a bogus self-reference or silently
+match an unrelated shape here and suppress a collision that was real.
+
 Layer hints are the only one that can *fail*. Declaring
 `layer_above = "card"` asserts this shape is painted on top of every
 overlapping shape whose `layer` is `"card"`. If the shape tree says

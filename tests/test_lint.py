@@ -2011,3 +2011,84 @@ class DescribeLayerOrderViolationReporting:
         results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "LayerOrderViolation"]
         assert len(results) == 1
         assert results[0]["level"] == "error"
+
+
+class DescribeCrossSlideOverlapAllowance:
+    """An allowance may only name a shape on the same slide.
+
+    Shape ids are unique within a slide, not across a deck, so an id
+    borrowed from another slide either collides with this shape's own id
+    (reading as a bogus self-reference) or silently matches an unrelated
+    shape here and suppresses a collision that was real.
+    """
+
+    def _two_slides(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        s1 = prs.slides.add_slide(prs.slide_layouts[6])
+        s2 = prs.slides.add_slide(prs.slide_layouts[6])
+        p = s1.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
+        q = s1.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
+        far = s2.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
+        other = s2.shapes.add_textbox(Inches(5), Inches(4), Inches(1), Inches(1))
+        return s1, p, q, far, other
+
+    def it_rejects_a_target_whose_id_collides_with_the_source(self):
+        import pytest
+
+        _, p, _, far, _ = self._two_slides()
+        assert far.shape_id == p.shape_id  # the id collision that misled
+
+        with pytest.raises(ValueError, match="different slide"):
+            p.allow_overlap_with(far)
+
+    def it_rejects_a_target_whose_id_collides_with_a_sibling(self):
+        import pytest
+
+        _, p, q, _, other = self._two_slides()
+        assert other.shape_id == q.shape_id  # would have suppressed p/q
+
+        with pytest.raises(ValueError, match="different slide"):
+            p.allow_overlap_with(other)
+
+    def it_does_not_suppress_a_real_collision_via_a_cross_slide_id(self):
+        import pytest
+
+        s1, p, _, _, other = self._two_slides()
+        before = [i.code for i in s1.lint().issues if i.code == "ShapeCollision"]
+        assert before  # the p/q overlap is genuinely reported
+
+        with pytest.raises(ValueError):
+            p.allow_overlap_with(other)
+
+        after = [i.code for i in s1.lint().issues if i.code == "ShapeCollision"]
+        assert after == before
+
+    def it_rejects_a_cross_slide_target_on_revoke_too(self):
+        import pytest
+
+        _, p, _, _, other = self._two_slides()
+        with pytest.raises(ValueError, match="different slide"):
+            p.disallow_overlap_with(other)
+
+    def it_still_accepts_a_shape_on_the_same_slide(self):
+        s1, p, q, _, _ = self._two_slides()
+        p.allow_overlap_with(q)
+
+        assert q.shape_id in p.overlap_allowances
+        assert not [i for i in s1.lint().issues if i.code == "ShapeCollision"]
+
+    def it_still_accepts_a_group_member_on_the_same_slide(self):
+        from power_pptx.util import Inches
+
+        s1, p, _, _, _ = self._two_slides()
+        group = s1.shapes.add_group_shape()
+        inner = group.shapes.add_textbox(
+            Inches(1), Inches(1), Inches(1), Inches(1)
+        )
+
+        p.allow_overlap_with(inner)
+
+        assert inner.shape_id in p.overlap_allowances

@@ -83,6 +83,15 @@ Added
 Fixed
 .....
 
+* ``shape.allow_overlap_with(...)`` accepted a shape from another slide.
+  Allowances are keyed on ``cNvPr/@id``, which is unique only *within* a
+  slide, so a borrowed id either collided with the source shape's own id
+  — surfacing as a bogus "cannot be given an overlap allowance with
+  itself" error — or silently matched an unrelated shape on this slide
+  and suppressed a collision that was real. Both the grant and the
+  revoke now reject a cross-slide target with a ``ValueError`` that says
+  why, matching the guard the spec-based reference path already had.
+
 * Setting a single dimension on a placeholder that was still inheriting
   its geometry silently zeroed the other one. ``left``/``top`` share an
   ``<a:off>`` element and ``width``/``height`` share an ``<a:ext>``, so
