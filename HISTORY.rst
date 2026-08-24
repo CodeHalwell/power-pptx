@@ -14,8 +14,8 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
-Unreleased
-++++++++++
+2.12.0 (2026-08-24)
++++++++++++++++++++
 
 Completes Phase 2 of the roadmap — the space-awareness phase this fork
 exists for. The linter could already tell you two shapes overlap; it had
@@ -82,6 +82,13 @@ Added
 
 Fixed
 .....
+
+* PyPI project links. ``Documentation`` pointed at a Read the Docs site
+  this project does not publish to; it now points at the GitHub Pages
+  site the README and badges already used. ``Changelog`` and ``Roadmap``
+  pointed at ``/blob/main/`` paths, but the default branch is ``master``
+  and no ``main`` branch exists, so both returned 404. All eight project
+  URLs now resolve.
 
 * Deleting a shape left overlap allowances pointing at its id. Ids are
   recycled — the allocator hands out ``max(existing) + 1`` — so deleting
