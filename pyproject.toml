@@ -42,12 +42,12 @@ readme = "README.rst"
 requires-python = ">=3.9"
 
 [project.urls]
-Changelog = "https://github.com/codehalwell/power-pptx/blob/main/HISTORY.rst"
+Changelog = "https://github.com/codehalwell/power-pptx/blob/master/HISTORY.rst"
 Documentation = "https://codehalwell.github.io/power-pptx/"
 Homepage = "https://github.com/codehalwell/power-pptx"
 Issues = "https://github.com/codehalwell/power-pptx/issues"
 Repository = "https://github.com/codehalwell/power-pptx"
-Roadmap = "https://github.com/codehalwell/power-pptx/blob/main/ROADMAP.md"
+Roadmap = "https://github.com/codehalwell/power-pptx/blob/master/ROADMAP.md"
 Upstream = "https://github.com/scanny/python-pptx"
 UpstreamDocumentation = "https://python-pptx.readthedocs.io/en/latest/"
 
