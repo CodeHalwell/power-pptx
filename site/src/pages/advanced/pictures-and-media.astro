@@ -1,0 +1,352 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])          # blank layout
+
+# 1. Neither extent given -> the image's native size (pixels / dpi).
+native = slide.shapes.add_picture("hero.jpg", Inches(0.5), Inches(0.5))
+
+# 2. One extent given -> the other is derived, aspect ratio preserved.
+scaled = slide.shapes.add_picture("hero.jpg", Inches(0.5), Inches(3), width=Inches(4))
+
+# 3. Both given -> the image is stretched to fit, aspect ratio ignored.
+squashed = slide.shapes.add_picture("hero.jpg", Inches(5), Inches(3), Inches(4), Inches(1))
+
+# A file-like object works anywhere a path does.
+with open("hero.jpg", "rb") as f:
+    from_stream = slide.shapes.add_picture(f, Inches(5), Inches(0.5), height=Inches(1.5))`;
+
+const snippet1 = `pic = slide.shapes.add_picture("hero.jpg", Inches(1), Inches(1), width=Inches(4))
+
+print(pic.image.size)          # (800, 600)  - pixels
+print(pic.image.dpi)           # (72, 72)
+print(pic.image.content_type)  # image/jpeg
+print(pic.image.ext)           # jpg`;
+
+const snippet2 = `logo = slide.shapes.add_picture(
+    "logo.png",
+    anchor="bottom-right",
+    margin=Inches(0.25),
+    height=Inches(0.5),          # width follows from the aspect ratio
+)`;
+
+const snippet3 = `pic = slide.shapes.add_picture("wide.jpg", Inches(1), Inches(1),
+                               Inches(4), Inches(3))
+
+pic.crop_left = 0.15      # discard the leftmost 15% of the source image
+pic.crop_right = 0.15
+pic.crop_top = 0.05
+pic.crop_bottom = 0.05`;
+
+const snippet4 = `pic = slide.shapes.add_picture(
+    "hero.jpg", 0, 0, width=prs.slide_width, height=prs.slide_height
+)
+
+pic.effects.transparency = 0.30      # 0.0 opaque .. 1.0 invisible
+pic.effects.brightness = 0.10        # -1.0 .. 1.0, 0.0 = unchanged
+pic.effects.contrast = -0.05         # -1.0 .. 1.0, 0.0 = unchanged`;
+
+const snippet5 = `pic.effects.recolor = "grayscale"
+pic.effects.recolor = "sepia"
+pic.effects.recolor = "washout"
+pic.effects.recolor = "duotone"       # neutral grey duotone
+pic.effects.recolor = None            # clear it
+
+print(pic.effects.recolor)            # None`;
+
+const snippet6 = `from power_pptx.dml.color import RGBColor
+
+pic.effects.set_duotone(RGBColor(0x12, 0x1E, 0x4D), "#A8C0FF")
+pic.effects.set_duotone((18, 30, 77), (168, 192, 255))   # tuples work too
+
+print(pic.effects.recolor)     # "duotone"
+pic.effects.recolor = None     # the way to clear it`;
+
+const snippet7 = `from power_pptx._svg import CairoSvgUnavailable
+
+# Bring your own raster fallback - no optional dependency needed.
+slide.shapes.add_svg_picture(
+    "logo.svg",
+    Inches(0.5), Inches(0.5),
+    width=Inches(1.5), height=Inches(0.75),
+    png_fallback="logo.png",
+)
+
+# Omit png_fallback and the SVG is rasterised with the optional \`cairosvg\`.
+try:
+    slide.shapes.add_svg_picture("logo.svg", Inches(3), Inches(0.5))
+except CairoSvgUnavailable:
+    ...   # cairosvg not installed - pass png_fallback= instead`;
+
+const snippet8 = `movie = slide.shapes.add_movie(
+    "clip.mp4",
+    Inches(1), Inches(1), Inches(6), Inches(3.375),   # 16:9, sized by you
+    poster_frame_image="hero.jpg",
+    mime_type="video/mp4",
+)
+
+print(movie.shape_type)                  # MEDIA (16)
+print(movie.media_type)                  # MOVIE (3)
+print(movie.poster_frame.content_type)   # image/jpeg`;
+
+const snippet9 = `audio = slide.shapes.add_movie(
+    "voiceover.m4a",
+    Inches(0.5), Inches(0.5), Inches(0.8), Inches(0.8),
+    mime_type="audio/mp4",
+)
+
+print(audio.media_type)          # MOVIE (3) - even for audio`;
+
+const snippet10 = `pic = slide.shapes.add_picture("hero.jpg", Inches(1), Inches(1), width=Inches(4))
+
+pic.alt_text = "Line chart: Q4 revenue up 18% year over year, driven by EMEA."
+pic.title_text = "Q4 revenue"          # short label, complements alt_text
+
+print(pic.alt_text)                    # round-trips through save/open
+pic.alt_text = ""                      # assigning "" or None removes descr`;
+---
+
+<DocsLayout
+  title="Pictures & Media"
+  description="Adding images, cropping, image-level effects and duotones, native SVG with a PNG fallback, embedding video and audio, and picture alt text."
+>
+  <p class="lead">
+    Images are the one kind of content a deck can't fake with shapes and text. This page covers
+    getting them onto a slide at the right size, adjusting them in place without an image editor,
+    embedding vector artwork that stays crisp, and attaching video or audio.
+  </p>
+
+  <h2 id="add-picture">Adding a picture</h2>
+  <p>
+    <code>shapes.add_picture(image_file, left, top, width=None, height=None)</code> takes either a
+    filesystem path or any binary file-like object — a <code>BytesIO</code> holding a chart you
+    just rendered works exactly like a path. The two extents are where most of the behaviour
+    lives:
+  </p>
+  <Code code={snippet0} />
+  <ul>
+    <li>
+      <strong>Neither</strong> <code>width</code> nor <code>height</code> — the image is placed at
+      its native size, computed as <em>pixels ÷ dpi</em>. A 800×600 image saved at 72 dpi lands
+      11.1 inches wide, which is wider than a 4:3 slide. Screen-resolution assets are almost
+      always bigger than you expect, so pass an extent unless you know the dpi.
+    </li>
+    <li>
+      <strong>One of them</strong> — the other is derived from the source image's aspect ratio.
+      This is the form to reach for: it makes distortion structurally impossible.
+    </li>
+    <li>
+      <strong>Both</strong> — the picture is stretched to exactly that box, aspect ratio
+      discarded. Use it only when you know the ratios already agree, or when you intend to
+      <a href="#crop">crop</a> rather than squash.
+    </li>
+  </ul>
+  <p>
+    The returned <code>Picture</code> exposes the source image through <code>pic.image</code>,
+    which is where to look when you need to reason about a file you didn't pick yourself:
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="anchoring">Anchoring instead of arithmetic</h2>
+  <p>
+    Because the derived extent isn't known until after the picture exists, "logo in the
+    bottom-right corner with a quarter-inch margin" normally means adding the picture, reading
+    back its <code>width</code>, and then reassigning <code>left</code> and <code>top</code>.
+    <code>add_picture</code> accepts <code>anchor</code> and <code>margin</code> so the library
+    does that second pass for you:
+  </p>
+  <Code code={snippet2} />
+  <p>
+    <code>anchor</code> takes <code>"top-left"</code>, <code>"top-center"</code>,
+    <code>"top-right"</code>, <code>"middle-left"</code>, <code>"middle-center"</code> (or plain
+    <code>"center"</code>), <code>"middle-right"</code>, <code>"bottom-left"</code>,
+    <code>"bottom-center"</code> and <code>"bottom-right"</code>; British spellings of "centre"
+    are accepted. Pass <code>container=</code> a parent shape to anchor inside a card rather than
+    against the slide. <code>left</code> and <code>top</code> are ignored when
+    <code>anchor</code> is given.
+  </p>
+
+  <h2 id="crop">Cropping</h2>
+  <p>
+    Cropping is how you fill a box of a fixed aspect ratio with an image of a different one
+    without distortion: set both extents, then trim the overflow. The four
+    <code>crop_*</code> properties are read/write floats expressed as a fraction of the
+    <em>source image</em>, not of the shape — <code>0.15</code> means "discard 15% of the
+    original picture from this edge":
+  </p>
+  <Code code={snippet3} />
+  <p>
+    The shape's position and size never change when you crop; the visible window into the image
+    moves instead. Values greater than <code>1.0</code> are legal, and negative values extend the
+    edge <em>beyond</em> the image boundary, padding it out with empty space. Crops round-trip
+    through save and reopen, and they are the same properties PowerPoint's own crop handles write.
+  </p>
+
+  <h2 id="effects">Image effects</h2>
+  <p>
+    <code>picture.effects</code> is a post-fork accessor over the OOXML image filters that live on
+    the <code>&lt;a:blip&gt;</code> element. These are baked into the deck, so they survive
+    round-trips and render identically in PowerPoint, Keynote and LibreOffice — no pre-processing
+    step, no second copy of the asset.
+  </p>
+  <p>
+    Reads never mutate: a picture with no filters applied reports <code>0.0</code> for the numeric
+    adjustments and <code>None</code> for <code>recolor</code>. Writing a neutral value removes
+    the underlying element again rather than leaving a dead one behind.
+  </p>
+  <Code code={snippet4} />
+  <ul>
+    <li>
+      <code>transparency</code> — <code>0.0</code> (opaque, the default) to <code>1.0</code>
+      (invisible). The classic use is knocking a photo back behind text.
+    </li>
+    <li>
+      <code>brightness</code> and <code>contrast</code> — <code>-1.0</code> to <code>1.0</code>,
+      <code>0.0</code> meaning unchanged. Both write to the same <code>&lt;a:lum&gt;</code>
+      element, so setting one does not disturb the other.
+    </li>
+  </ul>
+  <p>Out-of-range values raise <code>ValueError</code> rather than silently clamping.</p>
+
+  <h3 id="recolor">Recolour presets</h3>
+  <p>
+    <code>effects.recolor</code> is a <strong>property, not a method</strong>. Assigning a new
+    value clears whatever recolour was there before, so the four modes are mutually exclusive by
+    construction:
+  </p>
+  <Code code={snippet5} />
+  <p>
+    <code>"grayscale"</code> writes <code>&lt;a:grayscl&gt;</code>; <code>"washout"</code> writes a
+    two-level threshold (<code>&lt;a:biLevel thresh="50%"/&gt;</code>); <code>"sepia"</code> is a
+    duotone using the warm brown / cream pair PowerPoint uses for its own sepia preset. Any other
+    string — <code>"black_and_white"</code>, say — raises <code>ValueError</code>, and validation
+    happens <em>before</em> anything is mutated, so a typo leaves the existing effect intact.
+  </p>
+
+  <h3 id="duotone">Duotone</h3>
+  <p>
+    A duotone maps the image's shadows to one colour and its highlights to another. It is the
+    single most effective way to make stock photography look like it belongs to your brand,
+    because it forces every image in the deck onto the same two-colour ramp:
+  </p>
+  <Code code={snippet6} />
+  <p>
+    Either colour may be an <code>RGBColor</code>, a hex string (with or without <code>#</code>),
+    or a plain <code>(r, g, b)</code> tuple. There is no dedicated clear method — assign
+    <code>effects.recolor = None</code> to drop it. Note that reading <code>recolor</code> back
+    after <code>set_duotone</code> returns <code>"duotone"</code> unless the colours happen to be
+    the sepia pair, in which case it reports <code>"sepia"</code>.
+  </p>
+  <p>
+    For shape-level effects — shadows, glows, soft edges, gradient fills — see
+    <a href={withBase("/advanced/effects")}>Effects &amp; Gradients</a>.
+  </p>
+
+  <h2 id="svg">SVG with a PNG fallback</h2>
+  <p>
+    <code>add_picture</code> does <strong>not</strong> accept SVG: it routes through Pillow, which
+    can't decode vector markup, so an <code>.svg</code> path raises
+    <code>UnidentifiedImageError</code>. Use <code>add_svg_picture</code> instead.
+  </p>
+  <p>
+    The reason it is a separate method is that Office requires every embedded SVG to ship
+    <em>alongside</em> a raster fallback. The slide's <code>&lt;a:blip&gt;</code> points at a PNG,
+    and a Microsoft <code>&lt;asvg:svgBlip&gt;</code> extension points at the SVG. Office 2016 and
+    later render the vector and keep it crisp at any zoom or print size; everything older, and
+    every thumbnail generator, quietly falls back to the PNG. <code>add_svg_picture</code> writes
+    both parts and wires up the extension:
+  </p>
+  <Code code={snippet7} />
+  <p>
+    The saved package therefore contains two media parts per SVG picture — one
+    <code>.png</code> and one <code>.svg</code>. That is expected, not duplication you should try
+    to remove.
+  </p>
+  <p>
+    When <code>png_fallback</code> is omitted the SVG is rasterised with
+    <a href="https://pypi.org/project/CairoSVG/" rel="noopener">cairosvg</a>, an
+    <em>optional</em> dependency. If it isn't installed you get
+    <code>power_pptx._svg.CairoSvgUnavailable</code> with an install hint — supplying your own
+    <code>png_fallback</code> keeps installs slim and gives you control over how the raster
+    version looks. <code>left</code>, <code>top</code>, <code>width</code> and
+    <code>height</code> behave exactly as in <code>add_picture</code>, with the extents defaulting
+    to the PNG's native size.
+  </p>
+
+  <h2 id="media">Video and audio</h2>
+  <p>
+    <code>shapes.add_movie(...)</code> embeds a media file and registers the play controls. It is
+    marked <strong>experimental</strong> upstream and carries real constraints, all of which come
+    from the same root cause: the library does not decode the media file, it only packages it.
+  </p>
+  <Code code={snippet8} />
+  <ul>
+    <li>
+      <strong>Size is mandatory.</strong> There is no auto-scaling as there is for pictures,
+      because nothing here reads the video's dimensions. Work out the aspect ratio yourself —
+      6 × 3.375 inches for 16:9.
+    </li>
+    <li>
+      <strong>Pass the real <code>mime_type</code>.</strong> The default is
+      <code>"video/unknown"</code>; the file is never sniffed. PowerPoint uses the declared type
+      to pick a decoder, so <code>"video/mp4"</code>, <code>"video/quicktime"</code>,
+      <code>"video/x-ms-wmv"</code> and friends are what make playback work on the recipient's
+      machine.
+    </li>
+    <li>
+      <strong>The poster frame is a still image you supply.</strong> It cannot be extracted from
+      the video. Omit <code>poster_frame_image</code> and you get the bundled "media loudspeaker"
+      icon — fine for audio, wrong for video. Read it back later via
+      <code>movie.poster_frame</code>, which returns an <code>Image</code> or <code>None</code>.
+    </li>
+    <li>
+      <strong>Playback needs the codec, not just the container.</strong> H.264 in MP4 is the safe
+      choice across Windows, macOS and the web viewer. The file is embedded in the package, so the
+      deck grows by the size of the video.
+    </li>
+  </ul>
+  <p>
+    Audio uses the same call — pass an audio path and an audio MIME type, and skip the poster
+    frame so the loudspeaker icon is used:
+  </p>
+  <Code code={snippet9} />
+  <p>
+    One wrinkle worth knowing: <code>media_type</code> reports <code>PP_MEDIA_TYPE.MOVIE</code>
+    unconditionally, including for audio, and <code>shape_type</code> is
+    <code>MSO_SHAPE_TYPE.MEDIA</code>. Don't use <code>media_type</code> to tell audio from video
+    — check the MIME type of the related media part instead. Play-control timing is registered on
+    the enclosing slide even when the movie is added inside a group.
+  </p>
+
+  <h2 id="alt-text">Alt text on pictures</h2>
+  <p>
+    A picture is the one shape whose meaning is completely invisible to a screen reader, so
+    <code>alt_text</code> matters more here than anywhere else in a deck. It maps to the
+    <code>descr</code> attribute of the shape's <code>&lt;p:cNvPr&gt;</code> element — the same
+    slot PowerPoint's <em>Alt Text</em> pane writes, so what you set here is what a reviewer sees
+    in the pane:
+  </p>
+  <Code code={snippet10} />
+  <p>
+    Describe what the image <em>tells the audience</em>, not what it depicts: "Q4 revenue up 18%,
+    driven by EMEA" is useful, "bar chart" is not. Reading returns <code>""</code> when nothing
+    has been set; assigning <code>""</code> or <code>None</code> removes the attribute entirely.
+    <code>title_text</code> is the companion short label (the <code>title</code> attribute) for
+    when you want a one-line name as well as a description. Both round-trip through save and
+    reopen.
+  </p>
+  <p>
+    Generated decks miss alt text by default, since nothing in the API forces you to write it.
+    <code>audit_accessibility(prs)</code> in <code>power_pptx.accessibility</code> reports a
+    <code>MissingAltText</code> issue at <strong>error</strong> severity for every picture with no
+    description — the cheapest way to catch the gap before a deck ships. Note that an empty
+    <code>alt_text</code> is still reported: there is no "mark as decorative" flag, so a logo you
+    genuinely want ignored will keep showing up in the report.
+  </p>
+</DocsLayout>
