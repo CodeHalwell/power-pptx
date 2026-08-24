@@ -172,8 +172,8 @@ Designed-overlap groups
 -----------------------
 
 Cards-with-color-bands, badges-over-cards, and eyebrow-over-rectangle
-headers used to surface as :class:`ShapeCollision` issues.  Two
-mitigations now ship by default:
+headers used to surface as :class:`ShapeCollision` issues.  Several
+mitigations now ship:
 
 1. **Auto-suppression** of "small shape strictly contained inside a
    larger shape, drawn on top" — the canonical layered-design pattern
@@ -185,6 +185,24 @@ mitigations now ship by default:
 
    Generates a unique-on-the-slide group name and tags every shape
    with it.  Returns the chosen name so you can reuse it later.
+3. **Pairwise allowances** when a group would be too broad — a group
+   licenses *every* overlap among the shapes it tags, which can hide a
+   genuine bug::
+
+       badge.allow_overlap_with(card)     # this pair only
+
+4. **Layer hints** when the stacking order is itself part of the
+   design::
+
+       card.layer = "card"
+       badge.layer_above = "card"
+
+   This is the only form that asserts a direction, so it can fail: a
+   badge drawn *below* the card it claims to sit on raises a
+   :class:`LayerOrderViolation` (an error, not a warning) that
+   ``report.auto_fix()`` repairs by restacking.
+
+See :ref:`lint-groups` for when to reach for which.
 
 OffGridDrift tolerance is 0.05"
 -------------------------------

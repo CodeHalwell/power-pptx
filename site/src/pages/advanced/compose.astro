@@ -22,6 +22,27 @@ prs = from_spec({
 })
 
 prs.save("q4.pptx")`;
+
+const specShapes = `prs = from_spec({
+    "slides": [
+        {"layout": "blank",
+         "shapes": [
+            {"name": "card", "shape": "rounded_rectangle",
+             "left": 1, "top": 1.4, "width": 4, "height": 2,
+             "layer": "card"},
+            {"name": "badge", "shape": "oval", "text": "NEW",
+             "left": 4.4, "top": 1.0, "width": 1.2, "height": 0.8,
+             "layer_above": "card"},
+         ]},
+    ],
+})`;
+
+const specIntent = `{"name": "badge", ..., "lint_group": "kpi-1"}          # n-ary tag
+{"name": "badge", ..., "allow_overlap_with": "card"}   # one pair
+{"name": "badge", ..., "allow_overlap_with": ["card", "rule"]}
+{"name": "card",  ..., "layer": "card"}                # asserts z-order
+{"name": "badge", ..., "layer_above": "card"}`;
+
 const snippet0 = `from power_pptx import Presentation
 
 source = Presentation("template.pptx")
@@ -46,6 +67,60 @@ const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and
   <p>
     With <code>"lint": "raise"</code> in the spec the build fails fast on geometry errors — ideal in
     CI or agent pipelines where a broken deck is worse than no deck.
+  </p>
+
+  <h2 id="spec-shapes">Free-standing shapes on a spec slide</h2>
+  <p>
+    Layouts and recipes place their own shapes. When you need something a layout doesn't provide,
+    a slide entry may carry a <code>"shapes"</code> list, applied <em>after</em> the layout runs:
+  </p>
+  <Code code={specShapes} />
+  <table>
+    <thead>
+      <tr><th>Key</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>left</code> / <code>top</code> / <code>width</code> / <code>height</code></td>
+        <td><strong>Required.</strong> Plain numbers are inches; pass a <code>Length</code> such as <code>Inches(1.5)</code> to opt out</td>
+      </tr>
+      <tr>
+        <td><code>name</code></td>
+        <td>The shape's name, and the handle <code>allow_overlap_with</code> resolves against. Unique within the slide</td>
+      </tr>
+      <tr>
+        <td><code>shape</code></td>
+        <td>An <code>MSO_SHAPE</code> member name, case- and separator-insensitive. Defaults to <code>"textbox"</code></td>
+      </tr>
+      <tr><td><code>text</code></td><td>Text for the shape's text frame</td></tr>
+      <tr>
+        <td><code>lint_group</code> / <code>layer</code> / <code>layer_above</code> / <code>allow_overlap_with</code></td>
+        <td>The linter's intent declarations — see below</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Unknown keys are rejected with a did-you-mean hint rather than silently ignored, and every
+    error names the offending entry as <code>slides[i].shapes[j]</code>. This is deliberately
+    minimal — geometry, type, text, intent. It is not a drawing DSL; reach for the Python API when
+    you need fills, effects, or anything structural.
+  </p>
+
+  <h3 id="spec-intent">Declaring intentional overlaps in a spec</h3>
+  <p>
+    This is what makes the list more than a convenience: a generator — an LLM, most usefully — can
+    declare <em>at generation time</em> that an overlap is deliberate, so the deck it emits lints
+    clean with no manual tagging pass afterwards. All three mechanisms from the
+    <a href={withBase("/advanced/lint")}>linter</a> are spec-level fields:
+  </p>
+  <Code code={specIntent} />
+  <p>
+    <code>allow_overlap_with</code> names other shapes by their spec <code>name</code>, not by
+    shape id — ids don't exist until the deck is built. Resolution happens in a second pass, after
+    every shape on the slide exists, so a <strong>forward reference works</strong>: naming a shape
+    defined later in the same list is fine. Names must be unique within a slide, and a reference
+    may not cross slides, because an allowance is keyed on shape id and ids are only unique per
+    slide. Both mistakes raise <code>ValueError</code> locating the bad entry.
   </p>
 
   <h2 id="import-slide">import_slide — copy slides between decks</h2>

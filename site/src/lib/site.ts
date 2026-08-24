@@ -10,7 +10,7 @@ export const SITE = {
   tagline: "Create PowerPoint decks from Python — that actually fit.",
   description:
     "power-pptx is the actively-maintained fork of python-pptx. Build, mutate, lint, theme, animate and render PowerPoint (.pptx) decks from Python — with space-aware authoring so text never overflows its box.",
-  version: "2.10.0",
+  version: "2.11.0",
   github: "https://github.com/CodeHalwell/power-pptx",
   pypi: "https://pypi.org/project/power-pptx/",
   upstreamDocs: "https://python-pptx.readthedocs.io/en/latest/",

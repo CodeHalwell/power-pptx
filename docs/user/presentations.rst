@@ -97,3 +97,23 @@ to open or save a presentation like so::
 
 Okay, so you've got a presentation open and are pretty sure you can save it
 somewhere later. Next step is to get a slide in there ...
+
+
+Validating on save
+------------------
+
+A generated deck can be checked on its way out of the door.  Setting
+``lint_on_save`` runs the :ref:`layout linter <lint>` over every slide
+*before* anything is written::
+
+    prs.lint_on_save = "raise"
+    prs.save("out.pptx")     # LintError if a shape ran off the slide
+
+``"off"`` is the default and does no lint work at all; ``"warn"`` logs
+each error-severity issue on the ``power_pptx.presentation`` logger and
+writes the file anyway; ``"raise"`` raises
+:class:`power_pptx.exc.LintError` and writes nothing, so a broken deck
+never reaches disk.  Only error-severity issues trigger it.
+
+The setting lives on the in-memory presentation and is not stored in the
+``.pptx`` file, so re-opening the saved deck starts you back at ``"off"``.

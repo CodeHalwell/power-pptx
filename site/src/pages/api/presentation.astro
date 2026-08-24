@@ -16,7 +16,10 @@ prs.slide_masters          # SlideMasters collection
 prs.core_properties        # document metadata (author, title, ...)
 prs.theme                  # fork: Theme reader/writer
 prs.notes_master           # NotesMaster
-prs.part.package           # the OpcPackage`;
+prs.part.package           # the OpcPackage
+
+# fork: lint every slide on save - "off" (default) | "warn" | "raise"
+prs.lint_on_save = "raise" # LintError before anything is written`;
 
 const s2 = `from power_pptx.util import Inches
 

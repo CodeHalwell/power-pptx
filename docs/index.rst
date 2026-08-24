@@ -33,11 +33,13 @@ Feature support
   preset library; apply per-slide and deck-wide transitions including Morph
 * Read and write the active theme's color scheme and major/minor fonts;
   apply a theme imported from a ``.potx``
-* Compose presentations from a JSON spec, import slides between decks, and
-  apply a template to existing slides
+* Compose presentations from a JSON spec — including free-standing shapes
+  with declared overlap intent — import slides between decks, and apply a
+  template to existing slides
 * Run a layout linter on each slide to detect text overflow, off-slide
-  shapes, and shape collisions; auto-fix nudges off-slide shapes back
-  inside the slide bounds (text-overflow auto-fix is on the roadmap)
+  shapes, and shape collisions; auto-fix clamps off-slide shapes,
+  resolves text overflow, snaps grid drift, and restacks contradicted
+  layer declarations, with ``lint_on_save`` to gate the whole deck
 * Build with a design-token system, opinionated slide recipes, and ``Grid`` /
   ``Stack`` layout primitives
 * Recolor charts from named palettes and toggle title / legend / axis-label

@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 const snippet0 = `from power_pptx import Presentation
 
 prs = Presentation("deck.pptx")
@@ -10,19 +11,67 @@ for slide in prs.slides:
         print(issue.severity.value, issue)`;
 
 const snippet1 = `report = slide.lint()
-report.auto_fix()          # mutates: nudges OffSlide shapes back inside
+report.auto_fix()          # mutates: clamps OffSlide, resolves overflow,
+                           # restacks contradicted layer declarations
 
-# One call instead of lint → fix → re-lint
-slide.tidy()`;
+# One call instead of lint -> fix -> re-lint
+slide.tidy()
+slide.tidy(fix_grid_drift=True)    # opt into grid snapping
+slide.tidy(fix_layer_order=False)  # leave z-order alone`;
 
-const snippet2 = `from power_pptx.compose import from_spec
+const snippet2 = `from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches
+
+# A KPI card: backing panel, accent bar, value text, and a delta badge
+# hanging off the top-right corner.
+card = slide.shapes.add_shape(
+    MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.5),
+    Inches(3.4), Inches(2.0))
+accent_bar = slide.shapes.add_shape(
+    MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.5), Inches(3.4), Inches(0.2))
+value_box = slide.shapes.add_textbox(
+    Inches(1.0), Inches(2.0), Inches(3.0), Inches(0.9))
+badge = slide.shapes.add_shape(
+    MSO_SHAPE.OVAL, Inches(3.6), Inches(1.2), Inches(1.0), Inches(0.6))
+
+# 1. Group tag - n-ary and symmetric: everything sharing a non-empty
+#    tag may overlap everything else in the tag.
+slide.lint_group("kpi-1", card, accent_bar, value_box)
+slide.lint_group_overlaps(card, accent_bar, value_box)  # auto-names it
+
+# 2. Pairwise allowance - licenses exactly one pair, nothing else.
+badge.allow_overlap_with(card)
+badge.disallow_overlap_with(card)           # revoke
+badge.overlap_allowances                    # frozenset[int] of shape ids
+
+# 3. Layer hints - the only form that also asserts z-order.
+card.layer = "card"
+badge.layer_above = "card"`;
+
+const snippet3 = `# 'badge' was added to the slide *before* 'card', so it is painted
+# underneath the thing it claims to sit on top of.
+card.layer = "card"
+badge.layer_above = "card"
+
+report = slide.lint()
+report.has_errors        # True
+report.auto_fix()
+# ["Restacked 'Delta badge' above 'KPI card' to honour layer_above='card'."]`;
+
+const snippet4 = `prs.lint_on_save = "off"      # default - no checks, no cost
+prs.lint_on_save = "warn"     # log error-severity issues, still write
+prs.lint_on_save = "raise"    # raise LintError instead of writing
+
+prs.save("out.pptx")`;
+
+const snippet5 = `from power_pptx.compose import from_spec
 
 prs = from_spec({
     "slides": [{"layout": "title", "title": "Q4 Review"}],
     "lint": "raise",                  # raise | warn | off
 })`;
 
-const snippet3 = `from power_pptx import audit
+const snippet6 = `from power_pptx import audit
 
 report = audit(prs)
 print(report.markdown())`;
@@ -31,7 +80,7 @@ print(report.markdown())`;
 
 <DocsLayout
   title="Lint & Audit"
-  description="slide.lint(), issue types and severities, auto_fix, tidy(), the from_spec lint hook, and whole-deck audit()."
+  description="slide.lint(), issue types and severities, declaring intentional overlaps, auto_fix, tidy(), lint_on_save, and whole-deck audit()."
 >
   <p class="lead">
     The layout linter is the last line of defence in the space-aware stack: it measures the slide
@@ -50,21 +99,96 @@ print(report.markdown())`;
       <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds its frame (Pillow metrics)</td><td>warning</td></tr>
       <tr><td><code>OffSlide</code></td><td>Shape extends past the slide bounds</td><td>error</td></tr>
       <tr><td><code>ShapeCollision</code></td><td>Unintentional overlap between shapes</td><td>warning</td></tr>
+      <tr><td><code>LayerOrderViolation</code></td><td>A shape declares <code>layer_above</code> but is drawn <em>below</em> that layer, so it will be hidden</td><td>error</td></tr>
     </tbody>
   </table>
 
   <h2 id="autofix">auto_fix and tidy</h2>
   <Code code={snippet1} />
   <p>
-    <code>TextOverflow</code> is reported but <strong>not</strong> auto-fixed — use
-    <code>tf.fit_text(...)</code> or <code>auto_size = TEXT_TO_FIT_SHAPE</code> for that.
+    Auto-fix handles the issues that need no designer judgment: <code>OffSlide</code> (clamped
+    back on-slide), <code>TextOverflow</code> (flipped to
+    <code>auto_size = TEXT_TO_FIT_SHAPE</code>), <code>OffGridDrift</code> (snapped, opt-in via
+    <code>tidy(fix_grid_drift=True)</code>) and <code>LayerOrderViolation</code> (restacked).
+    <code>ShapeCollision</code> is deliberately left alone — nudging shapes apart almost always
+    breaks the design. If the overlap was intentional, say so instead.
+  </p>
+
+  <h2 id="intentional-overlap">Declaring an intentional overlap</h2>
+  <p>
+    <code>ShapeCollision</code> is the noisiest rule, because deliberate layering — a badge on a
+    KPI card, an accent bar on a panel — looks exactly like a copy-paste bug from a bounding box
+    alone. Tell the linter what you meant and it stops guessing. Three ways, narrowest last:
+  </p>
+  <Code code={snippet2} />
+  <table>
+    <thead>
+      <tr><th>Mechanism</th><th>Scope</th><th>Reach for it when</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>lint_group</code></td>
+        <td>n-ary, symmetric</td>
+        <td>Several shapes form one visual cluster and any of them may overlap any other</td>
+      </tr>
+      <tr>
+        <td><code>allow_overlap_with</code></td>
+        <td>one pair</td>
+        <td>Exactly one overlap is meant to be legal and you want the rest still policed</td>
+      </tr>
+      <tr>
+        <td><code>layer</code> / <code>layer_above</code></td>
+        <td>directional</td>
+        <td>The stacking <em>order</em> is part of the design and you want it enforced, not merely tolerated</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    An allowance is written one-sided but read symmetrically: it takes only one of the pair to
+    vouch for the overlap, so calling it on either shape is equivalent. Allowances accumulate
+    rather than replace, and revoking one that was never granted is a no-op.
+  </p>
+  <p>
+    Layer hints are the only form that can <strong>fail</strong>. Declaring
+    <code>layer_above = "card"</code> asserts this shape is painted on top of every overlapping
+    shape whose <code>layer</code> is <code>"card"</code>. If the shape tree says otherwise, you
+    get a <code>LayerOrderViolation</code> at error severity, because the declaration records what
+    you meant and the drawing order is what failed to deliver it:
+  </p>
+  <Code code={snippet3} />
+  <p>
+    A layer name describes a stratum of the design rather than one cluster, so any number of
+    unrelated shapes may share it. Only overlapping pairs are checked — a layer declaration
+    between shapes that never touch is inert, not wrong. All three forms round-trip through
+    save/open in the shape's <code>cNvPr</code> element and are invisible to PowerPoint.
+  </p>
+
+  <h2 id="lint-on-save">Linting on save</h2>
+  <p>
+    Every <code>Presentation</code> carries a save-time gate, whatever built it:
+  </p>
+  <Code code={snippet4} />
+  <p>
+    Only <strong>error</strong>-severity issues count. The lint pass runs <em>before</em> anything
+    is written, so <code>"raise"</code> never leaves a bad file on disk — it raises
+    <code>power_pptx.exc.LintError</code> naming the offending slide indexes. <code>"warn"</code>
+    logs on the <code>power_pptx.presentation</code> logger and writes the file anyway. The
+    setting lives on the in-memory deck only; re-open the saved file and it is back to
+    <code>"off"</code>.
   </p>
 
   <h2 id="from-spec">The from_spec lint gate</h2>
-  <Code code={snippet2} />
+  <Code code={snippet5} />
+  <p>
+    Spec slides can also carry the intent declarations themselves — a <code>"shapes"</code> entry
+    accepts <code>lint_group</code>, <code>allow_overlap_with</code>, <code>layer</code> and
+    <code>layer_above</code>, so a generator declares deliberate layering at generation time and
+    the built deck lints clean with no tagging pass. See
+    <a href={withBase("/advanced/compose")}>Compose &amp; Templates</a>.
+  </p>
 
   <h2 id="audit">Whole-deck audit</h2>
-  <Code code={snippet3} />
+  <Code code={snippet6} />
   <p>The audit aggregates, per deck:</p>
   <ul>
     <li>lint issues across every slide</li>

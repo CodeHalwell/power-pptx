@@ -31,11 +31,9 @@ tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
 # Catch anything that slipped through
 slide.tidy()
-report = slide.lint()
-errors = [i for i in report.issues if i.severity.value == "error"]
-if errors:
-    raise RuntimeError("\\n".join(str(e) for e in errors))
 
+# Refuse to write a deck that still has errors in it
+prs.lint_on_save = "raise"
 prs.save("out.pptx")`;
 
 const snippet1 = `from power_pptx.text.layout import TextFitter
@@ -56,6 +54,16 @@ const snippet2 = `from power_pptx import audit
 report = audit(prs)          # lint + broken pictures + empty slides
                              # + uncommon fonts + oversized pictures
 print(report.markdown())     # ready to paste into a chat reply`;
+
+const snippet3 = `# n-ary: the whole KPI cluster may overlap internally
+slide.lint_group("kpi-1", card, accent_bar, value_box)
+
+# pairwise: this badge may sit on this card, and nothing else changes
+badge.allow_overlap_with(card)
+
+# directional: the badge asserts it is painted on top of the card layer
+card.layer = "card"
+badge.layer_above = "card"`;
 
 ---
 
@@ -83,8 +91,10 @@ print(report.markdown())     # ready to paste into a chat reply`;
     </li>
     <li>
       <strong><code>slide.lint()</code></strong> — reports what slipped through (text overflow,
-      off-slide shapes, collisions). <code>auto_fix()</code> nudges off-slide shapes back inside;
-      <code>slide.tidy()</code> is the one-call wrapper.
+      off-slide shapes, collisions). <code>auto_fix()</code> repairs the subset that needs no
+      designer judgment; <code>slide.tidy()</code> is the one-call wrapper, and
+      <code>prs.lint_on_save = "raise"</code> turns the whole thing into a gate on
+      <code>save()</code>.
     </li>
   </ol>
 
@@ -105,14 +115,31 @@ print(report.markdown())     # ready to paste into a chat reply`;
       <tr><th>Issue</th><th>Meaning</th><th>Auto-fixable</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds the shape's frame</td><td>No — use <code>fit_text</code> or <code>auto_size</code></td></tr>
-      <tr><td><code>OffSlide</code></td><td>Shape extends beyond the slide bounds</td><td>Yes — nudged back inside</td></tr>
-      <tr><td><code>ShapeCollision</code></td><td>Two shapes overlap unintentionally</td><td>Reported; fix placement with Grid/Stack</td></tr>
+      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds the shape's frame</td><td>Yes — flipped to <code>TEXT_TO_FIT_SHAPE</code>; <code>fit_text</code> bakes a size in instead</td></tr>
+      <tr><td><code>OffSlide</code></td><td>Shape extends beyond the slide bounds</td><td>Yes — shrunk if oversized, then clamped back inside</td></tr>
+      <tr><td><code>ShapeCollision</code></td><td>Two shapes overlap unintentionally</td><td>No — fix placement with Grid/Stack, or declare the overlap</td></tr>
+      <tr><td><code>LayerOrderViolation</code></td><td>A shape declares it sits above a layer but is drawn below it</td><td>Yes — restacked to match the declaration; geometry untouched</td></tr>
     </tbody>
   </table>
   <p>
     Each issue carries a <code>LintSeverity</code> (<code>"error"</code> / <code>"warning"</code>)
     so CI can fail hard on errors while tolerating warnings.
+  </p>
+
+  <h2 id="intentional-overlap">Deliberate layering isn't a collision</h2>
+  <p>
+    A badge sitting on a KPI card looks exactly like a copy-paste bug from a bounding box alone,
+    so the linter has to be told what you meant. Three declarations do that, from widest to
+    narrowest: <code>lint_group</code> is n-ary and symmetric (everything sharing the tag may
+    overlap everything else), an allowance licenses exactly one pair, and layer hints are the only
+    form that also asserts a <em>direction</em> — and therefore the only one that can fail.
+  </p>
+  <Code code={snippet3} />
+  <p>
+    Where the drawing order contradicts a <code>layer_above</code> declaration, you get a
+    <code>LayerOrderViolation</code> at error severity rather than silence:
+    <code>auto_fix()</code> restacks the shape so the z-order says what you said. Full treatment
+    on the <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> page.
   </p>
 
   <h2 id="audit">Whole-deck audit</h2>
