@@ -240,6 +240,7 @@ report.to_sarif_json()                # JSON string
 from power_pptx.lint import lint_report_to_sarif
 sarif = lint_report_to_sarif([s.lint() for s in prs.slides])   # whole deck
 
+report.fingerprints()                 # list[str] -- the stable ids diff() uses
 new_issues = current.diff(baseline)   # only issues NOT in baseline
 both = current.diff_detail(baseline)  # {"added": [...], "fixed": [...]}
 ```

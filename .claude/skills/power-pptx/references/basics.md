@@ -70,6 +70,48 @@ p2.text = "Subtitle goes here"
 p2.font.size = Pt(18)
 ```
 
+### One call instead of per-run styling
+
+Setting `font.*` on every paragraph is the single most common source of
+bloated deck-building code, and it silently misses runs you didn't
+enumerate. `set_paragraph_defaults` applies to *every* paragraph and run
+in the frame, including ones added later in the same breath:
+
+```python
+tf.text = "Headline"
+tf.add_paragraph().text = "Supporting line"
+
+tf.set_paragraph_defaults(
+    font_name="Inter", size=Pt(14), bold=True, color="#333333",
+)
+```
+
+Accepted kwargs are exactly `font_name`, `size`, `bold`, `italic`,
+`color` — all keyword-only, all optional. Note it does **not** take
+spacing arguments; `space_before` / `space_after` / `line_spacing` are
+per-paragraph (below).
+
+### Spacing and margins
+
+```python
+p.space_before = Pt(6)
+p.space_after  = Pt(6)
+p.line_spacing = 1.2               # multiple, or Pt(20) for exact
+
+tf.margin_left = Inches(0.2)       # also margin_right/top/bottom
+```
+
+Paragraphs can also be built run-by-run when you need mixed styling in
+one line:
+
+```python
+p = tf.add_paragraph()
+run = p.add_run(); run.text = "Bold lead-in. "
+run.font.bold = True
+run.font.underline = True
+p.add_line_break()                 # soft break, stays in the paragraph
+```
+
 ### Run-level type styling
 
 `font` exposes the run-property knobs that separate "looks branded" from
@@ -150,6 +192,20 @@ pic = slide.shapes.add_picture(
     left=Inches(0), top=Inches(0),
     width=prs.slide_width, height=prs.slide_height,
 )
+```
+
+### Cropping
+
+Crop values are *fractions of the original image*, not lengths — `0.1`
+trims 10% off that edge. They compose with the placement box, so crop
+first, then size:
+
+```python
+pic = slide.shapes.add_picture("hero.png", Inches(1), Inches(1),
+                               width=Inches(4))
+pic.crop_left = 0.10               # also crop_right/top/bottom
+pic.crop_top  = 0.05
+pic.alt_text  = "Q4 revenue by segment"   # set this; screen readers need it
 ```
 
 ### Anchored placement
@@ -264,6 +320,31 @@ chart.chart_title.text_frame.text = "ARR ($M)"
 ```
 
 (See `charts.md` for chart palettes, quick layouts, and per-series fills.)
+
+## Knowing what a shape is
+
+Before touching a shape you found by iteration, ask what it actually is
+— the accessors raise rather than return `None` when the shape has no
+such content:
+
+```python
+for shape in slide.shapes:
+    if shape.has_text_frame:
+        print(shape.text_frame.text)
+    if shape.has_table:
+        print(shape.table.rows)
+    if shape.has_chart:
+        print(shape.chart.chart_type)
+    if shape.is_placeholder:
+        print("placeholder idx", shape.placeholder_format.idx,
+              "type", shape.placeholder_format.type)
+    print(shape.shape_id, shape.name)   # shape_id is unique per slide
+```
+
+`shape.delete()` removes a shape *and* purges any animation timing
+entries that targeted it — PowerPoint silently "repairs" decks with
+orphan timing references, so prefer it over detaching the element by
+hand.
 
 ## Iterating an existing deck
 

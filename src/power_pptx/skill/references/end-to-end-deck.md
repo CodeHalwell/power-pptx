@@ -214,17 +214,18 @@ if __name__ == "__main__":
 - Persist `TOKENS` separately (YAML or `.pptx`) and load with
   `DesignTokens.from_yaml(...)` / `DesignTokens.from_pptx(...)`. That
   way design and code evolve independently.
-- In production, run `_lint_or_die(...)` (or its equivalent) explicitly
-  before save. Use `slide.lint().auto_fix()` to repair what can be
-  fixed automatically (currently: nudge `OffSlide` shapes back inside
-  the slide bounds), then decide what to do with the residual issues —
-  log warning-severity issues but ship the deck, raise on
-  error-severity issues. Keep the stricter "raise on any error"
-  behaviour in CI.
-- There is no `Presentation`-level lint hook in 1.1; iterate
-  `prs.slides` and call `slide.lint()` per slide, or use
-  `power_pptx.compose.from_spec(..., lint="raise")` if you can express the
-  deck as a spec.
+- In production, use `slide.tidy()` to repair what can be fixed
+  automatically — it clamps `OffSlide` shapes back inside the bounds,
+  autofits overflowing text frames, and restacks contradicted
+  `layer_above` declarations — then decide what to do with the residual
+  issues: log warning-severity ones but ship the deck, raise on
+  error-severity ones. Keep the stricter "raise on any error" behaviour
+  in CI.
+- For the save-time gate, set `prs.lint_on_save = "raise"` and just call
+  `prs.save(...)`: every slide is linted before anything is written, so
+  a failing deck never reaches disk. `"warn"` logs instead. The
+  equivalent for spec-built decks is
+  `power_pptx.compose.from_spec(..., lint="raise")`.
 - If you want the chart palette to align with brand tokens rather than
   the built-in `"modern"`, pass an explicit list:
   `chart.apply_palette([TOKENS.palette["primary"], ...])`.

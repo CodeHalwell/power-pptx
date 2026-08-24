@@ -98,6 +98,48 @@ The low-level surface is still there when you need it
 (`cell.fill.solid()`, `cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE`,
 per-run `font` objects) — `format` just removes the loop.
 
+## Built-in banding and header toggles
+
+Before hand-styling every cell, check whether the table style already
+does it. These six booleans drive the banding and emphasis that the
+applied table style defines, so one flag replaces a loop:
+
+```python
+tbl.first_row   = True    # emphasise the header row
+tbl.last_row    = False   # emphasise a totals row
+tbl.first_col   = True    # emphasise the label column
+tbl.last_col    = False
+tbl.horz_banding = True   # alternating row shading
+tbl.vert_banding = False  # alternating column shading
+```
+
+`banded_rows` / `banded_cols` are aliases for the two banding flags.
+They only have a visible effect when the table still carries a style
+that defines banded formatting — see the next section.
+
+## Walking every cell
+
+`iter_cells()` flattens the grid so you don't nest two loops, and it
+skips nothing:
+
+```python
+for cell in tbl.iter_cells():
+    cell.margin_left = Inches(0.08)   # also margin_right/top/bottom
+```
+
+Merged regions need care when reading: a merged block reports one
+*origin* cell plus the cells it swallowed.
+
+```python
+cell = tbl.cell(0, 0)
+cell.is_merge_origin   # True on the top-left cell of a merged block
+cell.is_spanned        # True on the cells the merge absorbed
+cell.span_height       # rows covered (1 when unmerged)
+cell.span_width        # columns covered
+```
+
+Write text to the *origin* cell; a spanned cell's text is not rendered.
+
 ## Detaching the default table style
 
 Every table created via `slide.shapes.add_table(...)` is born with
