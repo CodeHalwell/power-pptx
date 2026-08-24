@@ -95,6 +95,60 @@ The `lint` field accepts `"off"`, `"warn"`, or `"raise"`:
 `from_spec` runs the lint pass internally; outside of `from_spec`,
 iterate the slides yourself (see `lint.md`).
 
+## Free-standing shapes on a spec slide
+
+Layouts and recipes place their own shapes. When you need something a
+layout doesn't provide, a slide entry may carry a `shapes` list, applied
+*after* the layout runs:
+
+```python
+{
+    "layout": "blank",
+    "shapes": [
+        {"name": "card", "shape": "rounded_rectangle",
+         "left": 1, "top": 1, "width": 4, "height": 2,
+         "layer": "card"},
+        {"name": "badge", "shape": "oval", "text": "NEW",
+         "left": 4.4, "top": 0.7, "width": 1.2, "height": 0.8,
+         "layer_above": "card"},
+    ],
+}
+```
+
+Keys: `left` / `top` / `width` / `height` (required; inches, or a
+`Length`), `name`, `shape` (an `MSO_SHAPE` member name,
+case-insensitive — default `"textbox"`), `text`, and the four
+overlap-intent fields below. Unknown keys are rejected with a
+did-you-mean hint rather than silently ignored.
+
+This is deliberately minimal — geometry, type, text, intent. It is not a
+drawing DSL; reach for the Python API when you need fills, effects, or
+anything structural.
+
+### Declaring intentional overlaps in a spec
+
+An LLM writing a spec can declare *at generation time* that an overlap
+is deliberate, so the built deck lints clean without a manual pass. All
+three mechanisms from `lint.md` are spec-level fields:
+
+```python
+{"name": "badge", ..., "lint_group": "kpi-1"}          # n-ary tag
+{"name": "badge", ..., "allow_overlap_with": "card"}   # one pair
+{"name": "badge", ..., "allow_overlap_with": ["card", "rule"]}
+{"name": "card",  ..., "layer": "card"}                # asserts z-order
+{"name": "badge", ..., "layer_above": "card"}
+```
+
+`allow_overlap_with` names other shapes by their spec `name`, not by
+shape id — ids don't exist until the deck is built. Resolution happens
+after every shape on the slide exists, so a **forward reference works**:
+naming a shape defined later in the same list is fine.
+
+Names must be unique within a slide, and a reference must stay within
+its slide — an allowance is keyed on shape id, and ids are only unique
+per slide. Both mistakes raise a `ValueError` locating the bad entry as
+`slides[i].shapes[j]`.
+
 ## Cross-presentation operations
 
 ```python
@@ -156,7 +210,7 @@ for slide in body.slides:
 # 3. Re-skin everything against the latest brand template
 apply_template(deck, "brand-2026.potx")
 
-# 4. Lint and save (no Presentation-level lint hook in 1.1; iterate)
+# 4. Lint and save (or set prs.lint_on_save = "raise" and just save)
 from power_pptx.exc import LintError
 
 errors = []

@@ -46,6 +46,24 @@ Added
   OOXML-sanctioned extension point, alongside the existing ``lint_group``
   and ``lint_skip``.
 
+* **Free-standing shapes in a ``from_spec`` spec.** A slide entry may
+  now carry a ``shapes`` list — ``left`` / ``top`` / ``width`` /
+  ``height`` (inches or ``Length``), plus ``name``, ``shape`` (an
+  ``MSO_SHAPE`` member name) and ``text`` — applied after the layout
+  runs. Deliberately minimal: geometry, type, text, intent, not a
+  drawing DSL.
+
+* **Overlap intent is declarable in a spec.** Shape entries accept
+  ``lint_group``, ``layer``, ``layer_above`` and ``allow_overlap_with``,
+  so a generator can state at authoring time that an overlap is
+  deliberate and the built deck lints clean without a manual pass.
+  ``allow_overlap_with`` names other shapes by their spec ``name`` —
+  shape ids don't exist until the deck is built — and is resolved once
+  every shape on the slide exists, so forward references work. Names
+  must be unique within a slide and references may not cross slides,
+  since an allowance is keyed on a shape id and ids are only unique per
+  slide; both raise a ``ValueError`` locating the entry.
+
 * **``LayerOrderViolation``** — a new ERROR-severity lint issue, and the
   reason layer hints are more than a third way to silence a warning.
   When a shape's ``layer_above`` declaration is contradicted by the

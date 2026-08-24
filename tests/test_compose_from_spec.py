@@ -469,3 +469,387 @@ class DescribeDidYouMeanHints:
         # now that unknown names raise.
         prs = from_spec({"slides": [{"layout": "blank"}]})
         assert len(prs.slides) == 1
+
+
+class DescribeShapeEntries:
+    """A slide's ``shapes`` list adds shapes on top of the layout."""
+
+    def it_adds_a_named_textbox_from_a_shape_entry(self):
+        from power_pptx.util import Inches
+
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [{
+                    "name": "note",
+                    "left": 1,
+                    "top": 2,
+                    "width": 3,
+                    "height": 0.5,
+                    "text": "Hello",
+                }],
+            }],
+        })
+        shape = prs.slides[0].shapes[0]
+        assert shape.name == "note"
+        assert shape.left == Inches(1)
+        assert shape.top == Inches(2)
+        assert shape.width == Inches(3)
+        assert shape.height == Inches(0.5)
+        assert shape.text_frame.text == "Hello"
+
+    def it_adds_an_autoshape_by_mso_shape_name(self):
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [{
+                    "shape": "rounded_rectangle",
+                    "left": 1, "top": 1, "width": 2, "height": 1,
+                }],
+            }],
+        })
+        shape = prs.slides[0].shapes[0]
+        assert shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+
+    def it_adds_shapes_on_top_of_a_recipe_slide(self):
+        # ``shapes`` is handled by the dispatcher, so it must not reach
+        # the recipe as an unknown kwarg.
+        prs = from_spec({
+            "slides": [{
+                "layout": "kpi",
+                "title": "Run-rate",
+                "kpis": [{"label": "ARR", "value": "$182M"}],
+                "shapes": [{
+                    "name": "stamp",
+                    "left": 0.2, "top": 0.2, "width": 1, "height": 0.4,
+                    "text": "DRAFT",
+                }],
+            }],
+        })
+        assert any(s.name == "stamp" for s in prs.slides[0].shapes)
+
+    def it_interpolates_vars_inside_a_shape_entry(self):
+        prs = from_spec({
+            "vars": {"label": "DRAFT"},
+            "slides": [{
+                "layout": "blank",
+                "shapes": [{
+                    "left": 1, "top": 1, "width": 2, "height": 1,
+                    "text": "{{label}}",
+                }],
+            }],
+        })
+        assert prs.slides[0].shapes[0].text_frame.text == "DRAFT"
+
+    def it_rejects_an_unknown_shape_entry_key(self):
+        with pytest.raises(ValueError, match=r"did you mean 'lint_group'\?"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{
+                        "left": 1, "top": 1, "width": 2, "height": 1,
+                        "lint_groupp": "card",
+                    }],
+                }],
+            })
+
+    def it_rejects_a_shape_entry_missing_geometry(self):
+        with pytest.raises(ValueError, match=r"missing \['height'\]"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{"left": 1, "top": 1, "width": 2}],
+                }],
+            })
+
+    def it_rejects_an_unknown_shape_type(self):
+        with pytest.raises(ValueError, match=r"unknown shape type 'rectangel'"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{
+                        "shape": "rectangel",
+                        "left": 1, "top": 1, "width": 2, "height": 1,
+                    }],
+                }],
+            })
+
+    def it_rejects_a_non_list_shapes_value(self):
+        with pytest.raises(ValueError, match="'shapes' must be a list"):
+            from_spec({
+                "slides": [{"layout": "blank", "shapes": {"left": 1}}],
+            })
+
+
+class DescribeShapeLintIntentFields:
+    """``lint_group`` / ``layer`` / ``layer_above`` / ``allow_overlap_with``
+    declare an intentional overlap at spec-authoring time (ROADMAP Phase 2,
+    "Relationship model")."""
+
+    def it_round_trips_lint_group(self):
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [{
+                    "name": "card",
+                    "left": 1, "top": 1, "width": 2, "height": 1,
+                    "lint_group": "kpi-card-1",
+                }],
+            }],
+        })
+        assert prs.slides[0].shapes[0].lint_group == "kpi-card-1"
+
+    def it_round_trips_layer_and_layer_above(self):
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [
+                    {"name": "card", "left": 1, "top": 1, "width": 3,
+                     "height": 2, "layer": "card"},
+                    {"name": "badge", "left": 3, "top": 1, "width": 1,
+                     "height": 1, "layer_above": "card"},
+                ],
+            }],
+        })
+        card, badge = prs.slides[0].shapes
+        assert card.layer == "card"
+        assert card.layer_above is None
+        assert badge.layer is None
+        assert badge.layer_above == "card"
+
+    def it_resolves_allow_overlap_with_by_spec_name(self):
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [
+                    {"name": "card", "left": 1, "top": 1, "width": 3,
+                     "height": 2},
+                    {"name": "badge", "left": 2.5, "top": 1, "width": 3,
+                     "height": 2, "allow_overlap_with": "card"},
+                ],
+            }],
+        })
+        card, badge = prs.slides[0].shapes
+        assert badge.overlap_allowances == frozenset({card.shape_id})
+
+    def it_resolves_a_forward_reference(self):
+        # ``card`` is declared *after* the shape that names it — ids only
+        # exist once every shape on the slide has been created, so
+        # resolution runs as a second pass.
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [
+                    {"name": "badge", "left": 2.5, "top": 1, "width": 3,
+                     "height": 2, "allow_overlap_with": "card"},
+                    {"name": "card", "left": 1, "top": 1, "width": 3,
+                     "height": 2},
+                ],
+            }],
+        })
+        badge, card = prs.slides[0].shapes
+        assert badge.overlap_allowances == frozenset({card.shape_id})
+
+    def it_accepts_a_list_of_allow_overlap_with_names(self):
+        prs = from_spec({
+            "slides": [{
+                "layout": "blank",
+                "shapes": [
+                    {"name": "a", "left": 1, "top": 1, "width": 2, "height": 1},
+                    {"name": "b", "left": 2, "top": 1, "width": 2, "height": 1},
+                    {"name": "c", "left": 1.5, "top": 1, "width": 2,
+                     "height": 1, "allow_overlap_with": ["a", "b"]},
+                ],
+            }],
+        })
+        a, b, c = prs.slides[0].shapes
+        assert c.overlap_allowances == frozenset({a.shape_id, b.shape_id})
+
+    def it_rejects_an_unknown_allow_overlap_with_name(self):
+        with pytest.raises(
+            ValueError,
+            match=r"names unknown shape 'carrd' \(did you mean 'card'\?\)",
+        ):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [
+                        {"name": "card", "left": 1, "top": 1, "width": 2,
+                         "height": 1},
+                        {"name": "badge", "left": 2, "top": 1, "width": 2,
+                         "height": 1, "allow_overlap_with": "carrd"},
+                    ],
+                }],
+            })
+
+    def it_names_the_slide_in_an_unresolved_reference_error(self):
+        with pytest.raises(ValueError, match=r"slides\[1\]\.shapes\[0\]"):
+            from_spec({
+                "slides": [
+                    {"layout": "blank"},
+                    {
+                        "layout": "blank",
+                        "shapes": [{
+                            "name": "badge", "left": 1, "top": 1,
+                            "width": 2, "height": 1,
+                            "allow_overlap_with": "nowhere",
+                        }],
+                    },
+                ],
+            })
+
+    def it_rejects_a_cross_slide_allow_overlap_with_reference(self):
+        # Shape ids are only unique within a slide, so an allowance can
+        # never span slides.
+        with pytest.raises(ValueError, match=r"is defined on slides \[0\]"):
+            from_spec({
+                "slides": [
+                    {
+                        "layout": "blank",
+                        "shapes": [{"name": "card", "left": 1, "top": 1,
+                                    "width": 2, "height": 1}],
+                    },
+                    {
+                        "layout": "blank",
+                        "shapes": [{
+                            "name": "badge", "left": 1, "top": 1,
+                            "width": 2, "height": 1,
+                            "allow_overlap_with": "card",
+                        }],
+                    },
+                ],
+            })
+
+    def it_rejects_a_forward_cross_slide_reference_too(self):
+        with pytest.raises(ValueError, match=r"is defined on slides \[1\]"):
+            from_spec({
+                "slides": [
+                    {
+                        "layout": "blank",
+                        "shapes": [{
+                            "name": "badge", "left": 1, "top": 1,
+                            "width": 2, "height": 1,
+                            "allow_overlap_with": "card",
+                        }],
+                    },
+                    {
+                        "layout": "blank",
+                        "shapes": [{"name": "card", "left": 1, "top": 1,
+                                    "width": 2, "height": 1}],
+                    },
+                ],
+            })
+
+    def it_rejects_a_self_reference(self):
+        with pytest.raises(ValueError, match="names this shape itself"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{
+                        "name": "card", "left": 1, "top": 1, "width": 2,
+                        "height": 1, "allow_overlap_with": "card",
+                    }],
+                }],
+            })
+
+    def it_rejects_duplicate_shape_names_on_one_slide(self):
+        with pytest.raises(ValueError, match="duplicate shape name 'card'"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [
+                        {"name": "card", "left": 1, "top": 1, "width": 2,
+                         "height": 1},
+                        {"name": "card", "left": 3, "top": 1, "width": 2,
+                         "height": 1},
+                    ],
+                }],
+            })
+
+    def it_reports_where_a_lint_intent_value_was_rejected(self):
+        # Validation stays the shape property's job; the spec layer only
+        # adds the location so a bad value is findable in a long spec.
+        with pytest.raises(
+            ValueError, match=r"slides\[0\]\.shapes\[0\]: 'lint_group'"
+        ):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{
+                        "left": 1, "top": 1, "width": 2, "height": 1,
+                        "lint_group": 5,
+                    }],
+                }],
+            })
+
+    def it_rejects_a_non_string_allow_overlap_with_value(self):
+        with pytest.raises(ValueError, match="must be a shape name or a list"):
+            from_spec({
+                "slides": [{
+                    "layout": "blank",
+                    "shapes": [{
+                        "name": "card", "left": 1, "top": 1, "width": 2,
+                        "height": 1, "allow_overlap_with": 7,
+                    }],
+                }],
+            })
+
+
+class DescribeSpecDeclaredOverlapSuppression:
+    """End-to-end: a spec-declared overlap silences the ShapeCollision the
+    same spec produces without the declaration."""
+
+    @staticmethod
+    def _overlapping_spec(**declarations):
+        """Two equally-sized rectangles overlapping by half their area."""
+        first = {"name": "left_card", "shape": "rectangle",
+                 "left": 1, "top": 1, "width": 3, "height": 2}
+        second = {"name": "right_card", "shape": "rectangle",
+                  "left": 2.5, "top": 1, "width": 3, "height": 2}
+        first.update(declarations.get("first", {}))
+        second.update(declarations.get("second", {}))
+        return {"slides": [{"layout": "blank", "shapes": [first, second]}]}
+
+    @staticmethod
+    def _collisions(prs):
+        from power_pptx.lint import ShapeCollision
+
+        return [
+            i for i in prs.slides[0].lint().issues
+            if isinstance(i, ShapeCollision)
+        ]
+
+    def it_reports_the_collision_without_a_declaration(self):
+        prs = from_spec(self._overlapping_spec())
+        assert self._collisions(prs), "expected an undeclared overlap to collide"
+
+    def it_suppresses_the_collision_via_allow_overlap_with(self):
+        prs = from_spec(
+            self._overlapping_spec(second={"allow_overlap_with": "left_card"})
+        )
+        assert self._collisions(prs) == []
+
+    def it_suppresses_the_collision_via_a_shared_lint_group(self):
+        prs = from_spec(self._overlapping_spec(
+            first={"lint_group": "hero"},
+            second={"lint_group": "hero"},
+        ))
+        assert self._collisions(prs) == []
+
+    def it_suppresses_the_collision_via_layer_hints(self):
+        prs = from_spec(self._overlapping_spec(
+            first={"layer": "card"},
+            second={"layer_above": "card"},
+        ))
+        assert self._collisions(prs) == []
+
+    def it_reports_a_layer_order_violation_for_the_reversed_z_order(self):
+        # The shape drawn *first* (underneath) claims to sit on top.
+        from power_pptx.lint import LayerOrderViolation
+
+        prs = from_spec(self._overlapping_spec(
+            first={"layer_above": "card"},
+            second={"layer": "card"},
+        ))
+        issues = prs.slides[0].lint().issues
+        assert any(isinstance(i, LayerOrderViolation) for i in issues)
