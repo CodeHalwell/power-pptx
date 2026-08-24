@@ -43,7 +43,7 @@ requires-python = ">=3.9"
 
 [project.urls]
 Changelog = "https://github.com/codehalwell/power-pptx/blob/main/HISTORY.rst"
-Documentation = "https://power-pptx.readthedocs.io/en/latest/"
+Documentation = "https://codehalwell.github.io/power-pptx/"
 Homepage = "https://github.com/codehalwell/power-pptx"
 Issues = "https://github.com/codehalwell/power-pptx/issues"
 Repository = "https://github.com/codehalwell/power-pptx"
