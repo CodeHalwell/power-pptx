@@ -26,12 +26,22 @@ pic.effects.contrast     = 0.05
 
 ## Recolor presets
 
+`recolor` is a **property, not a method** — assign to it. There are
+exactly four modes; anything else raises `ValueError`, and the existing
+effect is left intact because the value is validated before it mutates.
+
 ```python
-pic.effects.recolor("grayscale")
-pic.effects.recolor("sepia")
-pic.effects.recolor("washout")        # PowerPoint's "Washout"
-pic.effects.recolor("black_and_white")
+pic.effects.recolor = "grayscale"
+pic.effects.recolor = "sepia"         # a preset duotone under the hood
+pic.effects.recolor = "washout"       # PowerPoint's "Washout"
+pic.effects.recolor = "duotone"       # neutral grey duotone; see below
+                                      # to pick your own two colours
+
+pic.effects.recolor                   # read it back: the mode, or None
 ```
+
+There is no `"black_and_white"` mode. `"washout"` is the closest
+equivalent.
 
 ## Duotone
 
@@ -45,10 +55,10 @@ pic.effects.set_duotone(
 pic.effects.set_duotone((18, 30, 77), (168, 192, 255))
 ```
 
-To clear:
+To clear, assign `None` — there is no `clear_recolor()` method:
 
 ```python
-pic.effects.clear_recolor()           # drops any duotone / grayscale / etc.
+pic.effects.recolor = None            # drops any duotone / grayscale / etc.
 ```
 
 ## Native SVG with PNG fallback

@@ -396,9 +396,12 @@ Flagging them up front saves the trial-and-error round.
 - **`add_svg_picture` without `cairosvg` and without a `png_fallback`**
   raises `CairoSvgUnavailable`. Either install cairosvg or supply a
   pre-rasterised PNG.
-- **`TextOverflow` is reported but not auto-fixed**. The current
-  `report.auto_fix()` only handles `OffSlide`. For overflow, use
-  `tf.fit_text(...)` or `auto_size = TEXT_TO_FIT_SHAPE`.
+- **`auto_fix()` repairs geometry, not judgment.** It clamps `OffSlide`,
+  flips `TextOverflow` frames to `TEXT_TO_FIT_SHAPE`, snaps
+  `OffGridDrift`, and restacks `LayerOrderViolation`. It will never
+  touch `ShapeCollision`, `LowContrast`, `MinFontSize` or
+  `ZOrderAnomaly` — those need a designer. Prefer `tf.fit_text(...)`
+  *before* save over relying on the overflow fix.
 - **Slide thumbnails require `soffice` on PATH** (LibreOffice).
   Otherwise you get `ThumbnailRendererUnavailable`.
 - **`MSO_PATTERN_TYPE.ERCENT_40`** is the upstream typo and emits a

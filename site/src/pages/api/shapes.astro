@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const bbox = `from power_pptx import Presentation, BBox
 from power_pptx.util import Inches
@@ -67,13 +68,73 @@ shape.name, shape.shape_id, shape.shape_type
 shape.rotation, shape.shadow
 shape.click_action             # hyperlinks / jump targets
 shape.fill, shape.line         # FillFormat / LineFormat
+shape.ln                       # the raw <a:ln> element, or None
 shape.fill_hex("#0B5CFF")      # fork: chainable hex helpers
 shape.line_hex("#0D0D0D", weight_pt=1.25)
 shape.glow, shape.soft_edges   # fork: effect proxies (also shadow, blur,
 shape.reflection               #   inner_shadow, preset_shadow, reflection)
 shape.three_d                  # fork: bevels / extrusion / material
 shape.set_text_preserving_format("New text")   # fork
-shape.bbox                     # fork: BBox snapshot of the frame`;
+shape.bbox                     # fork: BBox snapshot of the frame
+shape.alt_text                 # accessibility description
+shape.title_text               # short accessibility label
+shape.lint_skip                # fork: per-shape linter opt-out
+shape.delete()                 # fork: remove + purge orphaned animations`;
+
+const probe = `# Ask before you reach - each of these is False on shapes that can't.
+card.has_text_frame            # True  -> card.text_frame
+table.has_table                # True  -> table.table
+chart.has_chart                # True  -> chart.chart
+card.is_placeholder            # False
+
+title = slide.shapes.title
+title.is_placeholder           # True
+title.placeholder_format.idx   # 0
+title.placeholder_format.type  # PP_PLACEHOLDER.TITLE
+card.placeholder_format        # ValueError: shape is not a placeholder`;
+
+const geom = `from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
+
+card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                              Inches(1), Inches(2), Inches(4), Inches(2))
+
+card.auto_shape_type           # MSO_SHAPE.ROUNDED_RECTANGLE
+len(card.adjustments)          # 1 - this geometry exposes one handle
+card.adjustments[0]            # 0.16667, the PowerPoint default
+
+# corner_radius does the fraction arithmetic for you.
+card.corner_radius = Pt(8)
+round(card.corner_radius.pt, 2)     # 8.0
+round(card.adjustments[0], 5)       # 0.05556 == Pt(8) / min(width, height)
+
+# The same 8pt spec on a shape half the height is a different fraction...
+small = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                               Inches(6), Inches(2), Inches(3), Inches(1))
+small.corner_radius = Pt(8)
+round(small.adjustments[0], 5)      # 0.11111 - but still 8pt on screen
+
+card.corner_radius = Inches(3)      # ValueError: exceeds half the shorter side
+triangle.corner_radius              # ValueError: geometry has no corner radius`;
+
+const lifecycle = `from power_pptx.animation import Entrance
+
+# Accessibility slots on <p:cNvPr>; "" or None clears either one.
+card.alt_text = "Revenue card showing 4.2M, up 12% year on year."
+card.title_text = "Revenue"
+
+# Per-shape linter opt-out, stored in the same extension as lint_group.
+card.lint_skip = {"MinFontSize"}
+badge.lint_skip = {"MinFontSize"}
+card.lint_skip                 # frozenset({'MinFontSize'})
+card.lint_skip = set()         # clear
+
+# delete() also purges timing entries that pointed at the shape.
+Entrance.fade(slide, card)
+Entrance.fly_in(slide, badge, direction="left")
+len(slide.animations)          # 2
+badge.delete()
+len(slide.animations)          # 1 - the orphan <p:spTgt> went with it`;
 
 const pic = `picture = shapes.add_picture("img.png", Inches(8), Inches(1), Inches(2))
 
@@ -118,6 +179,87 @@ picture.replace_with(builder, padding=Inches(0.05))`;
     <code>ChartPlaceholder</code>, <code>TablePlaceholder</code>) all share:
   </p>
   <Code code={shape} />
+
+  <h3 id="probing">Probing a shape before you use it</h3>
+  <p>
+    A shape tree is heterogeneous, so the <code>has_*</code> flags are the safe way to narrow one
+    down. Each is unconditionally <code>False</code> on the base class and overridden to
+    <code>True</code> on the subclass that can deliver — <code>has_text_frame</code> on
+    <code>Shape</code>, <code>has_table</code> / <code>has_chart</code> on
+    <code>GraphicFrame</code> — so testing beats catching an exception, and beats guessing from
+    <code>shape_type</code>.
+  </p>
+  <Code code={probe} />
+  <p>
+    <code>is_placeholder</code> is <code>True</code> when the shape carries a
+    <code>&lt;p:ph&gt;</code> element. <code>placeholder_format</code> is the accessor that goes
+    with it, exposing <code>idx</code> and <code>type</code>; it <strong>raises
+    <code>ValueError</code></strong> rather than returning <code>None</code> on a non-placeholder,
+    so guard it with <code>is_placeholder</code>.
+  </p>
+
+  <h3 id="autoshape-geometry">Autoshape geometry: adjustments and corner radius</h3>
+  <p>
+    <code>auto_shape_type</code> returns the <code>MSO_SHAPE</code> member behind the shape's
+    preset geometry, and raises <code>ValueError</code> for anything that isn't an autoshape
+    (a text box, a freeform). On a <code>Picture</code> the same name means something different
+    and is writable — there it is the masking shape the image is cropped to.
+  </p>
+  <p>
+    <code>adjustments</code> is the sequence of yellow-handle values behind that geometry — a
+    rounded rectangle has one, a callout or a chevron more. Values are floats on a 0–1 scale,
+    indexed and assignable (<code>shape.adjustments[0] = 0.25</code>), and writing one rewrites
+    the shape's <code>&lt;a:gd&gt;</code> guides.
+  </p>
+  <p>
+    The catch is that OOXML stores a corner radius as a <em>fraction of the shorter side</em>, so
+    one design spec ("6pt corners everywhere") is a different number on every differently-sized
+    card. <code>corner_radius</code> is the post-fork wrapper that removes that arithmetic: it
+    reads and writes a real <code>Length</code>, converting to and from
+    <code>adjustments[0]</code>.
+  </p>
+  <Code code={geom} />
+  <p>
+    It applies to the four rounded-rectangle presets — <code>ROUNDED_RECTANGLE</code>,
+    <code>ROUND_1_RECTANGLE</code>, <code>ROUND_2_SAME_RECTANGLE</code>,
+    <code>ROUND_2_DIAG_RECTANGLE</code> — and touches only <code>adjustments[0]</code>, leaving
+    the second corner pair of the two-radius geometries under explicit control. It raises
+    <code>ValueError</code> on any other geometry, on a shape with no width or height yet, and on
+    a radius larger than half the shorter side (the largest a preset rounded rectangle can
+    express). Reads report the radius as <em>rendered</em>: these presets pin their adjustment to
+    the 0–0.5 range, so a shape carrying an out-of-range value authored elsewhere reports the
+    legal radius it actually draws at. Round-tripping is exact to within the adjustment's
+    1/100,000 quantum — round the <code>.pt</code> value if you are asserting on it.
+  </p>
+
+  <h3 id="lifecycle">Accessibility, lint opt-outs, and deletion</h3>
+  <Code code={lifecycle} />
+  <p>
+    <code>alt_text</code> maps to the <code>descr</code> attribute of the shape's
+    <code>&lt;p:cNvPr&gt;</code> — the slot screen readers announce and PowerPoint shows in its
+    <em>Alt Text</em> pane. <code>title_text</code> maps to the sibling <code>title</code>
+    attribute, a short label that complements the longer description. Both read back
+    <code>""</code> when unset, and assigning <code>""</code> or <code>None</code> removes the
+    attribute rather than writing an empty one.
+  </p>
+  <p>
+    <code>lint_skip</code> is a <code>frozenset</code> of issue codes silenced on this shape;
+    assign any set/list/tuple of strings, or an empty one to clear. Cross-shape issues such as
+    <code>ShapeCollision</code> and <code>ZOrderAnomaly</code> are suppressed only when
+    <strong>both</strong> shapes opt out — a one-sided opt-out keeps the warning, since the other
+    shape may still want it surfaced. It rides in the same <code>cNvPr/extLst</code> block as
+    <code>lint_group</code>, so it survives save and reopen and is invisible to PowerPoint.
+    Reach for it to silence a rule on one shape; reach for a
+    <a href={withBase("/api/presentation")}>lint group</a> to declare an overlap intentional.
+  </p>
+  <p>
+    <code>delete()</code> is not just <code>element.getparent().remove(element)</code>. Removing
+    the element by hand leaves behind any entry in the slide's timing tree that targeted the
+    shape, and PowerPoint responds to those orphan <code>&lt;p:spTgt&gt;</code> references by
+    offering to repair the file on open. <code>delete()</code> removes the element and then purges
+    the dangling animation entries, so an animated shape can be dropped without leaving the deck
+    in a state that prompts a repair.
+  </p>
 
   <h2 id="picture"><code>Picture</code> extras</h2>
   <Code code={pic} />

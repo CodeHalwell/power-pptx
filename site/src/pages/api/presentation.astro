@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx import Presentation
 
@@ -11,6 +12,7 @@ prs.save("out.pptx")                  # write to a path or file-like object`;
 const s1 = `prs.slide_width            # EMU width of the slide canvas
 prs.slide_height           # EMU height
 prs.slides                 # Slides collection
+prs.sections               # fork: Sections collection (outline pane groupings)
 prs.slide_layouts          # layouts of the first master
 prs.slide_masters          # SlideMasters collection
 prs.core_properties        # document metadata (author, title, ...)
@@ -31,14 +33,152 @@ slide.background           # _Background (fill)
 slide.slide_layout         # the SlideLayout this slide follows
 slide.transition           # fork: transition proxy (kind, duration, ...)
 slide.animations           # fork: SlideAnimations
+slide.has_notes_slide      # bool, non-creating test
 slide.notes_slide          # NotesSlide (created on demand)
+slide.follow_master_background   # bool, read-only
+slide.color_variant        # fork: "light" | "dark" | None
 
 # fork: space-aware helpers
 report = slide.lint()      # SlideLintReport
 slide.tidy()               # lint + safe auto-fixes
+slide.slide_bbox()         # fork: BBox of the whole canvas
+slide.content_bbox()       # fork: BBox hugging the real content
 free = slide.find_empty_region(min_width=Inches(2), min_height=Inches(1))`;
 
-const s3 = `from power_pptx import audit
+const s3 = `from power_pptx import Presentation
+
+prs = Presentation()
+for _ in range(6):
+    prs.slides.add_slide(prs.slide_layouts[6])
+
+intro = prs.sections.add("Intro", start_slide_index=0)
+body = prs.sections.add("Body", start_slide_index=2)
+appendix = prs.sections.add("Appendix", start_slide_index=5)
+
+for section in prs.sections:
+    print(section.name, section.slide_ids)
+# Intro    [256, 257]
+# Body     [258, 259, 260]
+# Appendix [261]
+
+body.name = "Main body"          # read/write
+body.id                          # brace-wrapped GUID, read-only
+body.slides                      # tuple[Slide, ...], in deck order
+body.add_slide(prs.slides[5])    # moves slide 5 out of "Appendix"
+
+prs.sections.remove(intro)       # identical to intro.delete()
+len(prs.sections)                # 2 - Intro's slides merged into "Main body"`;
+
+const s4 = `from power_pptx import BBox, Presentation
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Emu, Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+# a full-bleed backdrop plus two real content shapes
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0,
+                       prs.slide_width, prs.slide_height).fill_hex("#101820")
+slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                       Inches(1), Inches(1.5), Inches(3), Inches(2))
+slide.shapes.add_textbox(Inches(5), Inches(4), Inches(3), Inches(1))
+
+canvas = slide.slide_bbox()      # BBox of the whole slide canvas
+content = slide.content_bbox()   # BBox hugging the non-decorative shapes
+
+canvas.width.inches                          # 10.0
+content.as_tuple()                           # (914400, 1371600, 6400800, 3200400)
+Emu(content.left - canvas.left).inches       # 1.0 - the left margin
+Emu(canvas.bottom - content.bottom).inches   # 2.5 - the space still free
+
+# The backdrop is skipped because it covers >95% of the slide in *both*
+# axes. Opt it back in when you want the true painted extent.
+slide.content_bbox(include_decorative=True) == canvas   # True
+
+# ...and there is nothing to bound on an empty slide.
+prs.slides.add_slide(prs.slide_layouts[6]).content_bbox() is None`;
+
+const s5 = `from power_pptx import BBox, Presentation
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Emu, Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+for i in range(3):
+    slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                           Inches(0.9 + i * 2.9), Inches(2.0),
+                           Inches(2.6), Inches(2.2))
+
+SAFE = Inches(0.5)
+canvas = slide.slide_bbox()
+content = slide.content_bbox()
+
+# 1. Assert a safe margin before the deck is written.
+assert canvas.inset(all=SAFE).contains(content), "content breaks the safe area"
+
+# 2. Hang a source note off the bottom of whatever the slide ended up holding.
+slide.shapes.add_text(
+    BBox(content.left, content.bottom + Inches(0.25), content.width, Inches(0.4)),
+    text="Source: internal telemetry, Q4 FY25", size_pt=11)
+
+# 3. Re-centre the whole cluster horizontally, using the *new* content box.
+dx = Emu(canvas.cx - slide.content_bbox().cx)
+for shape in slide.shapes:
+    shape.left = Emu(shape.left + dx)`;
+
+const s6 = `from power_pptx.dml.color import RGBColor
+
+slide.follow_master_background      # True - the slide has no <p:bg> of its own
+slide.background.fill.solid()       # giving it a background of its own...
+slide.background.fill.fore_color.rgb = RGBColor.from_hex("#101820")
+slide.follow_master_background      # ...flips it to False
+
+# Swap the background/text roles for this slide only, theme untouched.
+slide.color_variant                 # "light" - inheriting the master map
+slide.color_variant = "dark"        # bg1->dk1, tx1->lt1, bg2->dk2, tx2->lt2
+slide.color_variant = None          # drop the override entirely
+
+# Anything the two presets don't cover goes through the raw mapping.
+slide.set_clr_map_override(bg1="dk2", tx1="lt2", bg2="dk1", tx2="lt1")
+slide.color_variant                 # None - matches neither named preset
+slide.set_clr_map_override(masterClrMapping=True)   # back to inheriting`;
+
+const s7 = `slide.has_notes_slide     # False - a plain test, creates nothing
+slide.notes                # "" - reading notes text creates nothing either
+slide.notes = "Open with the revenue headline."
+slide.has_notes_slide     # True - the notes part exists now
+slide.notes_slide.notes_text_frame.text`;
+
+const s8 = `from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches
+
+# 1. design_group - tag as you build. Name required; never overwrites a tag
+#    a shape already carries, so in nested blocks the innermost name wins.
+with slide.design_group("kpi-1"):
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                  Inches(0.8), Inches(1.5), Inches(3.4), Inches(2.0))
+    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                 Inches(0.8), Inches(1.5), Inches(3.4), Inches(0.2))
+card.lint_group                         # "kpi-1"
+
+# 2. lint_group_scope - same idea on the shape tree. Name optional, it yields
+#    the tree so you can add through it, and it overwrites existing tags.
+with slide.shapes.lint_group_scope() as g:
+    track = g.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                        Inches(5), Inches(1.5), Inches(4), Inches(0.3))
+    fill = g.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                       Inches(5), Inches(1.5), Inches(2.4), Inches(0.3))
+track.lint_group                        # "design-group-1", auto-numbered
+
+# 3. lint_group_overlaps - tag shapes you already hold; returns the name.
+value = slide.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(3.0), Inches(0.9))
+name = slide.lint_group_overlaps(card, bar, value)   # "design-group-2"
+
+# The blunt form underneath all three: assign a name, or None to clear.
+slide.lint_group("kpi-1", card, bar, value)
+slide.lint_group(None, value)`;
+
+const s9 = `from power_pptx import audit
 
 report = audit(prs)        # lint + broken pictures + empty slides
                            # + uncommon fonts + oversized pictures
@@ -47,7 +187,7 @@ print(report.markdown())`;
 
 <DocsLayout
   title="API: Presentation & Slides"
-  description="Presentation factory, slides, layouts, masters, notes, transitions, audit."
+  description="Presentation factory, slides, sections, layouts, masters, notes, slide geometry, transitions, audit."
 >
   <h2 id="presentation"><code>power_pptx.Presentation</code></h2>
   <p>Factory entry point. Accepts a path/file-like object or nothing (blank default template).</p>
@@ -62,6 +202,7 @@ print(report.markdown())`;
     <tbody>
       <tr><td><code>Slides</code></td><td>Sequence of slides; <code>add_slide(layout)</code>, iteration, indexing, <code>index()</code>, reordering via <code>slide_id</code> list</td></tr>
       <tr><td><code>Slide</code></td><td>A single slide; shapes, background, notes, transition, animations, lint</td></tr>
+      <tr><td><code>Sections</code> / <code>Section</code> <strong class="text-primary">fork</strong></td><td>Named groupings of slides in the outline pane; see <a href="#sections">Deck sections</a></td></tr>
       <tr><td><code>SlideLayouts</code> / <code>SlideLayout</code></td><td>Layouts of a master; <code>Slide</code> instances clone placeholders from them</td></tr>
       <tr><td><code>SlideMasters</code> / <code>SlideMaster</code></td><td>Masters expose <code>layouts</code>, <code>placeholders</code>, <code>theme</code> via the part</td></tr>
       <tr><td><code>NotesSlide</code> / <code>NotesMaster</code></td><td>Speaker notes surface; <code>notes_text_frame</code> on <code>NotesSlide</code></td></tr>
@@ -69,6 +210,150 @@ print(report.markdown())`;
     </tbody>
   </table>
   <Code code={s2} />
+
+  <h2 id="sections">Deck sections <strong class="text-primary">fork</strong></h2>
+  <p>
+    <code>prs.sections</code> is the collection of named slide groupings PowerPoint shows in the
+    outline and slide-sorter panes. It supports <code>len()</code>, indexing and iteration, plus
+    <code>add(name, start_slide_index=None)</code> and <code>remove(section)</code>. Reading the
+    collection never modifies the deck — the underlying PowerPoint-2010 extension element is
+    written only when the first section is added.
+  </p>
+  <Code code={s3} />
+  <p>
+    Sections are <strong>contiguous and non-overlapping</strong>, and the library keeps them that
+    way for you rather than emitting a deck PowerPoint would offer to repair:
+  </p>
+  <ul>
+    <li>
+      <code>add(name, start_slide_index=N)</code> claims every slide from <code>N</code> to the end
+      of the deck, and truncates any earlier section that held them at <code>N-1</code>.
+    </li>
+    <li>
+      If the <em>first</em> section of a deck starts past slide 0, the slides before it are swept
+      into an auto-created <code>"Default Section"</code>, so no slide is left outside every
+      section.
+    </li>
+    <li>
+      <code>Section.add_slide()</code> first removes the slide from whichever section currently
+      claims it, and is a no-op when the section already holds it.
+    </li>
+    <li>
+      Removing a section keeps its slides in the deck — they merge into the previous section (or
+      the next one, when the first section goes), exactly like PowerPoint's own <em>Remove
+      Section</em> command. Removing the only section drops the grouping entirely.
+    </li>
+  </ul>
+  <p>
+    <code>section.id</code> is a brace-wrapped GUID; pass <code>id=</code> to
+    <code>add()</code> to pin it for deterministic output in tests. A malformed or already-used id
+    raises <code>ValueError</code>. Sections reference slides by numeric
+    <code>slide_id</code>, not by position, so reordering slides does not scramble membership —
+    and <code>section.slides</code> silently skips references to slides that have since been
+    deleted. A section may legitimately end up empty; <code>Section.remove_slide()</code> is the
+    one call that can leave a slide belonging to no section at all.
+  </p>
+
+  <h2 id="slide-geometry">Slide geometry: <code>slide_bbox()</code> and <code>content_bbox()</code> <strong class="text-primary">fork</strong></h2>
+  <p>
+    Both are <em>methods</em>, not properties, and both return a
+    <a href={withBase("/api/shapes")}><code>BBox</code></a>. <code>slide_bbox()</code> is the whole
+    canvas; <code>content_bbox()</code> is the union of the shapes actually on the slide, and is
+    the one layout code wants — it answers "where did this slide's content really end up?" after a
+    generator, a template, or an auto-fit pass has had its way with it.
+  </p>
+  <Code code={s4} />
+  <p>
+    The decorative filter is what makes <code>content_bbox()</code> useful on real decks: any
+    shape whose width <em>and</em> height each exceed 95% of the slide is treated as backdrop and
+    excluded, so a full-bleed panel or photo doesn't collapse the answer back to the full canvas.
+    Pass <code>include_decorative=True</code> for the unfiltered union. The return value is
+    <code>None</code> — not an empty box — when the slide has no qualifying shapes, so test for it
+    before unpacking.
+  </p>
+  <p>Three things this makes cheap:</p>
+  <Code code={s5} />
+  <p>
+    For the inverse question — "where is there <em>room</em> for something?" — use
+    <code>slide.find_empty_region(...)</code>, which walks a coarse grid and returns the largest
+    free cell cluster.
+  </p>
+
+  <h2 id="background">Background and colour variant <strong class="text-primary">fork</strong></h2>
+  <Code code={s6} />
+  <p>
+    <code>follow_master_background</code> is a read-only <code>bool</code>: it is
+    <code>True</code> exactly while the slide has no <code>&lt;p:bg&gt;</code> element of its own.
+    Touching <code>slide.background</code>'s fill is what gives the slide its own background and
+    flips the flag.
+  </p>
+  <p>
+    <code>color_variant</code> reads and writes the slide's <code>&lt;p:clrMapOvr&gt;</code>, which
+    re-points the deck's colour <em>slots</em> without touching the theme's colour
+    <em>values</em> — the mechanism behind a single dark slide in an otherwise light deck. Reading
+    returns <code>"light"</code> when the slide inherits the master map, <code>"dark"</code> when
+    the override swaps backgrounds and text, and <code>None</code> when a custom map matches
+    neither preset. Assigning <code>None</code> removes the override.
+    <code>set_clr_map_override(**mapping)</code> is the escape hatch: each keyword is a slot name
+    (<code>bg1</code>, <code>tx1</code>, <code>bg2</code>, <code>tx2</code>,
+    <code>accent1</code>–<code>accent6</code>, <code>hlink</code>, <code>folHlink</code>) and each
+    value is the palette slot it should resolve to.
+  </p>
+
+  <h2 id="notes">Speaker notes</h2>
+  <Code code={s7} />
+  <p>
+    <code>slide.notes_slide</code> creates the notes part on first access, which is a real
+    side effect when you are only inspecting a deck. <code>has_notes_slide</code> is the
+    non-creating test, and reading <code>slide.notes</code> is non-creating too — it returns
+    <code>""</code> for a slide with no notes part. Assigning <code>slide.notes</code> creates the
+    part on demand.
+  </p>
+
+  <h2 id="grouping">Grouping shapes for the linter <strong class="text-primary">fork</strong></h2>
+  <p>
+    Three names sit next to each other here and they all set exactly one thing: the
+    <code>lint_group</code> tag on a shape, which tells
+    <a href={withBase("/advanced/lint")}>the linter</a> that shapes sharing a non-empty tag are
+    <em>meant</em> to overlap. They are not three features — they are three ways to spell the same
+    assignment, and which one to reach for depends only on <em>when</em> you know the membership:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Reach for</th><th>When</th><th>Naming</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>slide.design_group(name)</code></td>
+        <td>You are <strong>about to build</strong> the cluster and want to name it up front</td>
+        <td>Required; leaves any tag a shape already has alone, so nesting works</td>
+      </tr>
+      <tr>
+        <td><code>slide.shapes.lint_group_scope(name=None)</code></td>
+        <td>Same, but you don't care what it's called — a helper emitting a composite widget</td>
+        <td>Optional, auto-numbered; overwrites existing tags</td>
+      </tr>
+      <tr>
+        <td><code>slide.lint_group_overlaps(*shapes)</code></td>
+        <td>The shapes <strong>already exist</strong> and you're tagging them after the fact</td>
+        <td>Optional, auto-numbered; returns the name it used</td>
+      </tr>
+    </tbody>
+  </table>
+  <Code code={s8} />
+  <p>
+    Underneath all three is <code>slide.lint_group(name, *shapes)</code>, the plain batch form of
+    <code>shape.lint_group = name</code>; pass <code>None</code> to clear. Auto-generated names
+    take the form <code>"design-group-N"</code> with the smallest <code>N</code> not already in use
+    on that slide, so the two context managers and the after-the-fact call never collide.
+  </p>
+  <p>
+    A <code>lint_group</code> is n-ary and symmetric — every tagged shape may overlap every other
+    one in the tag. When that is too broad, the narrower declarations live on the shapes
+    themselves: <code>badge.allow_overlap_with(card)</code> licenses exactly one pair, and
+    <code>layer</code> / <code>layer_above</code> additionally assert the stacking order. See
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for the full comparison.
+  </p>
 
   <h2 id="core-properties">Core properties</h2>
   <p>
@@ -79,5 +364,5 @@ print(report.markdown())`;
   </p>
 
   <h2 id="audit"><code>power_pptx.audit</code> <strong class="text-primary">fork</strong></h2>
-  <Code code={s3} />
+  <Code code={s9} />
 </DocsLayout>

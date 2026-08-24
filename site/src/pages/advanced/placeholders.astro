@@ -1,0 +1,365 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const snippet0 = `from power_pptx import Presentation
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[8])   # "Picture with Caption"
+
+for shape in slide.placeholders:
+    phf = shape.placeholder_format
+    print(f"idx={phf.idx:<3} type={phf.type!s:<14} name={shape.name}")
+
+# idx=0   type=TITLE (1)      name=Title 1
+# idx=1   type=PICTURE (18)   name=Picture Placeholder 2
+# idx=2   type=BODY (2)       name=Text Placeholder 3`;
+
+const snippet1 = `title = slide.placeholders[0]        # idx key, NOT position
+caption = slide.placeholders[2]
+
+slide.placeholders[7]                # KeyError: no placeholder on this slide
+                                     #           with idx == 7`;
+
+const snippet2 = `for shape in slide.shapes:
+    print(shape.shape_type)          # PLACEHOLDER (14) for every one of them
+
+for shape in slide.shapes:
+    if shape.is_placeholder:         # guard: the property raises otherwise
+        phf = shape.placeholder_format
+        print(phf.idx, phf.type)
+
+textbox = slide.shapes.add_textbox(0, 0, 100, 100)
+textbox.placeholder_format           # ValueError: shape is not a placeholder`;
+
+const snippet3 = `from power_pptx import Presentation
+from power_pptx.util import Emu
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])   # "Title and Content"
+body = slide.placeholders[1]
+
+# The slide's own <p:sp> carries no position at all ...
+print(body._element.x, body._element.y)              # None None
+
+# ... yet the shape reports one, resolved from the layout placeholder.
+print(Emu(body.left).inches, Emu(body.top).inches)   # 0.5 1.75
+print(Emu(body.width).inches)                        # 9.0`;
+
+const snippet4 = `from power_pptx import Presentation
+from power_pptx.util import Emu, Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])
+body = slide.placeholders[1]
+print(Emu(body.top).inches, Emu(body.height).inches)    # 1.75 4.95
+
+body.width = Inches(4)                                  # only ONE of the pair
+print(Emu(body.width).inches, Emu(body.height).inches)  # 4.0 0.0  <- height gone`;
+
+const snippet5 = `from power_pptx import Presentation
+from power_pptx.util import Emu, Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])
+body = slide.placeholders[1]
+
+# Read the inherited values first, then write the whole pair back.
+top, height = body.top, body.height
+body.left, body.top = Inches(1), top
+body.width, body.height = Inches(6), height
+
+print(Emu(body.left).inches, Emu(body.top).inches)      # 1.0 1.75
+print(Emu(body.width).inches, Emu(body.height).inches)  # 6.0 4.95`;
+
+const snippet6 = `from power_pptx import Presentation
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])   # "Title and Content"
+
+# The title has a dedicated shortcut on the shape tree.
+slide.shapes.title.text = "Air-speed Velocity of Unladen Swallows"
+
+# A body placeholder's text frame behaves like any other text frame.
+body = slide.placeholders[1].text_frame
+body.text = "African swallow"        # writes the first paragraph
+second = body.add_paragraph()
+second.text = "European swallow"
+second.level = 1                     # indent one bullet level`;
+
+const snippet7 = `from power_pptx import Presentation
+from power_pptx.util import Emu
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[8])   # "Picture with Caption"
+
+placeholder = slide.placeholders[1]                  # idx key, not position
+picture = placeholder.insert_picture("wide.jpg")     # use the RETURN VALUE
+
+print(type(picture).__name__)                        # PlaceholderPicture
+print(Emu(picture.width).inches, Emu(picture.height).inches)   # 6.0 4.5
+print(picture.crop_left, picture.crop_right)                   # 0.25 0.25`;
+
+const snippet8 = `from power_pptx.enum.shapes import PP_PLACEHOLDER
+
+# The built-in template ships no table or chart placeholder, so find the
+# idx values in your own template before hard-coding them.
+for layout in prs.slide_layouts:
+    for ph in layout.placeholders:
+        if ph.placeholder_format.type in (PP_PLACEHOLDER.TABLE, PP_PLACEHOLDER.CHART):
+            print(layout.name, ph.placeholder_format.idx, ph.placeholder_format.type)`;
+
+const snippet9 = `from power_pptx import Presentation
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])
+slide.shapes.title.text = "Q4 Review"
+
+print(slide.has_notes_slide)     # False - nothing created yet
+print(repr(slide.notes))         # '' - and reading did NOT create one
+print(slide.has_notes_slide)     # still False
+
+slide.notes = "Open with the revenue number, then hand over to Priya."
+print(slide.has_notes_slide)     # True - assigning created the notes slide`;
+
+const snippet10 = `text_frame = slide.notes_slide.notes_text_frame   # creates the notes slide
+
+para = text_frame.add_paragraph()
+para.text = "Timing: 90 seconds."
+
+print([p.text for p in text_frame.paragraphs])
+print(repr(slide.notes))   # paragraphs joined with newlines`;
+
+const snippet11 = `from power_pptx import Presentation
+
+prs = Presentation()
+layout = prs.slide_layouts[5]                 # "Title Only"
+slide = prs.slides.add_slide(layout)
+
+# The anti-pattern: drop the inherited title, hand-draw a box in its place.
+slide.shapes.title.delete()
+title_ph = layout.placeholders[0]
+box = slide.shapes.add_textbox(
+    title_ph.left, title_ph.top, title_ph.width, title_ph.height
+)
+box.text_frame.text = "Q4 Review"
+
+for issue in slide.lint().issues:
+    print(issue.severity.value, issue.code, "->", issue.message)
+
+# warning MasterPlaceholderCollision -> Shape 'TextBox 2' sits at the position
+# of layout placeholder idx=0; it likely should have inherited from the
+# placeholder instead of redrawing it.`;
+---
+
+<DocsLayout
+  title="Placeholders & Notes"
+  description="The layout-to-slide inheritance model, finding placeholders by idx, inserting titles, body text and pictures, speaker notes, and the MasterPlaceholderCollision lint rule."
+>
+  <p class="lead">
+    A placeholder is a pre-formatted container the template designer put on a layout, and which
+    every slide using that layout inherits. Filling one costs a single assignment and comes out
+    matching the deck's design; drawing your own box in the same spot costs a dozen lines and
+    comes out subtly wrong.
+  </p>
+
+  <h2 id="what">What a placeholder is</h2>
+  <p>
+    Placeholders cut across shape types rather than being one of them. An autoshape
+    (<code>p:sp</code>), a picture (<code>p:pic</code>) and a graphic frame
+    (<code>p:graphicFrame</code>) can all be placeholders; groups, connectors and content parts
+    cannot. OOXML defines 18 placeholder types — title, centre title, subtitle, body, content,
+    picture, chart, table, SmartArt, media clip, date, footer, slide number, header, and the
+    vertical variants for languages such as Japanese.
+  </p>
+  <p>
+    A placeholder is empty ("unpopulated") until content goes in. Empty ones show prompt text in
+    PowerPoint and, for the rich-content types, the grid of insert buttons. That prompt text is a
+    template artefact — it is never part of your saved content and never appears in
+    presentation mode.
+  </p>
+
+  <h2 id="inheritance">The inheritance model</h2>
+  <p>
+    Placeholders exist at three levels, and the whole subsystem is a property-inheritance chain
+    across them:
+  </p>
+  <ul>
+    <li><strong>Slide master</strong> — inheritee only. Nothing on a master inherits from anything.</li>
+    <li><strong>Slide layout</strong> — both. Inherits from the master placeholder of the same <em>type</em>.</li>
+    <li><strong>Slide</strong> — inheritor only. Inherits from the layout placeholder with the same <em>idx</em>.</li>
+  </ul>
+  <p>
+    Note the asymmetry: layout-from-master matches on <strong>type</strong>, slide-from-layout
+    matches on <strong>idx</strong>. That is why <code>idx</code>, not name and not position in
+    the collection, is the stable identity of a placeholder.
+  </p>
+  <p>
+    What gets inherited is essentially everything — fill, line, font, bullet style, <em>and
+    position and size</em>. Directly applied formatting on the slide overrides the inherited
+    value for that one property. This is the mechanism that makes a template a template: change
+    the layout and every slide built on it moves.
+  </p>
+
+  <h2 id="finding">Finding a placeholder</h2>
+  <p>
+    Every placeholder is a shape, so it shows up in <code>slide.shapes</code>. But
+    <code>slide.placeholders</code> is the collection you want, because it is keyed by
+    <code>idx</code>:
+  </p>
+  <Code code={snippet0} />
+  <p>
+    Item access is dictionary-like, not list-like. The integer you pass is an <code>idx</code>
+    value, not an ordinal, and <code>idx</code> values are not contiguous — a miss raises
+    <code>KeyError</code>:
+  </p>
+  <Code code={snippet1} />
+  <p>
+    Placeholders from PowerPoint's built-in layouts use <code>idx</code> 0–5, with the title
+    always at 0 and the rest running top-to-bottom, left-to-right. Placeholders a designer added
+    by hand start at 10. In the bundled default template, the date, footer and slide-number
+    placeholders sit at <code>idx</code> 10, 11 and 12 on every layout — and are deliberately
+    <em>not</em> cloned onto new slides, which is why <code>slide.placeholders</code> is usually
+    shorter than <code>layout.placeholders</code>.
+  </p>
+
+  <h3 id="identifying">Identifying one</h3>
+  <p>
+    A placeholder's <code>shape_type</code> is unconditionally
+    <code>MSO_SHAPE_TYPE.PLACEHOLDER</code> no matter what it holds, so it tells you nothing
+    useful. The real detail lives on <code>placeholder_format</code>, which every shape has but
+    which raises <code>ValueError</code> on a non-placeholder — pair it with
+    <code>is_placeholder</code>:
+  </p>
+  <Code code={snippet2} />
+
+  <h2 id="position">Inherited position and size — the thing people get wrong</h2>
+  <p>
+    A placeholder on a slide normally carries <em>no</em> geometry of its own. The
+    <code>left</code>, <code>top</code>, <code>width</code> and <code>height</code> you read back
+    are resolved from the layout placeholder at access time:
+  </p>
+  <Code code={snippet3} />
+  <p>
+    That resolution is why a placeholder is worth using at all — it is what keeps a hundred slides
+    aligned. It is also the source of two recurring bugs.
+  </p>
+  <p>
+    <strong>First:</strong> code that inspects <code>shape.left</code> on a slide and then writes
+    the same number back has just converted an inherited value into a hard-coded one. The slide
+    now looks identical and stops tracking the template forever.
+  </p>
+  <p>
+    <strong>Second, and much sharper:</strong> position and size are stored as
+    <em>pairs</em> in the XML — <code>&lt;a:off x= y=&gt;</code> and
+    <code>&lt;a:ext cx= cy=&gt;</code>. Writing one member of a pair materialises the element, and
+    the sibling attribute it did not have a value for defaults to zero. So setting
+    <code>width</code> alone on an inheriting placeholder silently collapses its height:
+  </p>
+  <Code code={snippet4} />
+  <p>
+    Nothing raises; the shape simply becomes a zero-height sliver at save time. The fix is to
+    always write both members of the pair, reading the inherited values first when you only mean
+    to change one:
+  </p>
+  <Code code={snippet5} />
+  <p>
+    This applies only the first time — once the placeholder has explicit geometry, both attributes
+    are present and single-property assignment behaves normally. Which is exactly what makes the
+    bug hard to spot in a test that runs twice.
+  </p>
+
+  <h2 id="text">Title and body text</h2>
+  <p>
+    Text placeholders take content the same way any autoshape does. The title is common enough to
+    have its own shortcut on the shape tree — <code>slide.shapes.title</code>, which returns
+    <code>None</code> when the layout has no title placeholder:
+  </p>
+  <Code code={snippet6} />
+  <p>
+    Because the placeholder brings its own font size, alignment and bullet styling from the
+    layout, this is usually all the formatting you need. Where a placeholder's box is fixed by the
+    template but your text is generated and variable-length, reach for
+    <code>text_frame.fit_text(...)</code> — see
+    <a href={withBase("/advanced/space-aware-authoring")}>Space-Aware Authoring</a>.
+  </p>
+
+  <h2 id="rich-content">Picture, table and chart placeholders</h2>
+  <p>
+    The rich-content placeholder types have dedicated insertion methods:
+    <code>PicturePlaceholder.insert_picture()</code>,
+    <code>TablePlaceholder.insert_table()</code> and
+    <code>ChartPlaceholder.insert_chart()</code>. Inserting a picture stretches it
+    proportionally and crops it to fill the placeholder exactly, so a 1600×600 image dropped into
+    a 4:3 box loses 25% off each side rather than distorting:
+  </p>
+  <Code code={snippet7} />
+  <p>
+    <strong>Always use the return value.</strong> Inserting rich content <em>replaces</em> the
+    placeholder's XML element — <code>p:sp</code> becomes <code>p:pic</code> for a picture, or
+    <code>p:graphicFrame</code> for a table or chart. Your original variable is left pointing at
+    an element that is no longer on the slide. It does not always raise; writes to it can succeed
+    and then vanish at save time. The replacement is the return value, and it is also reachable
+    from <code>slide.placeholders[idx]</code> under the same key.
+  </p>
+  <p>
+    <code>insert_table</code> and <code>insert_chart</code> both return a
+    <code>PlaceholderGraphicFrame</code>, not the table or chart itself — reach through
+    <code>.table</code> / <code>.chart</code>. An inserted table keeps the placeholder's position
+    and width but sizes its height from the row count; an inserted chart takes the placeholder's
+    full box.
+  </p>
+  <p>
+    The bundled default template has no table or chart placeholder on any layout, so these are
+    only usable against a template that provides one:
+  </p>
+  <Code code={snippet8} />
+
+  <h2 id="notes">Speaker notes</h2>
+  <p>
+    Speaker notes live on a separate part — a <em>notes slide</em>, which has its own placeholder
+    collection cloned from the notes master. The notes text itself sits in that notes slide's
+    <code>BODY</code> placeholder.
+  </p>
+  <p>
+    <code>slide.notes</code> is the post-fork shortcut over all of that, and it is asymmetric on
+    purpose: reading never creates a notes slide, assigning does.
+  </p>
+  <Code code={snippet9} />
+  <p>
+    The distinction matters when you are walking a deck to extract content. Touching
+    <code>slide.notes_slide</code> on every slide would mint a notes part for each one and bloat
+    the file; <code>slide.has_notes_slide</code> and <code>slide.notes</code> both leave the deck
+    untouched.
+  </p>
+  <p>
+    For anything beyond a flat string — multiple paragraphs, run-level formatting — go through
+    <code>notes_slide.notes_text_frame</code>, which is an ordinary <code>TextFrame</code>. It
+    returns <code>None</code> in the rare case where the notes master has no body placeholder:
+  </p>
+  <Code code={snippet10} />
+
+  <h2 id="lint">MasterPlaceholderCollision</h2>
+  <p>
+    The linter has a rule aimed squarely at the failure mode this page exists to prevent. If a
+    non-placeholder shape's bounding box lines up with an <em>unused</em> layout placeholder —
+    within about 0.05 inch on all four edges — it fires
+    <code>MasterPlaceholderCollision</code> at warning severity:
+  </p>
+  <Code code={snippet11} />
+  <p>
+    The shape looks right today. What it has lost is the inheritance: it will not pick up a font
+    change on the master, it will not move when the layout moves, PowerPoint's outline view and
+    screen readers will not see it as the slide's title, and reapplying the layout will restore
+    the real placeholder underneath it. The rule catches generated decks that reconstruct a
+    template's geometry with <code>add_textbox</code> instead of filling what is already there.
+  </p>
+  <p>
+    It is deliberately <strong>not</strong> auto-fixable — moving content from a hand-drawn box
+    into a placeholder is a judgement call about which formatting you meant to keep. Fix it by
+    filling the placeholder instead, or silence it per-run with
+    <code>slide.lint(disable=["MasterPlaceholderCollision"])</code> when the redraw is intentional.
+    See <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for the full rule set.
+  </p>
+</DocsLayout>

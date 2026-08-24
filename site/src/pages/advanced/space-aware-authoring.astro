@@ -65,6 +65,49 @@ badge.allow_overlap_with(card)
 card.layer = "card"
 badge.layer_above = "card"`;
 
+const snippet4 = `from power_pptx.text.fonts import (
+    find_font_file, font_is_installed, installed_font_families,
+)
+
+font_is_installed("Inter")               # False on a bare CI container
+font_is_installed("Inter", bold=True)    # asked per style, not per family
+find_font_file("Inter")                  # the .ttf path, or None
+installed_font_families()                # what this machine actually has`;
+
+const snippet5 = `from power_pptx import Presentation
+from power_pptx.util import Inches
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+tf = slide.shapes.add_textbox(
+    Inches(1), Inches(1), Inches(6), Inches(1.5)).text_frame
+tf.text = "Q4 2026 customer outcomes review and roadmap"
+
+tf.fit_text("Inter", max_size=32)        # 32 - plus a FontMetricsWarning
+tf.fit_text("DejaVu Sans", max_size=32)  # 28 - real metrics, 4pt smaller`;
+
+const snippet6 = `from power_pptx.text.fonts import find_font_file, font_is_installed
+
+# 1. Pin the metrics to a font file shipped with the build
+inter_ttf = find_font_file("Inter")      # or a path inside your repo
+if inter_ttf is not None:
+    tf.fit_text("Inter", max_size=44, font_file=inter_ttf)
+
+# 2. Or degrade to a family you know is present
+family = "Inter" if font_is_installed("Inter") else "Arial"
+tf.fit_text(family, max_size=44)`;
+
+const snippet7 = `# Fail this call rather than bake in a guessed size
+tf.fit_text("Inter", max_size=44, strict=True)
+# ValueError: fit_text(strict=True): 'Inter' is not installed, so fit_text
+# measured with Pillow's default font instead of real metrics ...
+
+# Or promote every fallback anywhere in the build to an error
+import warnings
+from power_pptx.exc import FontMetricsWarning
+
+warnings.simplefilter("error", FontMetricsWarning)`;
+
 ---
 
 <DocsLayout
@@ -108,6 +151,56 @@ badge.layer_above = "card"`;
     without mutating the frame:
   </p>
   <Code code={snippet1} />
+
+  <h2 id="font-availability">Font availability and the fit guarantee</h2>
+  <p>
+    <code>fit_text</code>'s promise — "this text will not overflow" — rests on measuring the
+    glyphs of the font you named. That only works when the font is <strong>installed on the
+    machine running the build</strong>. Naming <code>"Inter"</code> in a container that has
+    Liberation and DejaVu and nothing else does not fail: Pillow falls back to its bundled
+    default face, the measurement becomes an estimate, and the guarantee quietly becomes a guess.
+    Three helpers let you find out before it matters:
+  </p>
+  <Code code={snippet4} />
+  <p>
+    The gap is not academic. The same headline in the same box, measured two ways:
+  </p>
+  <Code code={snippet5} />
+  <p>
+    The fallback picked 32pt where the real metrics allow only 28 — so the deck ships four points
+    too large and the headline wraps or clips when it is finally opened on a machine that
+    <em>does</em> have the brand font. This is why generated decks look correct in CI and wrong on
+    the reviewer's laptop.
+  </p>
+  <p>
+    Rather than let that pass silently, <code>fit_text</code> emits
+    <code>power_pptx.exc.FontMetricsWarning</code> whenever it falls back after you
+    <em>named</em> a family. Omitting <code>font_family</code> does not warn — you asked for no
+    particular face — but passing one that is not installed always does, <code>"Calibri"</code>
+    included. Run <code>python examples/real_world/build_all.py</code> on a bare container and you
+    will see it fire on every <code>fit_text</code> call in the suite.
+  </p>
+  <p>There are three sound responses, depending on how exact the build must be.</p>
+  <Code code={snippet6} />
+  <p>
+    <code>font_file=</code> is the strongest of the three: it pins measurement to that exact
+    TrueType file whether or not it matches the family, bold and italic you also passed — which is
+    what you want when the brand font is vendored in the repo rather than installed system-wide.
+    Note that lookup is per <em>style</em>: a machine can have Inter Regular but not Inter Bold,
+    and <code>fit_text(..., bold=True)</code> will fall back on the latter.
+  </p>
+  <p>
+    The third response is to refuse to ship the guess at all — the right default for a release
+    build:
+  </p>
+  <Code code={snippet7} />
+  <p>
+    <code>strict=True</code> turns any fallback into a <code>ValueError</code> naming the missing
+    family, and the message points at <code>font_file=</code> and
+    <code>installed_font_families()</code> as the two ways out. Promoting
+    <code>FontMetricsWarning</code> to an error does the same job process-wide, which is the more
+    practical gate when the <code>fit_text</code> calls are buried inside helpers.
+  </p>
 
   <h2 id="lint">What the linter reports</h2>
   <table>

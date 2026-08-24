@@ -83,6 +83,16 @@ Added
 Fixed
 .....
 
+* Setting a single dimension on a placeholder that was still inheriting
+  its geometry silently zeroed the other one. ``left``/``top`` share an
+  ``<a:off>`` element and ``width``/``height`` share an ``<a:ext>``, so
+  writing one materialised the element with its sibling defaulted to
+  ``0`` — ``body.width = Inches(4)`` collapsed the height from 4.95in to
+  nothing and made the shape invisible, with no warning. The inherited
+  sibling is now copied across first, so a single-dimension assignment
+  means what it reads as: change this one, leave the other where the
+  layout put it. An explicit zero is still honoured.
+
 * ``Slide.follow_master_background``'s docstring described assigning
   |True| / |False| to it, but the property has no setter and any
   assignment raises ``AttributeError``. It now documents the real

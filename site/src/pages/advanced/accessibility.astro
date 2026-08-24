@@ -1,0 +1,298 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const snippet0 = `pic = slide.shapes.add_picture("charts/revenue.png",
+                               Inches(1), Inches(2), Inches(4), Inches(3))
+
+pic.alt_text                 # 'revenue.png' - auto-filled from the filename
+pic.alt_text = "Bar chart: EMEA leads Q3 revenue at 42%, AMER at 33%."
+pic.title_text = "Q3 revenue by region"   # short label, optional
+
+pic.alt_text = ""            # or None - clears the descr attribute entirely
+pic.alt_text                 # ''`;
+
+const snippet1 = `# Works on every shape, not just pictures
+chart_frame.alt_text = "Column chart of quarterly revenue; Q4 is the peak."
+table_frame.alt_text = "Pricing table: three tiers by monthly cost."
+card.alt_text = "KPI card: net retention 118%, up 6 points."
+
+# Written to <p:cNvPr descr="..."> / <p:cNvPr title="...">, the OOXML slots
+# PowerPoint's Alt Text pane reads and writes.
+card._element._nvXxPr.cNvPr.get("descr")
+
+card.alt_text = 123          # TypeError - str or None only`;
+
+const snippet2 = `from power_pptx import accessibility
+
+report = accessibility.audit_accessibility(prs)
+
+report.total_slides          # int
+report.has_errors            # True when any ERROR-severity issue is present
+report.issues                # list[AccessibilityIssue]
+
+print(report.markdown())`;
+
+const snippet3 = `# Accessibility report — 1 slide(s)
+
+## LowContrast (1)
+- slide 0 — \`Rectangle 3\`: text-on-fill contrast 1.16:1 is below WCAG AA (4.5:1).
+
+## MissingAltText (2)
+- slide 0 — \`Picture 1\`: picture has no alt text; set shape.alt_text for screen readers.
+- slide 0 — \`Chart 2\`: chart has no alt text; set shape.alt_text for screen readers.
+
+## NoSlideTitle (1)
+- slide 0: slide has no title; screen-reader users rely on the title as a navigation landmark.`;
+
+const snippet4 = `from power_pptx.accessibility import AccessibilitySeverity, audit_accessibility
+
+report = audit_accessibility(prs)
+
+for issue in report.issues:
+    issue.slide       # zero-based slide index
+    issue.code        # 'MissingAltText' | 'LowContrast' | 'NoSlideTitle'
+    issue.message     # human-readable explanation
+    issue.severity    # AccessibilitySeverity.ERROR / WARNING / INFO
+    issue.shape       # shape name, or None for slide-level issues
+    issue.to_dict()   # JSON-serializable
+
+blocking = [i for i in report.issues
+            if i.severity is AccessibilitySeverity.ERROR]
+
+report.to_dict()                 # {'total_slides': ..., 'has_errors': ..., 'issues': [...]}
+report.to_json(indent=2)         # the same, serialized
+str(report)                      # same as report.markdown()
+
+# Skip the colour pass when the deck is themed and contrast is unresolvable
+audit_accessibility(prs, check_contrast=False)`;
+
+const snippet5 = `# The panel above, with a 7pt run in it
+panel.text_frame.paragraphs[0].runs[0].font.size = Pt(7)
+
+[(i.code, i.severity.value) for i in slide.lint().issues]
+# [('MinFontSize', 'warning'), ('LowContrast', 'warning')]
+
+# Neither is auto-fixable - both need a design decision, so tidy() leaves them
+slide.tidy()
+
+# Silence a rule you have deliberately decided against
+slide.lint(disable=["MinFontSize"])`;
+
+const snippet6 = `panel.fill.solid()
+panel.fill.fore_color.rgb = "#FFFFFF"
+panel.text_frame.text = "barely visible"
+panel.text_frame.paragraphs[0].runs[0].font.color.rgb = "#EEEEEE"
+
+[i.message for i in slide.lint().issues if i.code == "LowContrast"]
+# ["Shape 'Rectangle 3': text-on-fill contrast ratio 1.16:1 is below WCAG AA
+#   threshold (4.5:1)."]`;
+
+const snippet7 = `def check_accessible(prs) -> None:
+    report = accessibility.audit_accessibility(prs)
+    if report.has_errors:
+        raise SystemExit(report.markdown())
+    for slide in prs.slides:
+        slide.tidy()
+
+# The layout audit is a separate call and does not include any of the above
+from power_pptx import audit
+print(audit(prs).markdown())`;
+---
+
+<DocsLayout
+  title="Accessibility"
+  description="alt_text and title_text on shapes, the read-only audit_accessibility() pass, and the LowContrast and MinFontSize lint rules."
+>
+  <p class="lead">
+    A generated deck can pass every layout check and still be unusable with a screen reader:
+    pictures with no description, slides with no title landmark, text that all but disappears into
+    its own card. <code>power_pptx.accessibility</code> is a read-only audit for exactly that class
+    of problem — it never mutates the deck, and it answers "is this deck usable by someone who
+    cannot see it?" in one call.
+  </p>
+
+  <h2 id="alt-text">Alt text on any shape</h2>
+  <p>
+    <code>shape.alt_text</code> is a read/write <code>str</code> mapping to the <code>descr</code>
+    attribute of the shape's <code>&lt;p:cNvPr&gt;</code> element — the OOXML-sanctioned alt-text
+    slot that screen readers announce and that PowerPoint surfaces in its <em>Alt Text</em> pane.
+    Reading returns <code>""</code> when nothing has been set; assigning <code>""</code> or
+    <code>None</code> removes the attribute; anything that is not a string raises
+    <code>TypeError</code>. <code>shape.title_text</code> is the sibling property for the shorter
+    <code>title</code> attribute.
+  </p>
+  <Code code={snippet0} />
+  <p>
+    Note the first line of output. <code>add_picture()</code> pre-fills <code>descr</code> with the
+    image's <strong>filename</strong> — inherited upstream behaviour. That is enough to satisfy any
+    "does this picture have alt text?" check, including the one below, while telling a listener
+    nothing at all. Treat every inserted picture as needing an explicit description, not as already
+    having one.
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="what-to-write">What to actually write</h2>
+  <p>
+    Alt text is read aloud in place of the thing it describes, so it should carry the same
+    information the sighted reader gets from a glance — which for a data graphic is the
+    <em>takeaway</em>, not the file format:
+  </p>
+  <ul>
+    <li>
+      <strong>Charts:</strong> the claim the chart is making. "Column chart; Q4 revenue is the
+      highest of the year at £4.2m" beats "revenue chart".
+    </li>
+    <li>
+      <strong>Photographs and logos:</strong> what is in them and why they are on the slide.
+    </li>
+    <li>
+      <strong>Diagrams:</strong> the structure in words — "Five-stage pipeline: intake, triage,
+      build, review, release."
+    </li>
+    <li>
+      <strong>Tables:</strong> what the table holds; the cell text itself is already exposed, so
+      the description is orientation, not a transcript.
+    </li>
+    <li>
+      <strong>Purely decorative shapes:</strong> leave them alone. There is no "mark as decorative"
+      flag in this library, and the audit does not ask for alt text on plain autoshapes or text
+      boxes — they already expose their text.
+    </li>
+  </ul>
+
+  <h2 id="audit">audit_accessibility()</h2>
+  <p>
+    One call walks the whole deck and returns an <code>AccessibilityReport</code>. It is strictly
+    read-only.
+  </p>
+  <Code code={snippet2} />
+  <Code code={snippet3} lang="markdown" />
+  <p>The module exposes exactly four public names — three issue codes are possible:</p>
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Meaning</th><th>Severity</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>MissingAltText</code></td>
+        <td>A meaningful shape carries no <code>alt_text</code></td>
+        <td><strong>error</strong> for pictures, linked pictures, media and web video (a screen reader has literally nothing to announce); <strong>warning</strong> for charts, tables, diagrams, freeforms and OLE objects</td>
+      </tr>
+      <tr>
+        <td><code>LowContrast</code></td>
+        <td>Text-on-fill contrast below WCAG AA (4.5:1), using the same maths as the linter</td>
+        <td>warning</td>
+      </tr>
+      <tr>
+        <td><code>NoSlideTitle</code></td>
+        <td>The slide has no title placeholder with text, so it offers no navigation landmark</td>
+        <td>warning</td>
+      </tr>
+    </tbody>
+  </table>
+  <Code code={snippet4} />
+  <p>
+    The walk recurses into groups, so a picture buried in a <code>GroupShape</code> is still held to
+    the same standard. Shapes whose type cannot be determined are skipped rather than guessed at.
+    <code>AccessibilitySeverity</code> is a <code>str</code> enum with <code>ERROR</code>,
+    <code>WARNING</code> and <code>INFO</code> members — the fourth public name, alongside
+    <code>AccessibilityIssue</code>, <code>AccessibilityReport</code> and
+    <code>audit_accessibility</code>. Nothing else in the module is public API.
+  </p>
+  <p>
+    <code>NoSlideTitle</code> is worth calling out for anyone using the design recipes: they build
+    on the Blank layout, so <code>slide.shapes.title</code> is <code>None</code> and every
+    recipe-built slide reports a missing landmark. That is a real finding, not a false positive —
+    if the deck is meant to be navigable, put those slides on a layout with a title placeholder, or
+    accept the warning knowingly.
+  </p>
+
+  <h2 id="contrast">Contrast: the LowContrast rule</h2>
+  <p>
+    <code>LowContrast</code> fires from both <code>slide.lint()</code> and the accessibility audit
+    — they share one implementation. The threshold is the WCAG AA ratio for body text,
+    <strong>4.5:1</strong>, computed from WCAG relative luminance. Resolution is deliberately
+    conservative:
+  </p>
+  <ul>
+    <li>the text colour is the first run in the frame that has an explicit RGB colour;</li>
+    <li>the background is the shape's own fill, falling back to the slide's explicit background;</li>
+    <li>
+      <strong>only solid RGB counts.</strong> Theme colours, gradients, pictures and any fill
+      inherited from the layout or master are skipped silently — resolving those correctly means
+      walking the theme and the colour map, and guessing wrong would flood the report with false
+      positives.
+    </li>
+  </ul>
+  <p>
+    So a clean contrast result is not proof of adequate contrast; it means nothing
+    <em>resolvable</em> failed. On a fully themed deck the check may have almost nothing to say. If
+    contrast matters, set explicit fills and run colours on the text you care about — then the rule
+    can see it.
+  </p>
+  <Code code={snippet6} />
+
+  <h2 id="min-font-size">Legibility: the MinFontSize rule</h2>
+  <p>
+    <code>MinFontSize</code> is a lint rule rather than part of the accessibility audit, but it
+    belongs to the same conversation: it reports the smallest explicitly-sized run in a shape when
+    that run falls below the <strong>9pt</strong> legibility threshold. Runs with no explicit size
+    (inheriting from the placeholder or the master) are not measured.
+  </p>
+  <Code code={snippet5} />
+  <p>
+    Neither <code>MinFontSize</code> nor <code>LowContrast</code> is auto-fixable — shrinking type
+    or repainting a card is a design decision, so <code>report.auto_fix()</code> and
+    <code>slide.tidy()</code> report them and move on. See
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for the rest of the rule set.
+  </p>
+
+  <h2 id="reading-order">Reading order and tab order</h2>
+  <p>
+    <strong>power-pptx does not expose a reading-order or tab-order API.</strong> There is no
+    equivalent of PowerPoint's <em>Reading Order</em> pane, and no
+    <code>bring_to_front()</code> / <code>send_to_back()</code> on shapes.
+  </p>
+  <p>
+    What you do control is the order shapes are added. Assistive technology announces a slide's
+    shapes in shape-tree order, and <code>add_*</code> appends — so the sequence in which your
+    generator creates shapes <em>is</em> the order they will be read. Build a slide in the order a
+    person should hear it: title, then body, then the supporting graphic, then the footnote. The
+    only restacking the library performs is the <code>LayerOrderViolation</code> repair in
+    <code>auto_fix()</code>, which moves a shape that declared <code>layer_above</code> so the
+    drawing order matches the declaration — a visual fix that also changes announcement order, so
+    prefer to get the build order right in the first place.
+  </p>
+
+  <h2 id="build-gate">Wiring it into a build</h2>
+  <p>
+    There is no save-time gate for accessibility the way there is for lint — no
+    <code>prs.lint_on_save</code> equivalent — so run the audit explicitly before you save, and
+    decide what an error should mean for your pipeline.
+  </p>
+  <Code code={snippet7} />
+  <p>
+    Note the last two lines: <code>power_pptx.audit()</code> is the <em>layout</em> audit (lint
+    issues, broken pictures, empty slides, uncommon fonts, oversized images). It does not include
+    accessibility findings, and <code>audit_accessibility()</code> does not include layout ones.
+    Run both.
+  </p>
+
+  <h2 id="checklist">A screen-reader-usable deck</h2>
+  <ul>
+    <li>Every slide has a title with text — the landmark screen-reader users navigate by.</li>
+    <li>
+      Every picture, chart, table and diagram has <code>alt_text</code> written by you, not
+      inherited from a filename.
+    </li>
+    <li>Text colours and card fills are explicit enough for the contrast rule to check them, and clear 4.5:1.</li>
+    <li>No run below 9pt.</li>
+    <li>Shapes are created in the order they should be announced.</li>
+    <li>
+      <code>audit_accessibility(prs).has_errors</code> is <code>False</code> before the file is
+      written, and the warnings that remain are ones you read and accepted.
+    </li>
+  </ul>
+</DocsLayout>

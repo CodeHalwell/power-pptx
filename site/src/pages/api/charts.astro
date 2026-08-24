@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData, XyChartData, BubbleChartData
@@ -10,76 +11,374 @@ from power_pptx.util import Inches
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-data = CategoryChartData()
-data.categories = ["Q1", "Q2", "Q3", "Q4"]
-data.add_series("Revenue", (1.2, 1.8, 2.4, 3.1))
+chart_data = CategoryChartData()
+chart_data.categories = ["Q1", "Q2", "Q3", "Q4"]
+chart_data.add_series("Revenue", (1.2, 1.8, 2.4, 3.1))
 
+# add_chart(chart_type, x, y, cx, cy, chart_data) -> GraphicFrame
 x, y, cx, cy = Inches(1), Inches(1), Inches(8), Inches(4.5)
 chart = slide.shapes.add_chart(
-    XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, cx, cy, data
+    XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, cx, cy, chart_data
 ).chart`;
 
-const s1 = `from power_pptx.enum.chart import XL_LEGEND_POSITION
-from power_pptx.enum.dml import MSO_PATTERN_TYPE
+const s1 = `data = CategoryChartData(number_format="General")
 
-chart.chart_type
-chart.plots                        # sequence of Plot
-plot = chart.plots[0]
-plot.series                        # sequence of Series
+data.categories = ["Q1", "Q2", "Q3"]     # replaces the whole list
+data.add_category("Q4")                  # append one; returns Category
+data.categories.are_dates                # date labels -> time-scale axis
+data.categories.are_numeric
+data.categories.depth                    # 1 flat, 2 with sub-categories
+data.categories.leaf_count               # values expected per series
+data.categories.number_format = "General"
+
+series = data.add_series("Revenue", (1.2, 1.8, 2.4), number_format=None)
+series.add_data_point(3.1)
+series.name, series.values, series.index
+
+# Two-level categories: every leaf takes one value
+nested = CategoryChartData()
+emea = nested.add_category("EMEA")       # Category
+emea.add_sub_category("UK")
+emea.add_sub_category("DE")
+nested.add_series("Bookings", (4.1, 3.2))`;
+
+const s2 = `from power_pptx.chart.data import XyChartData, BubbleChartData
+
+xy = XyChartData(number_format="General")
+s = xy.add_series("Trial")          # XySeriesData
+s.add_data_point(1.0, 2.5)          # (x, y)
+s.x_values, s.y_values
+
+bubbles = BubbleChartData()
+b = bubbles.add_series("Accounts")  # BubbleSeriesData
+b.add_data_point(1.0, 2.0, 10)      # (x, y, size)
+b.bubble_sizes`;
+
+const s3 = `chart.chart_type                   # XL_CHART_TYPE of the back-most plot
+chart.shape                        # the containing GraphicFrame
+chart.font                         # Font: chart-wide text defaults
+
+chart.has_title                    # bool, read/write (non-destructive test)
+chart.chart_title                  # ChartTitle; CREATES the title element
+chart.chart_title.text_frame.text = "Revenue"
+chart.chart_title.has_text_frame
+chart.chart_title.format           # ChartFormat (fill / line)
+
+chart.plots                        # Sequence[_BasePlot], back-most first
+chart.series                       # SeriesCollection across all plots
+
+chart.value_axis                   # ValueAxis
+chart.category_axis                # CategoryAxis | DateAxis (ValueAxis on XY)
+chart.secondary_value_axis         # ValueAxis; CREATES it on first access
+
+chart.has_legend = True            # False removes the element and its settings
+chart.legend                       # Legend | None
+chart.chart_style = 10             # built-in style index 1..48
+
+chart.replace_data(chart_data)     # swap data, keep formatting`;
+
+const s4 = `plot = chart.plots[0]
+
+plot.chart                         # back-reference to the owning Chart
+plot.categories                    # Categories (read back from the XML)
+plot.series                        # SeriesCollection for this plot only
 plot.has_data_labels = True
-plot.vary_by_categories
+plot.data_labels                   # DataLabels
+plot.vary_by_categories            # colour each point differently
 
-series = plot.series[0]
-series.name, series.values
-series.format.fill.gradient(kind="linear", angle=0)   # fork
-series.format.fill.patterned()
-series.format.fill.pattern = MSO_PATTERN_TYPE.PERCENT_40
+# This chart is COLUMN_CLUSTERED, so its plot is a BarPlot
+plot.gap_width = 60                # % of bar width between category groups
+plot.overlap = -10                 # -100..100, series overlap within a group`;
 
-axis = chart.value_axis            # or chart.category_axis
-axis.has_major_gridlines, axis.tick_labels
-axis.maximum_scale, axis.minimum_scale
-chart.category_axis.reverse_order  # BAR_* defaults True (fork)
+const s5 = `series = chart.series[0]
+
+series.name, series.index
+series.values                      # tuple of floats
+series.format                      # ChartFormat -> .fill / .line
+series.data_labels                 # DataLabels for this series
+series.points                      # CategoryPoints / XyPoints / BubblePoints
+
+# bar, line, scatter, area and bubble series only (fork)
+series.trendlines                  # Trendlines
+series.error_bars                  # ErrorBars
+series.axis_group                  # "primary" | "secondary"
+
+# BarSeries
+series.invert_if_negative = True`;
+
+const s6 = `point = chart.series[0].points[0]
+point.format                       # ChartFormat -> per-point fill / line
+point.marker                       # Marker
+point.data_label                   # DataLabel
+
+from power_pptx.enum.chart import XL_MARKER_STYLE
+marker = point.marker
+marker.style = XL_MARKER_STYLE.CIRCLE
+marker.size = 7                    # 2..72 points
+marker.format.fill.solid()`;
+
+const s7 = `axis = chart.value_axis            # or chart.category_axis
+
+axis.visible = True
+axis.has_major_gridlines = True
+axis.has_minor_gridlines = False
+axis.major_gridlines.format.line.color.rgb = "#EEEEF2"
+axis.major_tick_mark                # XL_TICK_MARK
+axis.minor_tick_mark
+axis.tick_label_position            # XL_TICK_LABEL_POSITION
+axis.tick_labels                    # TickLabels
+axis.format                         # ChartFormat -> the axis line itself
+axis.has_title = True
+axis.axis_title.text_frame.text = "$M"   # CREATES the title element
+
+# ValueAxis only
+axis.minimum_scale, axis.maximum_scale   # None = auto
+axis.major_unit, axis.minor_unit
+axis.log_base = 10                  # 2..1000; None restores linear (fork)
+axis.crosses                        # XL_AXIS_CROSSES
+axis.crosses_at
+
+# CategoryAxis / DateAxis only
+chart.category_axis.category_type   # XL_CATEGORY_TYPE
+chart.category_axis.reverse_order   # BAR_* defaults True (fork)`;
+
+const s8 = `ticks = chart.value_axis.tick_labels
+ticks.font                          # Font
+ticks.number_format = "#,##0"
+ticks.number_format_is_linked = False
+
+# offset lives on the category axis only (0..1000, label distance)
+chart.category_axis.tick_labels.offset = 100`;
+
+const s9 = `from power_pptx.enum.chart import XL_LABEL_POSITION
+
+plot = chart.plots[0]
+plot.has_data_labels = True                  # required: reading data_labels
+                                             # on a plot without them raises
+labels = plot.data_labels                    # or chart.series[0].data_labels
+labels.font
+labels.number_format = "0.0%"
+labels.number_format_is_linked = False
+labels.position = XL_LABEL_POSITION.OUTSIDE_END
+labels.show_value
+labels.show_category_name
+labels.show_series_name
+labels.show_legend_key
+labels.show_percentage
+labels.collision_strategy = "auto"           # fork; write-only
+
+label = chart.series[0].points[0].data_label
+label.font
+label.position
+label.has_text_frame = True
+label.text_frame.text = "best quarter"`;
+
+const s10 = `from power_pptx.enum.chart import XL_LEGEND_POSITION
 
 chart.has_legend = True
-chart.legend.position = XL_LEGEND_POSITION.BOTTOM
-chart.chart_style = 10             # built-in style index 1..48`;
+legend = chart.legend
+legend.position = XL_LEGEND_POSITION.BOTTOM
+legend.include_in_layout = False
+legend.horz_offset = 0.0            # -1.0..1.0, only when position is CORNER
+legend.font`;
 
-const s2 = `from power_pptx.chart import palettes, quick_layouts
+const s11 = `s = chart.series[0]
+
+t = s.trendlines.add("linear", show_equation=True, show_r_squared=True)
+s.trendlines.add("poly", order=3)            # 2..6
+s.trendlines.add("movingAvg", period=2)
+t.trendline_type                             # XL_TRENDLINE_TYPE
+t.name, t.forward, t.backward
+
+s.error_bars.fixed(0.5)
+s.error_bars.percentage(5)
+s.error_bars.standard_deviation(1)
+s.error_bars.standard_error()
+s.error_bars.custom(plus=[0.1, 0.2], minus=[0.1, 0.3])
+s.error_bars.exists, s.error_bars.include_type, s.error_bars.value
+s.error_bars.remove()`;
+
+const s12 = `from power_pptx.formats import (
+    currency, percent, decimal, thousands, scientific, date
+)
+
+chart.value_axis.tick_labels.number_format = currency("$", decimals=0)
+chart.value_axis.tick_labels.number_format_is_linked = False
+
+chart.plots[0].has_data_labels = True
+chart.plots[0].data_labels.number_format = percent(decimals=1)
+chart.plots[0].data_labels.number_format_is_linked = False`;
+
+const s13 = `from power_pptx.chart import palettes, quick_layouts
 
 chart.recolour("vibrant")          # fork: one call, dispatches per type
+chart.recolour("modern", by="series")    # or by="category" / "auto"
+chart.recolor("modern")            # US-spelling alias
 chart.apply_palette("modern")      # warns + reroutes on pie/doughnut
+chart.color_by_category("modern")  # per-point recolour
 chart.apply_dark_theme(text="#E5E7EB", line="#374151")   # fork
-chart.line_color = "#9CA3AF"       # fork
+chart.text_color = "#FFFFFF"       # fork; write-only
+chart.line_color = "#9CA3AF"       # fork; write-only
 
-chart.apply_quick_layout("minimal")     # 10 presets
+chart.apply_quick_layout("minimal")          # 10 presets, or a dict spec
 palettes.palette_names()           # modern, classic, editorial, vibrant, ...
+palettes.resolve_palette("editorial")        # list[RGBColor]
+palettes.CHART_PALETTES            # the mapping itself
 quick_layouts.layout_names()       # title_legend_right, minimal, dense, ...`;
 ---
 
 <DocsLayout
   title="API: Charts"
-  description="Chart, Plot, Series, axes, legends, chart data classes, palettes and quick layouts."
+  description="Chart, Plot, Series, axes, data labels, legends, chart data classes, number-format helpers, palettes and quick layouts."
 >
-  <h2 id="data">Chart data</h2>
+  <p class="lead">
+    Member reference for <code>power_pptx.chart</code>. For the narrative version — how the pieces
+    fit together and which one to reach for — see <a href={withBase("/advanced/charts")}>Charts</a>.
+  </p>
+
+  <h2 id="add-chart"><code>add_chart</code></h2>
   <p>
-    <code>CategoryChartData</code>, <code>XyChartData</code>, <code>BubbleChartData</code> feed
-    <code>add_chart</code>. An embedded XLSX workbook is written automatically.
+    <code>ShapeTree.add_chart(chart_type, x, y, cx, cy, chart_data)</code> returns the
+    <code>GraphicFrame</code> shape, not the chart; reach the chart via <code>.chart</code>. The
+    data is copied into an embedded XLSX workbook so PowerPoint's "Edit Data" works.
   </p>
   <Code code={s0} />
 
-  <h2 id="chart"><code>Chart</code>, <code>Plot</code>, <code>Series</code></h2>
+  <h2 id="data">Chart data</h2>
+  <p>
+    <code>CategoryChartData</code> serves every category-based chart type,
+    <code>XyChartData</code> serves <code>XY_SCATTER*</code> and <code>BubbleChartData</code>
+    serves <code>BUBBLE*</code>. <code>ChartData</code> is a deprecated alias of
+    <code>CategoryChartData</code>.
+  </p>
   <Code code={s1} />
+  <Code code={s2} />
+
+  <h2 id="chart"><code>Chart</code></h2>
+  <Code code={s3} />
+
+  <h2 id="plots"><code>Plot</code></h2>
+  <p>
+    A plot (a "chart group" in the Microsoft object model) is one run of series drawn in a single
+    charting type. <code>add_chart</code> always produces exactly one; combo charts with two plots
+    come from template decks. Concrete classes: <code>AreaPlot</code>, <code>Area3DPlot</code>,
+    <code>BarPlot</code>, <code>BubblePlot</code>, <code>DoughnutPlot</code>,
+    <code>LinePlot</code>, <code>PiePlot</code>, <code>RadarPlot</code>, <code>XyPlot</code>.
+  </p>
+  <Code code={s4} />
+  <p>Members that exist only on particular plot classes:</p>
+  <table>
+    <thead>
+      <tr><th>Member</th><th>Class</th><th>Range / meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>gap_width</code></td><td><code>BarPlot</code></td><td>Space between category groups, as a % of bar width (default 150)</td></tr>
+      <tr><td><code>overlap</code></td><td><code>BarPlot</code></td><td>-100..100; how far series overlap within a group (default 0)</td></tr>
+      <tr><td><code>hole_size</code></td><td><code>DoughnutPlot</code></td><td>10..90, default 50 <strong class="text-primary">fork</strong></td></tr>
+      <tr><td><code>smooth</code></td><td><code>LinePlot</code></td><td>Curve-fit every series; reads <code>True</code> only when all are smoothed <strong class="text-primary">fork</strong></td></tr>
+      <tr><td><code>bubble_scale</code></td><td><code>BubblePlot</code></td><td>0..300, % of default bubble size</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="series"><code>Series</code></h2>
+  <p>
+    Concrete classes: <code>AreaSeries</code>, <code>BarSeries</code>, <code>LineSeries</code>,
+    <code>PieSeries</code>, <code>RadarSeries</code>, <code>XySeries</code>,
+    <code>BubbleSeries</code>. <code>chart.series</code> lists every plot's series in draw order;
+    <code>plot.series</code> narrows to one plot.
+  </p>
+  <Code code={s5} />
+  <table>
+    <thead>
+      <tr><th>Member</th><th>Class</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>invert_if_negative</code></td><td><code>BarSeries</code></td><td>Fill negative bars with the inverse colour</td></tr>
+      <tr><td><code>smooth</code></td><td><code>LineSeries</code></td><td>Curve-fit this one series</td></tr>
+      <tr><td><code>marker</code></td><td><code>LineSeries</code>, <code>RadarSeries</code>, <code>XySeries</code>, <code>BubbleSeries</code></td><td><code>Marker</code>: style, size, format</td></tr>
+      <tr><td><code>trendlines</code>, <code>error_bars</code>, <code>axis_group</code></td><td>Area, Bar, Line, Xy, Bubble</td><td>Not permitted on <code>PieSeries</code> / <code>RadarSeries</code> <strong class="text-primary">fork</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="points">Points and markers</h2>
+  <Code code={s6} />
+
+  <h2 id="axes">Axes</h2>
+  <p>
+    <code>chart.category_axis</code> returns a <code>DateAxis</code> when the categories are dates,
+    and the X <code>ValueAxis</code> on scatter/bubble charts. It raises <code>ValueError</code> on
+    chart types with no axes (pie, doughnut), as does <code>secondary_value_axis</code>.
+  </p>
+  <Code code={s7} />
+
+  <h3 id="tick-labels"><code>TickLabels</code></h3>
+  <Code code={s8} />
+
+  <h2 id="data-labels"><code>DataLabels</code> and <code>DataLabel</code></h2>
+  <Code code={s9} />
+
+  <h2 id="legend"><code>Legend</code></h2>
+  <Code code={s10} />
+
+  <h2 id="analytics">Trendlines and error bars <strong class="text-primary">fork</strong></h2>
+  <p>
+    Available on bar, line, scatter, area and bubble series only — the schema forbids them on pie
+    and radar. Trendline kinds: <code>"linear"</code>, <code>"poly"</code>, <code>"exp"</code>,
+    <code>"log"</code>, <code>"power"</code>, <code>"movingAvg"</code>.
+  </p>
+  <Code code={s11} />
+
+  <h2 id="formats"><code>power_pptx.formats</code> <strong class="text-primary">fork</strong></h2>
+  <p>
+    Number-format string builders for anything that takes a <code>number_format</code> — axis tick
+    labels, data labels, <code>CategoryChartData(number_format=...)</code>, per-series formats and
+    table cells. Each returns a plain Excel format <code>str</code>. <code>decimals</code> must be
+    <code>&gt;= 0</code>; a negative value raises <code>ValueError</code>.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Call</th><th>Returns</th><th>Renders <code>1234.5</code> / <code>0.275</code> as</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>currency()</code></td><td><code>"$"#,##0</code></td><td>$1,235</td></tr>
+      <tr><td><code>currency("£", decimals=2)</code></td><td><code>"£"#,##0.00</code></td><td>£1,234.50</td></tr>
+      <tr><td><code>currency("USD ")</code></td><td><code>"USD "#,##0</code></td><td>USD 1,235</td></tr>
+      <tr><td><code>percent()</code></td><td><code>0%</code></td><td>28%</td></tr>
+      <tr><td><code>percent(decimals=1)</code></td><td><code>0.0%</code></td><td>27.5%</td></tr>
+      <tr><td><code>decimal()</code></td><td><code>#,##0.00</code></td><td>1,234.50</td></tr>
+      <tr><td><code>decimal(decimals=0, thousands_sep=False)</code></td><td><code>0</code></td><td>1235</td></tr>
+      <tr><td><code>thousands()</code></td><td><code>#,##0</code></td><td>1,235</td></tr>
+      <tr><td><code>scientific()</code></td><td><code>0.00E+00</code></td><td>1.23E+03</td></tr>
+      <tr><td><code>date()</code></td><td><code>yyyy-MM-dd</code></td><td>2026-08-24</td></tr>
+      <tr><td><code>date("MMM YYYY")</code></td><td><code>MMM yyyy</code></td><td>Aug 2026</td></tr>
+    </tbody>
+  </table>
+  <p>
+    <code>date(pattern)</code> lowercases the tokens Excel wants lowercase
+    (<code>YYYY</code>, <code>YY</code>, <code>DD</code>, <code>DDD</code>, <code>DDDD</code>,
+    <code>HH</code>, <code>H</code>, <code>SS</code>, <code>S</code>) and deliberately leaves
+    <code>M</code>/<code>MM</code>/<code>MMM</code>/<code>MMMM</code> capitalised, because
+    lowercase <code>m</code> means minutes in Excel's grammar.
+  </p>
+  <Code code={s12} />
+  <p>
+    Assigning a format while <code>number_format_is_linked</code> is <code>True</code> has no
+    visible effect — PowerPoint re-reads the format from the embedded workbook cell. Set the flag
+    to <code>False</code> alongside every assignment.
+  </p>
 
   <h2 id="palettes">Palettes &amp; quick layouts <strong class="text-primary">fork</strong></h2>
-  <Code code={s2} />
+  <Code code={s13} />
 
   <h2 id="types">Chart types</h2>
   <p>
-    <code>XL_CHART_TYPE</code> covers the full OOXML set: <code>COLUMN_*</code>, <code>BAR_*</code>,
-    <code>LINE*</code>, <code>PIE*</code>, <code>DOUGHNUT*</code>, <code>AREA*</code>,
-    <code>XY_SCATTER*</code>, <code>BUBBLE*</code>, <code>RADAR*</code>, <code>STOCK_*</code>,
-    <code>SURFACE*</code>, … See the
-    <a href="https://python-pptx.readthedocs.io/en/latest/api/enum/XlChartType.html" target="_blank" rel="noopener noreferrer">upstream enum docs</a>
-    for the complete member list.
+    <code>XL_CHART_TYPE</code> covers the full OOXML set in 73 members: <code>COLUMN_*</code>,
+    <code>BAR_*</code>, <code>LINE*</code>, <code>PIE*</code>, <code>DOUGHNUT*</code>,
+    <code>AREA*</code>, <code>XY_SCATTER*</code>, <code>BUBBLE*</code>, <code>RADAR*</code>,
+    <code>STOCK_*</code>, <code>SURFACE*</code>, the <code>THREE_D_*</code> variants and the
+    <code>CONE_*</code> / <code>CYLINDER_*</code> / <code>PYRAMID_*</code> shapes. The complete
+    member list is on <a href={withBase("/api/enumerations")}>API: Enumerations</a>, along with
+    every other chart enum (<code>XL_LEGEND_POSITION</code>, <code>XL_LABEL_POSITION</code>,
+    <code>XL_TICK_MARK</code>, <code>XL_MARKER_STYLE</code>, <code>XL_TRENDLINE_TYPE</code>, …).
   </p>
 </DocsLayout>

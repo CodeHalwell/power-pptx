@@ -1,36 +1,65 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx.enum.shapes import (
-    MSO_SHAPE,           # autoshape types: RECTANGLE, OVAL, CHEVRON, ...
+    MSO_SHAPE,           # autoshape geometries: RECTANGLE, OVAL, CHEVRON, ...
     MSO_CONNECTOR,       # STRAIGHT, ELBOW, CURVE
     MSO_SHAPE_TYPE,      # AUTO_SHAPE, PICTURE, GROUP, PLACEHOLDER, ...
     PP_PLACEHOLDER,      # TITLE, BODY, CENTER_TITLE, PICTURE, ...
-    PP_MEDIA_TYPE,       # MOVIE, SOUND, OTHER
+    PP_MEDIA_TYPE,       # MOVIE, OTHER
+    PROG_ID,             # DOCX, PPTX, XLSX (OLE objects)
 )
 from power_pptx.enum.text import (
     MSO_AUTO_SIZE,       # NONE, SHAPE_TO_FIT_TEXT, TEXT_TO_FIT_SHAPE
     PP_ALIGN,            # LEFT, CENTER, RIGHT, JUSTIFY, ...
-    MSO_VERTICAL_ANCHOR, # TOP, MIDDLE, BOTTOM
+    MSO_ANCHOR,          # TOP, MIDDLE, BOTTOM  (a.k.a. MSO_VERTICAL_ANCHOR)
     MSO_UNDERLINE,
 )
 from power_pptx.enum.chart import (
-    XL_CHART_TYPE, XL_LEGEND_POSITION, XL_TICK_MARK,
-    XL_TICK_LABEL_POSITION, XL_DATA_LABEL_POSITION,
+    XL_CHART_TYPE, XL_LEGEND_POSITION, XL_LABEL_POSITION,
+    XL_TICK_MARK, XL_TICK_LABEL_POSITION, XL_MARKER_STYLE,
+    XL_TRENDLINE_TYPE, XL_AXIS_CROSSES, XL_CATEGORY_TYPE,
+    XL_ERROR_BAR_TYPE, XL_ERROR_BAR_INCLUDE, XL_ERROR_BAR_DIRECTION,
 )
 from power_pptx.enum.dml import (
-    MSO_LINE_DASH_STYLE, MSO_THEME_COLOR, MSO_PATTERN_TYPE,
-    MSO_FILL_TYPE,
+    MSO_FILL, MSO_THEME_COLOR, MSO_LINE_DASH_STYLE, MSO_PATTERN_TYPE,
+    MSO_COLOR_TYPE, MSO_LINE_END_TYPE, MSO_LINE_END_SIZE,
+    MSO_PRESET_SHADOW,
     BevelPreset, PresetMaterial,        # fork: 3-D
 )
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE   # fork
 from power_pptx.enum.action import PP_ACTION          # click actions
-from power_pptx.enum.lang import MSO_LANGUAGE_ID
+from power_pptx.enum.lang import MSO_LANGUAGE_ID      # 214 locale ids
 from power_pptx.enum.animation import PP_ANIM_TRIGGER # fork; alias:
 from power_pptx.animation import Trigger              #   Trigger`;
 
-const s1 = `from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
+const s1 = `from power_pptx import Presentation, BBox
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+# Preferred: hex string + short-name kwargs, no imports
+slide.shapes.add_text(
+    BBox.from_inches(1, 1, 4, 1),
+    text="Quarterly review",
+    color="#0B5CFF", align="center", anchor="middle",
+)
+slide.shapes.add_arrow((0, 0), (100, 100), head="triangle", style="dashed")
+
+# Equivalent, but three imports heavier
+from power_pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from power_pptx.dml.color import RGBColor`;
+
+const s2 = `from power_pptx.enum.shapes import MSO_SHAPE
+
+len(list(MSO_SHAPE))                 # 182
+[m.name for m in MSO_SHAPE][:5]
+MSO_SHAPE.CHEVRON.value              # 52 — the MsoAutoShapeType int
+MSO_SHAPE.CHEVRON.__doc__            # 'Chevron'`;
+
+const s3 = `from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
 
 Inches(1) + Pt(72) == Inches(2)       # Length arithmetic works
 (Inches(10) - Inches(0.4)) / 2        # floats coerce at the setter
@@ -52,29 +81,438 @@ shape.fill.fore_color.alpha = 0.5     # fork: alpha tint`;
 
 <DocsLayout
   title="API: Enumerations & Utilities"
-  description="The MSO_*/PP_*/XL_* enums and the power_pptx.util length helpers."
+  description="Every MSO_*/PP_*/XL_* enumeration this fork ships, its members, its aliases — and the power_pptx.util length helpers."
 >
-  <h2 id="enums">Enumeration modules</h2>
-  <Code code={s0} />
-  <p>
-    Complete member lists live in the
-    <a href="https://python-pptx.readthedocs.io/en/latest/api/enum/index.html" target="_blank" rel="noopener noreferrer">upstream enum documentation</a>;
-    the fork's additions (animation enums, new pattern aliases) are documented in the
-    <a href="https://github.com/CodeHalwell/power-pptx/blob/master/HISTORY.rst" target="_blank" rel="noopener noreferrer">changelog</a>.
+  <p class="lead">
+    Enumerations live under <code>power_pptx.enum.*</code>. Every member is an <code>int</code>
+    subclass carrying the Microsoft object-model value, and most carry a one-line docstring, so
+    <code>member.value</code> and <code>member.__doc__</code> work everywhere. This page lists what
+    the fork actually ships — it has already drifted from upstream <code>python-pptx</code> 1.0.2
+    (new members, new enums, a corrected typo), so treat this page rather than the upstream docs as
+    authoritative.
   </p>
+
+  <h2 id="skip">You often don't need them</h2>
+  <p>
+    The fork's convenience constructors take hex strings and short names, so most decks never
+    import an enum at all. Colours accept <code>"#RRGGBB"</code>, an <code>(r, g, b)</code> tuple
+    or an <code>RGBColor</code> interchangeably; <code>add_text</code> takes
+    <code>align=</code>/<code>anchor=</code>, <code>add_arrow</code> takes
+    <code>head=</code>/<code>tail=</code>/<code>style=</code>/<code>route=</code>,
+    <code>apply_quick_layout</code> takes <code>"legend_position": "bottom"</code>, and
+    <code>trendlines.add</code> takes <code>"linear"</code>/<code>"poly"</code>/….
+  </p>
+  <Code code={s1} />
+  <p>
+    Reach for an enum when there is no short-name form — <code>add_shape</code> requires a real
+    <code>MSO_SHAPE</code> member, <code>add_chart</code> a real <code>XL_CHART_TYPE</code> — or
+    when you are reading a value back off an existing deck.
+  </p>
+
+  <h2 id="modules">Enumeration modules</h2>
+  <Code code={s0} />
+
+  <h2 id="text">Text</h2>
+  <ul>
+    <li>
+      <code>MSO_AUTO_SIZE</code> — <code>NONE</code>, <code>SHAPE_TO_FIT_TEXT</code>,
+      <code>TEXT_TO_FIT_SHAPE</code>, <code>MIXED</code>. The second layer of the
+      <a href={withBase("/advanced/space-aware-authoring")}>space-aware</a> stack.
+    </li>
+    <li>
+      <code>PP_ALIGN</code> (alias <code>PP_PARAGRAPH_ALIGNMENT</code>) — <code>LEFT</code>,
+      <code>CENTER</code>, <code>RIGHT</code>, <code>JUSTIFY</code>, <code>JUSTIFY_LOW</code>,
+      <code>DISTRIBUTE</code>, <code>THAI_DISTRIBUTE</code>, <code>MIXED</code>.
+    </li>
+    <li>
+      <code>MSO_ANCHOR</code> (alias <code>MSO_VERTICAL_ANCHOR</code>) — <code>TOP</code>,
+      <code>MIDDLE</code>, <code>BOTTOM</code>, <code>MIXED</code>.
+    </li>
+    <li>
+      <code>MSO_UNDERLINE</code> (alias <code>MSO_TEXT_UNDERLINE_TYPE</code>) — 19 members:
+      <code>NONE</code>, <code>SINGLE_LINE</code>, <code>DOUBLE_LINE</code>,
+      <code>HEAVY_LINE</code>, <code>WORDS</code>, the <code>DOT*</code> / <code>DASH*</code> /
+      <code>WAVY*</code> families, <code>MIXED</code>.
+    </li>
+  </ul>
+
+  <h2 id="shapes">Shapes</h2>
+  <p>
+    <code>MSO_SHAPE</code> (alias <code>MSO_AUTO_SHAPE_TYPE</code>) has <strong>182</strong>
+    members — the complete preset-geometry set. Rather than reproduce all of them, the families
+    are:
+  </p>
+  <ul>
+    <li>
+      <strong>Basic</strong> — <code>RECTANGLE</code>, <code>ROUNDED_RECTANGLE</code>,
+      <code>OVAL</code>, <code>DIAMOND</code>, <code>PARALLELOGRAM</code>,
+      <code>TRAPEZOID</code>, <code>NON_ISOSCELES_TRAPEZOID</code>,
+      <code>ISOSCELES_TRIANGLE</code>, <code>RIGHT_TRIANGLE</code>, <code>PENTAGON</code>,
+      <code>REGULAR_PENTAGON</code>, <code>HEXAGON</code>, <code>HEPTAGON</code>,
+      <code>OCTAGON</code>, <code>DECAGON</code>, <code>DODECAGON</code>, <code>CROSS</code>,
+      <code>CHORD</code>, <code>ARC</code>, <code>PIE</code>, <code>PIE_WEDGE</code>,
+      <code>BLOCK_ARC</code>, <code>DONUT</code>, <code>CAN</code>, <code>CUBE</code>,
+      <code>BEVEL</code>, <code>FRAME</code>, <code>HALF_FRAME</code>, <code>CORNER</code>,
+      <code>DIAGONAL_STRIPE</code>, <code>PLAQUE</code>, <code>TEAR</code>, <code>MOON</code>,
+      <code>HEART</code>, <code>SUN</code>, <code>CLOUD</code>, <code>LIGHTNING_BOLT</code>,
+      <code>SMILEY_FACE</code>, <code>NO_SYMBOL</code>, <code>FUNNEL</code>,
+      <code>GEAR_6</code>, <code>GEAR_9</code>
+    </li>
+    <li>
+      <strong>Corner variants</strong> — <code>ROUND_1_RECTANGLE</code>,
+      <code>ROUND_2_SAME_RECTANGLE</code>, <code>ROUND_2_DIAG_RECTANGLE</code>,
+      <code>SNIP_1_RECTANGLE</code>, <code>SNIP_2_SAME_RECTANGLE</code>,
+      <code>SNIP_2_DIAG_RECTANGLE</code>, <code>SNIP_ROUND_RECTANGLE</code>,
+      <code>CORNER_TABS</code>, <code>SQUARE_TABS</code>, <code>PLAQUE_TABS</code>,
+      <code>FOLDED_CORNER</code>
+    </li>
+    <li>
+      <strong>Arrows</strong> — <code>LEFT_ARROW</code>, <code>RIGHT_ARROW</code>,
+      <code>UP_ARROW</code>, <code>DOWN_ARROW</code>, <code>LEFT_RIGHT_ARROW</code>,
+      <code>UP_DOWN_ARROW</code>, <code>QUAD_ARROW</code>, <code>BENT_ARROW</code>,
+      <code>BENT_UP_ARROW</code>, <code>U_TURN_ARROW</code>, <code>SWOOSH_ARROW</code>,
+      <code>NOTCHED_RIGHT_ARROW</code>, <code>STRIPED_RIGHT_ARROW</code>,
+      <code>CHEVRON</code>, the <code>CURVED_*_ARROW</code>, <code>CIRCULAR_ARROW</code> /
+      <code>LEFT_CIRCULAR_ARROW</code> / <code>LEFT_RIGHT_CIRCULAR_ARROW</code>, and the
+      <code>*_ARROW_CALLOUT</code> variants
+    </li>
+    <li>
+      <strong>Flowchart</strong> — 29 <code>FLOWCHART_*</code> members
+      (<code>FLOWCHART_PROCESS</code>, <code>FLOWCHART_DECISION</code>,
+      <code>FLOWCHART_TERMINATOR</code>, <code>FLOWCHART_DATA</code>, …)
+    </li>
+    <li>
+      <strong>Callouts</strong> — <code>RECTANGULAR_CALLOUT</code>,
+      <code>ROUNDED_RECTANGULAR_CALLOUT</code>, <code>OVAL_CALLOUT</code>,
+      <code>CLOUD_CALLOUT</code>, <code>BALLOON</code>, and the 16
+      <code>LINE_CALLOUT_1..4</code> variants
+    </li>
+    <li>
+      <strong>Stars, banners, braces</strong> — <code>STAR_4_POINT</code> …
+      <code>STAR_32_POINT</code>, <code>EXPLOSION1</code>, <code>EXPLOSION2</code>,
+      <code>UP_RIBBON</code>, <code>DOWN_RIBBON</code>, <code>CURVED_UP_RIBBON</code>,
+      <code>CURVED_DOWN_RIBBON</code>, <code>LEFT_RIGHT_RIBBON</code>,
+      <code>VERTICAL_SCROLL</code>, <code>HORIZONTAL_SCROLL</code>, <code>WAVE</code>,
+      <code>DOUBLE_WAVE</code>, <code>LEFT_BRACE</code>, <code>RIGHT_BRACE</code>,
+      <code>DOUBLE_BRACE</code>, <code>LEFT_BRACKET</code>, <code>RIGHT_BRACKET</code>,
+      <code>DOUBLE_BRACKET</code>
+    </li>
+    <li>
+      <strong>Math, chart marks, action buttons</strong> — <code>MATH_PLUS</code>,
+      <code>MATH_MINUS</code>, <code>MATH_MULTIPLY</code>, <code>MATH_DIVIDE</code>,
+      <code>MATH_EQUAL</code>, <code>MATH_NOT_EQUAL</code>; <code>CHART_PLUS</code>,
+      <code>CHART_STAR</code>, <code>CHART_X</code>; 12 <code>ACTION_BUTTON_*</code> members
+    </li>
+  </ul>
+  <p>Enumerate the rest at the prompt rather than guessing:</p>
+  <Code code={s2} />
+  <ul>
+    <li>
+      <code>MSO_CONNECTOR</code> (alias <code>MSO_CONNECTOR_TYPE</code>) —
+      <code>STRAIGHT</code>, <code>ELBOW</code>, <code>CURVE</code>, <code>MIXED</code>. For an
+      arrow with a head, prefer <a href={withBase("/advanced/geometry-and-arrows")}>
+      <code>add_arrow</code></a>.
+    </li>
+    <li>
+      <code>MSO_SHAPE_TYPE</code> (alias <code>MSO</code>) — 26 members reported by
+      <code>shape.shape_type</code>: <code>AUTO_SHAPE</code>, <code>CALLOUT</code>,
+      <code>CANVAS</code>, <code>CHART</code>, <code>COMMENT</code>, <code>DIAGRAM</code>,
+      <code>EMBEDDED_OLE_OBJECT</code>, <code>FORM_CONTROL</code>, <code>FREEFORM</code>,
+      <code>GROUP</code>, <code>IGX_GRAPHIC</code>, <code>INK</code>, <code>INK_COMMENT</code>,
+      <code>LINE</code>, <code>LINKED_OLE_OBJECT</code>, <code>LINKED_PICTURE</code>,
+      <code>MEDIA</code>, <code>OLE_CONTROL_OBJECT</code>, <code>PICTURE</code>,
+      <code>PLACEHOLDER</code>, <code>SCRIPT_ANCHOR</code>, <code>TABLE</code>,
+      <code>TEXT_BOX</code>, <code>TEXT_EFFECT</code>, <code>WEB_VIDEO</code>,
+      <code>MIXED</code>.
+    </li>
+    <li>
+      <code>PP_PLACEHOLDER</code> (alias <code>PP_PLACEHOLDER_TYPE</code>) — 20 members:
+      <code>TITLE</code>, <code>CENTER_TITLE</code>, <code>SUBTITLE</code>, <code>BODY</code>,
+      <code>OBJECT</code>, <code>CHART</code>, <code>TABLE</code>, <code>PICTURE</code>,
+      <code>BITMAP</code>, <code>MEDIA_CLIP</code>, <code>ORG_CHART</code>,
+      <code>SLIDE_IMAGE</code>, <code>SLIDE_NUMBER</code>, <code>DATE</code>,
+      <code>FOOTER</code>, <code>HEADER</code>, <code>VERTICAL_TITLE</code>,
+      <code>VERTICAL_BODY</code>, <code>VERTICAL_OBJECT</code>, <code>MIXED</code>.
+    </li>
+    <li>
+      <code>PP_MEDIA_TYPE</code> — <code>MOVIE</code>, <code>OTHER</code>, <code>MIXED</code>.
+    </li>
+    <li>
+      <code>PROG_ID</code> — <code>DOCX</code>, <code>PPTX</code>, <code>XLSX</code>; used with
+      <code>add_ole_object</code>.
+    </li>
+  </ul>
+
+  <h2 id="dml">DrawingML — fills, lines, colours</h2>
+  <ul>
+    <li>
+      <code>MSO_FILL</code> (alias <code>MSO_FILL_TYPE</code>) — <code>BACKGROUND</code>,
+      <code>GRADIENT</code>, <code>GROUP</code>, <code>PATTERNED</code>, <code>PICTURE</code>,
+      <code>SOLID</code>, <code>TEXTURED</code>. Reported by <code>fill.type</code>; set the fill
+      with the matching method (<code>fill.solid()</code>, <code>fill.gradient()</code>, …).
+    </li>
+    <li>
+      <code>MSO_THEME_COLOR</code> (alias <code>MSO_THEME_COLOR_INDEX</code>) —
+      <code>ACCENT_1</code> … <code>ACCENT_6</code>, <code>BACKGROUND_1</code>,
+      <code>BACKGROUND_2</code>, <code>TEXT_1</code>, <code>TEXT_2</code>, <code>DARK_1</code>,
+      <code>DARK_2</code>, <code>LIGHT_1</code>, <code>LIGHT_2</code>, <code>HYPERLINK</code>,
+      <code>FOLLOWED_HYPERLINK</code>, <code>NOT_THEME_COLOR</code>, <code>MIXED</code>.
+      Assigning to <code>color.theme_color</code> keeps a shape on-theme when the deck's palette
+      is swapped — see <a href={withBase("/advanced/theme")}>Theme</a>.
+    </li>
+    <li>
+      <code>MSO_COLOR_TYPE</code> — <code>RGB</code>, <code>SCHEME</code>, <code>HSL</code>,
+      <code>PRESET</code>, <code>SCRGB</code>, <code>SYSTEM</code>. Read off
+      <code>color.type</code>; only <code>RGB</code> guarantees <code>color.rgb</code> resolves.
+    </li>
+    <li>
+      <code>MSO_LINE_DASH_STYLE</code> (alias <code>MSO_LINE</code>) — <code>SOLID</code>,
+      <code>DASH</code>, <code>DASH_DOT</code>, <code>DASH_DOT_DOT</code>,
+      <code>LONG_DASH</code>, <code>LONG_DASH_DOT</code>, <code>ROUND_DOT</code>,
+      <code>SQUARE_DOT</code>, <code>DASH_STYLE_MIXED</code>.
+    </li>
+    <li>
+      <code>MSO_LINE_END_TYPE</code> — <code>NONE</code>, <code>ARROW</code>,
+      <code>DIAMOND</code>, <code>OVAL</code>, <code>STEALTH</code>, <code>TRIANGLE</code>;
+      <code>MSO_LINE_END_SIZE</code> — <code>SMALL</code>, <code>MEDIUM</code>,
+      <code>LARGE</code>.
+    </li>
+    <li>
+      <code>MSO_LINE_CAP</code> (<code>FLAT</code>, <code>ROUND</code>, <code>SQUARE</code>),
+      <code>MSO_LINE_JOIN</code> (<code>BEVEL</code>, <code>MITER</code>, <code>ROUND</code>) and
+      <code>MSO_LINE_COMPOUND</code> (<code>SINGLE</code>, <code>DOUBLE</code>,
+      <code>THICK_THIN</code>, <code>THIN_THICK</code>, <code>TRIPLE</code>) each also have a
+      <code>*_STYLE</code> alias.
+    </li>
+    <li>
+      <code>MSO_PRESET_SHADOW</code> — 20 members, <code>SHADOW_1</code> …
+      <code>SHADOW_20</code>, used by
+      <a href={withBase("/advanced/effects")}>shadow presets</a>.
+    </li>
+    <li>
+      <code>MSO_PATTERN_TYPE</code> (alias <code>MSO_PATTERN</code>) — 55 members: the
+      <code>PERCENT_5</code>…<code>PERCENT_90</code> screens, the
+      <code>LIGHT_</code>/<code>DARK_</code>/<code>WIDE_</code>/<code>DASHED_</code>
+      <code>*_DIAGONAL</code>, <code>*_HORIZONTAL</code> and <code>*_VERTICAL</code> families,
+      plus <code>CROSS</code>, <code>DIAGONAL_CROSS</code>, <code>DIAGONAL_BRICK</code>,
+      <code>HORIZONTAL_BRICK</code>, <code>DIVOT</code>, <code>DOTTED_DIAMOND</code>,
+      <code>DOTTED_GRID</code>, <code>LARGE_GRID</code>, <code>SMALL_GRID</code>,
+      <code>LARGE_CHECKER_BOARD</code>, <code>SMALL_CHECKER_BOARD</code>,
+      <code>LARGE_CONFETTI</code>, <code>SMALL_CONFETTI</code>,
+      <code>OUTLINED_DIAMOND</code>, <code>SOLID_DIAMOND</code>, <code>PLAID</code>,
+      <code>SHINGLE</code>, <code>SPHERE</code>, <code>TRELLIS</code>, <code>WAVE</code>,
+      <code>WEAVE</code>, <code>ZIG_ZAG</code>, <code>NARROW_HORIZONTAL</code>,
+      <code>NARROW_VERTICAL</code>, <code>MIXED</code>.
+    </li>
+  </ul>
+
+  <h2 id="chart">Charts</h2>
+  <p>
+    <code>XL_CHART_TYPE</code> has <strong>73</strong> members. It is the first argument to
+    <code>add_chart</code>; see <a href={withBase("/advanced/charts")}>Charts</a> for how to pick
+    one.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Family</th><th>Members</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Column</td>
+        <td><code>COLUMN_CLUSTERED</code>, <code>COLUMN_STACKED</code>, <code>COLUMN_STACKED_100</code></td>
+      </tr>
+      <tr>
+        <td>Bar</td>
+        <td><code>BAR_CLUSTERED</code>, <code>BAR_STACKED</code>, <code>BAR_STACKED_100</code></td>
+      </tr>
+      <tr>
+        <td>Line</td>
+        <td><code>LINE</code>, <code>LINE_STACKED</code>, <code>LINE_STACKED_100</code>, <code>LINE_MARKERS</code>, <code>LINE_MARKERS_STACKED</code>, <code>LINE_MARKERS_STACKED_100</code></td>
+      </tr>
+      <tr>
+        <td>Pie / doughnut</td>
+        <td><code>PIE</code>, <code>PIE_EXPLODED</code>, <code>PIE_OF_PIE</code>, <code>BAR_OF_PIE</code>, <code>DOUGHNUT</code>, <code>DOUGHNUT_EXPLODED</code></td>
+      </tr>
+      <tr>
+        <td>Area</td>
+        <td><code>AREA</code>, <code>AREA_STACKED</code>, <code>AREA_STACKED_100</code></td>
+      </tr>
+      <tr>
+        <td>XY / bubble</td>
+        <td><code>XY_SCATTER</code>, <code>XY_SCATTER_LINES</code>, <code>XY_SCATTER_LINES_NO_MARKERS</code>, <code>XY_SCATTER_SMOOTH</code>, <code>XY_SCATTER_SMOOTH_NO_MARKERS</code>, <code>BUBBLE</code>, <code>BUBBLE_THREE_D_EFFECT</code></td>
+      </tr>
+      <tr>
+        <td>Radar</td>
+        <td><code>RADAR</code>, <code>RADAR_MARKERS</code>, <code>RADAR_FILLED</code></td>
+      </tr>
+      <tr>
+        <td>Stock</td>
+        <td><code>STOCK_HLC</code>, <code>STOCK_OHLC</code>, <code>STOCK_VHLC</code>, <code>STOCK_VOHLC</code></td>
+      </tr>
+      <tr>
+        <td>Surface</td>
+        <td><code>SURFACE</code>, <code>SURFACE_WIREFRAME</code>, <code>SURFACE_TOP_VIEW</code>, <code>SURFACE_TOP_VIEW_WIREFRAME</code></td>
+      </tr>
+      <tr>
+        <td>3-D</td>
+        <td><code>THREE_D_COLUMN</code>, <code>THREE_D_COLUMN_CLUSTERED</code>, <code>THREE_D_COLUMN_STACKED</code>, <code>THREE_D_COLUMN_STACKED_100</code>, <code>THREE_D_BAR_CLUSTERED</code>, <code>THREE_D_BAR_STACKED</code>, <code>THREE_D_BAR_STACKED_100</code>, <code>THREE_D_LINE</code>, <code>THREE_D_AREA</code>, <code>THREE_D_AREA_STACKED</code>, <code>THREE_D_AREA_STACKED_100</code>, <code>THREE_D_PIE</code>, <code>THREE_D_PIE_EXPLODED</code></td>
+      </tr>
+      <tr>
+        <td>Shaped columns/bars</td>
+        <td><code>CONE_COL</code>, <code>CONE_COL_CLUSTERED</code>, <code>CONE_COL_STACKED</code>, <code>CONE_COL_STACKED_100</code>, <code>CONE_BAR_CLUSTERED</code>, <code>CONE_BAR_STACKED</code>, <code>CONE_BAR_STACKED_100</code>, and the identical <code>CYLINDER_*</code> and <code>PYRAMID_*</code> sets</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>The supporting chart enums, in full:</p>
+  <ul>
+    <li>
+      <code>XL_LEGEND_POSITION</code> — <code>TOP</code>, <code>BOTTOM</code>,
+      <code>LEFT</code>, <code>RIGHT</code>, <code>CORNER</code>, <code>CUSTOM</code>.
+    </li>
+    <li>
+      <code>XL_LABEL_POSITION</code> (also exported as
+      <code>XL_DATA_LABEL_POSITION</code>) — <code>ABOVE</code>, <code>BELOW</code>,
+      <code>BEST_FIT</code>, <code>CENTER</code>, <code>INSIDE_BASE</code>,
+      <code>INSIDE_END</code>, <code>OUTSIDE_END</code>, <code>LEFT</code>, <code>RIGHT</code>,
+      <code>MIXED</code>. Which ones a chart accepts depends on its type: bar/column reject
+      <code>ABOVE</code>/<code>BELOW</code>, line charts reject <code>INSIDE_END</code>.
+    </li>
+    <li>
+      <code>XL_TICK_MARK</code> — <code>NONE</code>, <code>INSIDE</code>,
+      <code>OUTSIDE</code>, <code>CROSS</code>.
+    </li>
+    <li>
+      <code>XL_TICK_LABEL_POSITION</code> — <code>NONE</code>, <code>LOW</code>,
+      <code>HIGH</code>, <code>NEXT_TO_AXIS</code>.
+    </li>
+    <li>
+      <code>XL_MARKER_STYLE</code> — <code>AUTOMATIC</code>, <code>NONE</code>,
+      <code>CIRCLE</code>, <code>DASH</code>, <code>DIAMOND</code>, <code>DOT</code>,
+      <code>PLUS</code>, <code>SQUARE</code>, <code>STAR</code>, <code>TRIANGLE</code>,
+      <code>X</code>, <code>PICTURE</code>.
+    </li>
+    <li>
+      <code>XL_TRENDLINE_TYPE</code> — <code>LINEAR</code>, <code>POLYNOMIAL</code>,
+      <code>EXPONENTIAL</code>, <code>LOGARITHMIC</code>, <code>POWER</code>,
+      <code>MOVING_AVERAGE</code>. <code>trendlines.add()</code> also accepts the short names
+      <code>"linear"</code>, <code>"poly"</code>, <code>"exp"</code>, <code>"log"</code>,
+      <code>"power"</code>, <code>"movingAvg"</code>.
+    </li>
+    <li>
+      <code>XL_ERROR_BAR_INCLUDE</code> — <code>FIXED_VALUE</code>, <code>PERCENTAGE</code>,
+      <code>STANDARD_DEVIATION</code>, <code>STANDARD_ERROR</code>, <code>CUSTOM</code>;
+      <code>XL_ERROR_BAR_TYPE</code> — <code>PLUS</code>, <code>MINUS</code>,
+      <code>BOTH</code>; <code>XL_ERROR_BAR_DIRECTION</code> — <code>X</code>, <code>Y</code>.
+    </li>
+    <li>
+      <code>XL_AXIS_CROSSES</code> — <code>AUTOMATIC</code>, <code>MINIMUM</code>,
+      <code>MAXIMUM</code>, <code>CUSTOM</code>.
+    </li>
+    <li>
+      <code>XL_CATEGORY_TYPE</code> — <code>AUTOMATIC_SCALE</code>,
+      <code>CATEGORY_SCALE</code>, <code>TIME_SCALE</code>. Reported by
+      <code>category_axis.category_type</code>; date categories produce
+      <code>TIME_SCALE</code>.
+    </li>
+  </ul>
+
+  <h2 id="fork-additions">Post-fork enums</h2>
+  <p>These do not exist upstream:</p>
+  <ul>
+    <li>
+      <code>MSO_TRANSITION_TYPE</code> (<code>power_pptx.enum.presentation</code>) — 27 members:
+      <code>NONE</code>, <code>FADE</code>, <code>PUSH</code>, <code>WIPE</code>,
+      <code>SPLIT</code>, <code>RANDOM_BAR</code>, <code>CIRCLE</code>, <code>DISSOLVE</code>,
+      <code>CHECKER</code>, <code>DIAMOND</code>, <code>PLUS</code>, <code>WEDGE</code>,
+      <code>ZOOM</code>, <code>NEWSFLASH</code>, <code>COVER</code>, <code>STRIPS</code>,
+      <code>CUT</code>, <code>BLINDS</code>, <code>PULL</code>, <code>RANDOM</code>,
+      <code>WHEEL</code>, and the PowerPoint 2016+ <code>p14</code> set —
+      <code>MORPH</code>, <code>FLY_THROUGH</code>, <code>VORTEX</code>, <code>SWITCH</code>,
+      <code>GALLERY</code>, <code>CONVEYOR</code>. See
+      <a href={withBase("/advanced/animations")}>Animations &amp; Transitions</a>.
+    </li>
+    <li>
+      <code>PP_ANIM_TRIGGER</code> (<code>power_pptx.enum.animation</code>, re-exported as
+      <code>power_pptx.animation.Trigger</code>) — <code>ON_CLICK</code>,
+      <code>WITH_PREVIOUS</code>, <code>AFTER_PREVIOUS</code>.
+    </li>
+    <li>
+      <code>BevelPreset</code> — <code>ANGLE</code>, <code>ART_DECO</code>,
+      <code>CIRCLE</code>, <code>CONVEX</code>, <code>COOL_SLANT</code>, <code>CROSS</code>,
+      <code>DIVOT</code>, <code>HARD_EDGE</code>, <code>NONE</code>,
+      <code>RELAXED_INSET</code>, <code>RIBLET</code>, <code>SLOPE</code>,
+      <code>SOFT_ROUND</code>.
+    </li>
+    <li>
+      <code>PresetMaterial</code> — <code>CLEAR</code>, <code>DK_EDGE</code>,
+      <code>FLAT</code>, <code>MATTE</code>, <code>METAL</code>, <code>PLASTIC</code>,
+      <code>POWDER</code>, <code>SOFT_EDGE</code>, <code>SOFT_METAL</code>,
+      <code>TRANSLUCENT_POWDER</code>, <code>WARM_MATTE</code>, <code>NONE</code>, and the four
+      <code>LEGACY_*</code> materials.
+    </li>
+    <li>
+      <code>MSO_PATTERN_TYPE.PERCENT_40</code> — upstream ships this member under the misspelt
+      name <code>ERCENT_40</code>. Both resolve to the same member here; the misspelt spelling is
+      retained as a deprecated alias.
+    </li>
+  </ul>
+
+  <h2 id="other">Actions and languages</h2>
+  <ul>
+    <li>
+      <code>PP_ACTION</code> (<code>power_pptx.enum.action</code>) — 15 members:
+      <code>NONE</code>, <code>HYPERLINK</code>, <code>NAMED_SLIDE</code>,
+      <code>NAMED_SLIDE_SHOW</code>, <code>NEXT_SLIDE</code>, <code>PREVIOUS_SLIDE</code>,
+      <code>FIRST_SLIDE</code>, <code>LAST_SLIDE</code>, <code>LAST_SLIDE_VIEWED</code>,
+      <code>END_SHOW</code>, <code>OPEN_FILE</code>, <code>OLE_VERB</code>, <code>PLAY</code>,
+      <code>RUN_MACRO</code>, <code>RUN_PROGRAM</code>. Read off
+      <code>shape.click_action.action</code>.
+    </li>
+    <li>
+      <code>MSO_LANGUAGE_ID</code> (<code>power_pptx.enum.lang</code>) — 214 locale ids, assigned
+      to <code>font.language_id</code> to steer PowerPoint's spell-checker.
+    </li>
+  </ul>
 
   <h2 id="gotchas">Gotchas</h2>
   <ul>
     <li>
-      <code>MSO_PATTERN_TYPE</code> contains an upstream typo — the member literally named
-      <code>ERCENT_40</code> (missing the leading "P") is retained for compatibility and raises
-      <code>DeprecationWarning</code>. Use <code>PERCENT_40</code>.
+      <code>MSO_PATTERN_TYPE.ERCENT_40</code> is the upstream typo (missing leading "P"). It is
+      kept as an alias for compatibility and raises <code>DeprecationWarning</code> on access —
+      use <code>PERCENT_40</code>.
     </li>
     <li>
-      Enum members compare equal across aliases (<code>MSO_ANCHOR.MIDDLE is MSO_VERTICAL_ANCHOR.MIDDLE</code>).
+      Many enums ship under two names. The aliases are the <em>same object</em>, so
+      <code>MSO_ANCHOR.MIDDLE is MSO_VERTICAL_ANCHOR.MIDDLE</code> is <code>True</code> — pick one
+      spelling per codebase and stay with it.
+    </li>
+    <li>
+      <code>MIXED</code> members exist only for parity with the Microsoft object model, where they
+      report "the selection has more than one value". They have no XML representation, so never
+      assign one; treat them as read-only sentinels.
+    </li>
+    <li>
+      Members are <code>int</code>-valued, so <code>PP_ALIGN.CENTER == 2</code> is
+      <code>True</code>. Don't lean on that — write the member name, which survives an upstream
+      renumbering.
+    </li>
+    <li>
+      <code>add_shape</code> and <code>add_chart</code> do <strong>not</strong> accept short-name
+      strings; a lower-case <code>"rounded_rectangle"</code> raises <code>KeyError</code>. Pass the
+      enum member.
     </li>
   </ul>
 
   <h2 id="util"><code>power_pptx.util</code> lengths</h2>
-  <Code code={s1} />
+  <Code code={s3} />
+
+  <h2 id="upstream">Upstream reference</h2>
+  <p>
+    The <a href="https://python-pptx.readthedocs.io/en/latest/api/enum/index.html" target="_blank" rel="noopener noreferrer">python-pptx enum documentation</a>
+    covers the same enums as of upstream 1.0.2 and carries a per-member prose description for the
+    inherited ones. It predates everything in <a href="#fork-additions">Post-fork enums</a> above
+    and still documents the <code>ERCENT_40</code> misspelling as canonical, so where the two
+    disagree, this page wins. The fork's own changes are logged in the
+    <a href="https://github.com/CodeHalwell/power-pptx/blob/master/HISTORY.rst" target="_blank" rel="noopener noreferrer">changelog</a>.
+  </p>
 </DocsLayout>

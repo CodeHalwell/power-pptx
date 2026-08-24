@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx import Presentation
 from power_pptx.compose import from_spec
@@ -59,6 +60,97 @@ badge.layer_above = "card"           # contradicted => LayerOrderViolation
 prs.lint_on_save = "raise"           # off (default) | warn | raise
 prs.save("out.pptx")                 # LintError, and nothing written`;
 
+const ci0 = `report = prs.slides[0].lint()
+
+report.summary()   # human-readable, for a terminal or a chat reply
+report.to_dict()   # {"has_errors": bool, "issue_count": int, "issues": [...]}
+report.to_json()   # the same, serialized (indent=2; pass indent=None for one line)
+
+# Every issue dict is self-describing - the four base fields plus whatever
+# the subclass adds, so a consumer needs no per-code special-casing.
+report.to_dict()["issues"][0]
+# {'code': 'OffSlide', 'severity': 'error',
+#  'message': "Shape 'Off card' extends beyond the right edge of the slide.",
+#  'shapes': ['Off card'], 'side': 'right'}`;
+
+const ci1 = `import json
+
+from power_pptx import Presentation
+from power_pptx.lint import lint_report_to_sarif
+
+prs = Presentation("deck.pptx")
+reports = [slide.lint() for slide in prs.slides]
+
+# Whole deck in one document, each result stamped with its slide index.
+sarif = lint_report_to_sarif(reports)          # plain json.dumps-able dict
+with open("lint.sarif", "w") as f:
+    json.dump(sarif, f, indent=2)
+
+# Or per slide, when you are checking as you build.
+reports[0].to_sarif(slide_index=0)
+reports[0].to_sarif_json(slide_index=0)        # the same, as a JSON string
+
+sarif["version"]                               # "2.1.0"
+sarif["runs"][0]["tool"]["driver"]["name"]     # "power-pptx-lint"
+[r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]   # ['OffSlide']
+sarif["runs"][0]["results"][0]
+# {'ruleId': 'OffSlide', 'level': 'error',
+#  'message': {'text': "Shape 'Off card' extends beyond the right edge ..."},
+#  'locations': [{'physicalLocation': {'artifactLocation': {'uri': 'slide/0'}},
+#                 'logicalLocations': [{'name': 'Off card', 'kind': 'shape'},
+#                                      {'fullyQualifiedName': 'slide[0]',
+#                                       'kind': 'slide'}]}],
+#  'partialFingerprints': {'powerPptxLintFingerprint/v1': '653d57f3827e'},
+#  'properties': {'shapes': ['Off card'], 'slideIndex': 0}}`;
+
+const ci2 = `current = Presentation("deck.pptx").slides[0].lint()
+baseline = Presentation("baseline.pptx").slides[0].lint()
+
+current.fingerprints()          # ['653d57f3827e', '063ccfc2bc27'] - one per
+                                # issue, positionally aligned with .issues
+
+current.diff(baseline)          # issues in current the baseline didn't have
+current.diff_detail(baseline)   # {"added": [...], "fixed": [...]}
+
+for issue in current.diff(baseline):
+    print("new:", issue)
+# new: [ERROR] OffSlide: Shape 'Stray badge' extends beyond the bottom edge ...`;
+
+const ci3 = `"""ci_lint.py - fail only on issues the baseline didn't already have."""
+import json
+import pathlib
+import sys
+
+from power_pptx import Presentation
+from power_pptx.lint import lint_report_to_sarif
+
+BASELINE = pathlib.Path("lint-baseline.json")
+
+prs = Presentation("deck.pptx")
+reports = [slide.lint() for slide in prs.slides]
+
+# Refresh the checked-in baseline:  python ci_lint.py --update-baseline
+if "--update-baseline" in sys.argv:
+    BASELINE.write_text(json.dumps(
+        {str(i): r.fingerprints() for i, r in enumerate(reports)}, indent=2))
+    sys.exit(0)
+
+known = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+new = [
+    (i, issue)
+    for i, report in enumerate(reports)
+    for issue, fp in zip(report.issues, report.fingerprints())
+    if fp not in set(known.get(str(i), ()))
+]
+
+# Upload this and every issue lands as an annotation on the PR.
+pathlib.Path("lint.sarif").write_text(
+    json.dumps(lint_report_to_sarif(reports), indent=2))
+
+for i, issue in new:
+    print(f"slide {i}: {issue}")
+sys.exit(1 if new else 0)`;
+
 const s2 = `prs.render_thumbnails(out_dir="thumbs")
 
 from power_pptx.render import render_slides
@@ -108,13 +200,92 @@ rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 
 <DocsLayout
   title="API: Compose, Lint & Render"
-  description="from_spec, import_slide, apply_template; slide.lint()/tidy(); audit; the thumbnail renderer; animations and theme."
+  description="from_spec, import_slide, apply_template; slide.lint()/tidy(); SARIF and baseline diffing for CI; the thumbnail renderer; animations and theme."
 >
   <h2 id="compose"><code>power_pptx.compose</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s0} />
 
   <h2 id="lint"><code>power_pptx.lint</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s1} />
+
+  <h2 id="lint-ci">The linter in CI <strong class="text-primary">fork</strong></h2>
+  <p>
+    <code>summary()</code> is for a human reading a terminal. Everything else on
+    <code>SlideLintReport</code> exists so a machine can consume the result: serialize it, hand it
+    to a code-scanning service, or compare it against what the deck looked like before your change.
+    The three steps below compose into one CI job.
+  </p>
+
+  <h3 id="lint-serialize">1. Serialize the report</h3>
+  <Code code={ci0} />
+  <p>
+    <code>to_dict()</code> walks each issue's dataclass fields, so subclass-specific detail —
+    <code>ratio</code> on <code>TextOverflow</code>, <code>side</code> on <code>OffSlide</code>,
+    the collision scoring on <code>ShapeCollision</code> — comes along automatically. Shapes are
+    reduced to their names, since shape objects aren't serializable. That makes the payload safe to
+    feed straight to a dashboard or an LLM auto-fix loop; parsing <code>summary()</code> is always
+    the wrong move.
+  </p>
+
+  <h3 id="lint-sarif">2. Export SARIF for code scanning</h3>
+  <p>
+    SARIF (Static Analysis Results Interchange Format) v2.1.0 is what GitHub code scanning ingests.
+    Upload the document from a workflow and every lint issue shows up as an annotation on the pull
+    request, in the same place compiler and security findings appear.
+  </p>
+  <Code code={ci1} />
+  <p>
+    The document carries a single run whose <code>tool.driver</code> is named
+    <code>power-pptx-lint</code>, with a <code>rules</code> entry synthesized for each distinct
+    issue code actually present (so the rule list stays honest rather than listing every rule the
+    linter knows). Severities map <code>ERROR</code> → <code>error</code>,
+    <code>WARNING</code> → <code>warning</code>, <code>INFO</code> → <code>note</code> — SARIF's
+    lowest level is called "note".
+  </p>
+  <p>
+    A deck has no per-slide file on disk, so each result is located at a synthetic
+    <code>slide/&lt;n&gt;</code> artifact URI plus logical locations naming the involved shapes.
+    Those URIs are stable across runs, which is what keeps GitHub's annotations landing on the same
+    logical file instead of churning. Each result also carries the issue's stable digest under
+    <code>partialFingerprints</code>, so the code-scanning UI can track one alert through
+    re-runs. <code>lint_report_to_sarif</code> takes one report or a sequence of them and accepts
+    <code>start_index=</code> when the reports don't begin at slide 0.
+  </p>
+
+  <h3 id="lint-baseline">3. Fail only on <em>new</em> issues</h3>
+  <p>
+    Most real decks have a residue of accepted warnings. Gating on
+    <code>has_errors</code> means either fixing all of them today or turning the check off, so the
+    report also exposes a stable identity per issue and a diff built on it.
+  </p>
+  <Code code={ci2} />
+  <p>
+    A fingerprint is a 12-character digest of the issue's <em>content</em>: the rule code, the
+    names of the shapes involved, and the classifying field (<code>side</code> for
+    <code>OffSlide</code>, <code>kind</code> for <code>ShapeCollision</code>, <code>axis</code> for
+    <code>OffGridDrift</code>, <code>layer</code> for <code>LayerOrderViolation</code>). Volatile
+    detail — exact overlap area, absolute position — is deliberately excluded. The practical
+    consequence: nudging a shape that is still off-slide keeps its fingerprint and is
+    <em>not</em> reported as new, while renaming a shape mints a new one. Fingerprints are also
+    ordered to match <code>report.issues</code>, so you can <code>zip()</code> the two.
+  </p>
+  <p>
+    <code>diff()</code> compares two live <code>SlideLintReport</code> objects, which is what you
+    want when both decks are in hand — before/after an auto-fix pass, or generated deck versus the
+    committed reference. <code>diff_detail()</code> adds the other half, the issues the baseline
+    had that are now gone, which is what lets a job report progress instead of only regressions.
+    When the baseline instead lives in the repository across CI runs, store
+    <code>fingerprints()</code> and do the set arithmetic yourself:
+  </p>
+  <Code code={ci3} />
+  <p>
+    Note the two gates are complementary rather than alternatives:
+    <code>prs.lint_on_save</code> (see <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a>)
+    stops a broken deck from ever being written, while this job answers the softer question of
+    whether a change made things worse. <code>audit(prs)</code> is the human-facing sibling — it
+    aggregates lint across every slide alongside broken pictures, empty slides and font warnings,
+    and renders to Markdown for a CI log or a chat reply.
+  </p>
 
   <h2 id="render"><code>power_pptx.render</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s2} />

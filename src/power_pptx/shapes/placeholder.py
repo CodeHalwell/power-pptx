@@ -42,6 +42,10 @@ class _InheritsDimensions(object):
 
     @height.setter
     def height(self, value):
+        # ``cy`` shares its parent element with the sibling dimension, so
+        # writing it materialises that sibling too -- at zero unless the
+        # inherited value is pinned down first.  See ``_freeze_sibling``.
+        self._freeze_sibling("height")
         self._element.cy = value
 
     @property
@@ -55,6 +59,10 @@ class _InheritsDimensions(object):
 
     @left.setter
     def left(self, value):
+        # ``x`` shares its parent element with the sibling dimension, so
+        # writing it materialises that sibling too -- at zero unless the
+        # inherited value is pinned down first.  See ``_freeze_sibling``.
+        self._freeze_sibling("left")
         self._element.x = value
 
     @property
@@ -77,6 +85,10 @@ class _InheritsDimensions(object):
 
     @top.setter
     def top(self, value):
+        # ``y`` shares its parent element with the sibling dimension, so
+        # writing it materialises that sibling too -- at zero unless the
+        # inherited value is pinned down first.  See ``_freeze_sibling``.
+        self._freeze_sibling("top")
         self._element.y = value
 
     @property
@@ -90,7 +102,56 @@ class _InheritsDimensions(object):
 
     @width.setter
     def width(self, value):
+        # ``cx`` shares its parent element with the sibling dimension, so
+        # writing it materialises that sibling too -- at zero unless the
+        # inherited value is pinned down first.  See ``_freeze_sibling``.
+        self._freeze_sibling("width")
         self._element.cx = value
+
+    #: The dimension each setter must pin down before writing, because the
+    #: two share one XML element: ``left``/``top`` live in ``<a:off>`` and
+    #: ``width``/``height`` in ``<a:ext>``.
+    _SIBLING_DIMENSION = {
+        "left": "top",
+        "top": "left",
+        "width": "height",
+        "height": "width",
+    }
+
+    _ELEMENT_ATTR = {"left": "x", "top": "y", "width": "cx", "height": "cy"}
+
+    def _freeze_sibling(self, attr_name):
+        """Write the inherited sibling of *attr_name* before it is clobbered.
+
+        A placeholder with no directly-applied geometry has neither
+        ``<a:off>`` nor ``<a:ext>``; both dimensions come from the layout.
+        Setting just one of them creates the shared element, and the
+        dimension the caller did *not* set is written as ``0`` -- so
+        ``body.width = Inches(4)`` used to silently collapse the height to
+        nothing and make the shape invisible, with no warning.
+
+        Copying the currently-inherited sibling across first makes a
+        single-dimension assignment mean what it reads as: change this one,
+        leave the other where the layout put it.  A sibling that is already
+        directly applied is left alone, and so is a placeholder that
+        inherits nothing.
+        """
+        sibling = self._SIBLING_DIMENSION[attr_name]
+        directly_applied = getattr(super(_InheritsDimensions, self), sibling)
+        if directly_applied is not None:
+            return
+        try:
+            inherited = self._inherited_value(sibling)
+        except Exception:
+            # Resolving the base placeholder needs a slide part and a
+            # layout to walk up to.  A placeholder built outside that
+            # graph has nothing to inherit, and this is a best-effort
+            # improvement -- it must never turn an assignment that used
+            # to work into one that raises.
+            return
+        if inherited is None:
+            return
+        setattr(self._element, self._ELEMENT_ATTR[sibling], inherited)
 
     @property
     def _base_placeholder(self):
