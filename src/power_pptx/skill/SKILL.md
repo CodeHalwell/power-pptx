@@ -104,6 +104,14 @@ size = tf.fit_text(font_family="Inter", max_size=24)
 # --- single-call cleanup before save ---
 slide.tidy()                               # lints + safe auto-fixes
 
+# --- tell the linter an overlap is deliberate (widest -> narrowest) ---
+slide.lint_group_overlaps(card, accent, label)   # one visual cluster
+badge.allow_overlap_with(card)                   # exactly this one pair
+card.layer, badge.layer_above = "card", "card"   # also asserts z-order
+
+# --- validate at save time (off by default) ---
+prs.lint_on_save = "raise"                 # or "warn"; raises before writing
+
 # --- whole-deck audit (markdown summary) ---
 print(audit(prs).markdown())
 
@@ -249,8 +257,8 @@ tf.fit_text(font_family="Inter", max_size=24)
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
 # Catch anything that slipped through. auto_fix() mutates the slide
-# (currently: nudges OffSlide shapes back in), so we re-lint to see
-# the residual issues.
+# (nudges OffSlide shapes in, autofits overflowing frames, restacks
+# contradicted layer declarations) and refreshes report.issues itself.
 slide.lint().auto_fix()
 report = slide.lint()
 errors = [i for i in report.issues if i.severity.value == "error"]
@@ -405,7 +413,9 @@ If the user has the `power-pptx` repo checked out alongside this
 skill, these paths are useful for source-of-truth lookup:
 
 - `src/power_pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
-  `ShapeCollision`, `LintSeverity`.
+  `ShapeCollision`, `LayerOrderViolation`, `LintSeverity`.
+- `src/power_pptx/shapes/base.py` — `lint_group`, `lint_skip`,
+  `allow_overlap_with`, `layer` / `layer_above` (overlap intent).
 - `src/power_pptx/text/text.py`, `src/power_pptx/text/layout.py` — `fit_text`,
   `TextFitter`, `_best_fit_font_size`.
 - `src/power_pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,

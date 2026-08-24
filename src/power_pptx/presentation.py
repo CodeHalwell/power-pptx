@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import IO, TYPE_CHECKING, Literal, cast
 
 from power_pptx.section import Sections
@@ -11,15 +12,23 @@ from power_pptx.util import lazyproperty
 
 if TYPE_CHECKING:
     from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+    from power_pptx.lint import LintIssue
     from power_pptx.oxml.presentation import CT_Presentation, CT_SlideId
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import NotesMaster, Slide, SlideLayouts
     from power_pptx.util import Length
 
+logger = logging.getLogger(__name__)
+
 # Sentinel used by `set_transition` so callers can distinguish "leave the
 # existing value alone" from "explicitly clear it" (which is `None`).
 _UNSET = object()
+
+LintOnSaveMode = Literal["off", "warn", "raise"]
+
+#: Accepted values for :attr:`Presentation.lint_on_save`.
+_LINT_ON_SAVE_MODES: tuple[LintOnSaveMode, ...] = ("off", "warn", "raise")
 
 
 class Presentation(PartElementProxy):
@@ -31,6 +40,12 @@ class Presentation(PartElementProxy):
 
     _element: CT_Presentation
     part: PresentationPart  # pyright: ignore[reportIncompatibleMethodOverride]
+
+    # ---- `lint_on_save` is a plain instance attribute, not part of the XML.
+    # ---- `PresentationPart.presentation` is a `lazyproperty`, so a package
+    # ---- hands back this same proxy object every time and the setting sticks
+    # ---- for the life of the package. It is deliberately *not* persisted.
+    _lint_on_save: LintOnSaveMode = "off"
 
     @property
     def core_properties(self):
@@ -49,11 +64,63 @@ class Presentation(PartElementProxy):
         """
         return self.part.notes_master
 
+    @property
+    def lint_on_save(self) -> LintOnSaveMode:
+        """What :meth:`save` does about error-severity lint issues. Read/write.
+
+        One of:
+
+        ``"off"`` *(default)*
+            No checks are run at save time; :meth:`save` does no lint work at
+            all.  This is the default so that existing code keeps working
+            unchanged.
+
+        ``"warn"``
+            Every slide is linted before the file is written and each
+            error-severity issue is logged (stdlib :mod:`logging`, logger
+            ``"power_pptx.presentation"``).  The file is still written.
+
+        ``"raise"``
+            Every slide is linted *before* the file is written and
+            :class:`~power_pptx.exc.LintError` is raised if any slide has an
+            error-severity issue, so a failing deck never reaches disk.
+
+        Example::
+
+            prs.lint_on_save = "raise"
+            prs.save("deck.pptx")   # raises LintError if a shape is off-slide
+
+        This is a setting on the in-memory |Presentation| object; it is not
+        stored in the ``.pptx`` file, so a deck re-opened from disk starts
+        out at ``"off"`` again.
+
+        Raises:
+            ValueError: if assigned anything other than ``"off"``, ``"warn"``,
+                or ``"raise"``.
+        """
+        return self._lint_on_save
+
+    @lint_on_save.setter
+    def lint_on_save(self, value: str) -> None:
+        if value not in _LINT_ON_SAVE_MODES:
+            raise ValueError(
+                f"lint_on_save must be one of 'off', 'warn', or 'raise', got {value!r}"
+            )
+        # ---- the `not in` check above narrows `value` to `LintOnSaveMode` ----
+        self._lint_on_save = value
+
     def save(self, file: str | IO[bytes]):
         """Writes this presentation to `file`.
 
         `file` can be either a file-path or a file-like object open for writing bytes.
+
+        When :attr:`lint_on_save` is ``"warn"`` or ``"raise"``, every slide is
+        linted before anything is written; in ``"raise"`` mode a
+        :class:`~power_pptx.exc.LintError` propagates and no file is written.
         """
+        # ---- the default ("off") does no lint work whatsoever ----
+        if self._lint_on_save != "off":
+            _lint_before_save(self, self._lint_on_save)
         self.part.save(file)
 
     def render_thumbnails(self, **kwargs):
@@ -310,3 +377,32 @@ class Presentation(PartElementProxy):
                 transition.advance_on_click = advance_on_click
             if advance_after is not _UNSET:
                 transition.advance_after = advance_after
+
+
+def _lint_before_save(prs: Presentation, mode: LintOnSaveMode) -> None:
+    """Lint every slide of `prs` and warn or raise per `mode`.
+
+    Mirrors the ``lint`` option of :func:`power_pptx.compose.from_spec`: only
+    ERROR-severity issues are acted on, and ``"raise"`` reports every offending
+    issue in a single :class:`~power_pptx.exc.LintError`.
+    """
+    from power_pptx.exc import LintError
+    from power_pptx.lint import LintSeverity
+
+    errors: list[tuple[int, LintIssue]] = [
+        (idx, issue)
+        for idx, slide in enumerate(prs.slides)
+        for issue in slide.lint().issues
+        if issue.severity == LintSeverity.ERROR
+    ]
+
+    if not errors:
+        return
+
+    if mode == "warn":
+        for idx, issue in errors:
+            logger.warning("pptx lint: slide %d: %s", idx, issue)
+        return
+
+    msgs = "; ".join(f"slide {idx}: {issue}" for idx, issue in errors)
+    raise LintError(f"Lint errors in presentation: {msgs}")

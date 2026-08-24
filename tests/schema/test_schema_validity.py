@@ -493,6 +493,53 @@ def _deck_ergonomics() -> bytes:
     return _saved(prs)
 
 
+def _deck_lint_relationship_model() -> bytes:
+    """Lint intent markers: group, skip, pairwise allowance, and layer hints.
+
+    All of it lives in a ``cNvPr/extLst/ext`` extension rather than as custom
+    attributes on ``cNvPr`` precisely so the deck stays schema-valid — a
+    custom-namespaced attribute there is what triggers PowerPoint's
+    "repaired and removed" prompt.
+    """
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+
+    card = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(2))
+    badge = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(4), Inches(0.6), Inches(1.5), Inches(0.8)
+    )
+    # <pp:lintLayer name=.../> and <pp:lintLayer above=.../>
+    card.layer = "card"
+    badge.layer_above = "card"
+    # <pp:lintAllow ids="..."/>, incl. the multi-id comma-joined form
+    accent = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(2.8), Inches(4), Inches(0.3))
+    badge.allow_overlap_with(card, accent)
+    # ...alongside the pre-existing markers, in one shared <a:ext>
+    card.lint_group = "kpi-card-1"
+    card.lint_skip = {"MinFontSize"}
+    card.allow_overlap_with(badge)
+
+    # A shape carrying only a layer declaration, and one whose markers were
+    # set and then cleared (the <a:extLst> must be pruned, not left empty).
+    lone = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(4), Inches(2), Inches(1))
+    lone.layer = "panel"
+    cleared = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(5.2), Inches(2), Inches(1))
+    cleared.layer = "panel"
+    cleared.allow_overlap_with(lone)
+    cleared.layer = None
+    cleared.overlap_allowances = ()
+
+    # A textbox and a table cell body carry cNvPr too — exercise a non-autoshape.
+    box = s.shapes.add_textbox(Inches(0.5), Inches(4.5), Inches(3), Inches(1))
+    box.text_frame.text = "declared"
+    box.layer_above = "panel"
+    box.allow_overlap_with(card)
+
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -517,6 +564,7 @@ _DECK_BUILDERS = {
     "recipes": _deck_recipes,
     "diagrams": _deck_diagrams,
     "ergonomics": _deck_ergonomics,
+    "lint_relationship_model": _deck_lint_relationship_model,
 }
 
 
@@ -524,6 +572,22 @@ class DescribeGeneratedDeckSchemaValidity:
     @pytest.mark.parametrize("name", sorted(_DECK_BUILDERS))
     def it_validates_against_the_ooxml_schema(self, name):
         assert_schema_valid(_DECK_BUILDERS[name]())
+
+    def it_keeps_lint_extension_markers_in_the_validated_deck(self):
+        # Guard against the schema test passing vacuously: the deck it
+        # validates must actually carry the new <pp:lintAllow>/<pp:lintLayer>
+        # elements (and their siblings) in the slide XML.
+        import zipfile
+
+        blob = _deck_lint_relationship_model()
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            xml = zf.read("ppt/slides/slide1.xml").decode("utf-8")
+        for tag in ("lintAllow", "lintLayer", "lintGroup", "lintSkip"):
+            assert tag in xml, tag
+        assert 'ids="' in xml
+        assert 'above="card"' in xml
+        # ...and no custom-namespaced attribute snuck onto <p:cNvPr> itself.
+        assert "lintGroup=" not in xml
 
     def it_validates_a_slide_imported_with_an_image(self):
         # import_slide must keep r:embed references pointing at the image, and

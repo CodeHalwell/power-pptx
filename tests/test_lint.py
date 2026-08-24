@@ -9,6 +9,7 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.lint import (
+    LayerOrderViolation,
     LintSeverity,
     LowContrast,
     MasterPlaceholderCollision,
@@ -18,6 +19,7 @@ from power_pptx.lint import (
     OffSlideShadow,
     ShapeCollision,
     ShapeCollisionShadow,
+    SlideLintReport,
     ZOrderAnomaly,
     _LEGACY_LINT_GROUP_ATTR,
     _LINT_EXT_URI,
@@ -1272,3 +1274,740 @@ class DescribeLintExtensionsRoundTrip:
         assert len(reopened.slides) == 1
         names = [s.name for s in reopened.slides[0].shapes]
         assert any("Rectangle" in n for n in names)
+
+
+# ---------------------------------------------------------------------------
+# Relationship model — declaring intentional overlaps (ROADMAP).
+# ---------------------------------------------------------------------------
+
+
+def _layer_violations(slide):
+    return [i for i in slide.lint().issues if isinstance(i, LayerOrderViolation)]
+
+
+def _has_extLst(shape):
+    return "extLst" in shape._element.xml
+
+
+class DescribeShapeOverlapAllowance:
+    """``allow_overlap_with`` / ``disallow_overlap_with`` / ``overlap_allowances``."""
+
+    def it_defaults_to_an_empty_set(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        assert s.overlap_allowances == frozenset()
+
+    def it_records_the_other_shapes_id(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        assert a.overlap_allowances == frozenset({b.shape_id})
+        # The declaration is one-sided to *write* — nothing lands on b.
+        assert b.overlap_allowances == frozenset()
+
+    def it_accumulates_across_repeated_calls(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b)
+        a.allow_overlap_with(c)
+        assert a.overlap_allowances == frozenset({b.shape_id, c.shape_id})
+
+    def it_accepts_several_shapes_in_one_call(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b, c)
+        assert a.overlap_allowances == frozenset({b.shape_id, c.shape_id})
+
+    def it_is_idempotent(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        a.allow_overlap_with(b)
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_accepts_zero_shapes_as_a_no_op(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        a.allow_overlap_with()  # must not raise, must not clear
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_revokes_a_single_pair(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b, c)
+        a.disallow_overlap_with(c)
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_treats_revoking_an_ungranted_pair_as_a_no_op(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b)
+        a.disallow_overlap_with(c)  # never granted — must not raise
+        a.disallow_overlap_with(c)  # ...and stay a no-op when repeated
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_rejects_a_self_reference(self):
+        _, slide = _new_blank_slide()
+        a, _ = _add_overlapping_rects(slide, 2)
+        with pytest.raises(ValueError):
+            a.allow_overlap_with(a)
+        assert a.overlap_allowances == frozenset()
+
+    def it_rejects_an_object_with_no_shape_id(self):
+        _, slide = _new_blank_slide()
+        a, _ = _add_overlapping_rects(slide, 2)
+        with pytest.raises(ValueError):
+            a.allow_overlap_with(object())  # type: ignore[arg-type]
+
+    def it_round_trips_ids_through_the_setter(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.overlap_allowances = [b.shape_id, c.shape_id]
+        assert a.overlap_allowances == frozenset({b.shape_id, c.shape_id})
+
+    def it_replaces_rather_than_accumulates_on_assignment(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b)
+        a.overlap_allowances = {c.shape_id}
+        assert a.overlap_allowances == frozenset({c.shape_id})
+
+    def it_clears_when_assigned_an_empty_iterable(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        a.overlap_allowances = ()
+        assert a.overlap_allowances == frozenset()
+
+    def it_clears_when_assigned_None(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        a.overlap_allowances = None
+        assert a.overlap_allowances == frozenset()
+
+    def it_rejects_a_non_iterable_value(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        with pytest.raises(TypeError):
+            a.overlap_allowances = b.shape_id  # a bare int is a classic slip
+
+    def it_rejects_a_str_or_bytes_value(self):
+        # str/bytes are iterable but iterating them yields characters, which
+        # would silently produce a garbage (or empty) allowance set.
+        _, slide = _new_blank_slide()
+        a, _ = _add_overlapping_rects(slide, 2)
+        with pytest.raises(TypeError):
+            a.overlap_allowances = "3"
+        with pytest.raises(TypeError):
+            a.overlap_allowances = b"3"
+
+    def it_rejects_non_integer_entries(self):
+        _, slide = _new_blank_slide()
+        a, _ = _add_overlapping_rects(slide, 2)
+        with pytest.raises(TypeError):
+            a.overlap_allowances = ["3"]
+        with pytest.raises(TypeError):
+            a.overlap_allowances = [3.0]
+        with pytest.raises(TypeError):
+            a.overlap_allowances = [None]
+
+    def it_rejects_bool_entries_despite_bool_subclassing_int(self):
+        _, slide = _new_blank_slide()
+        a, _ = _add_overlapping_rects(slide, 2)
+        with pytest.raises(TypeError):
+            a.overlap_allowances = [True]
+
+    def it_writes_metadata_via_extLst_not_a_custom_attribute(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        cNvPr = a._element._nvXxPr.cNvPr
+        assert _LEGACY_LINT_GROUP_ATTR not in cNvPr.attrib
+        ext = _find_lint_ext(cNvPr)
+        assert ext is not None
+        assert ext.get("uri") == _LINT_EXT_URI
+
+
+class DescribeCollisionAllowanceSuppression:
+    """``ShapeCollision`` honours pairwise ``allow_overlap_with`` declarations."""
+
+    def it_warns_about_an_undeclared_overlap(self):
+        _, slide = _new_blank_slide()
+        _add_overlapping_rects(slide, 2)
+        assert len(_collisions(slide)) == 1
+
+    def it_suppresses_the_collision_when_declared(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        assert len(_collisions(slide)) == 1
+        a.allow_overlap_with(b)
+        assert _collisions(slide) == []
+
+    def it_reads_the_declaration_symmetrically(self):
+        # Declaring from either end suppresses; the designer shouldn't have
+        # to guess which shape "owns" the relationship.
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        b.allow_overlap_with(a)
+        assert _collisions(slide) == []
+
+    def it_stays_suppressed_when_both_sides_vouch(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        b.allow_overlap_with(a)
+        assert _collisions(slide) == []
+
+    def it_unsuppresses_when_the_only_allowance_is_revoked(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        assert _collisions(slide) == []
+        a.disallow_overlap_with(b)
+        assert len(_collisions(slide)) == 1
+
+    def it_stays_suppressed_after_a_one_sided_revoke(self):
+        # ``disallow_overlap_with`` only clears the allowance recorded on the
+        # shape it is called on — the other side's vouch still stands.
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        b.allow_overlap_with(a)
+        a.disallow_overlap_with(b)
+        assert _collisions(slide) == []
+        b.disallow_overlap_with(a)
+        assert len(_collisions(slide)) == 1
+
+    def it_suppresses_only_the_declared_pair(self):
+        # An allowance is pair-scoped, unlike a lint_group: a's clearance to
+        # overlap b says nothing about a third shape.
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        assert len(_collisions(slide)) == 3
+        a.allow_overlap_with(b)
+        remaining = _collisions(slide)
+        assert len(remaining) == 2
+        pairs = {tuple(sorted((i.shapes[0].name, i.shapes[1].name))) for i in remaining}
+        assert pairs == {
+            tuple(sorted((a.name, c.name))),
+            tuple(sorted((b.name, c.name))),
+        }
+
+    def it_suppresses_every_declared_pair(self):
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        a.allow_overlap_with(b, c)
+        b.allow_overlap_with(c)
+        assert _collisions(slide) == []
+
+    def it_ignores_an_allowance_naming_an_unrelated_id(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.overlap_allowances = {9999}
+        assert len(_collisions(slide)) == 1
+
+
+class DescribeShapeLayerHints:
+    """Per-shape ``layer`` / ``layer_above`` z-order intent declarations."""
+
+    def it_defaults_to_None(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        assert s.layer is None
+        assert s.layer_above is None
+
+    def it_round_trips_string_values(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "badge"
+        s.layer_above = "card"
+        assert s.layer == "badge"
+        assert s.layer_above == "card"
+
+    def it_keeps_the_two_names_independent(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "badge"
+        s.layer_above = "card"
+        s.layer = None
+        assert s.layer is None
+        assert s.layer_above == "card"
+
+    def it_strips_surrounding_whitespace(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "  card  "
+        s.layer_above = "\tpanel\n"
+        assert s.layer == "card"
+        assert s.layer_above == "panel"
+
+    def it_normalises_a_blank_name_to_None(self):
+        # A layer literally named "   " is never what the caller meant.
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "card"
+        s.layer = "   "
+        assert s.layer is None
+        s.layer_above = "card"
+        s.layer_above = ""
+        assert s.layer_above is None
+
+    def it_rejects_a_non_string_name(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        with pytest.raises(TypeError):
+            s.layer = 5
+        with pytest.raises(TypeError):
+            s.layer_above = 5
+        with pytest.raises(TypeError):
+            s.layer = ["card"]
+
+    def it_allows_a_layer_name_to_be_shared_by_many_shapes(self):
+        # Unlike lint_group, a layer names a stratum of the design rather
+        # than one cluster, so re-use is legitimate.
+        _, slide = _new_blank_slide()
+        a, b, c = _add_overlapping_rects(slide, 3)
+        for s in (a, b, c):
+            s.layer = "card"
+        assert [s.layer for s in (a, b, c)] == ["card", "card", "card"]
+
+    def it_writes_metadata_via_extLst_not_a_custom_attribute(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "card"
+        cNvPr = s._element._nvXxPr.cNvPr
+        assert _LEGACY_LINT_GROUP_ATTR not in cNvPr.attrib
+        ext = _find_lint_ext(cNvPr)
+        assert ext is not None
+        assert ext.get("uri") == _LINT_EXT_URI
+
+
+class DescribeLayerOrderViolationCheck:
+    """``layer`` / ``layer_above`` suppression and the contradicted case."""
+
+    def it_suppresses_a_collision_consistent_with_the_declaration(self):
+        # ``under`` is added first, so ``over`` is painted on top of it —
+        # exactly what ``over.layer_above`` asserts.
+        _, slide = _new_blank_slide()
+        under, over = _add_overlapping_rects(slide, 2)
+        under.layer = "card"
+        over.layer_above = "card"
+        assert _collisions(slide) == []
+        assert _layer_violations(slide) == []
+
+    def it_reports_a_violation_when_the_z_order_contradicts_it(self):
+        # ``over`` claims to sit above the "card" layer but is added first,
+        # so it is actually painted underneath ``under``.
+        _, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        under.layer = "card"
+        violations = _layer_violations(slide)
+        assert len(violations) == 1
+        assert violations[0].code == "LayerOrderViolation"
+        assert violations[0].severity is LintSeverity.ERROR
+        assert violations[0].layer == "card"
+        assert violations[0].shapes == (over, under)
+
+    def it_still_reports_the_underlying_collision_when_contradicted(self):
+        # Deliberate: a contradicted declaration is not an intent marker, so
+        # the pair must not be silently dropped from the collision report.
+        _, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        under.layer = "card"
+        assert len(_collisions(slide)) == 1
+
+    def it_reports_no_violation_for_shapes_that_do_not_overlap(self):
+        # A layer declaration between shapes that never touch is inert.
+        _, slide = _new_blank_slide()
+        over = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(1), Inches(1))
+        under = slide.shapes.add_shape(1, Inches(5), Inches(4), Inches(1), Inches(1))
+        over.layer_above = "card"
+        under.layer = "card"
+        assert _layer_violations(slide) == []
+        assert _collisions(slide) == []
+
+    def it_reports_no_violation_when_only_layer_above_is_declared(self):
+        _, slide = _new_blank_slide()
+        over, _under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        assert _layer_violations(slide) == []
+        assert len(_collisions(slide)) == 1
+
+    def it_reports_no_violation_when_the_layer_names_do_not_match(self):
+        _, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        under.layer = "panel"
+        assert _layer_violations(slide) == []
+        assert len(_collisions(slide)) == 1
+
+    def it_reports_nothing_when_no_shape_declares_a_layer(self):
+        _, slide = _new_blank_slide()
+        _add_overlapping_rects(slide, 2)
+        assert _layer_violations(slide) == []
+
+    def it_reports_one_violation_per_contradicted_pair(self):
+        _, slide = _new_blank_slide()
+        over, under_a, under_b = _add_overlapping_rects(slide, 3)
+        over.layer_above = "card"
+        under_a.layer = "card"
+        under_b.layer = "card"
+        assert len(_layer_violations(slide)) == 2
+
+    def it_can_be_silenced_per_shape_via_lint_skip(self):
+        _, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        under.layer = "card"
+        over.lint_skip = {"LayerOrderViolation"}
+        under.lint_skip = {"LayerOrderViolation"}
+        assert _layer_violations(slide) == []
+
+
+class DescribeLintExtensionPruning:
+    """Clearing lint metadata must leave neither residue nor collateral damage."""
+
+    def it_leaves_no_extLst_after_clearing_an_allowance(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        assert _has_extLst(a)
+        a.disallow_overlap_with(b)
+        assert not _has_extLst(a)
+        assert _find_lint_ext(a._element._nvXxPr.cNvPr) is None
+
+    def it_leaves_no_extLst_after_assigning_an_empty_allowance_set(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        a.overlap_allowances = ()
+        assert not _has_extLst(a)
+
+    def it_leaves_no_extLst_after_clearing_both_layer_names(self):
+        _, slide = _new_blank_slide()
+        s = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        s.layer = "card"
+        s.layer_above = "panel"
+        assert _has_extLst(s)
+        s.layer = None
+        s.layer_above = None
+        assert not _has_extLst(s)
+        assert _find_lint_ext(s._element._nvXxPr.cNvPr) is None
+
+    def it_leaves_no_extLst_after_clearing_every_lint_setting(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_group = "card-1"
+        a.lint_skip = {"MinFontSize"}
+        a.layer = "card"
+        a.layer_above = "panel"
+        a.allow_overlap_with(b)
+        a.lint_group = None
+        a.lint_skip = set()
+        a.layer = None
+        a.layer_above = None
+        a.overlap_allowances = ()
+        assert not _has_extLst(a)
+
+    def it_preserves_siblings_when_clearing_the_layer(self):
+        # Same bug class ``_clear_lint_group`` guards against: all five
+        # settings share one ``<a:ext>``, so a clear must remove only its
+        # own node.
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_group = "card-1"
+        a.lint_skip = {"MinFontSize"}
+        a.allow_overlap_with(b)
+        a.layer = "card"
+        a.layer_above = "panel"
+        a.layer = None
+        a.layer_above = None
+        assert a.lint_group == "card-1"
+        assert a.lint_skip == frozenset({"MinFontSize"})
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_preserves_siblings_when_clearing_the_allowances(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_group = "card-1"
+        a.lint_skip = {"MinFontSize"}
+        a.layer = "card"
+        a.layer_above = "panel"
+        a.allow_overlap_with(b)
+        a.overlap_allowances = ()
+        assert a.lint_group == "card-1"
+        assert a.lint_skip == frozenset({"MinFontSize"})
+        assert (a.layer, a.layer_above) == ("card", "panel")
+
+    def it_preserves_the_new_fields_when_clearing_lint_group(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_group = "card-1"
+        a.layer = "card"
+        a.layer_above = "panel"
+        a.allow_overlap_with(b)
+        a.lint_group = None
+        assert a.lint_group is None
+        assert (a.layer, a.layer_above) == ("card", "panel")
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+    def it_preserves_the_new_fields_when_clearing_lint_skip(self):
+        _, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_skip = {"MinFontSize"}
+        a.layer = "card"
+        a.allow_overlap_with(b)
+        a.lint_skip = set()
+        assert a.lint_skip == frozenset()
+        assert a.layer == "card"
+        assert a.overlap_allowances == frozenset({b.shape_id})
+
+
+class DescribeRelationshipModelRoundTrip:
+    """All five lint settings survive a save/reopen cycle together."""
+
+    def it_persists_every_setting_through_save_and_load(self):
+        prs, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.lint_group = "card-1"
+        a.lint_skip = {"MinFontSize"}
+        a.layer = "card"
+        a.layer_above = "panel"
+        a.allow_overlap_with(b)
+        b_id = b.shape_id
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        a2, b2 = list(Presentation(buf).slides[0].shapes)
+
+        assert a2.lint_group == "card-1"
+        assert a2.lint_skip == frozenset({"MinFontSize"})
+        assert a2.layer == "card"
+        assert a2.layer_above == "panel"
+        assert a2.overlap_allowances == frozenset({b_id})
+        assert b2.shape_id == b_id
+
+    def it_still_suppresses_the_collision_after_a_reload(self):
+        prs, slide = _new_blank_slide()
+        a, b = _add_overlapping_rects(slide, 2)
+        a.allow_overlap_with(b)
+        assert _collisions(slide) == []
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        reloaded = Presentation(buf).slides[0]
+        assert _collisions(reloaded) == []
+
+    def it_still_suppresses_a_layered_collision_after_a_reload(self):
+        prs, slide = _new_blank_slide()
+        under, over = _add_overlapping_rects(slide, 2)
+        under.layer = "card"
+        over.layer_above = "card"
+        assert _collisions(slide) == []
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        reloaded = Presentation(buf).slides[0]
+        assert _collisions(reloaded) == []
+        assert _layer_violations(reloaded) == []
+
+    def it_still_reports_a_layer_violation_after_a_reload(self):
+        prs, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.layer_above = "card"
+        under.layer = "card"
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        reloaded = Presentation(buf).slides[0]
+        violations = _layer_violations(reloaded)
+        assert len(violations) == 1
+        assert violations[0].severity is LintSeverity.ERROR
+        assert len(_collisions(reloaded)) == 1
+
+
+class DescribeAutoFixLayerOrder:
+    """``auto_fix()`` restacks a shape whose ``layer_above`` is contradicted."""
+
+    @staticmethod
+    def _contradicted_pair(slide):
+        over, under = _add_overlapping_rects(slide, 2)
+        over.name = "badge"
+        under.name = "card"
+        over.layer_above = "card"
+        under.layer = "card"
+        return over, under
+
+    def it_restacks_the_declaring_shape_above_its_layer(self):
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        assert [s.name for s in slide.shapes] == ["badge", "card"]
+        slide.lint().auto_fix()
+        assert [s.name for s in slide.shapes] == ["card", "badge"]
+
+    def it_returns_a_description_of_the_restack(self):
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        fixes = slide.lint().auto_fix()
+        assert len(fixes) == 1
+        assert "badge" in fixes[0]
+        assert "card" in fixes[0]
+        assert "Restacked" in fixes[0]
+
+    def it_drops_the_violation_from_the_refreshed_issues(self):
+        # auto_fix() refreshes ``report.issues`` in place, so the residual
+        # punch list needs no second lint() call.
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        report = slide.lint()
+        assert len(_layer_violations(slide)) == 1
+        report.auto_fix()
+        assert [i for i in report.issues if isinstance(i, LayerOrderViolation)] == []
+        # ...and the collision goes with it: the restack makes the layer
+        # declaration consistent, which is itself an intent marker.
+        assert report.issues == []
+
+    def it_preserves_the_shape_count(self):
+        # ``addnext`` *moves* the element. A copy-then-insert would leave a
+        # duplicate behind (and a duplicate shape id, which PowerPoint
+        # reports as a repair).
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        slide.lint().auto_fix()
+        names = [s.name for s in slide.shapes]
+        assert len(names) == 2
+        assert sorted(names) == ["badge", "card"]
+        assert len({s.shape_id for s in slide.shapes}) == 2
+
+    def it_leaves_the_slide_untouched_on_a_dry_run(self):
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        report = slide.lint()
+        fixes = report.auto_fix(dry_run=True)
+        assert len(fixes) == 1
+        assert "Restacked" in fixes[0]
+        assert [s.name for s in slide.shapes] == ["badge", "card"]
+        # The issue list is not refreshed either — nothing changed.
+        assert len([i for i in report.issues if isinstance(i, LayerOrderViolation)]) == 1
+
+    def it_restacks_each_shape_at_most_once_per_pass(self):
+        # One badge declaring layer_above="card" over *two* "card" shapes
+        # yields two violations; the ``restacked`` guard keeps the pass to a
+        # single move so interacting declarations can't ping-pong.
+        _, slide = _new_blank_slide()
+        badge, card_a, card_b = _add_overlapping_rects(slide, 3)
+        badge.name = "badge"
+        card_a.name = "cardA"
+        card_b.name = "cardB"
+        badge.layer_above = "card"
+        card_a.layer = "card"
+        card_b.layer = "card"
+        report = slide.lint()
+        assert len([i for i in report.issues if isinstance(i, LayerOrderViolation)]) == 2
+        fixes = report.auto_fix()
+        assert len(fixes) == 1
+        assert [s.name for s in slide.shapes] == ["cardA", "badge", "cardB"]
+        assert len(slide.shapes) == 3
+
+    def it_skips_a_pair_that_is_not_sibling_level(self):
+        # A cross-container pair (one shape inside a group, one outside) has
+        # no single ordering to fix — skip it rather than crash.
+        prs, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))
+        inner.name = "inner"
+        outer = slide.shapes.add_shape(1, Inches(1.5), Inches(1.5), Inches(2), Inches(2))
+        outer.name = "outer"
+        inner.layer_above = "card"
+        outer.layer = "card"
+
+        report = SlideLintReport(slide, [LayerOrderViolation(inner, outer, "card")])
+        assert report.auto_fix() == []
+        assert [s.name for s in slide.shapes] == [group.name, "outer"]
+        assert [s.name for s in group.shapes] == ["inner"]
+
+    def it_is_reached_through_slide_tidy_by_default(self):
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        fixes = slide.tidy()
+        assert any("Restacked" in f for f in fixes)
+        assert [s.name for s in slide.shapes] == ["card", "badge"]
+
+    def it_leaves_the_order_alone_when_tidy_opts_out(self):
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        fixes = slide.tidy(fix_layer_order=False)
+        assert not any("Restacked" in f for f in fixes)
+        assert [s.name for s in slide.shapes] == ["badge", "card"]
+
+    def it_still_fixes_off_slide_when_layer_order_is_opted_out(self):
+        # ``fix_layer_order=False`` works by disabling the rule in lint(),
+        # so it must not disturb the other tidy fixes.
+        _, slide = _new_blank_slide()
+        self._contradicted_pair(slide)
+        stray = slide.shapes.add_shape(1, Inches(-3), Inches(-3), Inches(1), Inches(1))
+        stray.name = "stray"
+        slide.tidy(fix_layer_order=False)
+        assert int(stray.left) >= 0
+        assert int(stray.top) >= 0
+        assert [s.name for s in slide.shapes][:2] == ["badge", "card"]
+
+
+class DescribeLayerOrderViolationReporting:
+    """Fingerprint and SARIF plumbing for ``LayerOrderViolation``."""
+
+    @staticmethod
+    def _contradicted_slide():
+        _, slide = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide, 2)
+        over.name = "badge"
+        under.name = "card"
+        over.layer_above = "card"
+        under.layer = "card"
+        return slide
+
+    def it_fingerprints_the_violation_stably_across_runs(self):
+        slide = self._contradicted_slide()
+        first = slide.lint().fingerprints()
+        second = slide.lint().fingerprints()
+        assert first == second
+        assert len(first) == len(slide.lint().issues)
+
+    def it_distinguishes_violations_by_layer_name(self):
+        # ``layer`` is part of the classifying-field tuple, so two
+        # otherwise-identical violations on different layers differ.
+        slide_a = self._contradicted_slide()
+        fp_a = set(slide_a.lint().fingerprints())
+
+        _, slide_b = _new_blank_slide()
+        over, under = _add_overlapping_rects(slide_b, 2)
+        over.name = "badge"
+        under.name = "card"
+        over.layer_above = "panel"
+        under.layer = "panel"
+        fp_b = set(slide_b.lint().fingerprints())
+
+        assert fp_a != fp_b
+
+    def it_emits_a_sarif_rule_with_a_short_description(self):
+        slide = self._contradicted_slide()
+        sarif = slide.lint().to_sarif()
+        rules = sarif["runs"][0]["tool"]["driver"]["rules"]
+        by_id = {r["id"]: r for r in rules}
+        assert "LayerOrderViolation" in by_id
+        assert by_id["LayerOrderViolation"]["shortDescription"]["text"].strip()
+
+    def it_reports_the_violation_as_a_sarif_error_result(self):
+        slide = self._contradicted_slide()
+        sarif = slide.lint().to_sarif()
+        results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "LayerOrderViolation"]
+        assert len(results) == 1
+        assert results[0]["level"] == "error"

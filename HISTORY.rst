@@ -14,6 +14,82 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+Unreleased
+++++++++++
+
+Completes Phase 2 of the roadmap — the space-awareness phase this fork
+exists for. The linter could already tell you two shapes overlap; it had
+no way to be told the overlap was the point. Both remaining Phase 2
+items ship here.
+
+Added
+.....
+
+* **Declaring intentional overlaps.** ``ShapeCollision`` is the noisiest
+  rule, because deliberate layering looks exactly like a copy-paste bug
+  from a bounding box alone. Until now the only way to say "I meant
+  that" was ``shape.lint_group``, which is n-ary and symmetric — every
+  shape sharing the tag may overlap every other. Two narrower forms join
+  it:
+
+  * ``shape_a.allow_overlap_with(shape_b)`` licenses exactly one pair
+    and leaves every other overlap policed. It is written one-sided but
+    read symmetrically: either shape vouching for the pair is enough.
+    Paired with ``disallow_overlap_with()`` and an
+    ``overlap_allowances`` property (a ``frozenset`` of shape ids).
+  * ``shape.layer`` / ``shape.layer_above`` declare a stratum of the
+    design and, uniquely, assert a *direction*. A shape declaring
+    ``layer_above = "card"`` claims to be painted on top of every
+    overlapping shape whose ``layer`` is ``"card"``.
+
+  Both round-trip through save/open in the shape's ``cNvPr/extLst``, the
+  OOXML-sanctioned extension point, alongside the existing ``lint_group``
+  and ``lint_skip``.
+
+* **``LayerOrderViolation``** — a new ERROR-severity lint issue, and the
+  reason layer hints are more than a third way to silence a warning.
+  When a shape's ``layer_above`` declaration is contradicted by the
+  drawing order — it claims to be on top but comes earlier in ``spTree``
+  and is painted underneath — the declaration is taken as what the
+  author meant and the z-order is reported as the bug. Non-overlapping
+  pairs are inert, not wrong.
+
+* ``LayerOrderViolation`` is **auto-fixable**: ``report.auto_fix()``
+  restacks the declaring shape to sit immediately after the layer it
+  named. Unlike the collision rules this needs no designer judgment —
+  the author already stated which shape belongs on top, and the fix only
+  makes the drawing order agree. Geometry is never touched.
+  ``slide.tidy()`` picks it up via a new ``fix_layer_order=True``
+  keyword.
+
+Fixed
+.....
+
+* Writing any lint marker other than ``lint_group`` — a ``lint_skip``
+  set, and now a layer name or an overlap allowance — silently discarded
+  a ``lint_group`` stored in the pre-2.1.1 attribute format, including on
+  paths documented as no-ops. The legacy value is now migrated into the
+  canonical ``<pp:lintGroup>`` node instead of being dropped.
+
+* ``SlideLintReport.auto_fix(dry_run=True)`` could report more layer
+  restacks than a real run would apply, because the one-move-per-shape
+  guard was only populated outside dry-run mode. A preview now lists
+  exactly the fixes the real run performs.
+
+Added
+.....
+
+* ``prs.lint_on_save`` — a save-time validation hook. ``"off"`` (the
+  default, so existing code is unaffected and pays nothing) skips all
+  checks; ``"warn"`` lints every slide and logs each error-severity issue
+  on the ``power_pptx.presentation`` logger before writing the file;
+  ``"raise"`` lints before anything is written and raises
+  ``power_pptx.exc.LintError`` naming the offending slide indexes, so a
+  failing deck never reaches disk. Only error-severity issues trigger it,
+  matching the ``lint`` option of ``power_pptx.compose.from_spec``. Any
+  other value raises ``ValueError``. The setting is not persisted into the
+  ``.pptx`` file.
+
 2.11.0 (2026-08-21)
 +++++++++++++++++++
 

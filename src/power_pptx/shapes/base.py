@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Iterable, cast
 
 from power_pptx.action import ActionSetting
 from power_pptx.dml.effect import (
@@ -548,6 +548,197 @@ class BaseShape(object):
             codes.add(code)
         cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
         _write_lint_skip(cNvPr, frozenset(codes))
+
+    def allow_overlap_with(self, *shapes: "BaseShape") -> None:
+        """Declare that overlapping each shape in *shapes* is intentional.
+
+        The narrow counterpart to :attr:`lint_group`. A ``lint_group`` is
+        n-ary and symmetric — every shape sharing the tag may overlap every
+        other one. An allowance licenses exactly one pair, which is what you
+        want for "this badge may sit on this card, but nothing else"::
+
+            badge.allow_overlap_with(card)
+
+        The declaration is one-sided to write but read symmetrically: it
+        takes only one of the pair to vouch for the overlap. Calling it on
+        either shape is equivalent, and calling it on both is harmless.
+
+        Allowances accumulate, so repeated calls add to the set rather than
+        replacing it. Clear them with :meth:`disallow_overlap_with` (one
+        pair) or by assigning ``shape.overlap_allowances = ()``.
+
+        Stored as shape ids in the same ``cNvPr/extLst/ext`` block as
+        ``lint_group`` and ``lint_skip``, so it round-trips through
+        save/load.
+
+        Raises:
+            ValueError: if any argument is this same shape, or if either
+                shape has no usable shape id.
+        """
+        from power_pptx.lint import _read_lint_allow, _write_lint_allow
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        ids = set(_read_lint_allow(cNvPr))
+        for other in shapes:
+            other_id = self._require_shape_id(other)
+            if other_id == self.shape_id:
+                raise ValueError(
+                    "a shape cannot be given an overlap allowance with itself"
+                )
+            ids.add(other_id)
+        _write_lint_allow(cNvPr, ids)
+
+    def disallow_overlap_with(self, *shapes: "BaseShape") -> None:
+        """Revoke the overlap allowance for each shape in *shapes*.
+
+        The inverse of :meth:`allow_overlap_with`. Revoking an allowance
+        that was never granted is a no-op rather than an error, so callers
+        can clear defensively.
+
+        Note this only clears the allowance recorded *on this shape*. If the
+        pair was vouched for from the other side as well, the overlap stays
+        suppressed until that one is revoked too.
+        """
+        from power_pptx.lint import _read_lint_allow, _write_lint_allow
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        ids = set(_read_lint_allow(cNvPr))
+        for other in shapes:
+            ids.discard(self._require_shape_id(other))
+        _write_lint_allow(cNvPr, ids)
+
+    @staticmethod
+    def _require_shape_id(shape: "BaseShape") -> int:
+        """Return *shape*'s id, raising a useful error when it has none.
+
+        Group members, and any shape whose element lacks ``cNvPr``, cannot
+        take part in a pairwise allowance because there is nothing stable to
+        key it on.
+        """
+        try:
+            shape_id = shape.shape_id
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{type(shape).__name__} has no shape id, so it cannot take "
+                "part in an overlap allowance; tag both shapes with a shared "
+                "lint_group instead"
+            ) from exc
+        return shape_id
+
+    @property
+    def overlap_allowances(self) -> frozenset[int]:
+        """Shape ids this shape has been cleared to overlap.
+
+        Read the set granted by :meth:`allow_overlap_with`. Note this
+        reflects only the allowances recorded on *this* shape — an overlap
+        may also be suppressed by an allowance held on the other shape, or
+        by a shared :attr:`lint_group`.
+
+        Assign an iterable of shape ids (or an empty one to clear). Most
+        callers want :meth:`allow_overlap_with` instead, which takes shapes
+        rather than raw ids and accumulates.
+        """
+        from power_pptx.lint import _read_lint_allow
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return _read_lint_allow(cNvPr)
+
+    @overlap_allowances.setter
+    def overlap_allowances(self, value) -> None:
+        from power_pptx.lint import _write_lint_allow
+
+        if value is None:
+            value = ()
+        if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+            raise TypeError(
+                "overlap_allowances must be an iterable of shape ids; got "
+                f"{type(value).__name__}"
+            )
+        ids: set[int] = set()
+        for raw in value:
+            # bool is an int subclass, and True/False are never valid ids.
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise TypeError(
+                    "overlap_allowances entries must be integer shape ids; "
+                    f"got {type(raw).__name__}"
+                )
+            ids.add(raw)
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        _write_lint_allow(cNvPr, ids)
+
+    @property
+    def layer(self) -> str | None:
+        """Name of the visual layer this shape belongs to.
+
+        Layer hints are the third way to declare an intentional overlap, and
+        the only one that asserts a *direction*. A shape names its own layer
+        with :attr:`layer`; a shape that means to sit on top of that layer
+        names it in :attr:`layer_above`::
+
+            card.layer = "card"
+            badge.layer_above = "card"
+
+        Overlaps that agree with the declaration are treated as intentional
+        and stay out of the report. An overlap that *contradicts* it — the
+        shape claiming to be on top is drawn underneath — is reported as a
+        :class:`~power_pptx.lint.LayerOrderViolation` error, since the
+        declaration records what the author meant and the drawing order is
+        what fails to deliver it.
+
+        Unlike :attr:`lint_group`, a layer name may be shared by any number
+        of unrelated shapes: it describes a stratum of the design, not one
+        grouped cluster. Assign ``None`` to clear.
+        """
+        from power_pptx.lint import _read_lint_layer
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return _read_lint_layer(cNvPr)[0]
+
+    @layer.setter
+    def layer(self, value: str | None) -> None:
+        from power_pptx.lint import _read_lint_layer, _write_lint_layer
+
+        value = self._validate_layer_name(value, "layer")
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        _, above = _read_lint_layer(cNvPr)
+        _write_lint_layer(cNvPr, name=value, above=above)
+
+    @property
+    def layer_above(self) -> str | None:
+        """Name of the layer this shape declares it is drawn on top of.
+
+        See :attr:`layer` for the full picture. Assign ``None`` to clear.
+        """
+        from power_pptx.lint import _read_lint_layer
+
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        return _read_lint_layer(cNvPr)[1]
+
+    @layer_above.setter
+    def layer_above(self, value: str | None) -> None:
+        from power_pptx.lint import _read_lint_layer, _write_lint_layer
+
+        value = self._validate_layer_name(value, "layer_above")
+        cNvPr = self._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
+        name, _ = _read_lint_layer(cNvPr)
+        _write_lint_layer(cNvPr, name=name, above=value)
+
+    @staticmethod
+    def _validate_layer_name(value: str | None, attr: str) -> str | None:
+        """Normalise a layer name, or raise if it is unusable.
+
+        An all-whitespace string is treated as ``None`` (a clear) rather
+        than as a layer literally named ``"   "``, which is never what the
+        caller meant.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{attr} must be a string or None; got {type(value).__name__}"
+            )
+        value = value.strip()
+        return value or None
 
     def delete(self) -> None:
         """Remove this shape from its slide and clean up dependent state.
