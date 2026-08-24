@@ -764,24 +764,37 @@ class BaseShape(object):
     def delete(self) -> None:
         """Remove this shape from its slide and clean up dependent state.
 
-        In addition to removing the shape's XML element, this purges any
-        animation entries in the slide's timing tree that targeted this
-        shape.  PowerPoint silently "repairs" decks with orphan timing
-        references on open, but a clean tree avoids the prompt.
+        In addition to removing the shape's XML element, this purges the
+        references other parts of the slide still hold to it:
+
+        * animation entries in the timing tree that targeted this shape.
+          PowerPoint silently "repairs" decks with orphan timing
+          references on open, but a clean tree avoids the prompt.
+        * overlap allowances naming this shape's id. Ids are recycled --
+          the allocator hands out ``max(existing) + 1``, so deleting the
+          highest-id shape frees its id for the next shape added after a
+          save/reopen. A leftover allowance would then match that
+          unrelated newcomer and silently suppress a real
+          :class:`~power_pptx.lint.ShapeCollision`.
 
         Equivalent in spirit to::
 
             shape._element.getparent().remove(shape._element)
 
-        but with the cleanup pass that the manual idiom misses.
+        but with the cleanup passes that the manual idiom misses.
         """
-        # Snapshot the slide reference *before* detaching the element,
-        # because once detached the parent walk would fail.
+        # Snapshot the slide reference and this shape's id *before*
+        # detaching the element, because once detached the parent walk
+        # would fail.
         slide = None
         try:
             slide = self.part.slide  # type: ignore[attr-defined]
         except Exception:
             slide = None
+        try:
+            deleted_id = self.shape_id
+        except Exception:
+            deleted_id = None
 
         parent = self._element.getparent()
         if parent is not None:
@@ -792,6 +805,42 @@ class BaseShape(object):
                 slide.animations.purge_orphans()
             except Exception:
                 pass
+            if deleted_id is not None:
+                self._purge_overlap_allowances(slide, deleted_id)
+
+    @staticmethod
+    def _purge_overlap_allowances(slide, deleted_id: int) -> None:
+        """Drop *deleted_id* from every overlap allowance on *slide*.
+
+        Best-effort and never fatal: deleting a shape must not start
+        raising because some sibling has unreadable lint metadata.
+        """
+        from power_pptx.lint import _read_lint_allow, _shape_cNvPr, _write_lint_allow
+
+        def _walk(shapes):
+            for shape in shapes:
+                yield shape
+                nested = getattr(shape, "shapes", None)
+                if nested is not None:
+                    try:
+                        yield from _walk(nested)
+                    except Exception:
+                        continue
+
+        try:
+            shapes = list(_walk(slide.shapes))
+        except Exception:
+            return
+        for shape in shapes:
+            try:
+                cNvPr = _shape_cNvPr(shape)
+                if cNvPr is None:
+                    continue
+                allowances = _read_lint_allow(cNvPr)
+                if deleted_id in allowances:
+                    _write_lint_allow(cNvPr, allowances - {deleted_id})
+            except Exception:
+                continue
 
     @property
     def shape_type(self) -> MSO_SHAPE_TYPE:

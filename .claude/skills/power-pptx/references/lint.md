@@ -115,7 +115,10 @@ legal and you want the rest still policed; **layer hints** when the
 stacking order itself matters.
 
 An allowance may only name a shape on the **same slide**, and passing
-one from another slide raises `ValueError`. Allowances are keyed on
+one from another slide raises `ValueError`. Use `shape.delete()` rather
+than removing the element by hand — it purges allowances naming the
+deleted shape, which matters because ids get recycled and a stale one
+would later match an unrelated shape. Allowances are keyed on
 `cNvPr/@id`, which is unique per slide but repeats across a deck — so a
 borrowed id would either read as a bogus self-reference or silently
 match an unrelated shape here and suppress a collision that was real.

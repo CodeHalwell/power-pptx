@@ -83,6 +83,14 @@ Added
 Fixed
 .....
 
+* Deleting a shape left overlap allowances pointing at its id. Ids are
+  recycled — the allocator hands out ``max(existing) + 1`` — so deleting
+  the highest-id shape freed its id for the next shape added after a
+  save/reopen, and the stale allowance then matched that unrelated
+  newcomer and silently suppressed a real ``ShapeCollision``.
+  ``shape.delete()`` now purges allowances naming it, alongside the
+  animation-timing cleanup it already did.
+
 * ``shape.allow_overlap_with(...)`` accepted a shape from another slide.
   Allowances are keyed on ``cNvPr/@id``, which is unique only *within* a
   slide, so a borrowed id either collided with the source shape's own id
