@@ -101,7 +101,7 @@ class Presentation(PartElementProxy):
         return self._lint_on_save
 
     @lint_on_save.setter
-    def lint_on_save(self, value: str) -> None:
+    def lint_on_save(self, value: LintOnSaveMode) -> None:
         if value not in _LINT_ON_SAVE_MODES:
             raise ValueError(
                 f"lint_on_save must be one of 'off', 'warn', or 'raise', got {value!r}"

@@ -576,9 +576,8 @@ class DescribeInheritedDimensionSiblings(object):
         from power_pptx import Presentation
         from power_pptx.util import Inches
 
-        body = Presentation().slides.add_slide(
-            Presentation().slide_layouts[1]
-        ).placeholders[1]
+        prs = Presentation()
+        body = prs.slides.add_slide(prs.slide_layouts[1]).placeholders[1]
         inherited_height = body.height
         assert inherited_height > 0
 
@@ -591,9 +590,8 @@ class DescribeInheritedDimensionSiblings(object):
         from power_pptx import Presentation
         from power_pptx.util import Inches
 
-        body = Presentation().slides.add_slide(
-            Presentation().slide_layouts[1]
-        ).placeholders[1]
+        prs = Presentation()
+        body = prs.slides.add_slide(prs.slide_layouts[1]).placeholders[1]
         inherited_width = body.width
 
         body.height = Inches(2)
@@ -605,9 +603,8 @@ class DescribeInheritedDimensionSiblings(object):
         from power_pptx import Presentation
         from power_pptx.util import Inches
 
-        body = Presentation().slides.add_slide(
-            Presentation().slide_layouts[1]
-        ).placeholders[1]
+        prs = Presentation()
+        body = prs.slides.add_slide(prs.slide_layouts[1]).placeholders[1]
         inherited_top = body.top
 
         body.left = Inches(1)
@@ -619,9 +616,8 @@ class DescribeInheritedDimensionSiblings(object):
         from power_pptx import Presentation
         from power_pptx.util import Inches
 
-        body = Presentation().slides.add_slide(
-            Presentation().slide_layouts[1]
-        ).placeholders[1]
+        prs = Presentation()
+        body = prs.slides.add_slide(prs.slide_layouts[1]).placeholders[1]
         inherited_left = body.left
 
         body.top = Inches(3)
@@ -633,9 +629,8 @@ class DescribeInheritedDimensionSiblings(object):
         from power_pptx import Presentation
         from power_pptx.util import Inches
 
-        body = Presentation().slides.add_slide(
-            Presentation().slide_layouts[1]
-        ).placeholders[1]
+        prs = Presentation()
+        body = prs.slides.add_slide(prs.slide_layouts[1]).placeholders[1]
 
         body.height = Inches(0)
 

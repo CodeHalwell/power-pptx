@@ -259,9 +259,12 @@ clear it.
 Where the declarations live
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-All three forms are stored in the shape's ``p:cNvPr`` element — group tags
-as a custom-namespaced attribute, allowances and layer names in the
-``extLst`` extension point sanctioned by OOXML for exactly this.  They
+All three forms are stored under the shape's ``p:cNvPr/a:extLst/a:ext``,
+the extension point OOXML sanctions for exactly this.  A custom-namespaced
+*attribute* on ``cNvPr`` would violate ``CT_NonVisualDrawingProps`` — which
+declares no ``xsd:anyAttribute`` — and trigger PowerPoint's "repaired and
+removed" prompt on open; group tags were written that way before 2.1.1 and
+are still *read* from it, but nothing writes it any more.  They
 round-trip through |pp| save/load and PowerPoint leaves them alone, so
 they have no visual or semantic effect on the deck; they are metadata for
 the linter only.
