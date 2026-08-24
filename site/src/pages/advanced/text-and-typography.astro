@@ -1,0 +1,399 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const snippet0 = `from power_pptx import Presentation
+from power_pptx.util import Inches, Pt
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+box = slide.shapes.add_textbox(Inches(0.8), Inches(1.2), Inches(8), Inches(2))
+
+tf = box.text_frame              # 1. the frame - wrap, anchor, margins, columns
+tf.word_wrap = True
+
+p = tf.paragraphs[0]             # 2. the paragraph - alignment, level, spacing
+p.text = "Revenue grew 27% QoQ"
+p.space_after = Pt(6)
+
+p2 = tf.add_paragraph()
+lead = p2.add_run()              # 3. the run - one span of uniform character format
+lead.text = "Enterprise tier "
+lead.font.bold = True
+tail = p2.add_run()
+tail.text = "drove the increase."
+
+prs.save("out.pptx")`;
+
+const snippet1 = `from power_pptx.enum.text import MSO_ANCHOR
+from power_pptx.util import Inches, Pt
+
+tf.word_wrap = True                     # True | False | None (inherit)
+tf.vertical_anchor = MSO_ANCHOR.MIDDLE  # TOP | MIDDLE | BOTTOM
+tf.margin_left = Inches(0.15)           # also margin_right / _top / _bottom
+tf.margin_top = 0                       # plain 0 is accepted, no helper needed
+
+tf.column_count = 2                     # 1..16; assigning 1 removes the setting
+tf.column_spacing = Pt(18)              # gutter between columns`;
+
+const snippet2 = `# The anti-pattern: the styling grows with the content
+for p in tf.paragraphs:
+    for run in p.runs:
+        run.font.name = "Inter"
+        run.font.size = Pt(14)
+        run.font.color.rgb = "#222222"`;
+
+const snippet3 = `from power_pptx.util import Pt
+
+tf.text = "Total contract value\\nUp 27% QoQ\\nChurn below 2%"
+
+# One explicit decision that has to survive the defaults pass
+tf.paragraphs[0].runs[0].font.bold = True
+tf.paragraphs[0].runs[0].font.size = Pt(28)
+
+tf.set_paragraph_defaults(
+    font_name="Inter",
+    size=Pt(14),
+    color="#222222",
+)
+
+[(p.runs[0].font.size.pt, p.runs[0].font.bold) for p in tf.paragraphs]
+# [(28.0, True), (14.0, None), (14.0, None)]`;
+
+const snippet4 = `tf.clear()
+tf.paragraphs[0].text = "Findings"
+
+for text, level in [
+    ("Churn fell below 2%", 1),
+    ("Driven by the new onboarding flow", 2),
+    ("ARR up 27% QoQ", 1),
+]:
+    p = tf.add_paragraph()
+    p.text = text
+    p.level = level          # 0..8 inclusive; 0 is top level`;
+
+const snippet5 = `p = tf.add_paragraph()
+p.text = "Ship the migration"
+p.set_numbered()                              # 1.  2.  3.   (arabicPeriod)
+
+q = tf.add_paragraph()
+q.text = "Then backfill history"
+q.set_numbered("romanLcPeriod", start_at=3)   # iii.  iv.  v.
+
+q.start_at            # 3
+q.start_at = 4        # renumber, scheme untouched
+q.start_at = None     # back to 1 - still a numbered list`;
+
+const snippet6 = `from power_pptx.util import Inches
+
+p = tf.add_paragraph()
+first = p.add_run()
+first.text = "Acme Corp"
+p.add_line_break()               # soft return: same paragraph, no space_before
+second = p.add_run()
+second.text = "Enterprise plan"
+
+p.text                           # 'Acme Corp\\x0bEnterprise plan'
+
+p.tab_stops.add_tab_stop(Inches(3.0), "right")     # left|center|right|decimal
+p.tab_stops.add_tab_stop(Inches(4.5), "decimal")
+len(p.tab_stops)                 # 2
+
+rtl = tf.add_paragraph()
+rtl.text = "arabic or hebrew body copy"
+rtl.rtl = True                   # True | False | None (inherit)`;
+
+const snippet7 = `from power_pptx.util import Pt
+
+eyebrow = tf.paragraphs[0].runs[0].font
+eyebrow.all_caps = True           # writes cap="all"
+eyebrow.letter_spacing = Pt(2)    # tracking; negative values tighten
+eyebrow.size = Pt(11)
+eyebrow.color.rgb = "#6B7280"     # hex string, (r, g, b) tuple, or RGBColor
+
+price = tf.add_paragraph()
+old = price.add_run()
+old.text = "$1,200"
+old.font.strikethrough = True
+new = price.add_run()
+new.text = "  $960"
+mark = price.add_run()
+mark.text = "1"
+mark.font.superscript = True      # or .subscript - they share one attribute`;
+
+const snippet8 = `from power_pptx.enum.lang import MSO_LANGUAGE_ID
+from power_pptx.util import Pt
+
+title = tf.paragraphs[0].runs[0].font
+title.outline.color.rgb = "FF0000"           # coloured glyph stroke...
+title.outline.width = Pt(1)                  # ...of a given width
+
+title.small_caps = True                      # mutually exclusive with all_caps
+title.language_id = MSO_LANGUAGE_ID.FRENCH   # drives PowerPoint's spell-check`;
+
+const snippet9 = `from power_pptx import Presentation
+from power_pptx.util import Inches
+
+prs = Presentation()
+overview = prs.slides.add_slide(prs.slide_layouts[6])
+detail = prs.slides.add_slide(prs.slide_layouts[6])
+
+tf = overview.shapes.add_textbox(
+    Inches(1), Inches(1), Inches(6), Inches(1)).text_frame
+
+p = tf.paragraphs[0]
+lead = p.add_run()
+lead.text = "Full methodology: "
+link = p.add_run()
+link.text = "read the appendix"
+link.font.underline = True
+link.font.color.rgb = "#0B5CFF"
+link.hyperlink.address = "https://example.com/appendix"   # external
+
+jump = tf.add_paragraph().add_run()
+jump.text = "Jump to the detail slide"
+jump.hyperlink.target_slide = detail                      # internal
+
+link.hyperlink.address = None    # removes the link and drops the relationship`;
+
+const snippet10 = `tf.paragraphs[0] is tf.paragraphs[0]    # False - fresh wrapper each access
+tf.paragraphs[0] == tf.paragraphs[0]    # also False - there is no __eq__
+
+# Hold the reference you need rather than re-indexing
+p = tf.paragraphs[0]
+p.font.bold = True
+
+# Swap the string, keep the formatting already on the runs
+box.set_text_preserving_format("Real headline from the database")`;
+---
+
+<DocsLayout
+  title="Text & Typography"
+  description="The text frame / paragraph / run model, set_paragraph_defaults, bullets and numbering, the full Font surface, and hyperlinks."
+>
+  <p class="lead">
+    Text is the thing a generated deck gets wrong most often — wrong face, wrong size, styling
+    applied one run at a time until the code is longer than the content. This page covers the
+    text model end to end. For the terse signature list see
+    <a href={withBase("/api/text")}>API: Text</a>; for keeping text inside its box see
+    <a href={withBase("/advanced/space-aware-authoring")}>Space-Aware Authoring</a>.
+  </p>
+
+  <h2 id="model">Three levels, and when to reach for each</h2>
+  <p>
+    Every piece of text in a PowerPoint file lives three levels deep. Shapes that can hold text
+    expose a <strong>text frame</strong>; a frame holds one or more <strong>paragraphs</strong>;
+    a paragraph holds zero or more <strong>runs</strong>. Only runs actually carry characters.
+  </p>
+  <Code code={snippet0} />
+  <table>
+    <thead>
+      <tr><th>Level</th><th>Owns</th><th>Reach for it when</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>TextFrame</code></td>
+        <td>Wrapping, auto-fit, vertical anchor, the four margins, column count and gutter</td>
+        <td>The decision is about the <em>box</em> — how text sits inside the shape</td>
+      </tr>
+      <tr>
+        <td><code>_Paragraph</code></td>
+        <td>Alignment, indent level, bullets and numbering, line spacing, space before/after, tab stops, RTL</td>
+        <td>The decision is about a <em>line or block</em> — the usual place to work</td>
+      </tr>
+      <tr>
+        <td><code>_Run</code></td>
+        <td>The string itself, plus a <code>Font</code> and a hyperlink</td>
+        <td>Part of a paragraph must look different from the rest of it</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    A paragraph also has a <code>font</code>. It is not a run's font: it writes
+    <code>a:defRPr</code>, the paragraph's <em>defaults</em>, which runs inherit unless they
+    override. Setting <code>p.font.size = Pt(14)</code> before adding runs is the cheapest way to
+    style a whole paragraph; setting it after only affects runs that never set a size of their own.
+  </p>
+  <p>
+    Assigning to <code>.text</code> at any level is a shortcut that goes all the way down.
+    <code>tf.text = "a\nb"</code> replaces the frame's content with two paragraphs;
+    <code>p.text = "a"</code> replaces the paragraph's runs with a single run. A vertical-tab
+    character (<code>"\v"</code>) in an assigned string becomes a line break rather than a new
+    paragraph, and reads back the same way.
+  </p>
+
+  <h2 id="frame">Frame-level formatting</h2>
+  <Code code={snippet1} />
+  <p>
+    All of these are tri-state where the XML allows it: <code>None</code> removes the explicit
+    setting so the value is inherited from the placeholder, layout, master or theme. That matters
+    more than it sounds — a hard-coded <code>word_wrap = True</code> on a placeholder overrides a
+    template that had already made the right choice.
+  </p>
+  <p>
+    <code>column_count</code> accepts <code>1</code> through <code>16</code> and raises
+    <code>ValueError</code> outside that range. Assigning <code>1</code> removes the attribute
+    rather than writing an explicit single column. Columns are laid out by PowerPoint at render
+    time, so the linter and <code>fit_text</code> — which measure the frame as one box — will
+    under-estimate how much text a two-column frame can hold.
+  </p>
+
+  <h2 id="defaults">set_paragraph_defaults: stop styling run by run</h2>
+  <p>
+    This is the single biggest ergonomics win in the library, and the fix for the most tedious
+    pattern in deck generation. Branded body copy wants the same four properties —
+    typeface, size, weight, colour — on every paragraph of every card. Written per-run, it looks
+    like this:
+  </p>
+  <Code code={snippet2} />
+  <p>
+    That loop is not just verbose, it is <em>destructive</em>: it flattens any deliberate
+    exception you set earlier, and it has to be re-run every time you append a paragraph.
+    <code>TextFrame.set_paragraph_defaults()</code> does the same job in one keyword-only call,
+    and fills in <strong>only the properties that are currently unset</strong>:
+  </p>
+  <Code code={snippet3} />
+  <p>
+    Paragraph 0 keeps its explicit 28pt bold; the other two pick up Inter 14pt in
+    <code>#222222</code>. Every argument is optional — pass just the ones you want to enforce.
+    <code>color</code> takes any colour-like value (<code>RGBColor</code>, a
+    <code>"#RRGGBB"</code> string, or an <code>(r, g, b)</code> tuple), and a run that already
+    carries <em>any</em> explicit colour — including a theme colour like
+    <code>MSO_THEME_COLOR.ACCENT_1</code> — is left alone rather than overwritten.
+  </p>
+  <p>
+    Two things to know about the timing. First, the call stamps both the paragraph-level
+    <code>a:defRPr</code> and every existing run, so an empty paragraph you fill in later still
+    inherits the defaults. Second, it is a one-shot pass over the paragraphs that exist
+    <em>when you call it</em> — build the text first, then apply defaults last, immediately before
+    <a href={withBase("/advanced/space-aware-authoring")}><code>fit_text</code></a> or
+    <code>save()</code>.
+  </p>
+
+  <h2 id="bullets">Bullets, levels and numbering</h2>
+  <p>
+    Bullet <em>glyphs</em> come from the layout's list style; what you control per paragraph is
+    the indent level it is drawn at. <code>level</code> is an integer 0 through 8, and the level's
+    bullet character, indent and size are whatever the master says they are for that depth.
+  </p>
+  <Code code={snippet4} />
+  <p>
+    Ordered lists are explicit. <code>set_numbered()</code> replaces whatever bullet the paragraph
+    had with an auto-number, defaulting to the <code>"arabicPeriod"</code> scheme. Other useful
+    scheme tokens are <code>"romanLcPeriod"</code> (<code>i.</code> <code>ii.</code>),
+    <code>"alphaUcParenR"</code> (<code>A)</code> <code>B)</code>) and
+    <code>"arabicParenR"</code> (<code>1)</code> <code>2)</code>).
+  </p>
+  <Code code={snippet5} />
+  <p>
+    <code>start_at</code> is the read/write shortcut for the first number. Reading it returns
+    <code>None</code> both when the paragraph is not a numbered list <em>and</em> when it starts
+    at the default of 1 — so treat it as "is there an explicit start", not as "is this a numbered
+    list". Assigning an integer to a paragraph that is not yet numbered turns it into an
+    <code>"arabicPeriod"</code> list; assigning <code>None</code> clears the explicit start but
+    leaves the list numbered.
+  </p>
+  <p>
+    A <strong>line break</strong> is not a paragraph. <code>add_line_break()</code> appends a soft
+    return inside the current paragraph, so the two lines share one bullet, one alignment and one
+    <code>space_before</code>/<code>space_after</code> — which is exactly what you want for a
+    two-line list item. It reads back as a vertical-tab character.
+  </p>
+  <Code code={snippet6} />
+  <p>
+    <code>tab_stops</code> is a live collection over <code>a:tabLst</code>: iterable, sized with
+    <code>len()</code>, indexable, and each <code>TabStop</code> has a read/write
+    <code>position</code> and <code>alignment</code>. <code>rtl</code> is the tri-state
+    right-to-left switch for Hebrew, Arabic and Farsi paragraphs — it changes layout direction,
+    not the characters, so you still supply the string in logical order.
+  </p>
+
+  <h2 id="font">The Font surface</h2>
+  <p>
+    <code>font</code> — on a run, or on a paragraph for its defaults — is where a deck stops
+    looking generated. The familiar four are <code>bold</code>, <code>italic</code>,
+    <code>size</code> and <code>name</code>, plus <code>underline</code> (which accepts
+    <code>True</code>/<code>False</code> or an <code>MSO_UNDERLINE</code> member for wavy, dotted
+    and double variants) and <code>color</code>. Reads are non-mutating: touching
+    <code>font.color</code> without assigning will not insert an empty fill and clobber theme
+    inheritance. <code>font.fill</code> exposes the full <code>FillFormat</code> underneath, for
+    gradient or pattern glyphs.
+  </p>
+  <Code code={snippet7} />
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Writes</th><th>Use for</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>all_caps</code></td><td>tri-state bool</td><td><code>cap="all"</code></td><td>Eyebrows, section labels, small nav text — without shouting in your source strings</td></tr>
+      <tr><td><code>small_caps</code></td><td>tri-state bool</td><td><code>cap="small"</code></td><td>Editorial lead-ins and acronyms. Shares one attribute with <code>all_caps</code>, so they are mutually exclusive</td></tr>
+      <tr><td><code>strikethrough</code></td><td>tri-state bool</td><td><code>strike="sngStrike"</code></td><td>Was-now pricing, superseded figures, changelog entries</td></tr>
+      <tr><td><code>superscript</code></td><td>tri-state bool</td><td><code>baseline="30%"</code></td><td>Footnote markers, units, ordinals</td></tr>
+      <tr><td><code>subscript</code></td><td>tri-state bool</td><td><code>baseline="-25%"</code></td><td>Chemical and mathematical notation. Shares <code>baseline</code> with <code>superscript</code></td></tr>
+      <tr><td><code>outline</code></td><td><code>LineFormat</code></td><td><code>a:ln</code> on the run</td><td>Stroked display type over imagery; set <code>.color</code> and <code>.width</code></td></tr>
+      <tr><td><code>letter_spacing</code></td><td><code>Length</code></td><td><code>spc</code></td><td>Tracking. A little positive spacing is what makes an all-caps eyebrow read as designed; negative tightens headlines</td></tr>
+      <tr><td><code>language_id</code></td><td><code>MSO_LANGUAGE_ID</code></td><td><code>lang</code></td><td>Telling PowerPoint which dictionary to spell-check a run against</td></tr>
+    </tbody>
+  </table>
+  <Code code={snippet8} />
+  <p>
+    Everything above is tri-state in the same way <code>bold</code> is: <code>None</code> means
+    "inherit", and it is the default. Setting <code>False</code> is <em>not</em> the same as
+    <code>None</code> — it writes an explicit negative override (<code>cap="none"</code>,
+    <code>strike="noStrike"</code>) that beats the theme. Two exceptions worth knowing:
+    <code>superscript</code> and <code>subscript</code> only clear the shared
+    <code>baseline</code> attribute when the run is actually in that state, so turning one off
+    cannot silently cancel the other; and <code>language_id</code> reads back as
+    <code>MSO_LANGUAGE_ID.NONE</code> rather than Python's <code>None</code> when unset.
+  </p>
+  <p>
+    Glyph <code>shadow</code> and <code>glow</code> live on <code>font</code> too, mirroring the
+    shape-level effects — see <a href={withBase("/advanced/effects")}>Effects &amp; Gradients</a>.
+  </p>
+
+  <h2 id="hyperlinks">Hyperlinks</h2>
+  <p>
+    Hyperlinks are a run-level property, which is why link text usually wants to be its own run:
+    split the sentence so only the clickable words carry the link, and style that run yourself —
+    PowerPoint does not colour or underline it for you.
+  </p>
+  <Code code={snippet9} />
+  <p>
+    <code>hyperlink.address</code> handles add, change and remove in one setter: assigning a URL
+    replaces any existing link, assigning <code>None</code> removes it and drops the underlying
+    relationship. <code>http</code>, <code>https</code>, <code>mailto</code> and
+    <code>file</code> schemes all work.
+  </p>
+  <p>
+    <code>hyperlink.target_slide</code> is the internal counterpart, writing a slide-jump action
+    instead of a URI — the mechanism behind agenda slides, "back to contents" affordances and
+    appendix links. Assign a <code>Slide</code>; read it back to get that slide, or
+    <code>None</code> when the run has no link or an external one. One asymmetry to know:
+    for an internal jump, <code>address</code> does not return <code>None</code>, it returns the
+    relationship's target part name (<code>"slide2.xml"</code>). Test with
+    <code>target_slide</code>, not with <code>address</code>, when you need to tell the two apart.
+  </p>
+
+  <h2 id="pitfalls">Pitfalls</h2>
+  <p>
+    <code>tf.paragraphs</code> and <code>p.runs</code> build <strong>fresh wrapper objects</strong>
+    on every access. They are views onto the XML, not cached objects, so identity comparison
+    always fails and so does equality:
+  </p>
+  <Code code={snippet10} />
+  <p>
+    The wrappers are cheap and always current, so re-indexing is correct — it is only
+    <em>comparison</em> that misleads. The related trap is rebuilding text you meant to restyle:
+    assigning <code>tf.text</code> or <code>p.text</code> discards the existing runs and every
+    font property on them. <code>shape.set_text_preserving_format(new_text)</code> is the one to
+    reach for when a template already carries the styling and you only want to swap the string.
+  </p>
+  <p>
+    Finally, remember that the font you <em>name</em> and the font your machine <em>has</em> are
+    different questions. <code>fit_text</code> measures with real metrics only when the family is
+    installed — see
+    <a href={withBase("/advanced/space-aware-authoring")}>Space-Aware Authoring</a> for
+    <code>font_is_installed()</code> and the <code>strict=True</code> gate.
+  </p>
+</DocsLayout>
