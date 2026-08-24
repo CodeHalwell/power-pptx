@@ -31,6 +31,11 @@ Linter
    :show-inheritance:
 
 
+.. autoclass:: LayerOrderViolation
+   :members:
+   :show-inheritance:
+
+
 .. autoclass:: LintSeverity
    :members:
    :undoc-members:

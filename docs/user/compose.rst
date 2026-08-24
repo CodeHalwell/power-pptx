@@ -37,6 +37,90 @@ shapes before construction (no JSON Schema is involved)::
 Layout names map either to Phase-9 design recipes (where supplied) or to
 a small built-in set of layouts using the host presentation's master.
 
+The ``"lint"`` field accepts ``"off"`` (the default), ``"warn"``, or
+``"raise"``, and acts only on error-severity issues.  Decks that were not
+built from a spec get the same gate from ``prs.lint_on_save`` — see
+:ref:`lint-on-save`.
+
+.. _spec-shapes:
+
+Free-standing shapes on a spec slide
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Layouts and recipes place their own shapes.  When you need something a
+layout doesn't provide, a slide entry may carry a ``"shapes"`` list,
+applied *after* the layout runs::
+
+    prs = from_spec({
+        "slides": [
+            {"layout": "blank",
+             "shapes": [
+                {"name": "card", "shape": "rounded_rectangle",
+                 "left": 1, "top": 1.4, "width": 4, "height": 2,
+                 "layer": "card"},
+                {"name": "badge", "shape": "oval", "text": "NEW",
+                 "left": 4.4, "top": 1.0, "width": 1.2, "height": 0.8,
+                 "layer_above": "card"},
+             ]},
+        ],
+    })
+
+Entry keys:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - Meaning
+   * - ``left`` / ``top`` / ``width`` / ``height``
+     - **Required.**  Plain numbers are inches (matching ``slide_size``);
+       pass a :class:`~power_pptx.util.Length` such as ``Inches(1.5)`` to
+       opt out.
+   * - ``name``
+     - The shape's name, which doubles as the handle
+       ``allow_overlap_with`` resolves against.  Must be unique within
+       the slide.
+   * - ``shape``
+     - An ``MSO_SHAPE`` member name, case- and separator-insensitive
+       (``"rounded_rectangle"``, ``"Rounded Rectangle"`` and
+       ``"ROUNDED-RECTANGLE"`` all land on the same member).  Defaults to
+       ``"textbox"``, which adds a plain text box.
+   * - ``text``
+     - Text for the shape's text frame.
+   * - ``lint_group`` / ``layer`` / ``layer_above`` / ``allow_overlap_with``
+     - The linter's intent declarations — see below.
+
+Unknown keys are rejected with a did-you-mean hint rather than silently
+ignored, and every error names the offending entry as
+``slides[i].shapes[j]``.  This is deliberately minimal — geometry, type,
+text, intent.  It is not a drawing DSL; reach for the Python API when you
+need fills, effects, or anything structural.
+
+Declaring intentional overlaps in a spec
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This is what makes the ``"shapes"`` list more than a convenience: a
+generator — an LLM, most usefully — can declare *at generation time* that
+an overlap is deliberate, so the deck it emits lints clean with no manual
+tagging pass afterwards.  All three mechanisms from :ref:`lint-groups`
+are spec-level fields::
+
+    {"name": "badge", ..., "lint_group": "kpi-1"}            # n-ary tag
+    {"name": "badge", ..., "allow_overlap_with": "card"}     # one pair
+    {"name": "badge", ..., "allow_overlap_with": ["card", "rule"]}
+    {"name": "card",  ..., "layer": "card"}                  # asserts z-order
+    {"name": "badge", ..., "layer_above": "card"}
+
+``allow_overlap_with`` names other shapes by their spec ``name``, not by
+shape id — ids don't exist until the deck is built.  Resolution happens
+in a second pass, after every shape on the slide exists, so a **forward
+reference works**: naming a shape defined later in the same list is fine.
+
+Names must be unique within a slide, and a reference may not cross
+slides: an allowance is keyed on shape id, and ids are only unique per
+slide.  Both mistakes raise :class:`ValueError` locating the bad entry.
+
 Cross-presentation operations
 -----------------------------
 

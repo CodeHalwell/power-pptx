@@ -6,7 +6,19 @@ const s0 = `from power_pptx import Presentation
 from power_pptx.compose import from_spec
 
 spec = {
-    "slides": [{"layout": "title", "title": "Q4 Review"}],
+    "slides": [
+        {"layout": "title", "title": "Q4 Review"},
+        # free-standing shapes, applied after the layout runs
+        {"layout": "blank", "shapes": [
+            {"name": "card", "shape": "rounded_rectangle",
+             "left": 1, "top": 1.4, "width": 4, "height": 2,   # inches
+             "layer": "card"},
+            {"name": "badge", "shape": "oval", "text": "NEW",
+             "left": 4.4, "top": 1.0, "width": 1.2, "height": 0.8,
+             "layer_above": "card",              # asserts z-order
+             "allow_overlap_with": "card"},      # by spec name; may point forward
+        ]},
+    ],
     "lint": "raise",                          # raise | warn | off
 }
 prs = from_spec(spec)
@@ -18,18 +30,34 @@ prs.apply_template("corporate.potx")          # masters, layouts, theme`;
 const s1 = `slide = prs.slides[0]
 report = slide.lint()                # SlideLintReport
 report.issues                        # list[LintIssue]
-report.auto_fix()                    # mutates: nudges OffSlide back in
+report.auto_fix()                    # mutates: OffSlide, TextOverflow,
+                                     # OffGridDrift, LayerOrderViolation
 slide.tidy()                         # one-call lint + safe fixes
+slide.tidy(fix_grid_drift=True,      # per-fix opt in / out
+           fix_layer_order=False)
 
 from power_pptx.lint import (
     LintSeverity, LintIssue,
     TextOverflow, OffSlide, OffSlideShadow,
     ShapeCollision, ShapeCollisionShadow,
     MinFontSize, OffGridDrift, LowContrast,
-    ZOrderAnomaly, MasterPlaceholderCollision,
+    ZOrderAnomaly, LayerOrderViolation,
+    MasterPlaceholderCollision,
 )
 
-errors = [i for i in report.issues if i.severity is LintSeverity.ERROR]`;
+errors = [i for i in report.issues if i.severity is LintSeverity.ERROR]
+
+# Declaring an intentional overlap, widest to narrowest
+slide.lint_group("kpi-1", card, accent_bar, value_box)  # n-ary, symmetric
+badge.allow_overlap_with(card)       # exactly one pair
+badge.disallow_overlap_with(card)    # revoke
+badge.overlap_allowances             # frozenset[int] of shape ids
+card.layer = "card"                  # directional - asserts z-order
+badge.layer_above = "card"           # contradicted => LayerOrderViolation
+
+# Save-time gate on any deck, spec-built or not
+prs.lint_on_save = "raise"           # off (default) | warn | raise
+prs.save("out.pptx")                 # LintError, and nothing written`;
 
 const s2 = `prs.render_thumbnails(out_dir="thumbs")
 
