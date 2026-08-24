@@ -1,6 +1,7 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx import Presentation
 from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR
@@ -9,82 +10,313 @@ from power_pptx.util import Inches
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+
+shape.has_text_frame                # False for pictures, connectors, ...
 tf = shape.text_frame
 
-tf.text = "Line one\\nLine two"     # \\n → paragraph breaks
+tf.text = "Line one\\nLine two"      # \\n -> paragraph, \\v -> line break
 tf.word_wrap = True
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
-tf.margin_left, tf.margin_right    # also margin_top / margin_bottom
 tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+tf.margin_left = Inches(0.1)        # also margin_right / _top / _bottom
+tf.column_count = 2                 # 1..16
+tf.column_spacing = Inches(0.25)
 
-tf.paragraphs                      # sequence of _Paragraph (fresh objects!)
-tf.fit_text(font_family="Inter", max_size=24)   # fork`;
+tf.paragraphs                       # tuple[_Paragraph, ...] - fresh objects!
+tf.add_paragraph()                  # -> _Paragraph, appended
+tf.clear()                          # all paragraphs but one empty one`;
 
-const s1 = `from power_pptx.enum.text import PP_ALIGN
-from power_pptx.util import Pt
+const s1 = `TextFrame.set_paragraph_defaults(
+    *,
+    font_name: str | None = None,
+    size: Length | None = None,
+    bold: bool | None = None,
+    italic: bool | None = None,
+    color: object | None = None,     # RGBColor | "#RRGGBB" | (r, g, b)
+) -> None`;
+
+const s2 = `from power_pptx.util import Pt
+
+tf.text = "Total contract value\\nUp 27% QoQ\\nChurn below 2%"
+tf.paragraphs[0].runs[0].font.bold = True      # explicit, must survive
+
+tf.set_paragraph_defaults(font_name="Inter", size=Pt(14), color="#222222")
+
+[(p.runs[0].font.size.pt, p.runs[0].font.bold) for p in tf.paragraphs]
+# [(14.0, True), (14.0, None), (14.0, None)]`;
+
+const s3 = `from power_pptx.enum.text import PP_ALIGN
+from power_pptx.util import Inches, Pt
 
 p = tf.paragraphs[0]
-p.text = "Hello"                   # replaces runs
-p.alignment = PP_ALIGN.CENTER
-p.level = 1                        # indent level 0..8
-p.line_spacing = 1.2               # float (multiple) or Pt
-p.space_before, p.space_after      # Pt
-p.runs                             # sequence of _Run
+p.text = "Hello"                   # replaces all runs with one
+p.alignment = PP_ALIGN.CENTER      # None inherits
+p.level = 1                        # indent level, int 0..8
+p.line_spacing = 1.2               # float (multiple) or Length
+p.space_before = Pt(6)
+p.space_after = Pt(6)
+p.rtl = True                       # right-to-left; tri-state
+p.font                             # Font for a:defRPr - run defaults
+p.runs                             # tuple[_Run, ...]
+
+p.add_line_break()                 # soft return, reads back as "\\v"
+p.clear()                          # drop content, keep paragraph properties
+
+p.set_numbered("romanLcPeriod", start_at=3)   # auto-numbered list
+p.start_at                         # 3 (None = no explicit start)
+
+p.tab_stops.add_tab_stop(Inches(3.0), "right")
+len(p.tab_stops), p.tab_stops[0].position, p.tab_stops[0].alignment`;
+
+const s4 = `from power_pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx.enum.lang import MSO_LANGUAGE_ID
+from power_pptx.util import Pt
 
 r = p.add_run()
 r.text = " world"
-r.font.size = Pt(18)
-r.font.bold = True
-r.font.italic = False
-r.font.name = "Inter"
-r.font.color.rgb = "#0B5CFF"       # hex / tuple / RGBColor
-r.font.underline = True
-r.hyperlink.address = "https://example.com"`;
 
-const s2 = `from power_pptx.text.layout import TextFitter
+f = r.font                         # also p.font (paragraph-level defaults)
+f.name = "Inter"
+f.size = Pt(18)                    # Length; read back with .pt
+f.bold = True
+f.italic = False
+f.underline = True                 # or an MSO_UNDERLINE member
+f.color.rgb = "#0B5CFF"            # hex / tuple / RGBColor
+f.color.theme_color = MSO_THEME_COLOR.ACCENT_1     # ... or a theme colour
+f.fill                             # full FillFormat (gradient, pattern)
 
-# The engine behind fit_text: measure once, style yourself
+f.all_caps = True                  # cap="all"
+f.small_caps = True                # shares cap=, so this replaces all_caps
+f.strikethrough = True             # strike="sngStrike"
+f.superscript = True               # baseline=30%
+f.subscript = True                 # baseline=-25%, and replaces superscript
+f.letter_spacing = Pt(1.5)         # tracking; negative tightens
+f.language_id = MSO_LANGUAGE_ID.FRENCH
+f.caps                             # raw accessor: "none" | "small" | "all"
+
+f.outline.color.rgb = "FF0000"     # LineFormat over the glyphs
+f.outline.width = Pt(1)
+f.shadow.blur_radius = Pt(3)       # ShadowFormat
+f.glow.radius = Pt(6)              # GlowFormat`;
+
+const s5 = `link = p.add_run()
+link.text = "read the appendix"
+link.hyperlink.address = "https://example.com"   # http/https/mailto/file
+link.hyperlink.address = None                    # remove, drop the rel
+
+jump = p.add_run()
+jump.text = "Go to the detail slide"
+jump.hyperlink.target_slide = prs.slides[3]      # internal slide jump
+jump.hyperlink.target_slide                      # Slide, or None if external`;
+
+const s6 = `TextFrame.fit_text(
+    font_family: str | None = None,   # None -> "Calibri"
+    max_size: int = 18,
+    bold: bool = False,
+    italic: bool = False,
+    font_file: str | None = None,     # pin the metrics to a .ttf
+    strict: bool = False,             # raise instead of estimating
+) -> int | None                       # applied point size, None if empty`;
+
+const s7 = `from power_pptx.text.layout import TextFitter
+from power_pptx.util import Inches, Pt
+
+# The engine behind fit_text: measure once, style it yourself
 best_pt = TextFitter.best_fit_font_size(
     text="Q4 2026 Customer Outcomes Review",
     extents=(Inches(8), Inches(1.5)),   # available (width, height)
     max_size=44,
-    font_file=None,        # a .ttf path pins the metrics; None = bundled font
+    font_file=None,        # a .ttf path pins the metrics; None = Pillow default
+)                          # -> int, or None when even 1pt overflows
+
+if best_pt is not None:
+    tf.paragraphs[0].runs[0].font.size = Pt(best_pt)`;
+
+const s8 = `from power_pptx.text.fonts import (
+    find_font_file, font_is_installed, installed_font_families,
 )
 
-# fit_text accepts the same font_file to measure with a specific face
-tf.fit_text(font_family="Inter", max_size=24, font_file=None)`;
+font_is_installed("Inter")                    # -> bool
+font_is_installed("Inter", bold=True)         # per style, not per family
+find_font_file("Inter", bold=True)            # -> str path, or None
+installed_font_families()                     # -> tuple[str, ...], sorted`;
+
+const s9 = `import warnings
+from power_pptx.exc import FontMetricsWarning
+
+# Fail the build rather than ship a guessed size
+warnings.simplefilter("error", FontMetricsWarning)`;
 ---
 
 <DocsLayout
   title="API: Text"
-  description="TextFrame, _Paragraph, _Run, Font, fit_text and the TextFitter measurement engine."
+  description="TextFrame, _Paragraph, TabStops, _Run, Font, _Hyperlink, fit_text, TextFitter and the font-lookup helpers."
 >
+  <p class="lead">
+    Signature reference for the text stack. The prose, motivation and worked patterns live on
+    <a href={withBase("/advanced/text-and-typography")}>Text &amp; Typography</a>; measurement and
+    the fit guarantee are covered under
+    <a href={withBase("/advanced/space-aware-authoring")}>Space-Aware Authoring</a>.
+  </p>
+  <p>
+    Text nests three levels deep: <code>shape.text_frame</code> →
+    <code>TextFrame.paragraphs</code> → <code>_Paragraph.runs</code>. Only runs hold characters;
+    only a run's <code>Font</code> is character-level formatting. Classes with a leading
+    underscore are never constructed directly — you always reach them from a shape.
+  </p>
+
   <h2 id="textframe"><code>TextFrame</code></h2>
   <Code code={s0} />
+  <table>
+    <thead><tr><th>Member</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>text</code></td><td><code>str</code></td><td>Read/write. Paragraphs joined by <code>"\n"</code>, line breaks as <code>"\v"</code>. Assignment replaces everything</td></tr>
+      <tr><td><code>paragraphs</code></td><td><code>tuple[_Paragraph, ...]</code></td><td>Read-only; always at least one. New wrapper objects on every access</td></tr>
+      <tr><td><code>word_wrap</code></td><td><code>bool | None</code></td><td><code>None</code> inherits from the style hierarchy</td></tr>
+      <tr><td><code>auto_size</code></td><td><code>MSO_AUTO_SIZE | None</code></td><td><code>NONE</code>, <code>SHAPE_TO_FIT_TEXT</code>, <code>TEXT_TO_FIT_SHAPE</code></td></tr>
+      <tr><td><code>vertical_anchor</code></td><td><code>MSO_VERTICAL_ANCHOR | None</code></td><td><code>TOP</code> / <code>MIDDLE</code> / <code>BOTTOM</code></td></tr>
+      <tr><td><code>margin_left</code>, <code>margin_right</code>, <code>margin_top</code>, <code>margin_bottom</code></td><td><code>Length</code></td><td>Text insets; default 0.1" left/right, 0.05" top/bottom</td></tr>
+      <tr><td><code>column_count</code></td><td><code>int</code></td><td>1..16, else <code>ValueError</code>. Reads <code>1</code> when unset; assigning <code>1</code> removes the attribute</td></tr>
+      <tr><td><code>column_spacing</code></td><td><code>Length | None</code></td><td>Gutter between columns</td></tr>
+      <tr><td><code>add_paragraph()</code></td><td><code>_Paragraph</code></td><td>Appends and returns a new empty paragraph</td></tr>
+      <tr><td><code>clear()</code></td><td><code>None</code></td><td>Removes all paragraphs but one, and empties it</td></tr>
+      <tr><td><code>fit_text(...)</code></td><td><code>int | None</code></td><td>See <a href="#fit">below</a></td></tr>
+      <tr><td><code>set_paragraph_defaults(...)</code></td><td><code>None</code></td><td>See <a href="#defaults">below</a></td></tr>
+    </tbody>
+  </table>
 
-  <h2 id="paragraphs">Paragraphs, runs, fonts</h2>
-  <p>
-    <strong>Important:</strong> <code>tf.paragraphs</code> and <code>p.runs</code> return
-    <em>fresh wrapper objects</em> on every access — never compare them with <code>is</code>. For
-    replace-text-keep-formatting use <code>shape.set_text_preserving_format(new_text)</code>.
-  </p>
+  <h2 id="defaults"><code>set_paragraph_defaults</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s1} />
-
-  <h2 id="fit"><code>fit_text</code> and <code>TextFitter</code> <strong class="text-primary">fork</strong></h2>
   <p>
-    <code>fit_text</code> measures the actual string with Pillow font metrics and writes the
-    largest size that fits into the XML before save.
+    Keyword-only. Applies each supplied property to every paragraph's <code>a:defRPr</code> and to
+    every run inside it, <strong>only where that property is currently unset</strong> — explicit
+    per-run formatting is preserved verbatim. A run carrying any explicit colour (RGB, theme,
+    preset or system) is skipped by <code>color</code>. Operates on the paragraphs that exist at
+    call time, so run it after the text is in place.
   </p>
   <Code code={s2} />
 
+  <h2 id="paragraph"><code>_Paragraph</code></h2>
+  <Code code={s3} />
+  <table>
+    <thead><tr><th>Member</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>text</code></td><td><code>str</code></td><td>Read/write. Assignment replaces all runs with a single run</td></tr>
+      <tr><td><code>runs</code></td><td><code>tuple[_Run, ...]</code></td><td>Fresh wrapper objects on every access</td></tr>
+      <tr><td><code>font</code></td><td><code>Font</code></td><td>The paragraph's <code>a:defRPr</code> — defaults its runs inherit</td></tr>
+      <tr><td><code>alignment</code></td><td><code>PP_ALIGN | None</code></td><td>Horizontal; <code>None</code> inherits</td></tr>
+      <tr><td><code>level</code></td><td><code>int</code></td><td>Indent / outline level, 0..8. Bullet glyph and indent come from the master's list style for that level</td></tr>
+      <tr><td><code>line_spacing</code></td><td><code>int | float | Length | None</code></td><td>A number is a multiple of single spacing; a <code>Length</code> is exact</td></tr>
+      <tr><td><code>space_before</code>, <code>space_after</code></td><td><code>Length | None</code></td><td>Space above / below the paragraph</td></tr>
+      <tr><td><code>rtl</code></td><td><code>bool | None</code></td><td>Right-to-left layout direction; tri-state</td></tr>
+      <tr><td><code>start_at</code></td><td><code>int | None</code></td><td>First number of an auto-numbered list. <code>None</code> both when not numbered and when starting at 1. Assigning an int to a non-numbered paragraph makes it <code>"arabicPeriod"</code></td></tr>
+      <tr><td><code>set_numbered(scheme="arabicPeriod", start_at=None)</code></td><td><code>None</code></td><td>Replaces any existing bullet. Schemes include <code>"arabicPeriod"</code>, <code>"arabicParenR"</code>, <code>"romanLcPeriod"</code>, <code>"alphaUcParenR"</code></td></tr>
+      <tr><td><code>tab_stops</code></td><td><code>TabStops</code></td><td>See <a href="#tabstops">below</a></td></tr>
+      <tr><td><code>add_run()</code></td><td><code>_Run</code></td><td>Appends and returns a new run</td></tr>
+      <tr><td><code>add_line_break()</code></td><td><code>None</code></td><td>Soft return inside the paragraph — one bullet, one spacing</td></tr>
+      <tr><td><code>clear()</code></td><td><code>_Paragraph</code></td><td>Removes runs, breaks and fields; paragraph properties survive</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="tabstops"><code>TabStops</code> and <code>TabStop</code></h2>
+  <ul>
+    <li><code>TabStops</code> — sequence over <code>a:tabLst</code>: <code>__len__</code>, <code>__iter__</code>, <code>__getitem__</code></li>
+    <li><code>TabStops.add_tab_stop(position: Length, alignment: str = "left") -&gt; TabStop</code> — <code>"left"</code>, <code>"center"</code>, <code>"right"</code> or <code>"decimal"</code></li>
+    <li><code>TabStop.position</code> — <code>Length | None</code>, read/write</li>
+    <li><code>TabStop.alignment</code> — <code>str</code>, read/write</li>
+  </ul>
+
+  <h2 id="run"><code>_Run</code> and <code>Font</code></h2>
+  <p>
+    <code>_Run</code> has exactly three members: <code>text</code> (<code>str</code>, read/write),
+    <code>font</code> (<code>Font</code>) and <code>hyperlink</code> (<code>_Hyperlink</code>).
+    Everything else is on the font.
+  </p>
+  <Code code={s4} />
+  <table>
+    <thead><tr><th>Property</th><th>Type</th><th>XML</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>name</code></td><td><code>str | None</code></td><td><code>a:latin/@typeface</code></td><td><code>None</code> = inherit the theme typeface</td></tr>
+      <tr><td><code>size</code></td><td><code>Length | None</code></td><td><code>sz</code></td><td>Assign <code>Pt(n)</code>; read back <code>.pt</code></td></tr>
+      <tr><td><code>bold</code>, <code>italic</code></td><td><code>bool | None</code></td><td><code>b</code>, <code>i</code></td><td>Tri-state</td></tr>
+      <tr><td><code>underline</code></td><td><code>bool | MSO_TEXT_UNDERLINE_TYPE | None</code></td><td><code>u</code></td><td><code>True</code> = single. Reads back <code>True</code>/<code>False</code> for single/none, else the enum member</td></tr>
+      <tr><td><code>color</code></td><td><code>ColorFormat</code></td><td><code>a:solidFill</code></td><td>Non-mutating reads — nothing is written until you assign</td></tr>
+      <tr><td><code>fill</code></td><td><code>FillFormat</code></td><td>fill group</td><td>The full fill surface behind <code>color</code></td></tr>
+      <tr><td><code>all_caps</code></td><td><code>bool | None</code></td><td><code>cap="all"</code></td><td rowspan="2">One <code>cap</code> attribute, so mutually exclusive. <code>False</code> writes <code>cap="none"</code></td></tr>
+      <tr><td><code>small_caps</code></td><td><code>bool | None</code></td><td><code>cap="small"</code></td></tr>
+      <tr><td><code>caps</code></td><td><code>str | None</code></td><td><code>cap</code></td><td>Raw accessor: <code>"none"</code> / <code>"small"</code> / <code>"all"</code></td></tr>
+      <tr><td><code>strikethrough</code></td><td><code>bool | None</code></td><td><code>strike</code></td><td><code>True</code> writes <code>sngStrike</code>; reads <code>True</code> for either strike variant</td></tr>
+      <tr><td><code>superscript</code></td><td><code>bool | None</code></td><td><code>baseline</code> &gt; 0</td><td rowspan="2">One <code>baseline</code> attribute. <code>True</code> = +30% / -25%. Clearing one never cancels the other</td></tr>
+      <tr><td><code>subscript</code></td><td><code>bool | None</code></td><td><code>baseline</code> &lt; 0</td></tr>
+      <tr><td><code>letter_spacing</code></td><td><code>Length | None</code></td><td><code>spc</code></td><td>Tracking; negative tightens</td></tr>
+      <tr><td><code>language_id</code></td><td><code>MSO_LANGUAGE_ID | None</code></td><td><code>lang</code></td><td>Reads back <code>MSO_LANGUAGE_ID.NONE</code> — not Python <code>None</code> — when unset</td></tr>
+      <tr><td><code>outline</code></td><td><code>LineFormat</code></td><td><code>a:ln</code></td><td>Glyph stroke: <code>.color</code>, <code>.width</code></td></tr>
+      <tr><td><code>shadow</code></td><td><code>ShadowFormat</code></td><td><code>a:effectLst</code></td><td rowspan="2">Lazy — no effect XML until assigned</td></tr>
+      <tr><td><code>glow</code></td><td><code>GlowFormat</code></td><td><code>a:effectLst</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="hyperlink"><code>_Hyperlink</code></h2>
+  <Code code={s5} />
+  <ul>
+    <li>
+      <code>address</code> — <code>str | None</code>. One setter for add, change and remove;
+      assigning <code>None</code> deletes the <code>a:hlinkClick</code> and drops the
+      relationship. For a run holding an <em>internal</em> jump this reads back as the target
+      part name (e.g. <code>"slide2.xml"</code>), not <code>None</code>.
+    </li>
+    <li>
+      <code>target_slide</code> — <code>Slide | None</code>. Writes a
+      <code>ppaction://hlinksldjump</code> action. Returns <code>None</code> when there is no
+      hyperlink or when it is external, so this — not <code>address</code> — is the correct test
+      for "is this an internal link".
+    </li>
+  </ul>
+
+  <h2 id="fit"><code>fit_text</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s6} />
+  <p>
+    Measures the frame's actual string with Pillow font metrics and writes the largest integer
+    point size that fits into the XML before save. Also sets <code>word_wrap = True</code> and
+    <code>auto_size = MSO_AUTO_SIZE.NONE</code>, and applies the family, size, bold and italic to
+    every run in the frame. Returns the applied size, or <code>None</code> when the frame is
+    empty. Raises <code>ValueError</code> when the text does not fit at any size down to 1pt.
+  </p>
+  <p>
+    When <code>font_file</code> is <code>None</code> the installed file for <code>font_family</code>
+    is looked up. If neither is found, measurement falls back to Pillow's bundled default face and
+    the result is an estimate: naming a family that is not installed emits
+    <code>power_pptx.exc.FontMetricsWarning</code>, and <code>strict=True</code> raises
+    <code>ValueError</code> instead. Omitting <code>font_family</code> entirely does not warn.
+  </p>
+  <Code code={s7} />
+
+  <h2 id="fonts"><code>power_pptx.text.fonts</code></h2>
+  <Code code={s8} />
+  <ul>
+    <li><code>font_is_installed(family_name, bold=False, italic=False) -&gt; bool</code></li>
+    <li><code>find_font_file(family_name, bold=False, italic=False) -&gt; str | None</code> — the non-raising form of <code>FontFiles.find</code></li>
+    <li><code>installed_font_families() -&gt; tuple[str, ...]</code> — sorted; files with no family name are skipped</li>
+    <li><code>FontFiles.find(family_name, is_bold, is_italic) -&gt; str</code> — raises <code>KeyError</code> when not installed</li>
+  </ul>
+  <p>
+    The scan walks the conventional font directories for the platform and is cached on the class
+    after the first call. Style matters: <code>font_is_installed("Inter")</code> can be
+    <code>True</code> while <code>font_is_installed("Inter", bold=True)</code> is
+    <code>False</code>.
+  </p>
+  <Code code={s9} />
+
   <h2 id="enums">Text enumerations</h2>
   <table>
-    <thead><tr><th>Enum</th><th>Members (selection)</th></tr></thead>
+    <thead><tr><th>Enum</th><th>Import from</th><th>Members (selection)</th></tr></thead>
     <tbody>
-      <tr><td><code>MSO_AUTO_SIZE</code></td><td><code>NONE</code>, <code>SHAPE_TO_FIT_TEXT</code>, <code>TEXT_TO_FIT_SHAPE</code></td></tr>
-      <tr><td><code>PP_ALIGN</code></td><td><code>LEFT</code>, <code>CENTER</code>, <code>RIGHT</code>, <code>JUSTIFY</code>, …</td></tr>
-      <tr><td><code>MSO_VERTICAL_ANCHOR</code> (alias <code>MSO_ANCHOR</code>)</td><td><code>TOP</code>, <code>MIDDLE</code>, <code>BOTTOM</code></td></tr>
-      <tr><td><code>MSO_UNDERLINE</code></td><td><code>NONE</code>, <code>SINGLE</code>, <code>DOUBLE</code>, …</td></tr>
+      <tr><td><code>MSO_AUTO_SIZE</code></td><td><code>power_pptx.enum.text</code></td><td><code>NONE</code>, <code>SHAPE_TO_FIT_TEXT</code>, <code>TEXT_TO_FIT_SHAPE</code></td></tr>
+      <tr><td><code>PP_ALIGN</code></td><td><code>power_pptx.enum.text</code></td><td><code>LEFT</code>, <code>CENTER</code>, <code>RIGHT</code>, <code>JUSTIFY</code>, …</td></tr>
+      <tr><td><code>MSO_VERTICAL_ANCHOR</code> (alias <code>MSO_ANCHOR</code>)</td><td><code>power_pptx.enum.text</code></td><td><code>TOP</code>, <code>MIDDLE</code>, <code>BOTTOM</code></td></tr>
+      <tr><td><code>MSO_UNDERLINE</code></td><td><code>power_pptx.enum.text</code></td><td><code>NONE</code>, <code>SINGLE_LINE</code>, <code>DOUBLE_LINE</code>, <code>WAVY_LINE</code>, …</td></tr>
+      <tr><td><code>MSO_LANGUAGE_ID</code></td><td><code>power_pptx.enum.lang</code></td><td><code>NONE</code>, <code>ENGLISH_US</code>, <code>FRENCH</code>, <code>JAPANESE</code>, …</td></tr>
+      <tr><td><code>MSO_THEME_COLOR</code></td><td><code>power_pptx.enum.dml</code></td><td><code>ACCENT_1</code> … <code>ACCENT_6</code>, <code>DARK_1</code>, <code>LIGHT_1</code>, …</td></tr>
     </tbody>
   </table>
 </DocsLayout>

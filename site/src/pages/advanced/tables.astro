@@ -1,0 +1,377 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+const snippet0 = `from power_pptx import Presentation, BBox
+from power_pptx.util import Inches, Pt
+
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+
+frame = slide.shapes.add_table(5, 4, *BBox.from_inches(0.6, 1.2, 8.8, 3.0))
+table = frame.table          # the GraphicFrame is the shape; .table is the grid
+
+frame.has_table              # True`;
+
+const snippet1 = `HEADERS = ["Metric", "Q3", "Q4", "Δ QoQ"]
+ROWS = [
+    ("ARR",           "$164M", "$182M", "+11%"),
+    ("Net retention", "128%",  "131%",  "+3 pts"),
+    ("CAC payback",   "9 mo",  "8 mo",  "−1 mo"),
+    ("Gross margin",  "77%",   "79%",   "+2 pts"),
+]
+
+for c, label in enumerate(HEADERS):
+    table.cell(0, c).text = label
+
+for r, row in enumerate(ROWS, start=1):
+    for c, value in enumerate(row):
+        table.cell(r, c).text = value
+
+# One flat walk over the grid, left-to-right then top-to-bottom
+for cell in table.iter_cells():
+    cell.margin_left = Inches(0.12)
+    cell.margin_right = Inches(0.12)`;
+
+const snippet2 = `table.columns[0].width = Inches(3.4)
+for c in (1, 2, 3):
+    table.columns[c].width = Inches(1.8)
+
+table.rows[0].height = Inches(0.55)               # header
+for r in range(1, len(table.rows)):
+    table.rows[r].height = Inches(0.45)
+
+frame.width.inches    # 8.8 — recomputed from the column widths
+frame.height.inches   # 2.35 — recomputed from the row heights`;
+
+const snippet3 = `table.first_row = True        # emphasise the header row
+table.last_row = False        # ... and a totals row, if you have one
+table.first_col = True        # emphasise the leading label column
+table.last_col = False
+
+table.horz_banding = True     # alternating row shading
+table.vert_banding = False    # alternating column shading
+
+table.banded_rows             # alias for horz_banding
+table.banded_cols             # alias for vert_banding`;
+
+const snippet4 = `from power_pptx.table_styles import TABLE_STYLES
+
+table.style                                    # 'Medium Style 2 - Accent 1' on a new table
+table.style = "Light Style 2 - Accent 1"       # friendly name
+table.style = "{5940675A-B579-460E-94D1-54222C63F5DA}"   # or a raw GUID
+table.style                                    # -> 'Table Grid'
+
+sorted(TABLE_STYLES)          # 75 names over the 74 built-in styles`;
+
+const snippet5 = `table.style = "Mediumm Style 2"
+# ValueError: 'Mediumm Style 2' is not a known built-in table style name.
+#   Did you mean: 'Medium Style 2', 'Medium Style 4', 'Medium Style 3'? ...`;
+
+const snippet6 = `frame = slide.shapes.add_table(
+    5, 4, *BBox.from_inches(0.6, 1.2, 8.8, 3.0),
+    style="clean",          # every inherited style *flag* off
+)
+table = frame.table
+table.clear_style()         # ... and the style itself detached`;
+
+const snippet7 = `table.cell(0, 0).format(
+    fill="#1F2937",         # hex, (r, g, b), RGBColor — or "none" for transparent
+    color="#FFFFFF",        # text colour
+    font="Inter",
+    size_pt=12,
+    bold=True,
+    align="center",         # left / center / right / justify
+    anchor="middle",        # top / middle / bottom
+    margin=(2, 8, 2, 8),    # points: a scalar, or (top, right, bottom, left)
+)`;
+
+const snippet8 = `table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True, anchor="middle")
+table.format_cells(rows=slice(1, None), size_pt=11, anchor="middle")
+table.format_cells(rows=range(2, len(table.rows), 2), fill="#F6F7F9")   # zebra
+table.format_cells(cols=slice(1, None), align="right")                 # numeric columns
+table.format_cells(cols=-1, bold=True)                                 # the delta column`;
+
+const snippet9 = `DARK, LIGHT = "#1F2937", "#E5E7EB"
+
+for cell in table.rows[0].cells:
+    cell.borders.bottom.width = Pt(1.5)
+    cell.borders.bottom.color.rgb = DARK
+
+table.cell(1, 0).borders.all(width=Pt(0.5), color=LIGHT)    # 4 sides + both diagonals
+table.cell(1, 1).borders.outer(width=Pt(0.5), color=LIGHT)  # 4 sides only
+table.cell(1, 2).borders.none()                             # back to inherited`;
+
+const snippet10 = `table.rows[1].borders.bottom(width=Pt(0.5), color=LIGHT)     # one edge, whole row
+table.columns[0].borders.right(width=Pt(0.75), color=LIGHT)  # one edge, whole column
+table.columns[3].borders.all(width=Pt(0.5), color=LIGHT)     # four outer edges
+table.rows[4].borders.none()`;
+
+const snippet11 = `grid = slide.shapes.add_table(3, 3, *BBox.from_inches(0.6, 4.4, 5.0, 1.6)).table
+
+origin = grid.cell(0, 0)
+origin.merge(grid.cell(0, 2))       # opposite corners, either diagonal, either order
+
+origin.is_merge_origin                  # True
+origin.span_height, origin.span_width   # (1, 3)
+grid.cell(0, 1).is_spanned              # True — hidden, holds no visible text
+
+origin.text = "FY26 outlook"        # write to the origin, never a spanned cell
+origin.split()                      # unmerge; raises ValueError on a non-origin cell`;
+
+const snippet12 = `merged = [c for c in grid.iter_cells() if c.is_merge_origin]
+visible = [c for c in grid.iter_cells() if not c.is_spanned]`;
+
+const snippet13 = `matrix = slide.shapes.add_table(2, 4, *BBox.from_inches(6.0, 4.4, 3.4, 1.6)).table
+
+for c in range(1, 4):
+    header = matrix.cell(0, c)
+    header.text_direction = "rotate90"     # 'horizontal' (default), 'rotate90',
+    header.format(anchor="bottom")         # 'rotate270', 'stacked'
+
+matrix.cell(0, 1).text_direction           # -> 'rotate90'
+matrix.cell(0, 0).text_direction           # -> 'horizontal' even though never set
+matrix.cell(0, 1).text_direction = None    # clears it, back to horizontal`;
+
+const snippet14 = `sheet = prs.slides.add_slide(prs.slide_layouts[6])
+wide = sheet.shapes.add_table(6, 3, *BBox.from_inches(0.6, 1.0, 6.0, 3.0)).table
+
+for r, row in enumerate([
+    ("Region", "Owner",        "Commentary"),
+    ("EMEA",   "Priya Shah",   "Pipeline recovered after the March reorganisation"),
+    ("AMER",   "Sam Tucker",   "Two enterprise renewals slipped into Q1"),
+    ("APAC",   "Lin Chen",     "Fastest-growing region, up 41% year over year"),
+    ("LATAM",  "Jordan Reyes", "Channel-led; three partners now self-serve"),
+    ("Global", "Morgan Patel", "Blended net retention held at 131%"),
+]):
+    for c, value in enumerate(row):
+        wide.cell(r, c).text = value
+
+size_pt = wide.fit_to_box(font_family="Calibri", max_font_pt=18, min_font_pt=8)
+size_pt      # 10 — the smallest per-cell fit, applied uniformly to every cell`;
+
+---
+
+<DocsLayout
+  title="Tables"
+  description="Building, styling and fitting PowerPoint tables — built-in styles and banding toggles, format_cells, per-cell borders, merges, rotated text and fit_to_box."
+>
+  <p class="lead">
+    A PowerPoint table is a strictly regular grid of cells, each holding a text frame and nothing
+    else — no images, no nested shapes. Most of the table API is inherited
+    from <code>python-pptx</code>; the post-fork additions
+    are <code>format_cells</code>, <code>Cell.borders</code>, <code>fit_to_box</code>, and named
+    access to PowerPoint's built-in table-style gallery.
+  </p>
+
+  <h2 id="adding">Adding a table</h2>
+  <p>
+    <code>add_table</code> returns the <em>graphic frame</em> that contains the table, not the
+    table itself — the frame owns position and size, the table owns everything inside it. Width is
+    divided evenly between columns and height between rows at construction time.
+  </p>
+  <Code code={snippet0} />
+
+  <h2 id="filling">Filling the grid</h2>
+  <p>
+    Cells are addressed by zero-based <code>(row, col)</code> grid
+    coordinates. <code>cell.text</code> is the quick path for a plain
+    string; <code>cell.text_frame</code> gives you the full paragraph/run API when a cell needs
+    mixed formatting. <code>table.iter_cells()</code> flattens the whole grid into one loop.
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="sizing">Column widths and row heights</h2>
+  <p>
+    Setting a column width or row height notifies the containing frame, which recomputes its own
+    extent as the sum of the parts. That means the
+    frame's <code>width</code> and <code>height</code> stay truthful — worth knowing, because
+    the <a href={withBase("/advanced/lint")}>linter</a> measures the frame when deciding whether
+    the table has slid off the slide.
+  </p>
+  <Code code={snippet2} />
+
+  <h2 id="style-flags">Built-in style toggles</h2>
+  <p>
+    Six booleans tell the applied table style which parts of the grid deserve distinct treatment.
+    They do not paint anything themselves — they
+    set <code>firstRow</code>, <code>bandRow</code> and friends on <code>&lt;a:tblPr&gt;</code>,
+    and the table <em>style</em> decides what that means. On a table with no style attached they
+    are inert.
+  </p>
+  <Code code={snippet3} />
+  <p>
+    <code>banded_rows</code> and <code>banded_cols</code> are aliases
+    for <code>horz_banding</code> and <code>vert_banding</code>, matching the wording PowerPoint's
+    own ribbon uses ("Banded Rows"). Reach for these before hand-painting a zebra pattern: one
+    flag that the style already understands beats a loop over every other row, and it survives a
+    later theme change.
+  </p>
+
+  <h2 id="table-styles">The built-in style gallery</h2>
+  <p>
+    PowerPoint ships a fixed gallery of built-in table styles, each identified by a stable GUID
+    in <code>&lt;a:tableStyleId&gt;</code>. <code>table.style</code> reads and writes it by
+    friendly name — the same names the PowerPoint UI shows — so you never have to paste a GUID
+    unless you want to. Nothing is added to <code>tableStyles.xml</code>; the GUID alone is enough
+    for PowerPoint to recognise the style.
+  </p>
+  <Code code={snippet4} />
+  <p>
+    Reading returns the canonical friendly name for a recognised GUID, the raw brace-wrapped GUID
+    string for an unrecognised one, and <code>None</code> when no style is
+    attached. <code>power_pptx.table_styles.TABLE_STYLES</code> is the full mapping — 75 names
+    covering 74 distinct styles,
+    since <code>"Table Grid"</code> and <code>"No Style, Table Grid"</code> are two names for the
+    same GUID. A name that isn't in the gallery raises rather than silently writing a GUID
+    PowerPoint will ignore:
+  </p>
+  <Code code={snippet5} />
+
+  <h2 id="clear-style">Taking full control: clear_style</h2>
+  <p>
+    Every table created by <code>add_table</code> is born attached to "Medium Style 2 - Accent 1".
+    That style carries its own banded-row overlay which PowerPoint and LibreOffice
+    paint <em>on top of</em> per-cell fills you set yourself — and, importantly, that overlay is
+    not suppressed by <code>horz_banding = False</code>. The flags control
+    the <code>bandRow</code> and <code>bandCol</code> markup; they do not remove the style's own
+    rules.
+  </p>
+  <p>
+    So the two levers are complementary, and a fully hand-styled table wants
+    both: <code>style="clean"</code> at construction switches off the six inherited flags,
+    and <code>clear_style()</code> detaches the style itself.
+  </p>
+  <Code code={snippet6} />
+  <p>
+    <code>table.style = None</code> is equivalent to <code>clear_style()</code>. Rule of thumb: if
+    you are going to set every fill, border and font yourself, detach the style first — otherwise
+    the cells you didn't paint will not match the ones you did.
+  </p>
+
+  <h2 id="formatting">Styling cells: format and format_cells</h2>
+  <p>
+    <code>cell.format(...)</code> sets a cell's fill and text styling in one call, using the same
+    keyword vocabulary as <code>shapes.add_text(...)</code>. Every argument is optional
+    and <code>None</code> means "leave alone", so calls layer rather than clobber.
+  </p>
+  <Code code={snippet7} />
+  <p>
+    <code>table.format_cells(...)</code> applies the same keywords across a rectangular
+    selection. <code>rows</code> and <code>cols</code> each accept <code>None</code> (all of
+    them), an <code>int</code> (negative counts from the end), a <code>slice</code>, or any
+    iterable of indices — so a whole table's look is a handful of calls instead of a nest of
+    loops:
+  </p>
+  <Code code={snippet8} />
+  <p>
+    Both return the cell / table so calls chain, and spanned (merged-away) cells are skipped —
+    style the merge origin instead. Order doesn't matter: the styling is recorded as the cell's
+    text-body defaults as well as on its current runs, so you can style an empty header row and
+    populate it afterwards, or the other way round.
+  </p>
+  <p>
+    One trap worth knowing: a cell's vertical anchor and insets live
+    on <code>&lt;a:tcPr&gt;</code>, not on its text frame's <code>&lt;a:bodyPr&gt;</code>, and
+    PowerPoint reads the cell properties while ignoring the body
+    ones. <code>format(anchor=...,
+    margin=...)</code> writes them to the right place;
+    setting <code>cell.text_frame.vertical_anchor</code> does not.
+  </p>
+
+  <h2 id="borders">Cell borders</h2>
+  <p>
+    <code>cell.borders</code> is a post-fork addition exposing each of the six OOXML border edges
+    — <code>left</code>, <code>right</code>, <code>top</code>, <code>bottom</code>, <code>diagonal_down</code>, <code>diagonal_up</code> —
+    as a full <code>LineFormat</code>. The XML materialises on first write, so reading an edge you
+    never set costs nothing.
+  </p>
+  <Code code={snippet9} />
+  <p>
+    <code>all()</code> covers the four sides <em>and</em> both
+    diagonals; <code>outer()</code> covers the four sides only; <code>none()</code> strips every
+    edge element and restores style inheritance. Both helpers
+    take <code>width</code> and <code>color</code> independently, and either may be omitted to
+    leave that aspect alone. Colours accept whatever the rest of the library accepts — hex
+    string, <code>(r, g, b)</code> tuple, or <code>RGBColor</code>.
+  </p>
+  <p>
+    A caveat on reads: an unset edge reads back
+    as <code>Emu(0)</code> for <code>width</code> — the <code>LineFormat</code> convention for "no
+    explicit line" — not <code>None</code>. Test for truthiness rather
+    than <code>is None</code> if you are probing whether a border was set. Note also that
+    a <code>LineFormat</code> captured before a <code>none()</code> call refers to a detached
+    element — re-access via <code>cell.borders.left</code> after clearing.
+  </p>
+  <p>
+    Rows and columns carry a group form of the same thing, so a rule that runs the width of the
+    table is one call rather than a loop. Here each edge accessor is a <em>method</em>, not a
+    property:
+  </p>
+  <Code code={snippet10} />
+
+  <h2 id="merging">Merging and splitting cells</h2>
+  <p>
+    A merge is specified by two cells at opposite corners of a rectangular region; either diagonal
+    in either order picks out the same region. The top-left cell of that region becomes
+    the <em>merge origin</em> — it is what appears on the slide, and it absorbs the content of
+    every cell it now spans (each as its own paragraph, in left-to-right, top-to-bottom order).
+    The rest become <em>spanned</em> cells: still present in the grid, still addressable, but
+    invisible.
+  </p>
+  <Code code={snippet11} />
+  <p>
+    <code>span_height</code> and <code>span_width</code> are only meaningful on a merge origin —
+    on any other cell they usually read <code>1</code> regardless of what is going on around them,
+    so
+    test <code>is_merge_origin</code> first. <code>merge()</code> raises <code>ValueError</code> if
+    the region already contains a merged cell or if the other cell belongs to a different table,
+    and <code>split()</code> raises on a cell that isn't a merge origin. Splitting restores the
+    grid cells but does <em>not</em> redistribute the content that merging migrated into the
+    origin.
+  </p>
+  <p>These two comprehensions cover most real questions about a merged table:</p>
+  <Code code={snippet12} />
+
+  <h2 id="text-direction">Rotated and stacked cell text</h2>
+  <p>
+    <code>cell.text_direction</code> is what matrix-style headers need — narrow columns whose
+    labels read vertically. It maps <code>&lt;a:tcPr vert="..."&gt;</code> to four friendly
+    strings: <code>"horizontal"</code> (the
+    default), <code>"rotate90"</code>, <code>"rotate270"</code> and <code>"stacked"</code>.
+  </p>
+  <Code code={snippet13} />
+  <p>
+    Reads never mutate: a cell that has never had a direction set reads back
+    as <code>"horizontal"</code>, its effective default.
+    Assigning <code>"horizontal"</code> or <code>None</code> clears the attribute rather than
+    writing a redundant one, and an unrecognised string raises <code>ValueError</code> listing the
+    four valid values. A <code>vert</code> value outside the friendly mapping (an
+    East-Asian <code>eaVert</code>, say, authored in PowerPoint) is returned verbatim rather than
+    being swallowed.
+  </p>
+
+  <h2 id="fit-to-box">Fitting text to the grid</h2>
+  <p>
+    Runtime-driven tables are where decks break: you don't know the row count or the string
+    lengths up front, and the first long commentary field pushes text out of its
+    cell. <code>table.fit_to_box()</code> is the table-shaped member of
+    the <a href={withBase("/advanced/space-aware-authoring")}>space-aware</a> family — it measures
+    every populated cell against that cell's <em>own</em> column width and row height (margins
+    respected) with Pillow font metrics, then applies the <strong>smallest</strong> per-cell fit
+    uniformly across the table.
+  </p>
+  <Code code={snippet14} />
+  <p>
+    One size for the whole grid is deliberate: a table where each cell picked its own best fit
+    reads as a ransom note. The returned size is clamped to <code>min_font_pt</code>, so a cell
+    whose text cannot fit at any size still lands on a predictable floor rather than vanishing to
+    2pt. Cells that fail to measure are treated as worst-case, which keeps the chosen size safe
+    for every other cell.
+  </p>
+  <p>
+    Call it <em>after</em> the text, the column widths and the row heights are final — it reads
+    all three. Because it bakes a concrete size into the XML it needs no cooperation from
+    PowerPoint at render time, which is what makes it dependable in a generation pipeline.
+  </p>
+</DocsLayout>

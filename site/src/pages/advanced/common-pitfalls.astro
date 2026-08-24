@@ -1,0 +1,454 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const snippet0 = `# WRONG - that is upstream python-pptx, a different distribution
+# from pptx import Presentation
+# from pptx.util import Inches
+
+# RIGHT
+from power_pptx import Presentation
+from power_pptx.util import Inches, Pt
+from power_pptx.geometry import BBox
+from power_pptx.enum.shapes import MSO_SHAPE`;
+
+const snippet1 = `# WRONG - unreadable, and one stray float used to trigger the "Repair?" dialog
+# shape.left = 914400
+# shape.width = 3657600
+
+# RIGHT - named units; float arithmetic is coerced back to int EMU at the setter
+shape.left = Inches(1)
+shape.width = (Inches(10) - Inches(0.4)) / 2
+
+# RIGHT - one object for a whole region, splattable into any add_* call
+bb = BBox.from_inches(0.8, 1.4, 8.4, 3.2)
+card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *bb)`;
+
+const snippet2 = `# WRONG - the arithmetic is where the off-by-one lives (n gaps or n - 1?),
+# and every nested region needs the same block written again
+gap = Pt(16)
+col_w = (bb.width - 2 * gap) / 3
+for i in range(3):
+    slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        bb.left + i * (col_w + gap), bb.top, col_w, bb.height,
+    )
+
+# RIGHT - exact boxes, and each one is a BBox you can subdivide again
+for box in bb.columns(3, gap=Pt(16)):
+    slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
+    header, body = box.rows(2, gap=Pt(8))`;
+
+const snippet3 = `tf = body_box.text_frame
+tf.text = "Revenue grew 18% YoY\\nDriven by EMEA enterprise renewals"
+tf.paragraphs[0].runs[0].font.bold = True    # a deliberate exception
+
+# WRONG - a loop over paragraphs and runs, repeated for every card on the deck
+# for paragraph in tf.paragraphs:
+#     for run in paragraph.runs:
+#         run.font.name = "Inter"
+#         run.font.size = Pt(14)
+#         run.font.color.rgb = "#222222"
+
+# RIGHT - fills in only what is unset, so the bold run above survives verbatim
+tf.set_paragraph_defaults(font_name="Inter", size=Pt(14), color="#222222")`;
+
+const snippet4 = `import warnings
+from power_pptx.text.fonts import font_is_installed, installed_font_families
+
+# This warns (FontMetricsWarning) when "Inter" is not installed, and returns
+# a size measured with Pillow's default font - an estimate, not a guarantee.
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    tf.fit_text("Inter", max_size=24)
+
+# 1. ship the metrics with the build - the guarantee holds
+tf.fit_text("Inter", max_size=24, font_file="fonts/Inter-Regular.ttf")
+
+# 2. fail the build rather than ship an estimate (raises ValueError)
+tf.fit_text("Inter", max_size=24, strict=True)
+
+# 3. degrade deliberately to a family the build machine really has
+family = "Inter" if font_is_installed("Inter") else "DejaVu Sans"
+tf.fit_text(family, max_size=24)
+
+installed_font_families()   # what this machine can actually measure`;
+
+const snippet5 = `# WRONG - lint, fix, lint again; three passes and two throwaway reports
+# report = slide.lint()
+# report.auto_fix()
+# report = slide.lint()
+
+# RIGHT - one call, returns the list of fixes it applied
+slide.tidy()
+# ["Clamped 'Rectangle 2' on-slide: position (10972800,914400) -> (7315200,914400)."]
+
+slide.tidy(fix_grid_drift=True)     # opt into grid snapping
+slide.lint(disable=["MinFontSize"]) # or silence a rule you do not want`;
+
+const snippet6 = `card = slide.shapes.add_shape(
+    MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.5), Inches(3.4), Inches(2.0))
+bar = slide.shapes.add_shape(
+    MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.5), Inches(3.4), Inches(0.2))
+badge = slide.shapes.add_shape(
+    MSO_SHAPE.OVAL, Inches(3.6), Inches(1.2), Inches(1.0), Inches(0.6))
+
+# 1. n-ary and symmetric: every shape in the group may overlap every other
+slide.lint_group_overlaps(card, bar, badge)      # auto-names the group
+slide.lint_group("kpi-1", card, bar, badge)      # or name it yourself
+
+# 2. pairwise: licenses exactly this pair, leaves the rest policed
+badge.allow_overlap_with(card)
+
+# 3. layer hints: the only form that also asserts z-order, so it can fail
+card.layer = "card"
+badge.layer_above = "card"`;
+
+const snippet7 = `# WRONG - neither of these touches the theme effect style
+# card.shadow.blur_radius = None
+# card.shadow.inherit = False      # also emits a DeprecationWarning
+
+# RIGHT - drops the explicit shadow elements AND re-points the effect
+# reference at the theme's empty slot; glow / soft edges / reflection survive
+card.shadow.clear()`;
+
+const snippet8 = `# WRONG - adjustments[0] is a fraction of the shorter side, so the same
+# number is a different physical radius on every differently-sized card
+# card.adjustments[0] = 0.045
+
+# RIGHT - a real length, converted for you
+card.corner_radius = Pt(6)
+card.corner_radius            # reads back as a Length`;
+
+const snippet9 = `from power_pptx.dml.color import RGBColor
+
+# Hex strings, 3-tuples and RGBColor are interchangeable everywhere
+card.fill.solid()
+card.fill.fore_color.rgb = "#06D6FE"
+card.fill.fore_color.rgb = (6, 214, 254)
+card.fill.fore_color.rgb = RGBColor(6, 214, 254)
+
+# Short-name kwargs beat importing an enum per styling call
+slide.shapes.add_text(bb, text="Q4 revenue", size_pt=24, bold=True,
+                      color="#0B5CFF", align="center", anchor="middle")
+
+RGBColor.from_hex("#3C2F80")     # supported
+# RGBColor.from_string("3C2F80") # deprecated, emits DeprecationWarning
+# RGBColor.from_hex(tokens.palette["primary"])  # already an RGBColor - AttributeError`;
+
+const snippet10 = `tf.text = "one\\ntwo"
+
+# WRONG - tf.paragraphs builds fresh wrapper objects on every access, so
+# identity comparison against a previously captured wrapper is always False
+# para = tf.paragraphs[0]
+# [p for p in tf.paragraphs if p is not para]     # removes nothing (or everything)
+
+para = tf.paragraphs[0]
+para is tf.paragraphs[0]        # False - different wrappers
+para._p is tf.paragraphs[0]._p  # True  - same underlying element
+
+# RIGHT - for the usual "replace the text, keep the formatting" case
+shape.set_text_preserving_format("Updated title")`;
+
+const snippet11 = `# WRONG - leaves orphan animation timing entries pointing at a shape that
+# no longer exists, which PowerPoint "repairs" on open
+# shape._element.getparent().remove(shape._element)
+
+# WRONG - mutating the tree while indexing into it shifts everything after it
+# for i, shape in enumerate(slide.shapes):
+#     ...
+
+# RIGHT - capture first, then delete; delete() purges the timing references
+for shape in [s for s in slide.shapes if s.name.startswith("Accent")]:
+    shape.delete()`;
+
+const snippet12 = `chart = slide.shapes.add_chart(
+    XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(4), Inches(4), Inches(2), data
+).chart
+
+# WRONG - the parent chain bottoms out earlier than you expect
+# chart.element.getparent().getparent()
+
+# RIGHT - the GraphicFrame that holds the chart
+chart.shape.left = Inches(0.5)
+chart.shape.width = Inches(9)`;
+
+const snippet13 = `from power_pptx.design.recipes import title_slide
+
+slide = title_slide(prs, title="Q4 review", subtitle="FY25")
+slide.shapes.title            # None - recipes use the Blank layout
+[s.name for s in slide.shapes]  # ['TextBox 1', 'TextBox 2'] - address by index`;
+
+const snippet14 = `from power_pptx.design.tokens import DesignTokens
+
+# WRONG - a bare int is EMU, so this is a 0.003pt heading
+# DesignTokens.from_dict({"typography": {"heading": {"size": 44}}})
+
+# RIGHT - bare floats are points; Pt() is unambiguous
+DesignTokens.from_dict({"typography": {"heading": {"family": "Inter",
+                                                   "size": 44.0,
+                                                   "bold": True}}})`;
+
+const snippet15 = `# WRONG - a bare line, no arrowhead, no routing
+# slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x1, y1, x2, y2)
+
+# RIGHT - arrowhead, inset, edge routing and colour in one call
+slide.shapes.add_arrow((Inches(1), Inches(3)), (Inches(4), Inches(3)),
+                       head="triangle")`;
+
+const snippet16 = `from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+
+slide_2.transition.kind = MSO_TRANSITION_TYPE.MORPH
+prs.set_transition(MSO_TRANSITION_TYPE.FADE)          # slide 2 keeps MORPH
+prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
+---
+
+<DocsLayout
+  title="Common Pitfalls"
+  description="The traps that generated decks fall into most often — each with why it bites and the one-line idiom that avoids it."
+>
+  <p class="lead">
+    Programmatically generated decks fail in a small, repeatable set of ways. Every entry below is
+    the same shape: the mistake, why it bites, and the idiom that replaces it. If you are driving
+    this library from an agent, read this page once before writing the generator.
+  </p>
+
+  <h2 id="import-name">Importing <code>pptx</code> instead of <code>power_pptx</code></h2>
+  <p>
+    power-pptx installs from PyPI as <code>power-pptx</code> but imports as
+    <code>power_pptx</code>. The 2.0 release renamed the top-level package precisely so it can sit
+    side by side with upstream <code>python-pptx</code> — which means
+    <code>import pptx</code> either fails, or quietly gives you the <em>other</em> library, at the
+    1.0.2 feature level with none of the space-aware API. Migrating code is a find-and-replace of
+    the import prefix; nothing else changes.
+  </p>
+  <Code code={snippet0} />
+
+  <h2 id="raw-emu">Writing raw EMU integers</h2>
+  <p>
+    Lengths are English Metric Units — 914,400 to the inch. Literal EMU is unreadable, impossible
+    to review, and historically the source of the worst failure mode in the library: a float that
+    reached <code>&lt;a:off&gt;</code> or <code>&lt;a:ext&gt;</code> made PowerPoint offer to
+    repair the file. Float-valued coordinates are now coerced at constructor entry and at the
+    <code>left</code> / <code>top</code> / <code>width</code> / <code>height</code> setters, so
+    expressions built from <code>Inches()</code> and <code>Pt()</code> can be passed straight
+    through.
+  </p>
+  <Code code={snippet1} />
+
+  <h2 id="column-math">Hand-rolling column arithmetic</h2>
+  <p>
+    <code>(available - (n - 1) * gap) / n</code> plus a running cursor is the single most-rewritten
+    block in generated deck code, and the gap count is the classic off-by-one.
+    <code>BBox</code> does the apportionment and hands back real boxes — each of which is itself a
+    <code>BBox</code>, so a card's header/body split is one more call rather than a second round of
+    arithmetic.
+  </p>
+  <Code code={snippet2} />
+  <p>
+    <code>bb.rows(n, gap=...)</code>, <code>bb.grid(cols, rows)</code>, <code>bb.inset(...)</code>
+    and <code>Grid.from_box(bb, cols=..., rows=...)</code> cover the rest. See
+    <a href={withBase("/advanced/geometry-and-arrows")}>Geometry &amp; Arrows</a>.
+  </p>
+
+  <h2 id="per-run-fonts">Setting font properties run by run</h2>
+  <p>
+    A run-level loop is verbose, and it overwrites deliberate formatting — the one bold run in a
+    card body gets flattened along with everything else.
+    <code>TextFrame.set_paragraph_defaults()</code> fills in only the properties that are unset, so
+    it brands a whole frame in one call and leaves explicit choices alone.
+  </p>
+  <Code code={snippet3} />
+
+  <h2 id="fit-text-fonts">Assuming <code>fit_text</code> guarantees no overflow</h2>
+  <p>
+    <code>fit_text</code> measures with real font metrics read from <em>the machine running the
+    build</em>. When the requested family is not installed — the normal case for a brand display
+    face inside a container or a CI runner — measurement silently falls back to Pillow's bundled
+    default font, and the "this text will not overflow" guarantee degrades to a decent guess. The
+    fallback is now audible: naming a family that is not installed emits a
+    <code>FontMetricsWarning</code>. Omitting <code>font_family</code> does not warn (no particular
+    face was requested); passing <code>"Calibri"</code> explicitly does.
+  </p>
+  <Code code={snippet4} />
+  <p>
+    <code>slide.lint()</code> is unaffected — its overflow check uses a font-agnostic
+    character-width heuristic — which is exactly why the lint pass stays worth running even when
+    the metrics were approximate. That heuristic already narrows itself for short single-line
+    strings (20 characters or fewer), but a pill or badge under half an inch tall is still its
+    hardest case: set <code>auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE</code> on those frames right
+    after writing the text and the question does not arise.
+  </p>
+
+  <h2 id="tidy">Lint, auto-fix, lint again</h2>
+  <p>
+    The three-call dance is the most common way to use the linter and the least good one: it
+    allocates two reports you throw away and it is easy to forget the re-lint.
+    <code>slide.tidy()</code> is the one-call wrapper — lint, apply the safe fixes, return the list
+    of what changed.
+  </p>
+  <Code code={snippet5} />
+  <p>
+    Auto-fix handles what needs no designer judgment: <code>OffSlide</code> (clamped back
+    on-slide), <code>TextOverflow</code> (flipped to
+    <code>auto_size = TEXT_TO_FIT_SHAPE</code>), <code>OffGridDrift</code> (snapped, opt-in) and
+    <code>LayerOrderViolation</code> (restacked). <code>ShapeCollision</code>,
+    <code>LowContrast</code> and <code>MinFontSize</code> are deliberately left for you.
+  </p>
+
+  <h2 id="intentional-overlap">Deliberate layering reported as <code>ShapeCollision</code></h2>
+  <p>
+    A badge on a KPI card and a copy-paste bug look identical from a bounding box, so the collision
+    detector flags both. It already auto-suppresses the canonical case — a small shape strictly
+    contained inside a larger one and drawn on top — but a badge that hangs off a corner still
+    fires. Declare the intent rather than disabling the rule; three forms, narrowest last:
+  </p>
+  <Code code={snippet6} />
+  <p>
+    A group is n-ary and symmetric, so it licenses <em>every</em> overlap among its members —
+    broad enough to hide a real bug. <code>allow_overlap_with</code> covers exactly one pair and is
+    read symmetrically (either shape vouching for the pair is enough). Layer hints are the only
+    form that asserts a direction, so they are the only form that can fail: a badge drawn
+    <em>below</em> the card it claims to sit on raises a <code>LayerOrderViolation</code> — an
+    error, not a warning — which <code>auto_fix()</code> repairs by restacking. All three round-trip
+    through save/open and are invisible to PowerPoint. Full treatment on
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a>.
+  </p>
+
+  <h2 id="shadow">Trying to remove a shadow by assigning <code>None</code></h2>
+  <p>
+    A shape from <code>shapes.add_shape()</code> is born with a <code>&lt;p:style&gt;</code>
+    containing <code>&lt;a:effectRef idx="2"/&gt;</code> — a reference into the theme's effect-style
+    list, which in most themes is a soft drop shadow. Nothing in the shape's own
+    <code>&lt;a:spPr&gt;</code> mentions a shadow, so clearing
+    <code>shadow.blur_radius</code> / <code>distance</code> / <code>color</code> — or setting the
+    deprecated <code>shadow.inherit = False</code>, which only writes an empty
+    <code>&lt;a:effectLst/&gt;</code> — looks like it worked, and the rendered card still has a
+    shadow.
+  </p>
+  <Code code={snippet7} />
+
+  <h2 id="corner-radius">Guessing a corner radius through <code>adjustments</code></h2>
+  <p>
+    <code>adjustments[0]</code> on a rounded rectangle is a fraction of the shorter side, so
+    <code>0.045</code> is a different physical radius on every differently-sized card. That is why
+    hand-tuned values never quite match across a deck. <code>Shape.corner_radius</code> reads and
+    writes a real length and does the conversion per shape.
+  </p>
+  <Code code={snippet8} />
+
+  <h2 id="colours">Importing an enum for every styling call</h2>
+  <p>
+    Hex strings, 3-tuples and <code>RGBColor</code> are accepted interchangeably anywhere a colour
+    is, and the <code>add_*</code> helpers take short-name kwargs for alignment and anchoring — so
+    a styling call rarely needs an import at all. Two related traps: <code>RGBColor.from_string</code>
+    is deprecated in favour of <code>from_hex</code> (which accepts the leading <code>#</code>),
+    and design-token lookups already return rich objects, so wrapping
+    <code>tokens.palette["primary"]</code> in <code>RGBColor.from_hex(...)</code> raises.
+  </p>
+  <Code code={snippet9} />
+
+  <h2 id="paragraph-identity">Comparing paragraph wrappers with <code>is</code></h2>
+  <p>
+    <code>text_frame.paragraphs</code> builds fresh <code>_Paragraph</code> objects on every
+    access. Two reads of the same paragraph are two different Python objects wrapping one XML
+    element, so an identity filter silently matches nothing — or everything. Compare the underlying
+    elements if you must, but for the common case there is a method.
+  </p>
+  <Code code={snippet10} />
+
+  <h2 id="deleting-shapes">Deleting shapes by hand, or while iterating</h2>
+  <p>
+    Removing a shape's element directly leaves the slide's timing tree pointing at a shape that no
+    longer exists, and PowerPoint silently "repairs" such decks on open.
+    <code>shape.delete()</code> removes the element <em>and</em> purges the orphaned animation
+    entries. Separately: mutating the shape tree shifts every index after the one you removed, so
+    capture the shapes to delete before the loop rather than indexing during it.
+  </p>
+  <Code code={snippet11} />
+
+  <h2 id="chart-shape">Reaching for a chart's parent shape through <code>element</code></h2>
+  <p>
+    <code>chart.element.getparent().getparent()</code> bottoms out earlier than you expect.
+    <code>chart.shape</code> returns the <code>GraphicFrame</code> that contains the chart, which is
+    what you want for positioning, measuring, animating or styling it.
+  </p>
+  <Code code={snippet12} />
+
+  <h2 id="recipes-blank">Expecting <code>shapes.title</code> on a recipe slide</h2>
+  <p>
+    Recipes (<code>title_slide</code>, <code>kpi_slide</code>, …) build on the Blank layout so the
+    recipe owns every geometry and styling decision end to end. There is no title placeholder to
+    read back — <code>slide.shapes.title</code> is <code>None</code> — so a footer or page number
+    added on top of a recipe slide has to address shapes by index. Note the accessibility
+    consequence: a deck of recipe slides has no title landmarks, which
+    <a href={withBase("/advanced/accessibility")}>the accessibility audit</a> will tell you about.
+  </p>
+  <Code code={snippet13} />
+
+  <h2 id="token-units">Bare integers in <code>DesignTokens</code> typography</h2>
+  <p>
+    Token sizes, shadow blur and distance are interpreted as <strong>EMU</strong> when written as a
+    bare <code>int</code> and as <strong>points</strong> when written as a bare <code>float</code>.
+    <code>44</code> is therefore a 0.003pt heading; <code>44.0</code> is what you meant.
+  </p>
+  <Code code={snippet14} />
+
+  <h2 id="arrows">Expecting <code>add_connector</code> to draw an arrowhead</h2>
+  <p>
+    <code>add_connector(MSO_CONNECTOR.STRAIGHT, ...)</code> produces a bare line — no head, no
+    inset, no edge routing. <code>add_arrow</code> takes two points and does all of it.
+  </p>
+  <Code code={snippet15} />
+
+  <h2 id="transitions">Assuming <code>set_transition</code> overwrites everything</h2>
+  <p>
+    <code>prs.set_transition(kind=...)</code> deliberately skips slides that already carry an
+    explicit per-slide transition kind, so a hand-set Morph on one slide survives a deck-wide Fade.
+    Pass <code>force=True</code> for the old clobbering behaviour. The preservation applies to
+    <code>kind</code> only — <code>duration</code>, <code>advance_on_click</code> and
+    <code>advance_after</code> are applied to every slide regardless.
+  </p>
+  <Code code={snippet16} />
+  <p>
+    Related: the <a href={withBase("/advanced/animations")}>animation API</a> is still marked
+    experimental. The XML it emits is schema-valid and converts correctly through LibreOffice, but
+    in PowerPoint slideshow mode animated shapes sit at 10–15% opacity and then snap to visible;
+    entrance animations combined with a Morph transition on the same slide can trigger the
+    "Repair?" dialog. Prefer transitions, which round-trip and play correctly.
+  </p>
+
+  <h2 id="optional-tooling">Assuming the optional tooling is present</h2>
+  <p>
+    Three features reach outside the pure-Python core, and each fails in its own way on a bare
+    container. Catch them and degrade rather than letting a build die on a missing binary:
+  </p>
+  <ul>
+    <li>
+      <code>render_thumbnails()</code> / <code>render_slides()</code> need <code>soffice</code>
+      (LibreOffice) on <code>PATH</code>, plus <code>pdftoppm</code> or <code>pypdfium2</code> —
+      otherwise <code>ThumbnailRendererUnavailable</code>.
+    </li>
+    <li>
+      <code>add_svg_picture()</code> needs <code>cairosvg</code>, or a pre-rasterised
+      <code>png_fallback=</code> — otherwise <code>CairoSvgUnavailable</code>.
+    </li>
+    <li>
+      <code>fit_text()</code> needs the named font installed, or a <code>font_file=</code> —
+      otherwise a <code>FontMetricsWarning</code> and an estimated size.
+    </li>
+  </ul>
+
+  <h2 id="checklist">The short version</h2>
+  <ul>
+    <li><code>import power_pptx</code>, never <code>pptx</code>.</li>
+    <li><code>Inches()</code>, <code>Pt()</code>, <code>BBox.from_inches()</code> — no EMU literals.</li>
+    <li><code>bb.columns()</code> / <code>bb.rows()</code> / <code>bb.grid()</code> instead of layout arithmetic.</li>
+    <li><code>tf.set_paragraph_defaults(...)</code> instead of per-run loops.</li>
+    <li>Bundle the <code>.ttf</code> or pass <code>strict=True</code> if <code>fit_text</code> has to be exact.</li>
+    <li><code>slide.tidy()</code>, then declare intentional overlaps instead of silencing the rule.</li>
+    <li><code>shape.shadow.clear()</code>, <code>shape.corner_radius</code>, <code>shape.delete()</code>, <code>chart.shape</code>.</li>
+    <li>Bare floats (not ints) for point-valued design tokens.</li>
+  </ul>
+</DocsLayout>

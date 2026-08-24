@@ -1,0 +1,307 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+const snippet0 = `from power_pptx import Presentation
+
+prs = Presentation("org-chart-template.pptx")
+slide = prs.slides[0]
+
+len(slide.smart_art)              # how many SmartArt graphics this slide carries
+
+for sa in slide.smart_art:
+    sa.name                       # 'SmartArt 1' — the shape name PowerPoint gave it
+    sa.texts                      # ['CEO', 'CTO', 'CFO'] — one string per content node`;
+
+const snippet1 = `org_chart = slide.smart_art[0]
+org_chart.set_text(["Alex Halwell", "Priya Shah", "Sam Tucker"])
+
+org_chart.texts                   # ['Alex Halwell', 'Priya Shah', 'Sam Tucker']`;
+
+const snippet2 = `org_chart.set_text(["Alex Halwell", "Priya Shah"])
+# ValueError: set_text() received 2 value(s) but this SmartArt has 3 content
+#   node(s).  Pass strict=False to suppress this check.
+
+org_chart.set_text(["Lin Chen"], strict=False)
+org_chart.texts        # ['Lin Chen', 'Priya Shah', 'Sam Tucker']`;
+
+const snippet3 = `prs.save("org-chart-2026q2.pptx")
+
+Presentation("org-chart-2026q2.pptx").slides[0].smart_art[0].texts
+# ['Lin Chen', 'Priya Shah', 'Sam Tucker']`;
+
+const snippet4 = `from power_pptx import Presentation, BBox
+from power_pptx.util import Pt
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.dml import BevelPreset
+
+deck = Presentation()
+slide = deck.slides.add_slide(deck.slide_layouts[6])
+
+badge = slide.shapes.add_shape(MSO_SHAPE.OVAL, *BBox.from_inches(1, 1.5, 2, 2))
+badge.fill.solid()
+badge.fill.fore_color.rgb = "#FFC107"
+badge.line.fill.background()
+
+td = badge.three_d
+td.bevel_top.preset = BevelPreset.SOFT_ROUND
+td.bevel_top.width = Pt(8)
+td.bevel_top.height = Pt(4)`;
+
+const snippet5 = `fresh = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(4, 1.5, 2, 2))
+
+fresh.three_d.bevel_top.preset     # None — nothing set, nothing written
+fresh.three_d.extrusion_height     # None
+fresh.three_d.preset_material      # None
+
+td.bevel_top.preset = BevelPreset.NONE    # removes <a:bevelT> entirely
+td.bevel_top.preset                       # -> None`;
+
+const snippet6 = `td.extrusion_height = Pt(20)
+td.extrusion_color = "#121E4D"        # or: td.extrusion_color.rgb = RGBColor(...)
+
+td.contour_width = Pt(1)
+td.contour_color = "#FFFFFF"
+
+td.extrusion_color.rgb                # RGBColor 121E4D`;
+
+const snippet7 = `from power_pptx.enum.dml import PresetMaterial
+
+td.preset_material = PresetMaterial.METAL
+# MATTE, WARM_MATTE, PLASTIC, METAL, SOFT_METAL, POWDER, TRANSLUCENT_POWDER,
+# DK_EDGE, SOFT_EDGE, CLEAR, FLAT — plus four LEGACY_* variants
+
+td.preset_material = PresetMaterial.NONE   # clears the attribute
+td.preset_material                         # -> None
+td.preset_material = PresetMaterial.FLAT   # an explicit non-reflective surface`;
+
+const snippet8 = `<a:scene3d>
+  <a:camera prst="orthographicFront"/>
+  <a:lightRig rig="threePt" dir="t"/>
+</a:scene3d>
+<a:sp3d extrusionH="254000" contourW="12700">
+  <a:bevelT prst="softRound" w="101600" h="50800"/>
+  <a:extrusionClr><a:srgbClr val="121E4D"/></a:extrusionClr>
+  <a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr>
+</a:sp3d>`;
+
+const snippet9 = `table_frame = slide.shapes.add_table(2, 2, *BBox.from_inches(7, 1.5, 2, 1))
+table_frame.three_d
+# NotImplementedError: three_d property on GraphicFrame not yet supported
+
+left = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(1, 4.2, 1.4, 1.4))
+right = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(2.8, 4.2, 1.4, 1.4))
+group = slide.shapes.add_group_shape([left, right])
+
+group.three_d
+# NotImplementedError: three_d property on GroupShape not supported
+
+for member in group.shapes:                     # do this instead
+    member.three_d.bevel_top.preset = BevelPreset.CIRCLE
+    member.three_d.bevel_top.width = Pt(4)`;
+
+const snippet10 = `badge.shadow.blur_radius = Pt(12)
+badge.shadow.distance = Pt(4)
+badge.shadow.direction = 90.0
+badge.shadow.color.alpha = 0.3
+
+deck.save("badge.pptx")`;
+
+---
+
+<DocsLayout
+  title="SmartArt & 3-D"
+  description="Substituting text into existing SmartArt, and the ThreeDFormat bevel, extrusion, contour and material surface — including what neither one can do."
+>
+  <p class="lead">
+    Two narrow but useful corners of the API, both defined as much by their boundaries as by their
+    features: text substitution into SmartArt you did not author, and real DrawingML bevels and
+    extrusion on shapes you did.
+  </p>
+
+  <h2 id="smartart-scope">SmartArt: what this is, and what it is not</h2>
+  <p>
+    <strong>power-pptx substitutes text into existing SmartArt. It does not create SmartArt.</strong> That
+    is a deliberate boundary, not a gap waiting to be filled: SmartArt's layout algorithms are
+    proprietary, and a diagram part written without them lays out wrongly or not at all.
+    Concretely:
+  </p>
+  <ul>
+    <li>
+      <strong>No creation.</strong> There is no <code>add_smart_art</code>. Author the diagram
+      once in PowerPoint and keep that file as a template.
+    </li>
+    <li>
+      <strong>No structural edits.</strong> Nodes cannot be added or removed. The values you pass
+      must line up with the nodes that already exist.
+    </li>
+    <li>
+      <strong>No styling changes.</strong> The layout, quick-style and colour parts are left
+      untouched; only the text inside the diagram-data part changes.
+    </li>
+  </ul>
+  <p>
+    If you need a diagram you can build from scratch and restyle freely,
+    use <a href={withBase("/advanced/diagrams")}>diagram recipes</a> instead — native shapes
+    arranged into a pipeline, hub-and-spoke or cycle, fully addressable from Python. SmartArt
+    substitution is for the other case: a corporate template whose org chart, funnel or process
+    diagram is already exactly right and just needs this quarter's names in it.
+  </p>
+
+  <h2 id="finding">Finding SmartArt on a slide</h2>
+  <p>
+    <code>slide.smart_art</code> is a <code>SmartArtCollection</code> — indexable and iterable,
+    holding one <code>SmartArtShape</code> per SmartArt graphic on the slide (found by matching
+    the graphic-frame's data URI, so ordinary tables and charts are not picked up).
+  </p>
+  <Code code={snippet0} />
+  <p>
+    <code>texts</code> is the list of content-node strings in document order, which corresponds to
+    the visual sequence in most layouts. Each entry is the concatenation of every text run inside
+    that node, and only <code>node</code> and <code>asst</code> nodes are included — the
+    structural points SmartArt uses for connectors and layout scaffolding are filtered out, so the
+    list you read is the list you write. Print it once against your template before wiring up a
+    generator; it is the contract everything else depends on.
+  </p>
+
+  <h2 id="set-text">Replacing the text</h2>
+  <Code code={snippet1} />
+  <p>
+    <code>set_text</code> rewrites each node in order, overwriting the node's first run and
+    blanking any others, so mixed-run formatting inside a node collapses to that first run's
+    formatting. Nodes that carry no text element at all get a minimal one built for them.
+  </p>
+  <p>
+    By default the call is strict: a length mismatch raises rather than silently filling half a
+    diagram. That default is the right one for a scheduled job, where a template that gained a
+    node should fail loudly rather than ship a chart with a stale name on it.
+    Pass <code>strict=False</code> when you genuinely want the ragged behaviour — extra values are
+    ignored, and nodes past the end of your list keep the text they already had.
+  </p>
+  <Code code={snippet2} />
+  <p>
+    Note what <code>strict=False</code> does <em>not</em> do: it does not blank the trailing
+    nodes. Nodes you don't supply a value for are left alone, which is why partial updates leave
+    template placeholder text visible if you weren't expecting it.
+  </p>
+
+  <h2 id="smartart-roundtrip">Round-tripping</h2>
+  <p>
+    The diagram parts
+    (<code>data</code>, <code>layout</code>, <code>quickStyle</code>, <code>colors</code>) are
+    registered as typed parts, so a deck containing SmartArt opens, saves and reopens intact
+    whether or not you touch it. Reads never mutate.
+  </p>
+  <Code code={snippet3} />
+
+  <h2 id="three-d">3-D: bevels</h2>
+  <p>
+    <code>shape.three_d</code> returns a <code>ThreeDFormat</code> over the
+    shape's <code>&lt;a:sp3d&gt;</code> and <code>&lt;a:scene3d&gt;</code> elements. This is real
+    DrawingML, not a raster effect — it stays editable in PowerPoint's Format Shape pane and
+    reacts to the scene's lighting.
+  </p>
+  <Code code={snippet4} />
+  <p>
+    <code>bevel_top</code> and <code>bevel_bottom</code> each
+    expose <code>preset</code>, <code>width</code> and <code>height</code>. The
+    <code>BevelPreset</code> enum covers the standard gallery — <code>RELAXED_INSET, CIRCLE,
+    SLOPE, CROSS, ANGLE, SOFT_ROUND, CONVEX, COOL_SLANT, DIVOT, RIBLET, HARD_EDGE,
+    ART_DECO</code>. The top bevel is the one that reads as depth at slide scale; the bottom bevel
+    only shows when the shape is also extruded.
+  </p>
+
+  <h2 id="reads-and-clearing">Reads, and turning things back off</h2>
+  <p>
+    Every read is non-mutating: a shape with no 3-D formatting returns <code>None</code> from
+    every property and gains no XML from being asked. Writes create the element hierarchy lazily.
+  </p>
+  <Code code={snippet5} />
+  <p>
+    <code>BevelPreset.NONE</code> and <code>PresetMaterial.NONE</code> are the odd pair here.
+    Their literal XML token — <code>"none"</code> — is not a legal value in the corresponding
+    OOXML enumerations, and writing it makes PowerPoint report the file as broken. Assigning
+    either member therefore <em>removes</em> the element or attribute instead of writing the
+    token, which is the schema-valid way to say "no bevel" and "no explicit material". You get the
+    intuitive behaviour and a clean file; nothing to remember at the call site.
+  </p>
+
+  <h2 id="extrusion">Extrusion and contour</h2>
+  <p>
+    Extrusion gives the shape depth along the view axis; contour draws an edge line around the
+    extruded solid. Both colours accept a hex string, an <code>(r, g, b)</code> tuple or
+    an <code>RGBColor</code>, and both offer the shorthand assignment as well as
+    the <code>.rgb</code> form.
+  </p>
+  <Code code={snippet6} />
+  <p>
+    Keep extrusion depth modest. At slide scale a 20pt extrusion already reads as a solid object;
+    much more and the shape's own silhouette gets lost behind its sides.
+  </p>
+
+  <h2 id="material">Preset material</h2>
+  <p>
+    Material controls how the surface responds to the scene's lights — the difference between a
+    flat coin and a metal one is entirely this property.
+  </p>
+  <Code code={snippet7} />
+  <p>
+    <code>PresetMaterial.NONE</code> clears the attribute and reads back
+    as <code>None</code>; <code>PresetMaterial.FLAT</code> is the way to say "explicitly
+    non-reflective". Note the enum member is <code>DK_EDGE</code>, matching the OOXML token,
+    rather than the spelled-out <em>dark edge</em>.
+  </p>
+
+  <h2 id="scene">The scene: camera and lighting</h2>
+  <p>
+    A <code>&lt;a:sp3d&gt;</code> without a populated sibling <code>&lt;a:scene3d&gt;</code> makes
+    PowerPoint declare the file broken and unrepairable, so the first 3-D write on a shape creates
+    the scene too and fills it with the same defaults PowerPoint and LibreOffice write themselves:
+  </p>
+  <Code code={snippet8} lang="xml" />
+  <p>
+    The camera preset and light rig are not exposed as a read/write surface — there is
+    no <code>three_d.camera</code>. If a shape already carries a camera or light rig authored in
+    PowerPoint, it is preserved, not overwritten; only an absent one is filled in. In practice
+    that means <code>preset_material</code> is the lever you have over how the shape reacts to
+    light, and shapes stay in the front-facing orthographic projection that suits flat slide
+    geometry.
+  </p>
+
+  <h2 id="limitations">Shapes that have no three_d</h2>
+  <p>
+    Two shape types raise <code>NotImplementedError</code> instead of returning
+    a <code>ThreeDFormat</code>, and it's better to know that here than to discover it as a crash
+    in a generation run:
+  </p>
+  <Code code={snippet9} />
+  <ul>
+    <li>
+      <strong><code>GraphicFrame</code></strong> — tables, charts and SmartArt. A graphic frame
+      has no <code>p:spPr</code> at all, so there is nowhere for the 3-D elements to live.
+      (Its <code>blur</code>, <code>glow</code> and <code>soft_edges</code> behave the same way.)
+    </li>
+    <li>
+      <strong><code>GroupShape</code></strong> — a group's <code>p:grpSpPr</code> legally
+      carries <code>a:scene3d</code> but not <code>a:sp3d</code>, so the facade — which writes
+      both — cannot target it without emitting invalid XML. Apply the formatting to the member
+      shapes instead, as above.
+    </li>
+  </ul>
+  <p>
+    Ordinary autoshapes, pictures, connectors, freeforms and text boxes all carry a
+    working <code>three_d</code>.
+  </p>
+
+  <h2 id="depth">Depth without 3-D</h2>
+  <p>
+    Bevels are easy to overuse. On a card or panel a soft shadow usually reads better and survives
+    scaling down to a thumbnail; save the bevel for a single focal object — a badge, a seal, a
+    hero metric — and let a shadow do the rest of the work.
+  </p>
+  <Code code={snippet10} />
+  <p>
+    The full shadow, glow, reflection and soft-edge surface is on
+    the <a href={withBase("/advanced/effects")}>Effects &amp; Gradients</a> page.
+  </p>
+</DocsLayout>

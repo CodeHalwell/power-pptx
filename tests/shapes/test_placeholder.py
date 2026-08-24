@@ -562,3 +562,81 @@ class DescribeTablePlaceholder(object):
         graphicFrame = table_ph._new_placeholder_table(1, 1)
 
         assert graphicFrame.xml == snippet_seq("placeholders")[0]
+
+
+class DescribeInheritedDimensionSiblings(object):
+    """Setting one inherited dimension must not zero out its sibling.
+
+    ``left``/``top`` share ``<a:off>`` and ``width``/``height`` share
+    ``<a:ext>``, so writing one materialises the element and the other
+    lands as ``0`` unless the inherited value is copied across first.
+    """
+
+    def it_keeps_the_inherited_height_when_only_width_is_set(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        body = Presentation().slides.add_slide(
+            Presentation().slide_layouts[1]
+        ).placeholders[1]
+        inherited_height = body.height
+        assert inherited_height > 0
+
+        body.width = Inches(4)
+
+        assert body.width == Inches(4)
+        assert body.height == inherited_height
+
+    def it_keeps_the_inherited_width_when_only_height_is_set(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        body = Presentation().slides.add_slide(
+            Presentation().slide_layouts[1]
+        ).placeholders[1]
+        inherited_width = body.width
+
+        body.height = Inches(2)
+
+        assert body.height == Inches(2)
+        assert body.width == inherited_width
+
+    def it_keeps_the_inherited_top_when_only_left_is_set(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        body = Presentation().slides.add_slide(
+            Presentation().slide_layouts[1]
+        ).placeholders[1]
+        inherited_top = body.top
+
+        body.left = Inches(1)
+
+        assert body.left == Inches(1)
+        assert body.top == inherited_top
+
+    def it_keeps_the_inherited_left_when_only_top_is_set(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        body = Presentation().slides.add_slide(
+            Presentation().slide_layouts[1]
+        ).placeholders[1]
+        inherited_left = body.left
+
+        body.top = Inches(3)
+
+        assert body.top == Inches(3)
+        assert body.left == inherited_left
+
+    def it_still_honors_an_explicit_zero(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        body = Presentation().slides.add_slide(
+            Presentation().slide_layouts[1]
+        ).placeholders[1]
+
+        body.height = Inches(0)
+
+        assert body.height == 0
