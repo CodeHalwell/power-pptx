@@ -2172,3 +2172,90 @@ class DescribeAllowanceCleanupOnDelete:
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
         assert codes, "a real collision must not be suppressed by a stale allowance"
+
+
+class DescribeAllowanceCleanupOnGroupDelete:
+    """Deleting a group must purge allowances naming its members too.
+
+    Removing a group's element removes everything nested inside it, so
+    every descendant id goes stale at once -- not just the group's own.
+    """
+
+    def _slide_with_grouped_shape(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_textbox(
+            Inches(2), Inches(1), Inches(3), Inches(2)
+        )
+        a.allow_overlap_with(inner)
+        return prs, slide, a, group, inner
+
+    def it_purges_a_group_members_id(self):
+        _, _, a, group, inner = self._slide_with_grouped_shape()
+        assert inner.shape_id in a.overlap_allowances
+
+        group.delete()
+
+        assert a.overlap_allowances == frozenset()
+
+    def it_purges_ids_nested_more_than_one_level_deep(self):
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        outer = slide.shapes.add_group_shape()
+        middle = outer.shapes.add_group_shape()
+        deep = middle.shapes.add_textbox(
+            Inches(2), Inches(1), Inches(2), Inches(1)
+        )
+        a.allow_overlap_with(deep)
+
+        outer.delete()
+
+        assert a.overlap_allowances == frozenset()
+
+    def it_keeps_allowances_naming_shapes_outside_the_group(self):
+        from power_pptx.util import Inches
+
+        _, slide, a, group, _ = self._slide_with_grouped_shape()
+        survivor = slide.shapes.add_textbox(
+            Inches(6), Inches(1), Inches(1), Inches(1)
+        )
+        a.allow_overlap_with(survivor)
+
+        group.delete()
+
+        assert a.overlap_allowances == frozenset({survivor.shape_id})
+
+    def it_does_not_suppress_a_collision_with_a_shape_reusing_a_member_id(self):
+        import io
+
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        prs, _, _, group, inner = self._slide_with_grouped_shape()
+        stale_id = inner.shape_id
+        group.delete()
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        slide = Presentation(buf).slides[0]
+
+        # Burn the group's own freed id first so the next shape lands on
+        # the member id that used to be allowed.
+        slide.shapes.add_textbox(Inches(7), Inches(4), Inches(0.5), Inches(0.5))
+        newcomer = slide.shapes.add_textbox(
+            Inches(2), Inches(1), Inches(3), Inches(2)
+        )
+        assert newcomer.shape_id == stale_id
+
+        codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
+        assert codes, "a real collision must not be suppressed by a stale member id"

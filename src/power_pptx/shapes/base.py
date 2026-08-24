@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Iterable, cast
 
 from power_pptx.action import ActionSetting
@@ -791,10 +792,9 @@ class BaseShape(object):
             slide = self.part.slide  # type: ignore[attr-defined]
         except Exception:
             slide = None
-        try:
-            deleted_id = self.shape_id
-        except Exception:
-            deleted_id = None
+        # Deleting a group takes its descendants with it, so every id
+        # about to disappear has to be collected, not just this one.
+        deleted_ids = self._descendant_shape_ids()
 
         parent = self._element.getparent()
         if parent is not None:
@@ -805,12 +805,37 @@ class BaseShape(object):
                 slide.animations.purge_orphans()
             except Exception:
                 pass
-            if deleted_id is not None:
-                self._purge_overlap_allowances(slide, deleted_id)
+            if deleted_ids:
+                self._purge_overlap_allowances(slide, deleted_ids)
+
+    def _descendant_shape_ids(self) -> "frozenset[int]":
+        """Return this shape's id plus every id nested beneath it.
+
+        Removing a group's element removes its members with it, so all of
+        their ids go stale at once. Best-effort: an id that cannot be read
+        is skipped rather than failing the delete.
+        """
+        ids: set[int] = set()
+
+        def _collect(shape) -> None:
+            with contextlib.suppress(Exception):
+                ids.add(shape.shape_id)
+            nested = getattr(shape, "shapes", None)
+            if nested is None:
+                return
+            try:
+                members = list(nested)
+            except Exception:
+                return
+            for member in members:
+                _collect(member)
+
+        _collect(self)
+        return frozenset(ids)
 
     @staticmethod
-    def _purge_overlap_allowances(slide, deleted_id: int) -> None:
-        """Drop *deleted_id* from every overlap allowance on *slide*.
+    def _purge_overlap_allowances(slide, deleted_ids: "frozenset[int]") -> None:
+        """Drop every id in *deleted_ids* from allowances on *slide*.
 
         Best-effort and never fatal: deleting a shape must not start
         raising because some sibling has unreadable lint metadata.
@@ -837,8 +862,8 @@ class BaseShape(object):
                 if cNvPr is None:
                     continue
                 allowances = _read_lint_allow(cNvPr)
-                if deleted_id in allowances:
-                    _write_lint_allow(cNvPr, allowances - {deleted_id})
+                if allowances & deleted_ids:
+                    _write_lint_allow(cNvPr, allowances - deleted_ids)
             except Exception:
                 continue
 
