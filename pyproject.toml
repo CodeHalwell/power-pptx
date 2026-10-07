@@ -51,9 +51,6 @@ Roadmap = "https://github.com/codehalwell/power-pptx/blob/master/ROADMAP.md"
 Upstream = "https://github.com/scanny/python-pptx"
 UpstreamDocumentation = "https://python-pptx.readthedocs.io/en/latest/"
 
-[tool.black]
-line-length = 100
-
 [tool.pyright]
 exclude = [
     "**/__pycache__",

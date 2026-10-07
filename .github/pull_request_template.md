@@ -17,6 +17,7 @@ refs #
 - [ ] Doc updates if the change is user-visible.
 - [ ] `pytest --cov=power_pptx tests` passes locally.
 - [ ] `behave --stop` passes locally.
+- [ ] `ruff check src tests` and `ruff format --check src tests` pass locally.
 - [ ] No new `pyright` errors.
 
 ## Test notes

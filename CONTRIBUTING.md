@@ -7,7 +7,7 @@ needs to look like, and how the test suite is laid out.
 
 ## Where to start
 
-- Browse the [GitHub issues](https://github.com/codehalwell/python-pptx/issues),
+- Browse the [GitHub issues](https://github.com/codehalwell/power-pptx/issues),
   especially anything labelled `good-first-issue`.
 - Read the [`ROADMAP.md`](ROADMAP.md). Each phase lists concrete
   user-visible API surface that's planned; if you'd like to take on
@@ -34,8 +34,8 @@ This project uses standard Python tooling — no exotic build steps.
 
 ```bash
 # clone and create a virtualenv
-git clone https://github.com/codehalwell/python-pptx.git
-cd python-pptx
+git clone https://github.com/codehalwell/power-pptx.git
+cd power-pptx
 python -m venv .venv && source .venv/bin/activate
 
 # install in editable mode plus dev dependencies
@@ -75,7 +75,8 @@ Type-checking:
 pyright
 ```
 
-Formatting and lint:
+Formatting and lint (CI runs both `ruff check` and `ruff format --check`,
+so a PR with lint or formatting drift will fail):
 
 ```bash
 ruff check src tests

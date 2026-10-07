@@ -2,8 +2,11 @@
 behave>=1.2.3
 pyparsing>=3.0.0
 pytest>=2.5
-pytest-coverage
+pytest-cov
 pytest-xdist
 pyyaml
-ruff
+# Pinned to a minor series: ruff's formatter style and its stable rule set
+# only change across minor versions, and CI runs `ruff check` and
+# `ruff format --check` against this pin.
+ruff>=0.16,<0.17
 tox

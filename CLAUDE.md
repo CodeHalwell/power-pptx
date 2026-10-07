@@ -141,11 +141,13 @@ make docs                            # Sphinx HTML into docs/.build/html
 
 A PR must keep all of these green:
 
-1. **build** — `pytest` (with coverage) + `behave` across Python 3.9–3.13.
-2. **examples-lint** — `pyflakes examples/` (no unused imports / undefined names).
-3. **examples-build** — `python examples/real_world/build_all.py` smoke-builds
+1. **lint** — `ruff check src tests` + `ruff format --check src tests` (ruff is
+   pinned to a minor series in `requirements-test.txt`).
+2. **build** — `pytest` (with coverage) + `behave` across Python 3.9–3.13.
+3. **examples-lint** — `pyflakes examples/` (no unused imports / undefined names).
+4. **examples-build** — `python examples/real_world/build_all.py` smoke-builds
    all ten real-world decks end-to-end (proves the public surface didn't regress).
-4. **schema-validation** — `pytest tests/schema` against bundled OOXML XSDs.
+5. **schema-validation** — `pytest tests/schema` against bundled OOXML XSDs.
 
 Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
 `qodana_code_quality.yml`.

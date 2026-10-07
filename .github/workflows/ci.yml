@@ -13,6 +13,26 @@ permissions:
 
 jobs:
 
+  lint:
+    # ``ruff check`` and ``ruff format --check`` are the documented lint and
+    # format steps (CONTRIBUTING.md, CLAUDE.md) but were never enforced
+    # here, so the tree drifted.  ruff is pinned to a minor series in
+    # requirements-test.txt because the formatter style and the stable rule
+    # set both change across minor versions; the pin is read from there so
+    # there is a single place to bump it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff (pinned in requirements-test.txt)
+        run: pip install "$(grep -E '^ruff' requirements-test.txt)"
+      - name: Lint
+        run: ruff check src tests
+      - name: Check formatting
+        run: ruff format --check src tests
+
   build:
     runs-on: ubuntu-latest
     strategy:
