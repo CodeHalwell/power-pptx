@@ -1445,6 +1445,12 @@ class DescribePictureLayout:
         prs = from_spec({"slides": [{"layout": "picture", "title": "P"}]})
         assert self._pictures(prs.slides[0]) == []
 
+    def it_names_the_slide_when_the_image_file_is_missing(self, tmp_path):
+        missing = str(tmp_path / "nope.png")
+        spec = {"slides": [{"layout": "blank"}, {"layout": "picture", "image": missing}]}
+        with pytest.raises(FileNotFoundError, match=r"slides\[1\]: 'image' not found.*nope\.png"):
+            from_spec(spec)
+
 
 class DescribeWrongShapedSlides:
     """Content of the wrong type fails up front, naming ``slides[i].<key>``."""

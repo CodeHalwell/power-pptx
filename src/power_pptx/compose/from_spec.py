@@ -805,7 +805,13 @@ def _insert_picture(slide: Any, image: Any, *, where: str) -> None:
 
     for ph in slide.placeholders:
         if ph.placeholder_format.type == PP_PLACEHOLDER.PICTURE:
-            ph.insert_picture(image)
+            try:
+                ph.insert_picture(image)
+            except FileNotFoundError as exc:
+                # Same exception type as a bare add_picture, but findable in a long spec.
+                raise FileNotFoundError(
+                    exc.errno, f"{where}: 'image' not found", exc.filename
+                ) from exc
             return
     raise ValueError(f"{where}: this layout has no picture placeholder to put 'image' in")
 
