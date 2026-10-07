@@ -73,8 +73,12 @@ else:
     print("effective color:", rgb)
 ```
 
-`brightness` is honoured by blending toward white or black, mirroring
-PowerPoint's `lumMod` / `lumOff` model.
+`brightness` is applied to the color's HSL luminance, keeping hue and
+saturation, which is how PowerPoint applies the `lumMod` / `lumOff` it
+is stored as (shade: `l' = l * (1 - |b|)`; tint: `l' = l * (1 - b) + b`).
+It is *not* a blend of the RGB channels toward white or black, which
+comes out much duller for saturated colors: `FFCCCC` at `-0.5` resolves
+to `E60000`, not `806666`.
 
 > ⚠ Full placeholder-walking (`slide → layout → master`) is *not*
 > implemented; this resolver covers the 80% case (theme-color lookup)
