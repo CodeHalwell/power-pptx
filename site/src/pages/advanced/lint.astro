@@ -96,7 +96,7 @@ print(report.markdown())`;
       <tr><th>Type</th><th>Meaning</th><th>Default severity</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds its frame (Pillow metrics)</td><td>warning</td></tr>
+      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds its frame (a character-count heuristic, not real font metrics; frames with an auto-size are skipped)</td><td>error</td></tr>
       <tr><td><code>OffSlide</code></td><td>Shape extends past the slide bounds</td><td>error</td></tr>
       <tr><td><code>ShapeCollision</code></td><td>Unintentional overlap between shapes</td><td>warning</td></tr>
       <tr><td><code>LayerOrderViolation</code></td><td>A shape declares <code>layer_above</code> but is drawn <em>below</em> that layer, so it will be hidden</td><td>error</td></tr>
