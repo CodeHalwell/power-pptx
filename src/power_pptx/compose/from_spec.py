@@ -1089,11 +1089,22 @@ def _apply_overlap_allowances(
         shape.allow_overlap_with(*targets)
 
 
-def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
-    """Add KPI card shapes to *slide* — label, value, and optional delta."""
+def _add_kpi_shapes(slide: Any, kpis: Sequence[Mapping[str, Any]]) -> None:
+    """Add KPI card shapes to *slide* — label, value, and optional delta.
+
+    Cards are 2.2" wide at most, centred as a row.  When more KPIs are given
+    than fit between 0.3" side margins they share the width instead, as the
+    ``kpi`` recipe's cards do (5 cards on a 10" slide used to run 0.9" off
+    each edge).  A row that already fitted is laid out exactly as before.
+    Deltas are formatted by the ``kpi`` recipe's own rules: a number within
+    +/-1 is a percentage (``0.27`` -> ``+27%``), a larger one keeps its
+    value (``14`` -> ``+14.0``), a string such as ``"+14 pts"`` is used
+    verbatim, and ``delta_text`` wins over ``delta``.
+    """
+    from power_pptx.design.recipes import _resolve_delta
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import PP_ALIGN
-    from power_pptx.util import Inches, Pt
+    from power_pptx.util import Inches, Length, Pt
 
     prs_part = slide.part.package.presentation_part
     slide_w = prs_part.presentation.slide_width or Inches(10)
@@ -1102,8 +1113,10 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
     if n == 0:
         return
 
-    card_w = Inches(2.2)
+    margin = Inches(0.3)
     gap = Inches(0.2)
+    fit_w = (slide_w - 2 * margin - (n - 1) * gap) // n
+    card_w = Length(min(Inches(2.2), fit_w))
     total_w = n * card_w + (n - 1) * gap
     start_x = (slide_w - total_w) // 2
     top = Inches(2.5)
@@ -1112,7 +1125,6 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         left = start_x + i * (card_w + gap)
         label = str(kpi.get("label", ""))
         value = str(kpi.get("value", ""))
-        delta = kpi.get("delta")
 
         # Value textbox (large, centered)
         tf_value = slide.shapes.add_textbox(left, top, card_w, Inches(1.0))
@@ -1137,10 +1149,9 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         p2.alignment = PP_ALIGN.CENTER
 
         # Delta textbox (optional)
-        if delta is not None:
+        delta_str, delta_sign = _resolve_delta(kpi)
+        if delta_str is not None:
             delta_top = label_top + Inches(0.4)
-            sign = "+" if float(delta) >= 0 else ""
-            delta_str = f"{sign}{float(delta):.0%}"
             tf_delta = slide.shapes.add_textbox(left, delta_top, card_w, Inches(0.3))
             tf3 = tf_delta.text_frame
             p3 = tf3.paragraphs[0]
@@ -1148,7 +1159,7 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
             run3.text = delta_str
             run3.font.size = Pt(11)
             run3.font.color.rgb = (
-                RGBColor(0x00, 0x8A, 0x00) if float(delta) >= 0 else RGBColor(0xCC, 0x00, 0x00)
+                RGBColor(0x00, 0x8A, 0x00) if delta_sign >= 0 else RGBColor(0xCC, 0x00, 0x00)
             )
             p3.alignment = PP_ALIGN.CENTER
 

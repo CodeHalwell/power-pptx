@@ -9,6 +9,7 @@ import pytest
 from power_pptx.compose import from_spec, from_yaml
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
+from power_pptx.lint import OffSlide
 
 
 class DescribeRecipeDispatch:
@@ -1630,3 +1631,99 @@ class DescribeWrongShapedSlides:
     def it_still_treats_a_falsy_transition_as_none(self, transition):
         prs = from_spec({"slides": [{"layout": "title", "title": "T", "transition": transition}]})
         assert len(prs.slides) == 1
+
+
+class DescribeKpiGridLayout:
+    """``kpi_grid`` fits its cards on the slide and formats deltas like ``kpi``."""
+
+    @staticmethod
+    def _build(n, delta=0.1, **extra):
+        kpis = [{"label": f"L{i}", "value": "$1,234,567", "delta": delta} for i in range(n)]
+        return from_spec({**extra, "slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 8])
+    @pytest.mark.parametrize("size", [None, "16:9"])
+    def it_keeps_every_card_on_the_slide(self, n, size):
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        slide = prs.slides[0]
+        for shape in slide.shapes:
+            assert shape.left >= 0
+            assert shape.left + shape.width <= prs.slide_width
+        assert not [i for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 8])
+    @pytest.mark.parametrize("size", [None, "16:9"])
+    def it_lints_clean_at_every_count(self, n, size):
+        # Neither OffSlide errors nor a drift warning against the title.
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        assert prs.slides[0].lint().issues == []
+
+    @pytest.mark.parametrize(
+        ("n", "size", "first_left"),
+        [(1, None, 3.9), (3, None, 1.5), (4, None, 0.3), (4, "16:9", 1.9665), (5, "16:9", 0.7665)],
+    )
+    def it_lays_out_a_row_that_already_fitted_exactly_as_before(self, n, size, first_left):
+        from power_pptx.util import Inches
+
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert {sh.width for sh in value_boxes} == {Inches(2.2)}
+        assert value_boxes[0].left == pytest.approx(Inches(first_left), abs=Inches(0.001))
+
+    def it_does_not_let_neighbouring_cards_overlap(self):
+        prs = self._build(6)
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert len(value_boxes) == 6
+        for left_box, right_box in zip(value_boxes, value_boxes[1:]):
+            assert left_box.left + left_box.width <= right_box.left
+
+    def it_does_not_stretch_cards_past_their_natural_width(self):
+        from power_pptx.util import Inches
+
+        prs = self._build(2)
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert {sh.width for sh in value_boxes} == {Inches(2.2)}
+
+    def it_renders_a_string_delta_verbatim(self):
+        prs = self._build(1, delta="+14 pts")
+        assert "+14 pts" in _slide_texts(prs.slides[0])
+
+    def it_formats_numeric_deltas_like_the_kpi_recipe(self):
+        kpis = [
+            {"label": "A", "value": "1", "delta": 0.27},
+            {"label": "B", "value": "2", "delta": -0.05},
+            {"label": "C", "value": "3", "delta": 14},
+        ]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        texts = _slide_texts(prs.slides[0])
+        assert {"+27%", "−5%", "+14.0"} <= set(texts)
+
+    def it_honours_delta_text(self):
+        kpis = [{"label": "A", "value": "1", "delta_text": "vs. plan"}]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        assert "vs. plan" in _slide_texts(prs.slides[0])
+
+    def it_tints_positive_and_negative_deltas(self):
+        kpis = [
+            {"label": "A", "value": "1", "delta": "+3 pts"},
+            {"label": "B", "value": "2", "delta": "-3 pts"},
+        ]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        colours = {}
+        for sh in prs.slides[0].shapes:
+            if sh.has_text_frame and sh.text_frame.text.endswith("pts"):
+                colours[sh.text_frame.text] = sh.text_frame.paragraphs[0].runs[0].font.color.rgb
+        assert colours["+3 pts"] == RGBColor(0x00, 0x8A, 0x00)
+        assert colours["-3 pts"] == RGBColor(0xCC, 0x00, 0x00)
