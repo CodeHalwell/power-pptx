@@ -7,8 +7,10 @@ handling, and selection of slide indexes — not the actual rendering.
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +21,7 @@ from power_pptx.render import (
     DEFAULT_TIMEOUT_SECONDS,
     ThumbnailRendererError,
     ThumbnailRendererUnavailable,
+    _pdf_to_pngs_via_pdftoppm,
     _resolve_binary,
     render_slide_thumbnail,
     render_slide_thumbnails,
@@ -43,6 +46,70 @@ def _deck(slide_count, hidden=()):
         if idx in hidden:
             slide._element.set("show", "0")
     return prs
+
+
+class _FakeToolchain:
+    """Stands in for `subprocess.run` for both ``soffice`` and ``pdftoppm``.
+
+    The commands are simulated at the process boundary so the real orchestration (strategy
+    selection, page-to-slide mapping, output handling) runs. Like LibreOffice 24.2 it writes
+    one PNG, of the first slide, for ``--convert-to png``. Each ``--convert-to pdf`` consumes
+    the next entry of `pdf_pages`, the number of pages in the PDF it "exports" (LibreOffice
+    skips hidden slides, so that is the number of visible slides). ``pdftoppm`` then writes
+    one PNG per page whose content names the PDF it came from and the page number.
+    """
+
+    PNG = b"\x89PNG\r\n\x1a\n"
+
+    def __init__(self, pdf_pages=()):
+        self._pdf_pages = list(pdf_pages)
+        self.commands = []
+        self._pdf_count = 0
+
+    def __call__(self, cmd, **kwargs):
+        self.commands.append(list(cmd))
+        tool = Path(cmd[0]).name
+        if tool == "soffice":
+            self._soffice(cmd)
+        elif tool == "pdftoppm":
+            self._pdftoppm(cmd)
+        else:  # pragma: no cover
+            raise AssertionError(f"unexpected command {cmd!r}")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    def _soffice(self, cmd):
+        fmt = cmd[cmd.index("--convert-to") + 1]
+        out_dir = Path(cmd[cmd.index("--outdir") + 1])
+        stem = Path(cmd[-1]).stem
+        if fmt == "png":
+            (out_dir / f"{stem}.png").write_bytes(self.PNG + b"png-slide-1")
+            return
+        assert self._pdf_pages, "LibreOffice was asked for a PDF export nobody expected"
+        self._pdf_count += 1
+        pages = self._pdf_pages.pop(0)
+        (out_dir / f"{stem}.pdf").write_bytes(b"%%PDF-%d:%d" % (pages, self._pdf_count))
+
+    def _pdftoppm(self, cmd):
+        pdf_path, prefix = Path(cmd[-2]), cmd[-1]
+        pages, pdf_no = (int(n) for n in pdf_path.read_bytes()[5:].split(b":"))
+        for page in range(1, pages + 1):
+            png = Path(f"{prefix}-{page}.png")
+            png.write_bytes(self.PNG + b"pdf%d-page%d" % (pdf_no, page))
+
+    @property
+    def soffice_runs(self):
+        return [cmd for cmd in self.commands if Path(cmd[0]).name == "soffice"]
+
+
+@contextmanager
+def _fake_toolchain(toolchain):
+    """Route `soffice`, `pdftoppm` and their discovery to `toolchain`."""
+    binaries = {"soffice": "/fake/soffice", "pdftoppm": "/fake/pdftoppm"}
+    with (
+        patch("power_pptx.render.shutil.which", side_effect=binaries.get),
+        patch("power_pptx.render.subprocess.run", side_effect=toolchain),
+    ):
+        yield toolchain
 
 
 def _prs_with_off_slide_shape():
@@ -455,6 +522,124 @@ class DescribeRenderSlideThumbnailCleanup:
             path.unlink(missing_ok=True)
 
 
+class DescribeRenderingIntoAnExistingDirectory:
+    """Pages of an earlier render sitting in `out_dir` must not be mistaken for this one's."""
+
+    def it_returns_only_the_pages_of_this_render_when_rendering_twice(self, tmp_path):
+        toolchain = _FakeToolchain(pdf_pages=[3, 2])
+
+        with _fake_toolchain(toolchain):
+            first = render_slide_thumbnails(_deck(3), out_dir=tmp_path, strategy="pdf")
+            second = render_slide_thumbnails(_deck(2), out_dir=tmp_path, strategy="pdf")
+
+        assert len(first) == 3
+        # -- a 2-slide deck gives 2 paths, not the 3 pages of the first render --
+        assert len(second) == 2
+        assert [p.read_bytes() for p in second] == [
+            _FakeToolchain.PNG + b"pdf2-page1",
+            _FakeToolchain.PNG + b"pdf2-page2",
+        ]
+
+    def it_does_not_pick_up_leftover_pdftoppm_pages(self, tmp_path):
+        pdf = tmp_path / "deck.pdf"
+        pdf.write_bytes(b"%PDF-2:1")
+        for n in (1, 2, 3):
+            (tmp_path / f"deck-page-{n}.png").write_bytes(b"stale")
+
+        with patch("power_pptx.render.subprocess.run", side_effect=_FakeToolchain()):
+            pages = _pdf_to_pngs_via_pdftoppm("/fake/pdftoppm", pdf, tmp_path, dpi=150)
+
+        assert [p.name for p in pages] == ["deck-page-1.png", "deck-page-2.png"]
+        assert all(p.read_bytes().startswith(_FakeToolchain.PNG) for p in pages)
+
+    def it_leaves_other_files_in_the_directory_alone(self, tmp_path):
+        keep = tmp_path / "notes.txt"
+        keep.write_text("keep me")
+        stale = tmp_path / "_render_input-page-3.png"
+        stale.write_bytes(b"stale")
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            render_slide_thumbnails(_deck(2), out_dir=tmp_path, strategy="pdf")
+
+        assert keep.read_text() == "keep me"
+        assert stale.read_bytes() == b"stale"
+
+    def it_does_not_leave_scratch_directories_behind(self, tmp_path):
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            render_slide_thumbnails(_deck(2), out_dir=tmp_path, strategy="pdf")
+
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "_render_input-page-1.png",
+            "_render_input-page-2.png",
+        ]
+
+
+class DescribeTheSavedInputDeck:
+    """The `.pptx` handed to LibreOffice is a private temp file, never the caller's output."""
+
+    def it_does_not_leave_the_input_deck_in_the_output_directory(self, tmp_path, two_slide_prs):
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
+        ):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
+
+        assert list(tmp_path.glob("*.pptx")) == []
+
+    def it_saves_the_deck_outside_the_output_directory(self, tmp_path, two_slide_prs):
+        seen = {}
+
+        def _inspect(soffice_bin, deck_path, out_dir, timeout):
+            seen["deck_exists"] = Path(deck_path).exists()
+            seen["deck_dir"] = Path(deck_path).parent
+            return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_inspect),
+        ):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
+
+        assert seen["deck_exists"] is True
+        assert seen["deck_dir"] != tmp_path
+        # -- and it is gone once the render is over --
+        assert not seen["deck_dir"].exists() or list(seen["deck_dir"].glob("*.pptx")) == []
+
+    def it_removes_the_input_deck_when_rendering_fails(self, tmp_path, two_slide_prs):
+        decks = []
+
+        def _failing(soffice_bin, deck_path, out_dir, timeout):
+            decks.append(Path(deck_path))
+            return _fake_soffice_run(tmp_path, exit_code=1, stderr=b"boom")(
+                soffice_bin, deck_path, out_dir, timeout
+            )
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_failing),
+        ):
+            with pytest.raises(ThumbnailRendererError, match="status 1"):
+                render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
+
+        assert list(tmp_path.glob("*.pptx")) == []
+        (deck,) = decks
+        assert not deck.exists()
+
+    def it_keeps_the_input_deck_out_of_the_temp_directory_it_hands_back(self, two_slide_prs):
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(Path("."))),
+        ):
+            paths = render_slide_thumbnails(two_slide_prs)
+
+        try:
+            assert len(paths) == 2
+            assert all(p.exists() for p in paths)
+            assert list(paths[0].parent.glob("*.pptx")) == []
+        finally:
+            shutil.rmtree(paths[0].parent, ignore_errors=True)
+
+
 class DescribeRenderingAndLintOnSave:
     """Rendering is for looking at a deck, broken or not; it must not run the save-time lint."""
 
@@ -515,6 +700,19 @@ class DescribeSofficeTimeout:
         ):
             with pytest.raises(ThumbnailRendererError, match="timed out after 7"):
                 render_slide_thumbnails(_deck(2), out_dir=tmp_path, timeout=7, strategy=strategy)
+
+    def it_does_not_leave_the_input_deck_behind_after_a_timeout(self, tmp_path):
+        def _hang(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render.subprocess.run", side_effect=_hang),
+        ):
+            with pytest.raises(ThumbnailRendererError):
+                render_slide_thumbnails(_deck(2), out_dir=tmp_path, strategy="pdf")
+
+        assert list(tmp_path.iterdir()) == []
 
 
 class Describe_resolve_binary:

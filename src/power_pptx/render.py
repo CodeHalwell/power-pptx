@@ -177,11 +177,17 @@ def render_slide_thumbnails(
 ) -> Union[List[Path], List[bytes]]:
     """Render slide thumbnails for `prs` via headless LibreOffice.
 
-    `out_dir` is the directory to write PNGs into; if ``None``, a
-    temporary directory is used and the returned paths point inside it
-    (the caller is responsible for cleanup).  When ``return_bytes=True``
-    the function reads each PNG into memory and returns ``bytes``
-    objects instead, deleting the temporary directory before returning.
+    `out_dir` is the directory to write PNGs into (created if need be); if
+    ``None``, a temporary directory is used and the returned paths point
+    inside it (the caller is responsible for cleanup).  Only the requested
+    slides' PNGs are written to `out_dir`, replacing same-named files from an
+    earlier render; anything else already there is left alone.  The deck
+    handed to LibreOffice is a private temporary file that is removed
+    afterwards, and it is written without running the ``lint_on_save`` hook,
+    so a deck that fails the lint can still be rendered.  When
+    ``return_bytes=True`` the function reads each PNG into memory and returns
+    ``bytes`` objects instead, deleting the temporary directory before
+    returning.
 
     `slide_indexes` is a 0-based list of slide indexes to return; when
     ``None``, all slides are returned in deck order.
@@ -203,24 +209,27 @@ def render_slide_thumbnails(
 
     Raises :class:`ThumbnailRendererUnavailable` when ``soffice`` cannot
     be located, and :class:`ThumbnailRendererError` when the conversion
-    completes with no PNG output (typically a corrupted deck or a
-    LibreOffice version that doesn't ship the PNG filter).
+    times out or completes with no PNG output (typically a corrupted deck or
+    a LibreOffice version that doesn't ship the PNG filter).
     """
     if strategy not in ("auto", "png", "pdf"):
         raise ValueError(f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}")
 
     bin_path = _resolve_binary(soffice_bin)
 
-    cleanup_tmp = out_dir is None
-    work_dir = (
-        Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
-    )
-    work_dir.mkdir(parents=True, exist_ok=True)
+    dest_dir = Path(out_dir) if out_dir is not None else None
+    if dest_dir is not None:
+        dest_dir.mkdir(parents=True, exist_ok=True)
 
     expected_slide_count = len(list(prs.slides))
 
+    # Everything LibreOffice and pdftoppm read and write lives in a private directory, so
+    # nothing already in `out_dir` (the pages of an earlier render, say) can be mistaken for
+    # this render's output and the saved deck never lands in the caller's directory.
+    work_dir = Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+    deck_path = work_dir / "_render_input.pptx"
+    keep_work_dir = False
     try:
-        deck_path = work_dir / "_render_input.pptx"
         _save_to_path(prs, deck_path)
 
         png_paths: List[Path] = []
@@ -257,12 +266,22 @@ def render_slide_thumbnails(
             wanted = list(slide_indexes)
             png_paths = _select_indexes(png_paths, wanted)
 
+        if dest_dir is not None:
+            png_paths = [
+                Path(shutil.move(str(page), str(dest_dir / page.name))) for page in png_paths
+            ]
+        elif not return_bytes:
+            # The returned paths point into the work directory, which is now the caller's.
+            keep_work_dir = True
+
         if return_bytes:
             data = [p.read_bytes() for p in png_paths]
             return data
         return list(png_paths)
     finally:
-        if cleanup_tmp and return_bytes:
+        with contextlib.suppress(OSError):
+            deck_path.unlink()
+        if not keep_work_dir:
             shutil.rmtree(work_dir, ignore_errors=True)
 
 
@@ -356,22 +375,28 @@ def _pdf_to_pngs_via_pdftoppm(
     pdftoppm: str, pdf_path: Path, out_dir: Path, *, dpi: int
 ) -> List[Path]:
     prefix = pdf_path.stem + "-page"
-    cmd = [
-        pdftoppm,
-        "-png",
-        "-r",
-        str(int(dpi)),
-        str(pdf_path),
-        str(out_dir / prefix),
-    ]
-    result = subprocess.run(cmd, capture_output=True, check=False)
-    if result.returncode != 0:
-        raise ThumbnailRendererError(
-            "pdftoppm exited with status %d: %s"
-            % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
-        )
-    pages = sorted(out_dir.glob(prefix + "-*.png"), key=_natural_sort_key)
-    return pages
+    # pdftoppm names its output `<prefix>-<n>.png` and silently overwrites.  Globbing `out_dir`
+    # for those names would also return pages left there by an earlier run (a longer deck
+    # rendered into the same directory before), so let it write into a fresh directory and
+    # move out only what this run produced.
+    with tempfile.TemporaryDirectory(prefix=".pdftoppm-", dir=out_dir) as scratch:
+        scratch_dir = Path(scratch)
+        cmd = [
+            pdftoppm,
+            "-png",
+            "-r",
+            str(int(dpi)),
+            str(pdf_path),
+            str(scratch_dir / prefix),
+        ]
+        result = subprocess.run(cmd, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise ThumbnailRendererError(
+                "pdftoppm exited with status %d: %s"
+                % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
+            )
+        produced = sorted(scratch_dir.glob(prefix + "-*.png"), key=_natural_sort_key)
+        return [Path(shutil.move(str(page), str(out_dir / page.name))) for page in produced]
 
 
 def _pdf_to_pngs_via_pypdfium2(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
