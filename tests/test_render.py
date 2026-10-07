@@ -6,6 +6,7 @@ handling, and selection of slide indexes — not the actual rendering.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import shutil
 import subprocess
@@ -686,6 +687,177 @@ class DescribeRenderingAndLintOnSave:
             prs.save(str(tmp_path / "broken.pptx"))
 
 
+class DescribeHiddenSlides:
+    """LibreOffice's PDF export skips slides marked ``show="0"``, so pages shift."""
+
+    def it_maps_pages_to_the_visible_slides(self, tmp_path):
+        # -- slide 2 of 3 is hidden: the PDF has two pages, for slides 1 and 3 --
+        prs = _deck(3, hidden={1})
+        toolchain = _FakeToolchain(pdf_pages=[2])
+
+        with _fake_toolchain(toolchain):
+            paths = render_slide_thumbnails(
+                prs, out_dir=tmp_path, slide_indexes=[2], strategy="pdf"
+            )
+
+        # -- slide 3 is the *second* page, not the (non-existent) third --
+        assert [p.read_bytes() for p in paths] == [_FakeToolchain.PNG + b"pdf1-page2"]
+
+    def it_returns_the_visible_slides_when_asked_for_every_slide(self, tmp_path):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            paths = render_slide_thumbnails(prs, out_dir=tmp_path, strategy="pdf")
+
+        assert [p.read_bytes() for p in paths] == [
+            _FakeToolchain.PNG + b"pdf1-page1",
+            _FakeToolchain.PNG + b"pdf1-page2",
+        ]
+
+    def it_maps_pages_correctly_when_the_first_slide_is_hidden(self, tmp_path):
+        prs = _deck(3, hidden={0})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            paths = render_slide_thumbnails(
+                prs, out_dir=tmp_path, slide_indexes=[1, 2], strategy="pdf"
+            )
+
+        assert [p.read_bytes() for p in paths] == [
+            _FakeToolchain.PNG + b"pdf1-page1",
+            _FakeToolchain.PNG + b"pdf1-page2",
+        ]
+
+    def it_raises_for_a_requested_slide_that_is_hidden(self, tmp_path):
+        prs = _deck(3, hidden={1})
+        toolchain = _FakeToolchain(pdf_pages=[2])
+
+        with _fake_toolchain(toolchain):
+            with pytest.raises(ThumbnailRendererError, match=r"slide 1 is hidden"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[0, 1])
+
+        # -- nothing to gain from running LibreOffice for a request that cannot be met --
+        assert toolchain.soffice_runs == []
+
+    def it_names_every_hidden_slide_that_was_requested(self, tmp_path):
+        prs = _deck(4, hidden={1, 3})
+
+        with _fake_toolchain(_FakeToolchain()):
+            with pytest.raises(ThumbnailRendererError, match=r"slides 1, 3 are hidden"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[0, 1, 2, 3])
+
+    def it_raises_for_the_single_slide_renderer_too(self):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain()):
+            with pytest.raises(ThumbnailRendererError, match="hidden"):
+                render_slide_thumbnail(prs.slides[1], return_bytes=True)
+
+    def it_raises_when_every_slide_is_hidden(self, tmp_path):
+        prs = _deck(2, hidden={0, 1})
+        toolchain = _FakeToolchain()
+
+        with _fake_toolchain(toolchain):
+            with pytest.raises(ThumbnailRendererError, match="every slide .* hidden"):
+                render_slide_thumbnails(prs, out_dir=tmp_path)
+
+        assert toolchain.soffice_runs == []
+
+    def it_still_reports_an_out_of_range_index_as_an_IndexError(self, tmp_path):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain()):
+            with pytest.raises(IndexError, match="slide index 3 out of range for deck with 3"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[3])
+
+    def it_does_not_trust_the_png_filters_single_image_for_a_hidden_first_slide(self, tmp_path):
+        # -- the PNG filter always renders slide 1, hidden or not. One visible slide and one
+        # -- PNG look like a match, but that image is the hidden slide, not the visible one.
+        prs = _deck(2, hidden={0})
+        toolchain = _FakeToolchain(pdf_pages=[1])
+
+        with _fake_toolchain(toolchain):
+            paths = render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[1])
+
+        assert [p.read_bytes() for p in paths] == [_FakeToolchain.PNG + b"pdf1-page1"]
+
+    def it_refuses_the_png_strategy_when_it_cannot_tell_which_slide_an_image_shows(self, tmp_path):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain()):
+            with pytest.raises(ThumbnailRendererError, match="emitted 1 PNG"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[0], strategy="png")
+
+    def it_raises_when_the_page_count_matches_neither_the_deck_nor_its_visible_slides(
+        self, tmp_path
+    ):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[5])):
+            with pytest.raises(ThumbnailRendererError, match=r"5 page.*3 slide.*2 .*not hidden"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, strategy="pdf")
+
+    def it_raises_when_a_deck_without_hidden_slides_gets_the_wrong_page_count(self, tmp_path):
+        prs = _deck(3)
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            with pytest.raises(ThumbnailRendererError, match=r"2 page.*3 slide"):
+                render_slide_thumbnails(prs, out_dir=tmp_path, strategy="pdf")
+
+    def it_accepts_one_page_per_slide_from_a_build_that_exports_hidden_slides(self, tmp_path):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[3])):
+            paths = render_slide_thumbnails(
+                prs, out_dir=tmp_path, slide_indexes=[2], strategy="pdf"
+            )
+
+        assert [p.read_bytes() for p in paths] == [_FakeToolchain.PNG + b"pdf1-page3"]
+
+    @pytest.mark.parametrize(
+        ("show", "hidden"),
+        [("0", True), ("false", True), ("1", False), ("true", False), (None, False)],
+    )
+    def it_reads_the_show_attribute_as_an_xsd_boolean(self, tmp_path, show, hidden):
+        prs = _deck(1)
+        if show is not None:
+            prs.slides[0]._element.set("show", show)
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[1])):
+            if hidden:
+                with pytest.raises(ThumbnailRendererError, match="hidden"):
+                    render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[0])
+            else:
+                assert len(render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[0])) == 1
+
+
+class DescribeRenderSlidesNaming:
+    def it_names_each_png_after_its_slide_index_when_a_slide_is_hidden(self, tmp_path):
+        prs = _deck(3, hidden={1})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            paths = render_slides(
+                prs, out_dir=tmp_path, name_template="slide-{:02d}.png", strategy="pdf"
+            )
+
+        # -- slide 3 is not "slide-01": the template index is the slide's, not the page's --
+        assert [p.name for p in paths] == ["slide-00.png", "slide-02.png"]
+        assert paths[1].read_bytes() == _FakeToolchain.PNG + b"pdf1-page2"
+
+    def it_names_requested_slides_after_their_slide_index(self, tmp_path):
+        prs = _deck(3, hidden={0})
+
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            paths = render_slides(
+                prs,
+                out_dir=tmp_path,
+                slides=[2],
+                name_template="slide-{:02d}.png",
+                strategy="pdf",
+            )
+
+        assert [p.name for p in paths] == ["slide-02.png"]
+
+
 class DescribeSofficeTimeout:
     """`subprocess.run(timeout=)` raises TimeoutExpired; callers are promised a renderer error."""
 
@@ -782,3 +954,80 @@ class DescribeRenderSlidesScale:
 
     def it_leaves_an_explicit_dpi_alone_without_a_scale(self):
         assert self._dpi_passed_on(dpi=96) == 96
+
+
+def _libreoffice_toolchain_available():
+    has_office = shutil.which("soffice") or shutil.which("libreoffice")
+    has_splitter = shutil.which("pdftoppm") or importlib.util.find_spec("pypdfium2")
+    return bool(has_office and has_splitter)
+
+
+def _color_deck():
+    """Red, green and blue slides, the green one hidden."""
+    from power_pptx.dml.color import RGBColor
+
+    prs = Presentation()
+    for rgb in ((255, 0, 0), (0, 200, 0), (0, 0, 255)):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(*rgb)
+    prs.slides[1]._element.set("show", "0")
+    return prs
+
+
+def _dominant_color(png_path):
+    """Name of the strongest channel at the centre of the image."""
+    from PIL import Image
+
+    with Image.open(png_path) as image:
+        red, green, blue = image.convert("RGB").getpixel((image.width // 2, image.height // 2))
+    return max(zip((red, green, blue), ("red", "green", "blue")))[1]
+
+
+@pytest.fixture(scope="module")
+def libreoffice_rendered(tmp_path_factory):
+    """The colour deck rendered once, every slide LibreOffice can, as PNG files in `out_dir`."""
+    prs = _color_deck()
+    out_dir = tmp_path_factory.mktemp("thumbs")
+    return prs, render_slide_thumbnails(prs, out_dir=out_dir), out_dir
+
+
+@pytest.mark.skipif(
+    not _libreoffice_toolchain_available(), reason="needs LibreOffice and pdftoppm or pypdfium2"
+)
+class DescribeRenderingWithLibreOffice:
+    """End to end against the real LibreOffice, identifying each slide by its background."""
+
+    def it_renders_the_visible_slides_only(self, libreoffice_rendered):
+        _, paths, _ = libreoffice_rendered
+        assert [_dominant_color(p) for p in paths] == ["red", "blue"]
+
+    def it_returns_the_right_slide_for_an_index_after_a_hidden_one(self, tmp_path):
+        (path,) = render_slide_thumbnails(_color_deck(), out_dir=tmp_path, slide_indexes=[2])
+
+        assert _dominant_color(path) == "blue"
+
+    def it_does_not_return_the_hidden_first_slide_for_the_visible_one(self, tmp_path):
+        # -- LibreOffice's PNG filter always renders slide 1, hidden or not, and one image for
+        # -- one visible slide would look like a match; the image would be the wrong slide --
+        from power_pptx.dml.color import RGBColor
+
+        prs = Presentation()
+        for rgb in ((0, 0, 255), (255, 0, 0)):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            slide.background.fill.solid()
+            slide.background.fill.fore_color.rgb = RGBColor(*rgb)
+        prs.slides[0]._element.set("show", "0")
+
+        (path,) = render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[1])
+
+        assert _dominant_color(path) == "red"
+
+    def it_leaves_only_the_pngs_in_the_output_directory(self, libreoffice_rendered):
+        _, paths, out_dir = libreoffice_rendered
+        assert sorted(p.name for p in out_dir.iterdir()) == sorted(p.name for p in paths)
+
+    def it_refuses_to_render_the_hidden_slide(self, libreoffice_rendered, tmp_path):
+        prs, _, _ = libreoffice_rendered
+        with pytest.raises(ThumbnailRendererError, match="slide 1 is hidden"):
+            render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[1])

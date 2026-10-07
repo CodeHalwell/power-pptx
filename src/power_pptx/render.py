@@ -42,7 +42,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Union
 
 if TYPE_CHECKING:
     from power_pptx.presentation import Presentation as _Presentation
@@ -141,10 +141,10 @@ def _run_soffice(
     """Convert *deck_path* to PNG using ``soffice --convert-to png``.
 
     Stock LibreOffice 7+ writes only the first slide for a multi-slide
-    deck through this filter; older builds (and a handful of forks) write
-    one PNG per slide.  Callers are responsible for verifying the output
-    count matches the slide count and falling back to the PDF path when
-    it doesn't.
+    deck through this filter (even when that slide is hidden); older builds
+    (and a handful of forks) write one PNG per slide.  Callers are
+    responsible for verifying the output count matches the slide count and
+    falling back to the PDF path when it doesn't.
     """
     return _soffice_convert("png", soffice_bin, deck_path, out_dir, timeout)
 
@@ -159,7 +159,8 @@ def _run_soffice_pdf(
 
     Unlike the PNG filter, the PDF export reliably contains every slide
     on every LibreOffice version we've tested, which makes it the
-    authoritative source for per-slide thumbnails.
+    authoritative source for per-slide thumbnails.  The one exception is
+    a hidden slide (``p:sld/@show="0"``), which the export skips.
     """
     return _soffice_convert("pdf", soffice_bin, deck_path, out_dir, timeout)
 
@@ -190,7 +191,15 @@ def render_slide_thumbnails(
     returning.
 
     `slide_indexes` is a 0-based list of slide indexes to return; when
-    ``None``, all slides are returned in deck order.
+    ``None``, every slide that can be rendered is returned in deck order.
+
+    LibreOffice does not export hidden slides (``p:sld show="0"``), so they
+    have no thumbnail.  With ``slide_indexes=None`` they are skipped (the
+    result is then shorter than the deck), and asking for a hidden slide by
+    index raises :class:`ThumbnailRendererError`, as does a deck whose slides
+    are all hidden.  Pages are matched to slides by position among the visible
+    slides; a page count that fits neither the deck nor its visible slides
+    raises :class:`ThumbnailRendererError` rather than guessing.
 
     `strategy` controls which LibreOffice export pipeline is used:
 
@@ -199,7 +208,7 @@ def render_slide_thumbnails(
       which only writes the first slide), fall back to PDF + per-page
       split.
     * ``"png"`` — only the PNG path; raises :class:`ThumbnailRendererError`
-      when LibreOffice produces fewer than one PNG per slide.
+      when LibreOffice does not produce exactly one PNG per slide.
     * ``"pdf"`` — skip the PNG path entirely and always go through PDF +
       per-page split.
 
@@ -209,19 +218,22 @@ def render_slide_thumbnails(
 
     Raises :class:`ThumbnailRendererUnavailable` when ``soffice`` cannot
     be located, and :class:`ThumbnailRendererError` when the conversion
-    times out or completes with no PNG output (typically a corrupted deck or
-    a LibreOffice version that doesn't ship the PNG filter).
+    times out, completes with no PNG output (typically a corrupted deck or a
+    LibreOffice version that doesn't ship the PNG filter), or produces pages
+    that cannot be matched to the deck's slides.
     """
     if strategy not in ("auto", "png", "pdf"):
         raise ValueError(f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}")
 
     bin_path = _resolve_binary(soffice_bin)
 
+    slide_count = len(prs.slides)
+    visible = _visible_slide_indexes(prs)
+    wanted = _slides_to_render(slide_indexes, slide_count, visible)
+
     dest_dir = Path(out_dir) if out_dir is not None else None
     if dest_dir is not None:
         dest_dir.mkdir(parents=True, exist_ok=True)
-
-    expected_slide_count = len(list(prs.slides))
 
     # Everything LibreOffice and pdftoppm read and write lives in a private directory, so
     # nothing already in `out_dir` (the pages of an earlier render, say) can be mistaken for
@@ -236,17 +248,19 @@ def render_slide_thumbnails(
 
         if strategy in ("auto", "png"):
             png_paths = _render_via_png(bin_path, deck_path, work_dir, timeout)
-            if strategy == "png" and len(png_paths) < expected_slide_count:
+            if strategy == "png" and len(png_paths) != slide_count:
                 raise ThumbnailRendererError(
                     "soffice --convert-to png emitted %d PNG(s) for a "
                     "%d-slide deck.  Most LibreOffice 7+ builds only write "
                     "the first slide via the PNG filter; pass "
                     "strategy='auto' or 'pdf' to use the PDF-split fallback."
-                    % (len(png_paths), expected_slide_count)
+                    % (len(png_paths), slide_count)
                 )
 
-        # Auto-fallback: PNG path didn't produce one image per slide.
-        if strategy == "pdf" or (strategy == "auto" and len(png_paths) < expected_slide_count):
+        # Auto-fallback: PNG path didn't produce one image per slide.  (A single image can't
+        # be trusted to be the one wanted when slides are hidden: the filter renders slide 1
+        # even if it is hidden, so only one image *per slide* is accepted.)
+        if strategy == "pdf" or (strategy == "auto" and len(png_paths) != slide_count):
             # Clean up partial PNG output from the auto-mode first attempt
             # so we don't confuse the slide-index lookup.
             for stale in png_paths:
@@ -262,27 +276,94 @@ def render_slide_thumbnails(
                 "fallback also requires `pdftoppm` (Poppler) or `pypdfium2`."
             )
 
-        if slide_indexes is not None:
-            wanted = list(slide_indexes)
-            png_paths = _select_indexes(png_paths, wanted)
+        page_for_slide = _pages_by_slide(png_paths, slide_count, visible)
+        selected = [page_for_slide[i] for i in wanted]
 
         if dest_dir is not None:
-            png_paths = [
-                Path(shutil.move(str(page), str(dest_dir / page.name))) for page in png_paths
+            selected = [
+                Path(shutil.move(str(page), str(dest_dir / page.name))) for page in selected
             ]
         elif not return_bytes:
             # The returned paths point into the work directory, which is now the caller's.
             keep_work_dir = True
 
         if return_bytes:
-            data = [p.read_bytes() for p in png_paths]
+            data = [p.read_bytes() for p in selected]
             return data
-        return list(png_paths)
+        return selected
     finally:
         with contextlib.suppress(OSError):
             deck_path.unlink()
         if not keep_work_dir:
             shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _is_hidden(slide: "_Slide") -> bool:
+    """Whether `slide` is hidden; ``p:sld/@show`` is an ``xsd:boolean`` that defaults to true."""
+    return slide._element.get("show") in ("0", "false")  # pyright: ignore[reportPrivateUsage]
+
+
+def _visible_slide_indexes(prs: "_Presentation") -> List[int]:
+    """The 0-based indexes of the slides of `prs` that are not hidden, in deck order."""
+    return [idx for idx, slide in enumerate(prs.slides) if not _is_hidden(slide)]
+
+
+def _slides_to_render(
+    slide_indexes: Optional[Sequence[int]], slide_count: int, visible: Sequence[int]
+) -> List[int]:
+    """The slide indexes to return thumbnails for, checked against the deck.
+
+    ``None`` means every slide that can be rendered, which is every visible one.  An index
+    outside the deck raises |IndexError|; a hidden slide has no thumbnail to return, which
+    raises :class:`ThumbnailRendererError`.
+    """
+    if slide_indexes is None:
+        if slide_count and not visible:
+            raise ThumbnailRendererError(
+                'every slide in this deck is hidden (p:sld show="0") and LibreOffice does not '
+                "export hidden slides, so there is nothing to render; unhide a slide first."
+            )
+        return list(visible)
+
+    wanted = list(slide_indexes)
+    for idx in wanted:
+        if idx < 0 or idx >= slide_count:
+            raise IndexError(
+                "slide index %d out of range for deck with %d slides" % (idx, slide_count)
+            )
+    visible_set = set(visible)
+    hidden = sorted({idx for idx in wanted if idx not in visible_set})
+    if hidden:
+        which = ("slide %d is" if len(hidden) == 1 else "slides %s are") % (
+            hidden[0] if len(hidden) == 1 else ", ".join(str(idx) for idx in hidden)
+        )
+        raise ThumbnailRendererError(
+            '%s hidden (p:sld show="0") and LibreOffice does not export hidden slides, so '
+            "there is no thumbnail to render; request visible slides only, or unhide the "
+            "slide first." % which
+        )
+    return wanted
+
+
+def _pages_by_slide(
+    pages: Sequence[Path], slide_count: int, visible: Sequence[int]
+) -> Dict[int, Path]:
+    """Map each slide index to the rendered page that shows it.
+
+    LibreOffice skips hidden slides, so pages follow the *visible* slides.  A page count
+    that is neither the deck's slide count (nothing hidden, or a build that exports hidden
+    slides too) nor its visible-slide count is not guessed at.
+    """
+    if len(pages) == slide_count:
+        return dict(enumerate(pages))
+    if len(pages) == len(visible):
+        return dict(zip(visible, pages))
+    raise ThumbnailRendererError(
+        "LibreOffice produced %d page(s) for a deck of %d slide(s) (%d not hidden); pages "
+        "can only be matched to slides when there is one per slide or one per visible slide, "
+        "so refusing to guess which slide each page shows."
+        % (len(pages), slide_count, len(visible))
+    )
 
 
 def _render_via_png(bin_path: str, deck_path: Path, work_dir: Path, timeout: int) -> List[Path]:
@@ -443,17 +524,6 @@ def _natural_sort_key(path: Path):
     return tuple((int(p) if p.isdigit() else p) for p in parts)
 
 
-def _select_indexes(paths: Sequence[Path], indexes: Iterable[int]) -> List[Path]:
-    selected = []
-    for i in indexes:
-        if i < 0 or i >= len(paths):
-            raise IndexError(
-                "slide index %d out of range for deck with %d slides" % (i, len(paths))
-            )
-        selected.append(paths[i])
-    return selected
-
-
 def render_slide_thumbnail(
     slide: "_Slide",
     *,
@@ -480,7 +550,9 @@ def render_slide_thumbnail(
       cleanup of the returned PNG file.
 
     *strategy* and *dpi* mirror the same arguments on
-    :func:`render_slide_thumbnails`.
+    :func:`render_slide_thumbnails`.  A hidden slide (``show="0"``) has no
+    thumbnail (LibreOffice does not export it), so asking for one raises
+    :class:`ThumbnailRendererError`.
     """
     prs = _presentation_for(slide)
     idx = list(prs.slides).index(slide)
@@ -553,6 +625,10 @@ def render_slides(
       given: ``scale=1.0`` is the default resolution, ``scale=0.5`` half of it
       (``dpi=75``) and ``scale=2`` double (``dpi=300``).  The result is never
       below 36 dpi.
+
+    A hidden slide (``show="0"``) cannot be rendered: with ``slides=None`` it is
+    skipped (``name_template`` still numbers each PNG by its slide's index in the
+    deck), and asking for it by index raises :class:`ThumbnailRendererError`.
     """
     if scale is not None:
         dpi = max(int(round(dpi * float(scale))), _MIN_SCALED_DPI)
@@ -590,7 +666,8 @@ def render_slides(
     # ``paths`` here is List[Path].
     renamed: list[Path] = []
     if slides is None:
-        index_iter: list[int] = list(range(len(paths)))
+        # -- the slides that were rendered, which are the visible ones --
+        index_iter: list[int] = _visible_slide_indexes(prs)
     else:
         index_iter = list(slides)
     for idx, p in zip(index_iter, paths):
