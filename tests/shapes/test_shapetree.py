@@ -2476,3 +2476,85 @@ class DescribeNamesContainingMarkupCharacters(object):
 
         assert chart_frame.name == name
         assert table_frame.name == name
+
+
+class DescribeAddGroupShapeWithShapes(object):
+    """`add_group_shape(shapes)` moves existing shapes into the new group, so it must check them."""
+
+    def it_moves_the_given_shapes_into_the_new_group(self):
+        _, slide = _blank_slide()
+        a = slide.shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(1), Inches(1), 914400, 914400
+        )
+        b = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, Inches(4), Inches(3), 914400, 914400)
+        ids_before = [a.shape_id, b.shape_id]
+
+        group = slide.shapes.add_group_shape([a, b])
+
+        assert [shape.shape_id for shape in group.shapes] == ids_before
+        assert [shape.shape_id for shape in slide.shapes] == [group.shape_id]
+        assert (group.left, group.top) == (Inches(1), Inches(1))
+        assert (group.width, group.height) == (Inches(4), Inches(3))
+
+    def it_rejects_a_shape_from_another_slide_and_changes_nothing(self):
+        prs, slide = _blank_slide()
+        other = prs.slides.add_slide(prs.slide_layouts[6])
+        mine = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, 0, 914400, 914400)
+        theirs = other.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="different slide"):
+            slide.shapes.add_group_shape([mine, theirs])
+
+        assert [shape.shape_id for shape in slide.shapes] == [mine.shape_id]
+        assert [shape.shape_id for shape in other.shapes] == [theirs.shape_id]
+
+    def it_rejects_a_shape_from_another_presentation(self):
+        _, slide = _blank_slide()
+        _, other_slide = _blank_slide()
+        theirs = other_slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="different slide"):
+            slide.shapes.add_group_shape([theirs])
+
+    def it_rejects_a_placeholder_that_inherits_its_geometry_and_changes_nothing(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])  # -- "Title and Content" --
+        title, body = slide.shapes.title, slide.placeholders[1]
+        assert title.element.x is None  # -- position comes from the layout --
+
+        with pytest.raises(ValueError, match="left, top, width and height"):
+            slide.shapes.add_group_shape([body, title])
+
+        assert [shape.shape_id for shape in slide.shapes] == [title.shape_id, body.shape_id]
+
+    def but_it_accepts_a_placeholder_once_it_has_a_geometry_of_its_own(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        title = slide.shapes.title
+        title.left, title.top, title.width, title.height = (
+            title.left,
+            title.top,
+            title.width,
+            title.height,
+        )
+
+        group = slide.shapes.add_group_shape([title])
+
+        assert [shape.shape_id for shape in group.shapes] == [title.shape_id]
+        assert (group.left, group.top) == (title.left, title.top)
+
+    def it_rejects_a_group_that_would_contain_itself_and_adds_no_stray_group(self):
+        _, slide = _blank_slide()
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="inside itself"):
+            group.shapes.add_group_shape([group])
+
+        assert [shape.shape_id for shape in group.shapes] == [inner.shape_id]
+
+    def it_documents_the_shapes_argument(self):
+        doc = _BaseGroupShapes.add_group_shape.__doc__
+        assert doc is not None
+        assert "`shapes`" in doc
+        assert "ValueError" in doc

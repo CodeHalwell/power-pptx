@@ -630,12 +630,22 @@ class _BaseGroupShapes(_BaseShapes):
     def add_group_shape(self, shapes: Iterable[BaseShape] = ()) -> GroupShape:
         """Return a |GroupShape| object newly appended to this shape tree.
 
-        The group shape is empty and must be populated with shapes using methods on its shape
-        tree, available on its `.shapes` property. The position and extents of the group shape are
-        determined by the shapes it contains; its position and extents are recalculated each time
-        a shape is added to it.
+        When `shapes` is omitted the group shape is empty and must be populated with shapes using
+        methods on its shape tree, available on its `.shapes` property. The position and extents of
+        the group shape are determined by the shapes it contains; its position and extents are
+        recalculated each time a shape is added to it.
+
+        `shapes` is an optional iterable of existing shapes to *move* into the new group, in the
+        order given; they are not copied. Each one must be a shape on the same slide as this shape
+        tree and must have a position and size of its own. A placeholder that still inherits its
+        geometry from the layout does not, so assign its `left`, `top`, `width` and `height`
+        first. Shapes keep their current coordinates, and a group they were taken from is not
+        refit (call its `fit_to_children()`). |ValueError| is raised, and nothing is changed, if
+        a shape belongs to a different slide, has no position and size of its own, or contains
+        this shape tree.
         """
         shapes = tuple(shapes)
+        self._validate_shapes_to_group(shapes)
         grpSp = self._element.add_grpSp()
         for shape in shapes:
             grpSp.insert_element_before(
@@ -1335,6 +1345,32 @@ class _BaseGroupShapes(_BaseShapes):
         sld = self._spTree.xpath("/p:sld")[0]
         childTnLst = sld.get_or_add_childTnLst()
         childTnLst.add_video(pic.shape_id)
+
+    def _validate_shapes_to_group(self, shapes: tuple[BaseShape, ...]) -> None:
+        """Raise |ValueError| unless every one of `shapes` can be moved into a new group here.
+
+        Checked up front, so a bad argument leaves this shape tree untouched.
+        """
+        if not shapes:
+            return
+        slide_part = self.part
+        # -- this shape tree and every group above it; none of them can be grouped into itself --
+        enclosing = [self._element, *self._element.iterancestors()]
+        for shape in shapes:
+            shape_elm = shape.element
+            if shape.part is not slide_part:
+                raise ValueError(
+                    "cannot group %r: it belongs to a different slide. A shape can only be "
+                    "grouped on its own slide; add it to this slide first" % shape.name
+                )
+            if any(shape_elm is elm for elm in enclosing):
+                raise ValueError("cannot group %r inside itself" % shape.name)
+            if any(getattr(shape_elm, attr, None) is None for attr in ("x", "y", "cx", "cy")):
+                raise ValueError(
+                    "cannot group %r: it has no position and size of its own (a placeholder "
+                    "inherits them from its layout). Assign its left, top, width and height "
+                    "first" % shape.name
+                )
 
     def _recalculate_extents(self) -> None:
         """Adjust position and size to incorporate all contained shapes.
