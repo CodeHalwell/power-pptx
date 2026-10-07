@@ -2,6 +2,9 @@
  * Central site configuration shared by layouts, pages and React islands.
  * Paths are passed through `withBase()` so the site works under the
  * GitHub Pages base path (`/power-pptx`).
+ *
+ * `version` is not hand-maintained: `astro.config.mjs` reads the library's
+ * `__version__` and injects it as the `__POWER_PPTX_VERSION__` global.
  */
 import { withBase } from "./utils";
 
@@ -10,7 +13,7 @@ export const SITE = {
   tagline: "Create PowerPoint decks from Python — that actually fit.",
   description:
     "power-pptx is the actively-maintained fork of python-pptx. Build, mutate, lint, theme, animate and render PowerPoint (.pptx) decks from Python — with space-aware authoring so text never overflows its box.",
-  version: "2.12.0",
+  version: __POWER_PPTX_VERSION__,
   github: "https://github.com/CodeHalwell/power-pptx",
   pypi: "https://pypi.org/project/power-pptx/",
   upstreamDocs: "https://python-pptx.readthedocs.io/en/latest/",

@@ -6,6 +6,9 @@ on:
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
+      # The site reads the displayed version from the package, so a release
+      # bump must redeploy it too.
+      - "src/power_pptx/__init__.py"
   workflow_dispatch:
 
 permissions:
