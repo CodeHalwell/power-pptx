@@ -176,7 +176,9 @@ def from_spec(
 
     ``vars`` *(optional)*
         Variable bag for ``{{name}}`` interpolation in any string field
-        of the spec.  Spec-level ``vars`` are layered under any *vars*
+        of the spec — except a slide's ``code``, which is shown exactly
+        as written so a ``code`` slide can display Jinja, Handlebars or
+        Go templates.  Spec-level ``vars`` are layered under any *vars*
         argument passed to :func:`from_spec` (the kwarg wins).
 
     ``lint`` *(optional)*
@@ -209,7 +211,7 @@ def from_spec(
     # Always interpolate — even with no vars, a stray ``{{name}}`` in
     # the spec should raise rather than silently rendering as the
     # literal placeholder.
-    spec = _interpolate(spec, merged_vars)
+    spec = _interpolate_spec(spec, merged_vars)
 
     from power_pptx import Presentation
 
@@ -1316,6 +1318,33 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
 
 
 _INTERP_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
+
+# Slide-spec fields shown exactly as written.  ``{{ user.name }}`` in a
+# ``code`` slide is template syntax to display, not a variable to look up;
+# interpolating it raised KeyError, and there is no escape for the other
+# fields, so the one field that holds source code opts out wholesale.
+_VERBATIM_SLIDE_KEYS = frozenset({"code"})
+
+
+def _interpolate_spec(spec: dict[str, Any], vars_: Mapping[str, Any]) -> dict[str, Any]:
+    """Interpolate every string in *spec* except each slide's verbatim fields.
+
+    Same as ``_interpolate(spec, vars_)`` apart from ``slides[*].code``
+    (see ``_VERBATIM_SLIDE_KEYS``), which is passed through untouched.
+    """
+    out = _interpolate({k: v for k, v in spec.items() if k != "slides"}, vars_)
+    if "slides" in spec:
+        out["slides"] = [_interpolate_slide(slide, vars_) for slide in spec["slides"]]
+    return out
+
+
+def _interpolate_slide(slide: Any, vars_: Mapping[str, Any]) -> Any:
+    if not isinstance(slide, dict):
+        return _interpolate(slide, vars_)
+    return {
+        key: value if key in _VERBATIM_SLIDE_KEYS else _interpolate(value, vars_)
+        for key, value in slide.items()
+    }
 
 
 def _interpolate(value: Any, vars_: Mapping[str, Any]) -> Any:

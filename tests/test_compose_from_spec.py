@@ -1727,3 +1727,62 @@ class DescribeKpiGridLayout:
                 colours[sh.text_frame.text] = sh.text_frame.paragraphs[0].runs[0].font.color.rgb
         assert colours["+3 pts"] == RGBColor(0x00, 0x8A, 0x00)
         assert colours["-3 pts"] == RGBColor(0xCC, 0x00, 0x00)
+
+
+class DescribeCodeFieldInterpolation:
+    """``{{...}}`` inside a ``code`` field is code, not a variable reference."""
+
+    def it_leaves_template_syntax_in_a_code_field_untouched(self):
+        code = "Hello {{ user.name }}!\n{{#each items}}{{this}}{{/each}}"
+        prs = from_spec({"slides": [{"layout": "code", "title": "Templates", "code": code}]})
+        shown = "\n".join(_slide_texts(prs.slides[0]))
+        assert "{{ user.name }}" in shown
+        assert "{{#each items}}{{this}}{{/each}}" in shown
+
+    def it_still_interpolates_the_other_fields_of_the_same_slide(self):
+        prs = from_spec(
+            {
+                "vars": {"company": "ACME"},
+                "slides": [
+                    {
+                        "layout": "code",
+                        "title": "{{company}} templates",
+                        "code": "Hello {{ user.name }}",
+                    }
+                ],
+            }
+        )
+        texts = _slide_texts(prs.slides[0])
+        assert "ACME templates" in texts
+        assert any("{{ user.name }}" in t for t in texts)
+
+    def it_still_raises_on_an_unknown_variable_outside_code(self):
+        with pytest.raises(KeyError, match="not found"):
+            from_spec(
+                {
+                    "slides": [
+                        {"layout": "code", "title": "{{missing}}", "code": "{{ also_missing }}"}
+                    ]
+                }
+            )
+
+    def it_does_not_exempt_other_fields_that_merely_mention_code(self):
+        # Only a slide's ``code`` field is verbatim; a shape's text still interpolates.
+        prs = from_spec(
+            {
+                "vars": {"label": "DRAFT"},
+                "slides": [
+                    {
+                        "layout": "code",
+                        "title": "T",
+                        "code": "{{ verbatim }}",
+                        "shapes": [
+                            {"left": 1, "top": 1, "width": 2, "height": 1, "text": "{{label}}"}
+                        ],
+                    }
+                ],
+            }
+        )
+        texts = _slide_texts(prs.slides[0])
+        assert "DRAFT" in texts
+        assert "{{ verbatim }}" in texts
