@@ -51,6 +51,12 @@ if TYPE_CHECKING:
 DEFAULT_SOFFICE_BIN = "soffice"
 DEFAULT_TIMEOUT_SECONDS = 120
 
+# -- binaries looked for on PATH when none is named: LibreOffice's launcher goes by either --
+_DEFAULT_BINARIES = (DEFAULT_SOFFICE_BIN, "libreoffice")
+
+# -- floor for the dpi that `render_slides(scale=)` computes, so a tiny scale stays legible --
+_MIN_SCALED_DPI = 36
+
 
 class ThumbnailRendererUnavailable(RuntimeError):
     """Raised when LibreOffice/soffice is not available on PATH.
@@ -65,19 +71,61 @@ class ThumbnailRendererError(RuntimeError):
 
 
 def _resolve_binary(binary: Optional[str]) -> str:
-    candidate = binary or os.environ.get("POWER_PPTX_SOFFICE") or DEFAULT_SOFFICE_BIN
-    resolved = shutil.which(candidate)
-    if resolved is None:
-        raise ThumbnailRendererUnavailable(
-            "could not locate %r on PATH; install LibreOffice (provides the "
-            "`soffice` binary) or set POWER_PPTX_SOFFICE to the absolute path "
-            "of a compatible binary." % candidate
-        )
-    return resolved
+    """The LibreOffice launcher to run: `binary`, else ``$POWER_PPTX_SOFFICE``, else PATH.
+
+    A binary named explicitly (argument or environment) is looked up as given and not
+    replaced by another if it is missing; only when nothing is named is PATH searched, for
+    ``soffice`` and then ``libreoffice``.
+    """
+    explicit = binary or os.environ.get("POWER_PPTX_SOFFICE")
+    candidates = (explicit,) if explicit else _DEFAULT_BINARIES
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved is not None:
+            return resolved
+    raise ThumbnailRendererUnavailable(
+        "could not locate %s on PATH; install LibreOffice (provides the "
+        "`soffice` binary) or set POWER_PPTX_SOFFICE to the absolute path "
+        "of a compatible binary." % " or ".join(repr(candidate) for candidate in candidates)
+    )
 
 
 def _save_to_path(prs, path: Path) -> None:
     prs.save(str(path))
+
+
+def _soffice_convert(
+    fmt: str,
+    soffice_bin: str,
+    deck_path: Path,
+    out_dir: Path,
+    timeout: int,
+) -> subprocess.CompletedProcess:
+    """Run ``soffice --headless --convert-to <fmt>``, reporting a timeout as a renderer error."""
+    cmd = [
+        soffice_bin,
+        "--headless",
+        "--norestore",
+        "--nologo",
+        "--nofirststartwizard",
+        "--convert-to",
+        fmt,
+        "--outdir",
+        str(out_dir),
+        str(deck_path),
+    ]
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise ThumbnailRendererError(
+            "soffice --convert-to %s timed out after %s seconds; pass a larger `timeout=` "
+            "if the deck is big." % (fmt, timeout)
+        ) from None
 
 
 def _run_soffice(
@@ -94,24 +142,7 @@ def _run_soffice(
     count matches the slide count and falling back to the PDF path when
     it doesn't.
     """
-    cmd = [
-        soffice_bin,
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "png",
-        "--outdir",
-        str(out_dir),
-        str(deck_path),
-    ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-    )
+    return _soffice_convert("png", soffice_bin, deck_path, out_dir, timeout)
 
 
 def _run_soffice_pdf(
@@ -126,24 +157,7 @@ def _run_soffice_pdf(
     on every LibreOffice version we've tested, which makes it the
     authoritative source for per-slide thumbnails.
     """
-    cmd = [
-        soffice_bin,
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(out_dir),
-        str(deck_path),
-    ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-    )
+    return _soffice_convert("pdf", soffice_bin, deck_path, out_dir, timeout)
 
 
 def render_slide_thumbnails(
@@ -506,11 +520,13 @@ def render_slides(
       ``"slide-{:02d}.png"`` applied to the rendered PNGs.  Index is
       0-based.  Defaults to LibreOffice's own ``"_render_input-page-NN"``
       output if omitted.
-    * ``scale=`` is accepted and translated to ``dpi=`` (``scale=0.5``
-      ≙ ``dpi=72``).
+    * ``scale=`` is accepted and applied to ``dpi=``, which is 150 unless
+      given: ``scale=1.0`` is the default resolution, ``scale=0.5`` half of it
+      (``dpi=75``) and ``scale=2`` double (``dpi=300``).  The result is never
+      below 36 dpi.
     """
     if scale is not None:
-        dpi = max(int(72 * float(scale)), 36)
+        dpi = max(int(round(dpi * float(scale))), _MIN_SCALED_DPI)
     # Validate name_template *before* rendering — a template without a
     # format placeholder would rename every slide to the same filename
     # and silently overwrite all but the last PNG.

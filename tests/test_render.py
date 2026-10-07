@@ -6,6 +6,7 @@ handling, and selection of slide indexes — not the actual rendering.
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -17,8 +18,10 @@ from power_pptx.render import (
     DEFAULT_TIMEOUT_SECONDS,
     ThumbnailRendererError,
     ThumbnailRendererUnavailable,
+    _resolve_binary,
     render_slide_thumbnail,
     render_slide_thumbnails,
+    render_slides,
 )
 
 
@@ -27,6 +30,16 @@ def two_slide_prs():
     prs = Presentation()
     prs.slides.add_slide(prs.slide_layouts[5])
     prs.slides.add_slide(prs.slide_layouts[5])
+    return prs
+
+
+def _deck(slide_count, hidden=()):
+    """A `Presentation` of `slide_count` blank slides, those in `hidden` marked ``show="0"``."""
+    prs = Presentation()
+    for idx in range(slide_count):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        if idx in hidden:
+            slide._element.set("show", "0")
     return prs
 
 
@@ -430,3 +443,88 @@ class DescribeRenderSlideThumbnailCleanup:
         finally:
             # Caller owns this NamedTemporaryFile; clean up after the test.
             path.unlink(missing_ok=True)
+
+
+class DescribeSofficeTimeout:
+    """`subprocess.run(timeout=)` raises TimeoutExpired; callers are promised a renderer error."""
+
+    @pytest.mark.parametrize("strategy", ["png", "pdf"])
+    def it_reports_a_timeout_as_a_ThumbnailRendererError(self, tmp_path, strategy):
+        def _hang(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render.subprocess.run", side_effect=_hang),
+        ):
+            with pytest.raises(ThumbnailRendererError, match="timed out after 7"):
+                render_slide_thumbnails(_deck(2), out_dir=tmp_path, timeout=7, strategy=strategy)
+
+
+class Describe_resolve_binary:
+    @pytest.fixture(autouse=True)
+    def _no_environment_override(self, monkeypatch):
+        monkeypatch.delenv("POWER_PPTX_SOFFICE", raising=False)
+
+    def it_prefers_soffice_on_the_path(self):
+        found = {"soffice": "/usr/bin/soffice", "libreoffice": "/usr/bin/libreoffice"}
+        with patch("power_pptx.render.shutil.which", side_effect=found.get):
+            assert _resolve_binary(None) == "/usr/bin/soffice"
+
+    def it_falls_back_to_libreoffice_on_the_path(self):
+        found = {"libreoffice": "/usr/bin/libreoffice"}
+        with patch("power_pptx.render.shutil.which", side_effect=found.get):
+            assert _resolve_binary(None) == "/usr/bin/libreoffice"
+
+    def it_names_both_candidates_when_neither_is_found(self):
+        with patch("power_pptx.render.shutil.which", return_value=None):
+            with pytest.raises(ThumbnailRendererUnavailable, match=r"soffice.*libreoffice") as e:
+                _resolve_binary(None)
+        assert "install LibreOffice" in str(e.value)
+
+    def it_does_not_fall_back_when_a_binary_was_asked_for_explicitly(self):
+        found = {"soffice": "/usr/bin/soffice", "libreoffice": "/usr/bin/libreoffice"}
+        with patch("power_pptx.render.shutil.which", side_effect=found.get):
+            with pytest.raises(ThumbnailRendererUnavailable, match="/opt/missing/soffice"):
+                _resolve_binary("/opt/missing/soffice")
+
+    def it_honours_the_environment_variable_over_the_defaults(self, monkeypatch):
+        monkeypatch.setenv("POWER_PPTX_SOFFICE", "/opt/lo/soffice")
+        found = {"/opt/lo/soffice": "/opt/lo/soffice", "soffice": "/usr/bin/soffice"}
+        with patch("power_pptx.render.shutil.which", side_effect=found.get):
+            assert _resolve_binary(None) == "/opt/lo/soffice"
+
+    def it_prefers_the_argument_over_the_environment_variable(self, monkeypatch):
+        monkeypatch.setenv("POWER_PPTX_SOFFICE", "/opt/lo/soffice")
+        found = {"/opt/lo/soffice": "/opt/lo/soffice", "/opt/other/soffice": "/opt/other/soffice"}
+        with patch("power_pptx.render.shutil.which", side_effect=found.get):
+            assert _resolve_binary("/opt/other/soffice") == "/opt/other/soffice"
+
+
+class DescribeRenderSlidesScale:
+    """`scale=` is a multiplier of the resolution (``dpi=``, 150 by default)."""
+
+    @staticmethod
+    def _dpi_passed_on(**kwargs):
+        captured = {}
+
+        def _capture(prs, **kw):
+            captured.update(kw)
+            return []
+
+        with patch("power_pptx.render.render_slide_thumbnails", side_effect=_capture):
+            render_slides(_deck(1), **kwargs)
+        return captured["dpi"]
+
+    @pytest.mark.parametrize(
+        ("scale", "expected_dpi"),
+        [(None, 150), (1.0, 150), (0.5, 75), (2.0, 300), (0.1, 36)],
+    )
+    def it_scales_the_default_resolution(self, scale, expected_dpi):
+        assert self._dpi_passed_on(scale=scale) == expected_dpi
+
+    def it_scales_an_explicit_dpi(self):
+        assert self._dpi_passed_on(dpi=200, scale=0.5) == 100
+
+    def it_leaves_an_explicit_dpi_alone_without_a_scale(self):
+        assert self._dpi_passed_on(dpi=96) == 96
