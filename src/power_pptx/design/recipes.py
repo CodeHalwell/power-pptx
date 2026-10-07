@@ -844,8 +844,8 @@ def table_slide(
     table = gframe.table
 
     if col_widths is not None:
-        for col, width in zip(table.columns, col_widths):
-            col.width = Emu(width)
+        for index, width in enumerate(col_widths):
+            table.columns[index].width = Emu(width)
 
     header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
     header_text = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)

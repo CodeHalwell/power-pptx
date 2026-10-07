@@ -162,7 +162,8 @@ def _kpi_rows(
             f"label and delta rows; make the card at least {_inches_up(min_total):.2f} in tall"
         )
     if height >= natural_total:
-        return (pad_top + (height - natural_total) // 2, *natural)
+        value_h, label_h, delta_h = natural
+        return pad_top + (height - natural_total) // 2, value_h, label_h, delta_h
     t = (height - min_total) / (natural_total - min_total)
     value_h, label_h, delta_h = (int(m + t * (n - m)) for m, n in zip(need, natural))
     return int(min_pad + t * (pad_top - min_pad)), value_h, label_h, delta_h
@@ -237,7 +238,7 @@ def add_kpi_card(
     label_top = Length(inner_top + value_h)
     delta_top = Length(label_top + label_h)
 
-    value_box = slide.shapes.add_textbox(left, inner_top, width, value_h)
+    value_box = slide.shapes.add_textbox(left, inner_top, width, Length(value_h))
     _fill_text_frame(
         value_box.text_frame,
         str(value),
@@ -248,7 +249,7 @@ def add_kpi_card(
         shrink_to_fit=True,
     )
 
-    label_box = slide.shapes.add_textbox(left, label_top, width, label_h)
+    label_box = slide.shapes.add_textbox(left, label_top, width, Length(label_h))
     _fill_text_frame(
         label_box.text_frame,
         str(label),
@@ -263,7 +264,7 @@ def add_kpi_card(
     if delta is not None:
         d_text, d_sign = _resolve_delta(delta)
         if d_text is not None:
-            delta_box = slide.shapes.add_textbox(left, delta_top, width, delta_h)
+            delta_box = slide.shapes.add_textbox(left, delta_top, width, Length(delta_h))
             _fill_text_frame(
                 delta_box.text_frame,
                 d_text,
