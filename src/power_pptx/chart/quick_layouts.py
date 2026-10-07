@@ -40,6 +40,10 @@ calling ``apply_quick_layout`` twice.
 Charts without a category axis (e.g. pie charts) silently skip the
 category-axis keys; same for value-axis keys on charts without a value
 axis.  This matches how PowerPoint's gallery degrades.
+
+The keys above are the only ones.  There is no nested per-axis form such as
+``{"value_axis": {...}}``; any other key, in a dict spec or as a keyword
+override, raises :class:`TypeError` rather than being silently ignored.
 """
 
 from __future__ import annotations
@@ -158,16 +162,12 @@ def apply_quick_layout(chart, layout, **overrides) -> None:
             has_major_gridlines=False,
         )
 
-    Unknown override keys raise :class:`TypeError`.
+    Unknown keys raise :class:`TypeError`, in a dict spec as well as among
+    the overrides, before anything is changed on the chart.
     """
     spec = _resolve_layout(layout)
     if overrides:
-        unknown = set(overrides) - _VALID_SPEC_KEYS
-        if unknown:
-            raise TypeError(
-                "unknown quick-layout override(s): %s; valid keys: %s"
-                % (sorted(unknown), sorted(_VALID_SPEC_KEYS))
-            )
+        _check_spec_keys(overrides, "override(s)")
         spec.update(overrides)
     _apply_title(chart, spec)
     _apply_legend(chart, spec)
@@ -192,8 +192,32 @@ _VALID_SPEC_KEYS = frozenset(
 )
 
 
+def _check_spec_keys(spec: Mapping[Any, Any], what: str) -> None:
+    """Raise |TypeError| naming the keys of `spec` that are not layout spec keys.
+
+    `what` says what is being checked, "spec key(s)" or "override(s)".
+    """
+    unknown = set(spec) - _VALID_SPEC_KEYS
+    if not unknown:
+        return
+    message = "unknown quick-layout %s: %s; valid keys: %s" % (
+        what,
+        sorted(unknown, key=str),
+        sorted(_VALID_SPEC_KEYS),
+    )
+    if unknown & {"category_axis", "value_axis"}:
+        # -- the nested form the reference docs used to show, which was never implemented --
+        message += (
+            "; nested per-axis specs are not supported, use the flat keys instead "
+            "(has_major_gridlines and has_minor_gridlines act on the value axis, "
+            "has_category_axis_title / category_axis_title_text on the category axis)"
+        )
+    raise TypeError(message)
+
+
 def _resolve_layout(layout) -> dict[str, Any]:
     if isinstance(layout, Mapping):
+        _check_spec_keys(layout, "spec key(s)")
         return dict(layout)
     if isinstance(layout, str):
         try:

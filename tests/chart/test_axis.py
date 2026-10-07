@@ -1268,3 +1268,147 @@ class DescribeValueAxis(object):
         value_axis = ValueAxis(element(valAx_cxml))
         expected_xml = xml(expected_valAx_cxml)
         return value_axis, new_value, expected_xml
+
+
+_CATEGORY_AXES = [(CategoryAxis, "c:catAx"), (DateAxis, "c:dateAx")]
+
+
+def _plot_area_cxml(cat_tag, crossing, *, orientation=None):
+    """cxml of a plot area whose category-type axis (id 7) crosses the value axis (id 42).
+
+    `crossing` is the cxml of the value axis' `c:crosses` / `c:crossesAt`, which follows its
+    `c:crossAx` in the schema sequence.
+    """
+    scaling = "" if orientation is None else f"c:scaling/c:orientation{{val={orientation}}},"
+    return (
+        f"c:plotArea/({cat_tag}/(c:axId{{val=7}},{scaling}c:crossAx{{val=42}}),"
+        f"c:valAx/(c:axId{{val=42}},c:crossAx{{val=7}},{crossing}))"
+    )
+
+
+def _crossing_value(crossing_cxml):
+    """The ``val`` of a ``c:crosses{val=..}`` / ``c:crossesAt{val=..}`` cxml fragment."""
+    return crossing_cxml.split("val=")[1].rstrip("}")
+
+
+class DescribeTheValueAxisCrossingOnACategoryAxis:
+    """`crosses` on a category or date axis: where on it the *value* axis crosses.
+
+    Like `ValueAxis.crosses` it is stored on the *other* axis' element, here the `c:valAx`.
+    """
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    @pytest.mark.parametrize(
+        ("crossing", "expected"),
+        [
+            ("c:crosses{val=autoZero}", XL_AXIS_CROSSES.AUTOMATIC),
+            ("c:crosses{val=max}", XL_AXIS_CROSSES.MAXIMUM),
+            ("c:crosses{val=min}", XL_AXIS_CROSSES.MINIMUM),
+            ("c:crossesAt{val=2.4}", XL_AXIS_CROSSES.CUSTOM),
+        ],
+    )
+    def it_knows_where_the_value_axis_crosses_it(self, axis_cls, tag, crossing, expected):
+        plotArea = element(_plot_area_cxml(tag, crossing))
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        assert axis.crosses == expected
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    @pytest.mark.parametrize(
+        ("crossing", "new_value", "expected_crossing"),
+        [
+            ("c:crosses{val=autoZero}", XL_AXIS_CROSSES.MAXIMUM, "c:crosses{val=max}"),
+            ("c:crosses{val=max}", XL_AXIS_CROSSES.AUTOMATIC, "c:crosses{val=autoZero}"),
+            ("c:crosses{val=autoZero}", XL_AXIS_CROSSES.MINIMUM, "c:crosses{val=min}"),
+            ("c:crossesAt{val=2.4}", XL_AXIS_CROSSES.MAXIMUM, "c:crosses{val=max}"),
+            ("c:crosses{val=max}", XL_AXIS_CROSSES.CUSTOM, "c:crossesAt{val=0.0}"),
+        ],
+    )
+    def it_can_change_where_the_value_axis_crosses_it(
+        self, axis_cls, tag, crossing, new_value, expected_crossing
+    ):
+        plotArea = element(_plot_area_cxml(tag, crossing))
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        axis.crosses = new_value
+
+        assert plotArea.xml == xml(_plot_area_cxml(tag, expected_crossing))
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    def it_leaves_the_category_axis_own_crossing_alone(self, axis_cls, tag):
+        plotArea = element(
+            f"c:plotArea/({tag}/(c:axId{{val=7}},c:crossAx{{val=42}},c:crosses{{val=autoZero}}),"
+            "c:valAx/(c:axId{val=42},c:crossAx{val=7},c:crosses{val=autoZero}))"
+        )
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        axis.crosses = XL_AXIS_CROSSES.MAXIMUM
+
+        assert plotArea.xpath(f"{tag}/c:crosses/@val") == ["autoZero"]
+        assert plotArea.xpath("c:valAx/c:crosses/@val") == ["max"]
+
+
+class DescribeUnReversingACategoryAxis:
+    """Reversing a category axis moves the value axis to its other end unless that axis crosses
+    at the maximum category. Un-reversing must not strand a value axis in that state."""
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    @pytest.mark.parametrize(
+        ("crossing", "expected_crossing"),
+        [
+            ("c:crosses{val=max}", "c:crosses{val=autoZero}"),
+            ("c:crosses{val=autoZero}", "c:crosses{val=autoZero}"),
+            ("c:crosses{val=min}", "c:crosses{val=min}"),
+            ("c:crossesAt{val=2.4}", "c:crossesAt{val=2.4}"),
+        ],
+    )
+    def it_puts_a_value_axis_that_crossed_at_the_maximum_back_to_automatic(
+        self, axis_cls, tag, crossing, expected_crossing
+    ):
+        plotArea = element(_plot_area_cxml(tag, crossing, orientation="maxMin"))
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        axis.reverse_order = False
+
+        assert plotArea.xpath("c:valAx/c:crosses/@val | c:valAx/c:crossesAt/@val") == [
+            _crossing_value(expected_crossing)
+        ]
+        assert axis.reverse_order is False
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    def it_does_nothing_to_the_value_axis_when_it_was_not_reversed_before(self, axis_cls, tag):
+        plotArea = element(_plot_area_cxml(tag, "c:crosses{val=max}", orientation="minMax"))
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        axis.reverse_order = False
+
+        assert plotArea.xpath("c:valAx/c:crosses/@val") == ["max"]
+
+    @pytest.mark.parametrize(("axis_cls", "tag"), _CATEGORY_AXES)
+    def it_does_nothing_to_the_value_axis_when_reversing(self, axis_cls, tag):
+        plotArea = element(_plot_area_cxml(tag, "c:crosses{val=autoZero}", orientation="minMax"))
+        axis = axis_cls(plotArea.xpath(tag)[0])
+
+        axis.reverse_order = True
+
+        assert plotArea.xpath("c:valAx/c:crosses/@val") == ["autoZero"]
+
+    def it_leaves_the_other_axis_of_an_xy_chart_alone(self):
+        # -- both axes of a scatter chart are value axes; un-reversing one is not this case --
+        plotArea = element(
+            "c:plotArea/(c:valAx/(c:axId{val=7},c:scaling/c:orientation{val=maxMin},"
+            "c:crossAx{val=42},c:crosses{val=autoZero}),"
+            "c:valAx/(c:axId{val=42},c:crossAx{val=7},c:crosses{val=max}))"
+        )
+        axis = ValueAxis(plotArea.xpath('c:valAx[c:axId/@val="7"]')[0])
+
+        axis.reverse_order = False
+
+        assert plotArea.xpath('c:valAx[c:axId/@val="42"]/c:crosses/@val') == ["max"]
+
+    def it_copes_with_an_axis_that_has_no_crossing_axis(self):
+        axis = CategoryAxis(element("c:catAx/c:scaling/c:orientation{val=maxMin}"))
+
+        axis.reverse_order = False
+
+        assert axis.reverse_order is False

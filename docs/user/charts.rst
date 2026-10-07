@@ -265,6 +265,32 @@ presentation with |pp|. There are more details in the API documentation for
 charts here: :ref:`chart-api`
 
 
+Missing values
+~~~~~~~~~~~~~~
+
+A point that has no value is a gap in the chart and a blank cell in the
+embedded worksheet. Mark it with ``None`` or with NaN, which is how pandas and
+numpy mark a missing value::
+
+    chart_data.add_series('Q4 Sales', (21.0, None, float('nan')))
+
+Infinity can be plotted no more than it can be left out, so ``inf`` and
+``-inf`` raise :class:`ValueError` when the chart is built, naming the series
+and the point.
+
+
+Horizontal bar charts
+~~~~~~~~~~~~~~~~~~~~~
+
+A horizontal bar chart is created with its category axis reversed, so the first
+category is at the top, and with its value axis crossing at the maximum
+category, which keeps the value axis along the bottom of the plot. Turning the
+reversal off, ``chart.category_axis.reverse_order = False``, gives the
+bottom-up order and puts the value axis back at the origin. To place the value
+axis yourself, set ``chart.category_axis.crosses`` to a member of
+``XL_AXIS_CROSSES``.
+
+
 About colors
 ~~~~~~~~~~~~
 

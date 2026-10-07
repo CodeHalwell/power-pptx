@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 """Unit-test suite for `power_pptx.chart.quick_layouts`."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData
 from power_pptx.chart.quick_layouts import (
+    _VALID_SPEC_KEYS,
     QUICK_LAYOUTS,
     apply_quick_layout,
     layout_names,
@@ -184,6 +187,121 @@ class DescribeApplyQuickLayout:
 
         with pytest.raises(ValueError, match="not a valid XL_LEGEND_POSITION"):
             apply_quick_layout(chart, {"has_legend": True, "legend_position": 99999})
+
+
+class DescribeQuickLayoutSpecKeys:
+    """A dict spec is validated like keyword overrides are: a stray key is an error."""
+
+    def it_rejects_an_unknown_key_in_a_dict_spec(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError, match="totally_bogus_key"):
+            apply_quick_layout(chart, {"has_title": True, "totally_bogus_key": 1})
+
+    def it_rejects_an_unknown_key_through_the_Chart_method(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError, match="totally_bogus_key"):
+            chart.apply_quick_layout({"has_title": True, "totally_bogus_key": 1})
+
+    def it_names_every_unknown_key_and_lists_the_valid_ones(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError) as e:
+            apply_quick_layout(chart, {"bogus_b": 1, "has_title": True, "bogus_a": 2})
+
+        message = str(e.value)
+        assert "['bogus_a', 'bogus_b']" in message
+        for key in _VALID_SPEC_KEYS:
+            assert key in message
+
+    def it_changes_nothing_on_the_chart_when_a_key_is_unknown(self):
+        chart = _make_column_chart()
+        chart.has_title = False
+        chart.has_legend = False
+
+        with pytest.raises(TypeError):
+            apply_quick_layout(
+                chart, {"has_title": True, "has_legend": True, "totally_bogus_key": 1}
+            )
+
+        assert chart.has_title is False
+        assert chart.has_legend is False
+
+    @pytest.mark.parametrize("key", ["category_axis", "value_axis"])
+    def it_rejects_the_nested_axis_specs_it_never_read(self, key):
+        # -- charts.md used to show {"value_axis": {"has_major_gridlines": False}}; the applier
+        # -- never looked at it, so the call silently did nothing --
+        chart = _make_column_chart()
+        chart.value_axis.has_major_gridlines = True
+
+        with pytest.raises(TypeError, match=key) as e:
+            apply_quick_layout(chart, {key: {"has_major_gridlines": False}})
+
+        assert "nested" in str(e.value)
+        assert "has_major_gridlines" in str(e.value)
+        assert chart.value_axis.has_major_gridlines is True
+
+    def it_rejects_a_non_string_key(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError, match="unknown quick-layout spec key"):
+            apply_quick_layout(chart, {1: "x"})
+
+    @pytest.mark.parametrize("key", sorted(_VALID_SPEC_KEYS))
+    def it_accepts_every_documented_key(self, key):
+        values = {
+            "has_title": True,
+            "title_text": "Q4",
+            "has_legend": True,
+            "legend_position": "bottom",
+            "legend_in_layout": False,
+            "has_category_axis_title": True,
+            "category_axis_title_text": "Quarter",
+            "has_value_axis_title": True,
+            "value_axis_title_text": "Revenue",
+            "has_major_gridlines": False,
+            "has_minor_gridlines": True,
+        }
+        assert set(values) == _VALID_SPEC_KEYS
+        chart = _make_column_chart()
+
+        apply_quick_layout(chart, {key: values[key]})
+
+    def it_applies_the_flat_keys_the_docs_show(self):
+        chart = _make_column_chart()
+        chart.value_axis.has_major_gridlines = True
+
+        apply_quick_layout(
+            chart,
+            {
+                "has_title": True,
+                "title_text": "ARR ($M)",
+                "has_legend": True,
+                "legend_position": "bottom",
+                "has_major_gridlines": False,
+            },
+        )
+
+        assert chart.chart_title.text_frame.text == "ARR ($M)"
+        assert chart.legend.position == XL_LEGEND_POSITION.BOTTOM
+        assert chart.value_axis.has_major_gridlines is False
+
+    def it_still_rejects_an_unknown_override_with_the_same_error_type(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError, match="unknown quick-layout override"):
+            apply_quick_layout(chart, "minimal", totally_bogus_key=1)
+
+    def it_checks_the_overrides_of_a_dict_spec_too(self):
+        chart = _make_column_chart()
+
+        with pytest.raises(TypeError, match="totally_bogus_key"):
+            apply_quick_layout(chart, {"has_title": True}, totally_bogus_key=1)
+
+    def it_keeps_every_built_in_preset_within_the_valid_keys(self):
+        for name, spec in QUICK_LAYOUTS.items():
+            assert set(spec) <= _VALID_SPEC_KEYS, name
 
 
 class DescribeLayoutNames:

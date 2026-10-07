@@ -39,9 +39,26 @@ presets ship in ``power_pptx.chart.quick_layouts``::
     chart.apply_quick_layout("title_axes_legend_right")
     chart.apply_quick_layout("minimal")
 
-Custom layouts can be supplied as a dict spec.  Missing keys leave the
-chart untouched so layouts compose cleanly, and charts without
-category/value axes (e.g. pie) silently skip the corresponding keys.
+Custom layouts can be supplied as a flat dict spec::
+
+    chart.apply_quick_layout({
+        "has_title": True,
+        "title_text": "ARR ($M)",
+        "has_legend": True,
+        "legend_position": "bottom",
+        "has_major_gridlines": False,
+    })
+
+The keys are ``has_title``, ``title_text``, ``has_legend``,
+``legend_position``, ``legend_in_layout``, ``has_category_axis_title``,
+``category_axis_title_text``, ``has_value_axis_title``,
+``value_axis_title_text``, ``has_major_gridlines`` and
+``has_minor_gridlines`` (the gridline keys act on the value axis).
+Missing keys leave the chart untouched so layouts compose cleanly, and
+charts without category/value axes (e.g. pie) silently skip the
+corresponding keys.  Any other key, in a dict spec or as a keyword
+override, raises :class:`TypeError` before the chart is touched; there is
+no nested per-axis form such as ``{"value_axis": {...}}``.
 
 Per-series gradient and pattern fills
 -------------------------------------

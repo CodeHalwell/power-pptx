@@ -35,6 +35,37 @@ class _BaseAxis(object):
         """
         return AxisTitle(self._element.get_or_add_title())
 
+    @property
+    def crosses(self):
+        """
+        Member of :ref:`XlAxisCrosses` enumeration specifying the point on
+        this axis where the other axis crosses, such as auto/zero, minimum,
+        or maximum. Returns `XL_AXIS_CROSSES.CUSTOM` when a specific numeric
+        crossing point (e.g. 1.5) is defined.
+
+        On a category axis, `MAXIMUM` is the end of the axis where the last
+        category is. A horizontal bar chart has its categories in reverse
+        order, first one on top, and its value axis crosses at the maximum
+        category so that the value axis stays along the bottom; without that
+        the value axis follows the reversed category axis to the top.
+        """
+        crosses = self._cross_xAx.crosses
+        if crosses is None:
+            return XL_AXIS_CROSSES.CUSTOM
+        return crosses.val
+
+    @crosses.setter
+    def crosses(self, value):
+        cross_xAx = self._cross_xAx
+        if value == XL_AXIS_CROSSES.CUSTOM and cross_xAx.crossesAt is not None:
+            return
+        cross_xAx._remove_crosses()
+        cross_xAx._remove_crossesAt()
+        if value == XL_AXIS_CROSSES.CUSTOM:
+            cross_xAx._add_crossesAt(val=0.0)
+        else:
+            cross_xAx._add_crosses(val=value)
+
     @lazyproperty
     def format(self):
         """
@@ -182,14 +213,26 @@ class _BaseAxis(object):
 
         For a value axis, it reverses the direction of increasing value from
         bottom-to-top to top-to-bottom.
+
+        Reversing a category axis moves the value axis to the other end of it,
+        unless the value axis crosses at the maximum category (see
+        :attr:`crosses`). `add_chart` does that for horizontal bar charts so
+        the value axis stays along the bottom. Turning the reversal off again
+        puts a value axis that crosses at the maximum category back to
+        crossing automatically, which restores the layout a bar chart had
+        before its categories were reversed; any other crossing is left as it
+        is.
         """
         return self._element.orientation == ST_Orientation.MAX_MIN
 
     @reverse_order.setter
     def reverse_order(self, value):
+        was_reversed = self.reverse_order
         self._element.orientation = (
             ST_Orientation.MAX_MIN if bool(value) is True else ST_Orientation.MIN_MAX
         )
+        if was_reversed and not self.reverse_order:
+            self._release_value_axis_from_maximum_category()
 
     @lazyproperty
     def tick_labels(self):
@@ -234,6 +277,38 @@ class _BaseAxis(object):
             raise ValueError("assigned value must be True or False, got: %s" % value)
         delete = self._element.get_or_add_delete_()
         delete.val = not value
+
+    @property
+    def _cross_xAx(self):
+        """
+        The axis element in the same group (primary/secondary) that crosses
+        this axis.
+        """
+        crossAx_id = self._element.crossAx.val
+        expr = '(../c:catAx | ../c:valAx | ../c:dateAx)/c:axId[@val="%d"]' % crossAx_id
+        cross_axId = self._element.xpath(expr)[0]
+        return cross_axId.getparent()
+
+    def _release_value_axis_from_maximum_category(self):
+        """Let the value axis cross this category axis at its origin again.
+
+        Called when the reversal of this category axis is turned off. A value axis that
+        crosses at the maximum category was put there to stay at its usual end of the
+        reversed axis; at the origin of the un-reversed axis that is the wrong end, so it
+        goes back to crossing automatically. Any other crossing is the caller's choice and
+        is left alone, as is anything that is not a category axis with a value axis to cross.
+        """
+        element = self._element
+        crossAx, plotArea = element.crossAx, element.getparent()
+        if element.tag == qn("c:valAx") or crossAx is None or plotArea is None:
+            return
+        for valAx in plotArea.findall(qn("c:valAx")):
+            axId = valAx.find(qn("c:axId"))
+            if axId is None or axId.get("val") != str(crossAx.val):
+                continue
+            if valAx.crosses is not None and valAx.crosses.val == XL_AXIS_CROSSES.MAXIMUM:
+                valAx._remove_crosses()
+                valAx._add_crosses(val=XL_AXIS_CROSSES.AUTOMATIC)
 
 
 class AxisTitle(ElementProxy):
@@ -424,31 +499,6 @@ class ValueAxis(_BaseAxis):
     """
 
     @property
-    def crosses(self):
-        """
-        Member of :ref:`XlAxisCrosses` enumeration specifying the point on
-        this axis where the other axis crosses, such as auto/zero, minimum,
-        or maximum. Returns `XL_AXIS_CROSSES.CUSTOM` when a specific numeric
-        crossing point (e.g. 1.5) is defined.
-        """
-        crosses = self._cross_xAx.crosses
-        if crosses is None:
-            return XL_AXIS_CROSSES.CUSTOM
-        return crosses.val
-
-    @crosses.setter
-    def crosses(self, value):
-        cross_xAx = self._cross_xAx
-        if value == XL_AXIS_CROSSES.CUSTOM and cross_xAx.crossesAt is not None:
-            return
-        cross_xAx._remove_crosses()
-        cross_xAx._remove_crossesAt()
-        if value == XL_AXIS_CROSSES.CUSTOM:
-            cross_xAx._add_crossesAt(val=0.0)
-        else:
-            cross_xAx._add_crosses(val=value)
-
-    @property
     def crosses_at(self):
         """
         Numeric value on this axis at which the perpendicular axis crosses.
@@ -521,14 +571,3 @@ class ValueAxis(_BaseAxis):
         if value is None:
             return
         self._element._add_minorUnit(val=value)
-
-    @property
-    def _cross_xAx(self):
-        """
-        The axis element in the same group (primary/secondary) that crosses
-        this axis.
-        """
-        crossAx_id = self._element.crossAx.val
-        expr = '(../c:catAx | ../c:valAx | ../c:dateAx)/c:axId[@val="%d"]' % crossAx_id
-        cross_axId = self._element.xpath(expr)[0]
-        return cross_axId.getparent()

@@ -7,6 +7,8 @@ from contextlib import contextmanager
 
 from xlsxwriter import Workbook
 
+from power_pptx.chart._values import plottable_values
+
 
 class _BaseWorkbookWriter(object):
     """Base class for workbook writers, providing shared members."""
@@ -172,7 +174,8 @@ class CategoryWorkbookWriter(_BaseWorkbookWriter):
             num_format = workbook.add_format({"num_format": series.number_format})
             series_col = idx + col_offset
             worksheet.write(0, series_col, series.name)
-            worksheet.write_column(1, series_col, series.values, num_format)
+            values = plottable_values(series, series.values, "value")
+            worksheet.write_column(1, series_col, values, num_format)
 
 
 class XyWorkbookWriter(_BaseWorkbookWriter):
@@ -229,10 +232,12 @@ class XyWorkbookWriter(_BaseWorkbookWriter):
             series_num_format = workbook.add_format({"num_format": series.number_format})
             offset = self.series_table_row_offset(series)
             # write X values
-            worksheet.write_column(offset + 1, 0, series.x_values, chart_num_format)
+            x_values = plottable_values(series, series.x_values, "X value")
+            worksheet.write_column(offset + 1, 0, x_values, chart_num_format)
             # write Y values
             worksheet.write(offset, 1, series.name)
-            worksheet.write_column(offset + 1, 1, series.y_values, series_num_format)
+            y_values = plottable_values(series, series.y_values, "Y value")
+            worksheet.write_column(offset + 1, 1, y_values, series_num_format)
 
 
 class BubbleWorkbookWriter(XyWorkbookWriter):
@@ -263,10 +268,13 @@ class BubbleWorkbookWriter(XyWorkbookWriter):
             series_num_format = workbook.add_format({"num_format": series.number_format})
             offset = self.series_table_row_offset(series)
             # write X values
-            worksheet.write_column(offset + 1, 0, series.x_values, chart_num_format)
+            x_values = plottable_values(series, series.x_values, "X value")
+            worksheet.write_column(offset + 1, 0, x_values, chart_num_format)
             # write Y values
             worksheet.write(offset, 1, series.name)
-            worksheet.write_column(offset + 1, 1, series.y_values, series_num_format)
+            y_values = plottable_values(series, series.y_values, "Y value")
+            worksheet.write_column(offset + 1, 1, y_values, series_num_format)
             # write bubble sizes
             worksheet.write(offset, 2, "Size")
-            worksheet.write_column(offset + 1, 2, series.bubble_sizes, chart_num_format)
+            sizes = plottable_values(series, series.bubble_sizes, "bubble size")
+            worksheet.write_column(offset + 1, 2, sizes, chart_num_format)
