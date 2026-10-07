@@ -235,7 +235,8 @@ class Presentation(PartElementProxy):
     ) -> Slide:
         """Copy *source_slide* into this presentation and return the new |Slide|.
 
-        The imported slide is appended after any existing slides.
+        The imported slide is appended after any existing slides.  Images the
+        presentation already holds (same bytes) are reused, not stored again.
 
         A hyperlink on the slide that jumps to another slide (a click action or
         text hyperlink set with ``target_slide``) survives only when it targets

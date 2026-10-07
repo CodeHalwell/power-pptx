@@ -14,6 +14,7 @@ from power_pptx.util import Inches
 from ..schema.hierarchy_decks import (
     BLUE,
     RED,
+    add_logo,
     add_theme_image_fill,
     embedded_images,
     needs_schema_validator,
@@ -698,3 +699,72 @@ class Describe_import_slide_slide_jump_links:
         imported = dst.import_slide(slide)
 
         assert _shape_with_text(imported, "next").click_action.action == PP_ACTION.NEXT_SLIDE
+
+
+# ---------------------------------------------------------------------------
+# Identical image bytes are stored once
+# ---------------------------------------------------------------------------
+
+
+def _picture_slide(prs: Presentation, color) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_picture(
+        io.BytesIO(solid_png(color)), Inches(1), Inches(1), Inches(1), Inches(1)
+    )
+
+
+class Describe_import_slide_image_dedupe:
+    def it_stores_one_image_part_for_slides_that_share_an_image(self):
+        # Regression: every import created a new image part, so three slides sharing a PNG
+        # produced image1.png .. image3.png in the destination.
+        src = Presentation()
+        for _ in range(3):
+            _picture_slide(src, RED)
+        dst = Presentation()
+
+        for slide in src.slides:
+            dst.import_slide(slide)
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 1
+        for name in zip_names(blob, r"ppt/slides/slide\d+\.xml"):
+            assert embedded_images(blob, name) == [solid_png(RED)]
+
+    def it_reuses_an_image_the_destination_already_holds(self):
+        src = Presentation()
+        _picture_slide(src, RED)
+        dst = Presentation()
+        _picture_slide(dst, RED)
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 1
+        for name in zip_names(blob, r"ppt/slides/slide\d+\.xml"):
+            assert embedded_images(blob, name) == [solid_png(RED)]
+
+    def but_keeps_images_with_different_bytes_apart(self):
+        src = Presentation()
+        _picture_slide(src, RED)
+        dst = Presentation()
+        _picture_slide(dst, BLUE)
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 2
+        embedded = [embedded_images(blob, n) for n in zip_names(blob, r"ppt/slides/slide\d+\.xml")]
+        assert sorted(embedded) == sorted([[solid_png(BLUE)], [solid_png(RED)]])
+
+    def it_merges_identical_images_that_the_source_stores_twice(self):
+        # Two distinct source image parts with the same bytes (the source package need not
+        # dedupe) still land as a single image part in the destination.
+        src = Presentation()
+        _picture_slide(src, RED)
+        add_logo(src, src.slide_master.part, solid_png(RED), shape_id=900, dedupe=False)
+        assert len(zip_names(saved_bytes(src), r"ppt/media/.*")) == 2
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0], merge_master="clone")
+
+        assert len(zip_names(saved_bytes(dst), r"ppt/media/.*")) == 1

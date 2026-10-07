@@ -24,7 +24,8 @@ The following slide-level parts are copied:
 * The slide itself.
 * Its notes slide (if any).
 * All image / media / chart / OLE-object / SmartArt-diagram / video parts
-  reachable from the slide.
+  reachable from the slide.  An image whose bytes the destination already
+  holds is reused instead of being stored again.
 * The slide layout (always cloned — layouts belong to a specific master).
 * The slide master and its theme (deduped or cloned, see above), together
   with the pictures they use.
@@ -133,6 +134,8 @@ class _PartCopier:
         self._reserved_partnames: set[str] = set()
         # Number of slide-jump hyperlinks dropped from the copied parts
         self._removed_slide_links = 0
+        # The destination's image parts by `_image_key()`, scanned from the package on first use
+        self._image_index: dict[tuple[str, str], Part] | None = None
 
     def _next_partname(self, tmpl: str) -> PackURI:
         """Return the next non-colliding partname for *tmpl*, accounting for parts
@@ -359,17 +362,28 @@ class _PartCopier:
 
         Recursively copies all related parts (depth-first).  Each source part
         is copied at most once; subsequent calls for the same part return the
-        already-copied destination counterpart.  The copy is named *partname*,
-        or like its source when that is omitted.
+        already-copied destination counterpart.  An image part is not copied at
+        all when the destination already holds an image with the same bytes
+        (including one copied earlier in this run): the existing part is shared.
+        The copy is named *partname*, or like its source when that is omitted.
         """
         if src_part in self._part_map:
             return self._part_map[src_part]
+
+        image_key = _image_key(src_part)
+        if image_key is not None:
+            shared = self._dst_images().get(image_key)
+            if shared is not None:
+                self._part_map[src_part] = shared
+                return shared
 
         dst_package = self._dst_package
         if partname is None:
             partname = self._next_partname(_partname_template(src_part.partname))
         dst_part = _clone_part(src_part, partname, dst_package)
         self._part_map[src_part] = dst_part
+        if image_key is not None:
+            self._dst_images()[image_key] = dst_part
 
         id_map = self._copy_dependencies(src_part, dst_part)
 
@@ -378,6 +392,19 @@ class _PartCopier:
         self._remap(dst_part, id_map)
 
         return dst_part
+
+    def _dst_images(self) -> dict[tuple[str, str], Part]:
+        """Return the destination's image parts by `_image_key()`, scanning the package once."""
+        if self._image_index is None:
+            index: dict[tuple[str, str], Part] = {}
+            for rel in self._dst_package.iter_rels():
+                if rel.is_external or rel.reltype != RT.IMAGE:
+                    continue
+                key = _image_key(rel.target_part)
+                if key is not None:
+                    index.setdefault(key, rel.target_part)
+            self._image_index = index
+        return self._image_index
 
     def _remap(self, dst_part: Part, id_map: dict[str, str | None]) -> None:
         """Rewrite the relationship ids in *dst_part*'s XML, if it has any, through *id_map*."""
@@ -589,6 +616,20 @@ def _clone_xml_part(src_part: XmlPart, new_partname: PackURI, dst_package: Packa
     """
     new_element = deepcopy(src_part._element)  # pyright: ignore[reportPrivateUsage]
     return src_part.__class__(new_partname, src_part.content_type, dst_package, new_element)
+
+
+def _image_key(part: Part) -> tuple[str, str] | None:
+    """Return the key two image parts share when they hold the same picture, else None.
+
+    The key is the SHA-1 of the bytes plus the content type.  Only binary image parts have
+    one: an XML part, or any non-image part (an embedded workbook, say, which each chart
+    must own privately), is never shared between relationships.
+    """
+    if isinstance(part, XmlPart) or not part.content_type.startswith("image/"):
+        return None
+    # -- an |ImagePart| caches its digest; one in a big deck is hashed once, not per import --
+    sha1 = getattr(part, "sha1", None) or hashlib.sha1(part.blob).hexdigest()
+    return sha1, part.content_type
 
 
 # Relationship-id references embedded in part XML all live in the ``r:``
