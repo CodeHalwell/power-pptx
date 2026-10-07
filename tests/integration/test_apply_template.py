@@ -223,6 +223,19 @@ class Describe_apply_template_layout_lists:
 
         assert list(iter_hierarchy_violations(saved_bytes(deck))) == []
 
+    def it_lists_the_layouts_of_a_template_master_that_has_no_layout_id_list(self):
+        template = Presentation()
+        master_element = template.slide_master._element
+        master_element.remove(master_element.sldLayoutIdLst)
+        deck = _make_deck("A")
+
+        deck.apply_template(_as_stream(template))
+
+        blob = saved_bytes(deck)
+        assert list(iter_hierarchy_violations(blob)) == []
+        names = [lo.name for lo in _round_trip(deck).slide_layouts]
+        assert names == [lo.name for lo in Presentation().slide_layouts]
+
     def it_gives_every_master_and_layout_of_a_multi_master_template_a_unique_id(self):
         template = Presentation()
         donor = Presentation()
