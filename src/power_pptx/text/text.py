@@ -112,6 +112,10 @@ class TextFrame(Subshape):
         matching `font_family`, `bold`, and `italic` installed on the current system (usually
         succeeds if the font is installed).
 
+        Every paragraph and every soft line break in the text starts a new line, so a list of
+        short paragraphs is sized for the lines it will really take up, not for the same words
+        run together.
+
         `font_family` defaults to ``"Calibri"`` when omitted.
 
         **The fit is only as good as the metrics it measures against.**  When neither `font_file`

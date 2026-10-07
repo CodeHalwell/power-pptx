@@ -15,6 +15,11 @@ from power_pptx.dml.color import RGBColor
 from power_pptx.oxml.ns import qn
 from power_pptx.util import Inches, Pt
 
+from .unitutil.file import testfile
+
+#: A font file shipped with the test suite, so measurements are the same on every machine.
+_CALIBRIZ = testfile("calibriz.ttf")
+
 
 def _new_table(rows=2, cols=2, w=Inches(4), h=Inches(2)):
     prs = Presentation()
@@ -127,6 +132,16 @@ class DescribeFitToBox:
             table.fit_to_box(max_font_pt=4, min_font_pt=8)
         with pytest.raises(ValueError):
             table.fit_to_box(min_font_pt=0)
+
+    def it_measures_each_paragraph_of_a_cell_on_its_own_line(self):
+        _, _, stacked = _new_table(1, 1, w=Inches(4), h=Inches(1.5))
+        stacked.cell(0, 0).text = "\n".join(["Revenue up 12%", "Churn down 3%", "NPS at 61"] * 2)
+        _, _, flowing = _new_table(1, 1, w=Inches(4), h=Inches(1.5))
+        flowing.cell(0, 0).text = " ".join(["Revenue up 12%", "Churn down 3%", "NPS at 61"] * 2)
+
+        assert stacked.fit_to_box(max_font_pt=40, min_font_pt=6, font_file=_CALIBRIZ) < (
+            flowing.fit_to_box(max_font_pt=40, min_font_pt=6, font_file=_CALIBRIZ)
+        )
 
     def it_names_a_font_file_it_cannot_load(self):
         _, _, table = _new_table()

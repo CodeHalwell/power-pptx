@@ -1826,3 +1826,92 @@ class DescribeFitTextEdgeCases(object):
 
         with pytest.raises(ValueError, match="no-such-font.ttf"):
             text_frame.fit_text("Calibri", font_file="/nonexistent/dir/no-such-font.ttf")
+
+
+class DescribeFitTextParagraphs(object):
+    """`TextFrame.fit_text` sizes a stack of paragraphs for the lines it will really occupy."""
+
+    BULLETS = (
+        "Revenue up 12%",
+        "Churn down 3%",
+        "NPS at 61",
+        "Hiring on track",
+        "Runway 28 months",
+        "Series B in Q3",
+    )
+
+    def it_sizes_a_bullet_list_so_that_all_its_lines_fit(self):
+        text_frame = _textbox_frame("\n".join(self.BULLETS), Inches(4), Inches(1.5))
+        inner_height = Inches(1.5) - Inches(0.1)
+
+        size = text_frame.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        # ---six lines at 1.2 x the point size is the least a renderer needs---
+        assert size is not None
+        assert len(self.BULLETS) * 1.2 * size * 12700 <= inner_height
+        for paragraph in text_frame.paragraphs:
+            assert paragraph.runs[0].font.size == Pt(size)
+
+    def and_it_picks_a_smaller_size_than_for_the_same_words_in_one_paragraph(self):
+        stacked = _textbox_frame("\n".join(self.BULLETS))
+        flowing = _textbox_frame(" ".join(self.BULLETS))
+
+        stacked_size = stacked.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        flowing_size = flowing.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        assert stacked_size is not None
+        assert flowing_size is not None
+        assert stacked_size < flowing_size
+
+    def it_counts_a_soft_line_break_as_a_line(self):
+        by_paragraph = _textbox_frame("\n".join(self.BULLETS))
+        by_line_break = _textbox_frame("\v".join(self.BULLETS))
+        flowing = _textbox_frame(" ".join(self.BULLETS))
+
+        paragraph_size = by_paragraph.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        line_break_size = by_line_break.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        flowing_size = flowing.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        assert line_break_size == paragraph_size
+        assert flowing_size is not None
+        assert line_break_size is not None
+        assert line_break_size < flowing_size
+
+
+def _build_fitted_deck():
+    """Return a `Presentation` with fitted paragraphs, line breaks, and a fitted merged cell."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1.5))
+    textbox.text_frame.text = "Revenue up 12%\nChurn down 3%\vNPS at 61\n\nSeries B in Q3"
+    textbox.text_frame.fit_text("Calibri", max_size=40, font_file=_CALIBRIZ)
+    table = slide.shapes.add_table(3, 3, Inches(1), Inches(3), Inches(6), Inches(3)).table
+    table.cell(1, 0).merge(table.cell(2, 2))
+    table.cell(1, 0).text = "Merged\ncell\vwith a line break"
+    table.fit_to_box(max_font_pt=18, font_file=_CALIBRIZ)
+    return prs
+
+
+class DescribeFitTextIntegration(object):
+    """Round-trip and schema-validity checks for text sized by `fit_text` and `fit_to_box`."""
+
+    def it_round_trips_a_deck_with_fitted_text(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_build_fitted_deck())
+
+    def it_emits_schema_valid_fitted_text(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        prs = _build_fitted_deck()
+        buf = io.BytesIO()
+        prs.save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []
