@@ -136,11 +136,18 @@ def from_spec(
         intentional at generation time.
 
     ``tokens`` *(optional)*
-        Either a preset name (``{"preset": "modern_light"}``), a path
-        to a YAML file (``{"yaml": "brand.yml"}``), an inline token
-        dict, a mix of preset + ``overrides`` for per-deck tweaks, or
-        an already-built :class:`~power_pptx.design.tokens.DesignTokens`
-        instance.
+        Either a preset name (``{"preset": "modern_light"}``) or a path
+        to a YAML file (``{"yaml": "brand.yml"}``) — each with an
+        optional ``"overrides": {...}`` for per-deck tweaks, and nothing
+        else beside it — an inline token dict, or an already-built
+        :class:`~power_pptx.design.tokens.DesignTokens` instance.
+        Inline lengths follow the token unit rule (a float is points, a
+        bare int is EMU; a size that small is rejected) — see
+        :meth:`~power_pptx.design.tokens.DesignTokens.from_dict`.
+        A slide dict may carry its own ``tokens`` (same shapes), which
+        replace the deck-level ones for that slide; ``null`` opts the
+        slide out.  ``theme`` is accepted as an alias when ``tokens`` is
+        absent.
 
     ``slide_size`` *(optional)*
         Resize the slides to the given dimensions.  Accepts shorthand
@@ -363,7 +370,12 @@ def _add_slide(
     fall back to the placeholder-based legacy path so existing decks
     keep working.
 
-    When *tokens* is provided, legacy alias names (``"title"`` /
+    *tokens* are the deck-level tokens.  A slide's own ``tokens`` field
+    (same shapes as the spec-level one, resolved through
+    :func:`_resolve_tokens`) replaces them for that slide; ``null``
+    opts the slide out of them.
+
+    When tokens apply, legacy alias names (``"title"`` /
     ``"bullets"``) are silently upgraded to their token-aware recipe
     counterparts (``"title_recipe"`` / ``"bullets_recipe"``).  Before
     this change the placeholder-based legacy path was taken and the
@@ -378,13 +390,20 @@ def _add_slide(
     """
     layout_name = (slide_spec.get("layout") or "blank").lower()
 
-    if tokens is not None:
+    slide_tokens = tokens
+    if "tokens" in slide_spec:
+        try:
+            slide_tokens = _resolve_tokens(slide_spec["tokens"])
+        except ValueError as exc:
+            raise ValueError(f"slides[{slide_index}]: {exc}") from exc
+
+    if tokens is not None or slide_tokens is not None:
         upgrade = _LEGACY_TO_RECIPE.get(layout_name)
         if upgrade is not None:
             layout_name = upgrade
 
     if layout_name in _RECIPE_LAYOUTS:
-        slide = _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+        slide = _add_recipe_slide(prs, slide_spec, layout_name, slide_tokens)
     else:
         layout = _resolve_layout(prs, layout_name)
         slide = prs.slides.add_slide(layout)
@@ -422,9 +441,10 @@ def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, to
     """Dispatch to the recipe matching *layout_name*.
 
     Validates required keys, then forwards *every other* spec key as a
-    keyword argument to the recipe.  The ``tokens`` and ``transition``
-    arguments are threaded through automatically: spec-level tokens
-    win when a slide-level ``tokens`` field isn't set.
+    keyword argument to the recipe.  *tokens* are the slide's effective
+    tokens — its own ``tokens`` field if it has one, else the deck's,
+    already resolved by :func:`_add_slide` — and always replace any raw
+    ``tokens`` value in the spec, so the recipe never sees a bare dict.
 
     Unknown kwargs (keys the recipe's signature doesn't accept) raise
     :class:`ValueError` rather than being silently dropped.  This
@@ -445,8 +465,7 @@ def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, to
         )
 
     kwargs = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
-    # Spec-level tokens flow through unless the slide opts out / overrides.
-    kwargs.setdefault("tokens", tokens)
+    kwargs["tokens"] = tokens
 
     # Fail closed on typos: any kwarg the recipe doesn't accept is an
     # error.  Recipes accept ``tokens`` and ``transition`` consistently,
@@ -893,6 +912,10 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
             p3.alignment = PP_ALIGN.CENTER
 
 
+# The only keys a ``{"preset": ...}`` / ``{"yaml": ...}`` tokens spec may carry.
+_TOKEN_SPEC_KEYS = frozenset({"preset", "yaml", "overrides"})
+
+
 def _resolve_tokens(spec: Any) -> Any:
     """Build a :class:`DesignTokens` from a token spec, or ``None``.
 
@@ -903,9 +926,11 @@ def _resolve_tokens(spec: Any) -> Any:
       callers can reuse a built token bag between imperative recipes and
       :func:`from_spec` without round-tripping through ``.to_dict()`` (no such
       method exists today).  See IMPROVEMENTS item 8.
-    * ``{"preset": "modern_light", "overrides": {...}}`` — load preset
-      and optionally layer overrides.
-    * ``{"yaml": "brand.yml"}`` — load from a YAML file.
+    * ``{"preset": "modern_light"}`` or ``{"yaml": "brand.yml"}`` — load a
+      built-in preset or a YAML brand file, each with an optional
+      ``"overrides": {...}`` layered on top.  Nothing else may sit next to
+      them (a ``"palette"`` beside ``"preset"`` used to be dropped silently),
+      and ``"preset"`` / ``"yaml"`` are alternatives, not a pair.
     * Any other mapping — treated as an inline ``DesignTokens.from_dict``
       payload.
     """
@@ -919,15 +944,39 @@ def _resolve_tokens(spec: Any) -> Any:
         raise ValueError(
             f"'tokens' must be a mapping or DesignTokens instance; got {type(spec).__name__!r}"
         )
-    if "preset" in spec:
+
+    bases = [key for key in ("preset", "yaml") if key in spec]
+    if len(bases) > 1:
+        raise ValueError("tokens: give either 'preset' or 'yaml', not both")
+    if not bases:
+        if "overrides" in spec:
+            raise ValueError(
+                "tokens: 'overrides' layers onto a base, so it needs a 'preset' or a 'yaml' "
+                "beside it (an inline token dict takes palette / typography / ... directly)"
+            )
+        return DesignTokens.from_dict(spec)
+
+    base = bases[0]
+    extra = set(spec) - _TOKEN_SPEC_KEYS
+    if extra:
+        raise ValueError(
+            f"tokens: unexpected keys {_format_unknown(extra, _TOKEN_SPEC_KEYS)} beside {base!r}. "
+            f"A {base!r} base takes only 'overrides' next to it, so put per-deck tweaks there, "
+            "e.g. {'preset': 'modern_light', 'overrides': {'palette.primary': '#FF6600'}}."
+        )
+    if base == "preset":
         tokens = DesignTokens.from_preset(spec["preset"])
-        overrides = spec.get("overrides")
-        if overrides:
-            tokens = tokens.with_overrides(overrides)
-        return tokens
-    if "yaml" in spec:
-        return DesignTokens.from_yaml(spec["yaml"])
-    return DesignTokens.from_dict(spec)
+    else:
+        tokens = DesignTokens.from_yaml(spec["yaml"])
+    overrides = spec.get("overrides")
+    if overrides is not None:
+        if not isinstance(overrides, Mapping):
+            raise ValueError(
+                "tokens: 'overrides' must be a mapping of dotted paths (or nested dicts) to "
+                f"values; got {type(overrides).__name__!r}"
+            )
+        tokens = tokens.with_overrides(overrides)
+    return tokens
 
 
 # ---------------------------------------------------------------------------

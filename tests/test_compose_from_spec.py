@@ -7,6 +7,7 @@ import textwrap
 import pytest
 
 from power_pptx.compose import from_spec, from_yaml
+from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
 
 
@@ -1089,3 +1090,183 @@ class DescribeSpecDeclaredOverlapSuppression:
         )
         issues = prs.slides[0].lint().issues
         assert any(isinstance(i, LayerOrderViolation) for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Spec validation: tokens, unknown keys, wrong-shaped content, kpi_grid,
+# interpolation.  Helpers first.
+# ---------------------------------------------------------------------------
+
+_VIBRANT_PRIMARY = RGBColor(0xFF, 0x33, 0x66)
+_MODERN_LIGHT_PRIMARY = RGBColor(0x3B, 0x5B, 0xDB)
+
+
+def _slide_texts(slide):
+    """Text of every text-bearing shape on *slide*, in z-order."""
+    return [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+
+
+def _first_run_rgb(slide):
+    """Colour of the first non-empty run on *slide* (the title, for recipes)."""
+    for sh in slide.shapes:
+        if not sh.has_text_frame:
+            continue
+        for p in sh.text_frame.paragraphs:
+            for r in p.runs:
+                if r.text:
+                    return r.font.color.rgb
+    return None
+
+
+class DescribeSlideLevelTokens:
+    """A slide's own ``tokens`` replace the deck-level set for that slide."""
+
+    _KPI = {"layout": "kpi", "title": "T", "kpis": [{"label": "A", "value": "1"}]}
+
+    def it_resolves_a_slide_level_tokens_mapping(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}],
+            }
+        )
+        # ``vibrant``'s primary, not ``modern_light``'s.
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_keeps_the_deck_level_tokens_on_slides_without_their_own(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}, dict(self._KPI)],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+        assert _first_run_rgb(prs.slides[1]) == _MODERN_LIGHT_PRIMARY
+
+    def it_applies_slide_level_tokens_when_the_deck_has_none(self):
+        prs = from_spec({"slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}]})
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_accepts_a_prebuilt_DesignTokens_instance_on_a_slide(self):
+        from power_pptx.design.tokens import DesignTokens
+
+        tokens = DesignTokens.from_preset("vibrant")
+        prs = from_spec({"slides": [{**self._KPI, "tokens": tokens}]})
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_lets_a_slide_opt_out_of_the_deck_tokens_with_null(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": None}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) is None
+
+    def it_upgrades_a_legacy_title_when_only_the_slide_has_tokens(self):
+        prs = from_spec(
+            {"slides": [{"layout": "title", "title": "Hello", "tokens": {"preset": "vibrant"}}]}
+        )
+        slide = prs.slides[0]
+        # Recipe path (no template placeholders), styled by the slide's tokens.
+        assert len(slide.placeholders) == 0
+        assert _first_run_rgb(slide) == _VIBRANT_PRIMARY
+
+    def it_locates_a_bad_slide_level_tokens_value(self):
+        with pytest.raises(ValueError, match=r"slides\[1\].*Unknown preset 'nope'"):
+            from_spec(
+                {
+                    "slides": [
+                        {"layout": "blank"},
+                        {**self._KPI, "tokens": {"preset": "nope"}},
+                    ]
+                }
+            )
+
+
+class DescribeTokenSpecValidation:
+    """A tokens spec must say what it means; nothing in it is silently dropped."""
+
+    def it_rejects_extra_keys_beside_a_preset(self):
+        spec = {
+            "tokens": {"preset": "modern_light", "palette": {"primary": "#FF0000"}},
+            "slides": [],
+        }
+        with pytest.raises(
+            ValueError, match=r"unexpected keys 'palette' beside 'preset'.*overrides"
+        ):
+            from_spec(spec)
+
+    def it_rejects_extra_keys_beside_a_yaml_path(self, tmp_path):
+        brand = tmp_path / "brand.yml"
+        brand.write_text("palette:\n  primary: '#112233'\n")
+        spec = {"tokens": {"yaml": str(brand), "typography": {}}, "slides": []}
+        with pytest.raises(ValueError, match=r"unexpected keys 'typography' beside 'yaml'"):
+            from_spec(spec)
+
+    def it_layers_overrides_on_a_yaml_base(self, tmp_path):
+        brand = tmp_path / "brand.yml"
+        brand.write_text("palette:\n  primary: '#112233'\n  neutral: '#445566'\n")
+        prs = from_spec(
+            {
+                "tokens": {"yaml": str(brand), "overrides": {"palette.primary": "#FF0000"}},
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == RGBColor(0xFF, 0x00, 0x00)
+
+    def it_rejects_a_preset_together_with_a_yaml_path(self):
+        spec = {"tokens": {"preset": "vibrant", "yaml": "brand.yml"}, "slides": []}
+        with pytest.raises(ValueError, match=r"either 'preset' or 'yaml', not both"):
+            from_spec(spec)
+
+    def it_rejects_overrides_without_a_base(self):
+        spec = {"tokens": {"overrides": {"palette.primary": "#FF0000"}}, "slides": []}
+        with pytest.raises(ValueError, match=r"'overrides'.*'preset'.*'yaml'"):
+            from_spec(spec)
+
+    def it_rejects_non_mapping_overrides(self):
+        spec = {"tokens": {"preset": "vibrant", "overrides": "palette.primary=red"}, "slides": []}
+        with pytest.raises(ValueError, match=r"'overrides' must be a mapping"):
+            from_spec(spec)
+
+    def it_rejects_a_non_mapping_palette_with_a_value_error(self):
+        # The shape the docs used to show for ``theme``.
+        spec = {"theme": {"palette": "modern_blue", "fonts": "inter"}, "slides": []}
+        with pytest.raises(ValueError, match=r"tokens\.palette must be a mapping"):
+            from_spec(spec)
+
+    def it_names_the_token_when_a_font_size_has_no_unit(self):
+        spec = {
+            "tokens": {"typography": {"heading": {"family": "Inter", "size": 36}}},
+            "slides": [],
+        }
+        with pytest.raises(ValueError, match=r"tokens\.typography\.heading\.size"):
+            from_spec(spec)
+
+    def it_names_the_token_when_a_radius_has_no_unit(self):
+        spec = {"tokens": {"radii": {"md": 8}}, "slides": []}
+        with pytest.raises(ValueError, match=r"tokens\.radii\.md.*use a float for points"):
+            from_spec(spec)
+
+    def it_accepts_json_style_list_colours(self):
+        prs = from_spec(
+            {
+                "tokens": {"palette": {"primary": [51, 51, 51]}},
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == RGBColor(51, 51, 51)
+
+    def it_accepts_float_sizes_as_points(self):
+        prs = from_spec(
+            {
+                "tokens": {
+                    "typography": {"heading": {"family": "Inter", "size": 36.0}},
+                    "radii": {"md": 8.0},
+                },
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        run = prs.slides[0].shapes[0].text_frame.paragraphs[0].runs[0]
+        assert run.font.size.pt == 36.0
