@@ -352,14 +352,37 @@ class DescribeShape(object):
         with pytest.raises(NotImplementedError):
             shape.shape_type
 
-    def it_knows_what_text_it_contains(self, text_frame_prop_, text_frame_):
-        text_frame_prop_.return_value = text_frame_
+    def it_knows_what_text_it_contains(self, TextFrame_, text_frame_):
+        sp = element("p:sp/p:txBody")
         text_frame_.text = "foobar"
-        shape = Shape(None, None)
+        shape = Shape(sp, None)
 
         text = shape.text
 
+        TextFrame_.assert_called_once_with(sp[0], shape)
         assert text == "foobar"
+
+    def but_it_reports_no_text_for_a_shape_without_a_txBody_and_does_not_add_one(self):
+        # -- e.g. a picture or chart placeholder cloned from a layout; merely reading its text
+        # -- must not materialise an empty `p:txBody` (the XML would change under a read)
+        sp = element("p:sp")
+        expected_xml = sp.xml
+        shape = Shape(sp, None)
+
+        text = shape.text
+
+        assert text == ""
+        assert sp.txBody is None
+        assert sp.xml == expected_xml
+
+    def and_it_still_creates_the_txBody_when_text_is_assigned(self):
+        sp = element("p:sp")
+        shape = Shape(sp, None)
+
+        shape.text = "now it has some"
+
+        assert sp.txBody is not None
+        assert shape.text == "now it has some"
 
     def it_can_change_its_text(self, text_frame_prop_, text_frame_):
         text_frame_prop_.return_value = text_frame_
@@ -606,3 +629,26 @@ def _rounded_rect(prst=MSO_SHAPE.ROUNDED_RECTANGLE, *, width, height):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     return slide.shapes.add_shape(prst, Inches(1), Inches(1), width, height)
+
+
+class DescribeShapeTextOfAClonedPlaceholder(object):
+    """A picture placeholder cloned from a layout has no `p:txBody`; reading `.text` keeps it so."""
+
+    def it_reads_empty_text_without_adding_a_txBody(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        picture_ph = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+        xml_before = picture_ph.element.xml
+        assert picture_ph.element.txBody is None
+
+        assert picture_ph.text == ""
+
+        assert picture_ph.element.txBody is None
+        assert picture_ph.element.xml == xml_before
+
+    def but_it_still_reads_the_text_of_a_placeholder_that_has_a_txBody(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])
+        slide.shapes.title.text = "Quarterly review"
+
+        assert slide.shapes.title.text == "Quarterly review"
