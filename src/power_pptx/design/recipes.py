@@ -1254,7 +1254,9 @@ def comparison_slide(
       ``on_primary``; row text from ``neutral``; even-row tint from
       ``surface`` (fallback ``lt2``).
     * **typography** — ``heading`` for the title and column headings;
-      ``body`` for the row text.
+      ``body`` for the row text.  The headings sit in bands a fixed 0.6 in
+      tall, so their size is the token's size reduced (never below 9 pt) just
+      far enough that both fit their band.
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
@@ -1284,7 +1286,14 @@ def comparison_slide(
     head_text_color = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
     row_text_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
     band_color = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
-    head_token = _typography(tokens, "heading", default_size=Pt(18), default_bold=True)
+    # The bands are a fixed height, whatever size the deck's heading type is: bake the one
+    # size at which both headings fit (never larger than the token's own).
+    head_token = _fit_token(
+        _typography(tokens, "heading", default_size=Pt(18), default_bold=True),
+        [left_heading, right_heading],
+        int(col_w) - 2 * int(_DEFAULT_INSET_X),
+        int(head_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
     row_token = _typography(tokens, "body", default_size=Pt(14))
 
     columns = [
@@ -1308,6 +1317,7 @@ def comparison_slide(
             color=head_text_color,
             align=PP_ALIGN.LEFT,
             anchor=MSO_ANCHOR.MIDDLE,
+            shrink_to_fit=True,
         )
         # Rows.
         for i, row in enumerate(rows):

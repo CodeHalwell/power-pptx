@@ -810,6 +810,69 @@ class DescribeComparisonSlide:
             assert needle in texts
 
 
+class DescribeComparisonSlideHeadings:
+    """The heading bands are a fixed 0.6 in tall, so the heading type is fitted to them."""
+
+    _LONG_LEFT = "Build the platform in-house with our own engineering teams"
+    _LONG_RIGHT = "Buy a managed platform from an established vendor"
+
+    @staticmethod
+    def _slide(aspect, left, right, tokens):
+        return comparison_slide(
+            _presentation(aspect),
+            title="Build vs buy",
+            left_heading=left,
+            right_heading=right,
+            rows=[{"left": f"Left {i}", "right": f"Right {i}"} for i in range(4)],
+            tokens=tokens,
+        )
+
+    @staticmethod
+    def _band(slide, heading):
+        return next(s for s in slide.shapes if s.has_text_frame and s.text_frame.text == heading)
+
+    @classmethod
+    def _size_pt(cls, slide, heading):
+        return cls._band(slide, heading).text_frame.paragraphs[0].runs[0].font.size.pt
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("preset", ["modern_light", "corporate_navy"])
+    def it_lints_clean_with_headings_that_need_more_than_one_line(self, aspect, preset):
+        tokens = DesignTokens.from_preset(preset)
+        slide = self._slide(aspect, self._LONG_LEFT, self._LONG_RIGHT, tokens)
+        assert _lint_problems(slide) == []
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_shrinks_the_deck_heading_size_only_as_far_as_the_longer_heading_needs(self, aspect):
+        tokens = DesignTokens.from_preset("modern_light")  # headings are 32 pt
+        slide = self._slide(aspect, self._LONG_LEFT, "Buy", tokens)
+        sizes = {self._size_pt(slide, h) for h in (self._LONG_LEFT, "Buy")}
+        assert len(sizes) == 1  # the two bands read as one system
+        (size,) = sizes
+        assert 9 <= size < 20  # shrunk, but two lines of it still use the band
+
+    def it_never_enlarges_a_heading_that_already_fits(self):
+        tokens = DesignTokens.from_dict(
+            {"typography": {"heading": {"family": "Inter", "size": Pt(16), "bold": True}}}
+        )
+        slide = self._slide("4:3", "Build in-house", "Buy from vendor", tokens)
+        assert self._size_pt(slide, "Build in-house") == 16
+        assert self._size_pt(slide, "Buy from vendor") == 16
+
+    def it_keeps_the_default_heading_size_without_tokens(self):
+        slide = self._slide("4:3", "Old", "New", None)
+        assert self._size_pt(slide, "Old") == 18
+        assert _lint_problems(slide) == []
+
+    def but_leaves_autofit_as_the_last_defence_for_a_heading_no_size_can_fit(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        absurd = "a heading that rambles on and on " * 12
+        slide = self._slide("4:3", absurd, "Buy", tokens)
+        band = self._band(slide, absurd)
+        assert self._size_pt(slide, absurd) == 9  # the legibility floor, never below
+        assert band.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+
 class DescribeChartSlidePolish:
     """`chart_slide` controls for legend / smooth / data_labels / palette."""
 
