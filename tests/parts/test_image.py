@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import pathlib
 import struct
 
 import pytest
@@ -144,6 +145,29 @@ class DescribeImage(object):
         image = Image.from_file(image_file)
         Image.from_blob.assert_called_once_with(blob, None)
         assert image is image_
+
+    def it_can_construct_from_a_pathlib_path(self, from_blob_, image_):
+        with open(test_image_path, "rb") as f:
+            blob = f.read()
+        from_blob_.return_value = image_
+
+        image = Image.from_file(pathlib.Path(test_image_path))
+
+        Image.from_blob.assert_called_once_with(blob, "python-icon.jpeg")
+        assert image is image_
+
+    def and_it_can_construct_from_any_os_PathLike(self, from_blob_, image_):
+        class PathLike:
+            def __fspath__(self):
+                return test_image_path
+
+        with open(test_image_path, "rb") as f:
+            blob = f.read()
+        from_blob_.return_value = image_
+
+        Image.from_file(PathLike())
+
+        Image.from_blob.assert_called_once_with(blob, "python-icon.jpeg")
 
     def it_can_construct_from_a_blob(self, _init_):
         image = Image.from_blob(b"blob", "foo.png")

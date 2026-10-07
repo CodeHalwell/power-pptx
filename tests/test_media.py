@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import pathlib
 
 import pytest
 
@@ -31,6 +32,16 @@ class DescribeVideo(object):
         movie_stream, mime_type, blob, video_ = from_stream_fixture
         video = Video.from_path_or_file_like(movie_stream, mime_type)
         Video.from_blob.assert_called_once_with(blob, mime_type, None)
+        assert video is video_
+
+    def it_can_construct_from_a_pathlib_path(self, video_, from_blob_):
+        with open(TEST_VIDEO_PATH, "rb") as f:
+            blob = f.read()
+        from_blob_.return_value = video_
+
+        video = Video.from_path_or_file_like(pathlib.Path(TEST_VIDEO_PATH), "video/mp4")
+
+        Video.from_blob.assert_called_once_with(blob, "video/mp4", "dummy.mp4")
         assert video is video_
 
     def it_can_construct_from_a_blob(self, from_blob_fixture):

@@ -2684,3 +2684,74 @@ class DescribeEmfImages(object):
         reopened = Presentation(io.BytesIO(buf.getvalue()))
 
         assert reopened.slides[0].shapes[0].image.ext == "emf"
+
+
+class DescribePathlibPathArguments(object):
+    """Wherever a file path is accepted, a `pathlib.Path` works as well as a `str`."""
+
+    @staticmethod
+    def _png(tmp_path, name="pic.png"):
+        path = tmp_path / name
+        path.write_bytes(TINY_PNG)
+        return path
+
+    def it_can_add_a_picture_from_a_Path(self, tmp_path):
+        _, slide = _blank_slide()
+
+        picture = slide.shapes.add_picture(self._png(tmp_path), Inches(1), Inches(1))
+
+        assert picture.image.blob == TINY_PNG
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ["pic.png"]
+
+    def it_can_add_a_movie_and_its_poster_frame_from_Paths(self, tmp_path):
+        _, slide = _blank_slide()
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"\x00" * 16)
+
+        movie = slide.shapes.add_movie(
+            video,
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
+            poster_frame_image=self._png(tmp_path, "poster.png"),
+            mime_type="video/mp4",
+        )
+
+        assert movie.name == "clip.mp4"
+        assert movie.poster_frame.blob == TINY_PNG
+
+    def it_can_insert_a_picture_into_a_placeholder_from_a_Path(self, tmp_path):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        placeholder = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+
+        picture = placeholder.insert_picture(self._png(tmp_path))
+
+        assert picture.image.blob == TINY_PNG
+
+    def it_can_add_an_OLE_object_and_its_icon_from_Paths(self, tmp_path):
+        _, slide = _blank_slide()
+        payload = tmp_path / "book.xlsx"
+        payload.write_bytes(b"workbook bytes")
+
+        frame = slide.shapes.add_ole_object(
+            payload,
+            PROG_ID.XLSX,
+            Inches(1),
+            Inches(1),
+            icon_file=self._png(tmp_path, "icon.png"),
+        )
+
+        assert frame.ole_format.blob == b"workbook bytes"
+
+    def and_it_can_add_an_SVG_picture_from_a_Path(self, tmp_path):
+        _, slide = _blank_slide()
+        svg = tmp_path / "logo.svg"
+        svg.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>')
+
+        picture = slide.shapes.add_svg_picture(
+            svg, Inches(1), Inches(1), Inches(1), Inches(1), png_fallback=self._png(tmp_path)
+        )
+
+        assert picture.shape_type == 13
