@@ -257,3 +257,99 @@ class DescribeGridFromBox:
 
         assert int(shape.left) == int(grid.cell(1, 0).left)
         assert int(shape.width) == int(grid.cell(1, 0).width)
+
+
+class DescribeStackCellDefaults:
+    """A stack's constructor size is the default for every cell along its axis."""
+
+    def it_uses_the_constructor_width_for_a_horizontal_stack(self):
+        stack = Stack(
+            "horizontal",
+            gap=Pt(8),
+            left=Inches(1),
+            top=Inches(1),
+            width=Inches(2),
+            height=Inches(1),
+        )
+
+        first, second = stack.next(), stack.next()
+
+        assert first == Box(Inches(1), Inches(1), Inches(2), Inches(1))
+        assert second == Box(first.left + first.width + int(Pt(8)), Inches(1), Inches(2), Inches(1))
+
+    def it_uses_the_constructor_height_for_a_vertical_stack(self):
+        stack = Stack(
+            "vertical",
+            gap=Pt(8),
+            left=Inches(1),
+            top=Inches(1),
+            width=Inches(3),
+            height=Inches(0.5),
+        )
+
+        first, second = stack.next(), stack.next()
+
+        assert first == Box(Inches(1), Inches(1), Inches(3), Inches(0.5))
+        assert second == Box(
+            Inches(1), first.top + first.height + int(Pt(8)), Inches(3), Inches(0.5)
+        )
+
+    def it_lets_a_per_cell_size_override_the_constructor_default(self):
+        horizontal = Stack("horizontal", width=Inches(2), height=Inches(1))
+        vertical = Stack("vertical", width=Inches(3), height=Inches(1))
+
+        assert horizontal.next(width=Inches(0.5)).width == Inches(0.5)
+        assert vertical.next(height=Inches(0.25)).height == Inches(0.25)
+
+    def it_advances_by_the_size_each_cell_actually_had(self):
+        stack = Stack("horizontal", width=Inches(2), height=Inches(1))
+        stack.next()
+        stack.next(width=Inches(1))
+        assert stack.next().left == Inches(3)
+
+    def it_can_place_a_shape_without_naming_the_cell_size(self, slide):
+        stack = Stack("horizontal", left=Inches(1), width=Inches(2), height=Inches(1))
+        shape = slide.shapes.add_shape(1, Inches(5), Inches(5), Inches(1), Inches(1))
+
+        stack.place(shape)
+
+        assert (shape.left, shape.width, shape.height) == (Inches(1), Inches(2), Inches(1))
+
+    @pytest.mark.parametrize("direction", ["vertical", "horizontal"])
+    def it_still_asks_for_a_size_when_none_was_given_anywhere(self, direction):
+        # Only the cross-axis size is set: nothing says how far to advance.
+        kwargs = {"width": Inches(1)} if direction == "vertical" else {"height": Inches(1)}
+        with pytest.raises(TypeError, match="constructor"):
+            Stack(direction, **kwargs).next()
+
+
+class DescribeGridCounts:
+    """Columns and rows are counted in whole numbers; anything else is refused."""
+
+    @pytest.mark.parametrize("bad", [2.5, 3.0, True, False, "3", None, -1, 0])
+    def it_rejects_cols_that_are_not_positive_integers(self, slide, bad):
+        with pytest.raises(ValueError, match="cols"):
+            Grid(slide, cols=bad)
+
+    @pytest.mark.parametrize("bad", [2.5, 3.0, True, False, "3", None, -1, 0])
+    def it_rejects_rows_that_are_not_positive_integers(self, slide, bad):
+        with pytest.raises(ValueError, match="rows"):
+            Grid(slide, cols=2, rows=bad)
+
+    @pytest.mark.parametrize("bad", [2.5, True])
+    def it_rejects_them_in_from_box_too(self, bad):
+        with pytest.raises(ValueError, match="cols"):
+            Grid.from_box(BBox.from_inches(0, 0, 4, 4), cols=bad)
+        with pytest.raises(ValueError, match="rows"):
+            Grid.from_box(BBox.from_inches(0, 0, 4, 4), cols=2, rows=bad)
+
+    def it_names_the_offending_value(self, slide):
+        with pytest.raises(ValueError, match=r"2\.5"):
+            Grid(slide, cols=2.5)
+
+    def it_accepts_an_int_subclass_for_a_count(self, slide):
+        class Count(int):
+            pass
+
+        grid = Grid(slide, cols=Count(4), rows=Count(2))
+        assert (grid.cols, grid.rows) == (4, 2)

@@ -29,6 +29,7 @@ Example::
 
 from __future__ import annotations
 
+import numbers
 from typing import TYPE_CHECKING, NamedTuple, Tuple, Union
 
 from power_pptx.util import Emu, Length
@@ -81,6 +82,20 @@ def _slide_dimensions(slide: "Slide") -> tuple[Length, Length]:
     return width, height
 
 
+def _whole_count(value: object, name: str) -> int:
+    """Return *value* as an ``int``, insisting that it is a whole number >= 1.
+
+    ``bool`` and floats are refused rather than coerced: ``cols=2.5`` quietly
+    becoming two columns, or ``cols=True`` one, would hide the mistake that
+    produced them.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        raise ValueError("Grid.%s must be an integer >= 1, got %r" % (name, value))
+    if value < 1:
+        raise ValueError("Grid.%s must be >= 1, got %r" % (name, value))
+    return int(value)
+
+
 def _apply_box(shape: "BaseShape", box: Box) -> "BaseShape":
     shape.left, shape.top = box.left, box.top
     shape.width, shape.height = box.width, box.height
@@ -96,10 +111,13 @@ class Grid:
         Host slide. Used only to read the parent presentation's slide
         dimensions; the slide is not mutated.
     cols : int
-        Number of columns. Must be >= 1.
+        Number of columns. Must be an integer >= 1 — a float such as
+        ``2.5`` or a ``bool`` raises :class:`ValueError` rather than being
+        truncated.
     rows : int, optional
-        Number of rows. Defaults to 1; cells implicitly span the full
-        slide height when only one row is requested.
+        Number of rows, held to the same rule as `cols`. Defaults to 1;
+        cells implicitly span the full slide height when only one row is
+        requested.
     gutter : Length, optional
         Spacing between cells, applied between columns and between rows.
         Defaults to 0 (no gutter).
@@ -164,13 +182,8 @@ class Grid:
         origin_top: int,
     ) -> None:
         """Shared constructor body for the slide-spanning and box-spanning cases."""
-        if cols < 1:
-            raise ValueError("Grid.cols must be >= 1, got %r" % cols)
-        if rows < 1:
-            raise ValueError("Grid.rows must be >= 1, got %r" % rows)
-
-        self._cols = int(cols)
-        self._rows = int(rows)
+        self._cols = _whole_count(cols, "cols")
+        self._rows = _whole_count(rows, "rows")
         self._gutter = Emu(int(gutter))
         self._top_m, self._right_m, self._bottom_m, self._left_m = self._coerce_margin(margin)
         self._origin_left = Emu(int(origin_left))
@@ -261,9 +274,13 @@ class Stack:
     left, top : Length
         Origin of the first cell. Default 0.
     width, height : Length, optional
-        Cross-axis span. For a vertical stack, `width` is the cell width
-        and each call to :meth:`next` consumes `height`; for a horizontal
-        stack, `height` is the cell height and each call consumes `width`.
+        Default size of a cell. A vertical stack lays cells downward, so
+        `width` is the width of every cell and `height` the height of one
+        that :meth:`next` is not told otherwise; a horizontal stack is the
+        mirror image, with `height` shared and `width` the per-cell
+        default.  Either may be overridden for a single cell in
+        :meth:`next` / :meth:`place`; a stack needs both a width and a
+        height from one place or the other.
 
     The stack maintains a running cursor that advances after every
     :meth:`next` (or :meth:`place`) call. :meth:`reset` returns the
@@ -302,48 +319,38 @@ class Stack:
     def next(self, *, width: int | None = None, height: int | None = None) -> Box:
         """Allocate the next cell and return its :class:`Box`.
 
-        For a vertical stack, `height` is required; `width` overrides the
-        stack-level default. For a horizontal stack, `width` is required;
-        `height` overrides the stack-level default.
+        `width` and `height` size this one cell; whichever is left out falls
+        back to the value given to the constructor, so a stack built with
+        ``width=`` and ``height=`` can simply call ``next()``.  Raises
+        :class:`TypeError` when a size is given in neither place.
         """
-        leading_gap = 0 if self._cursor == 0 else int(self._gap)
+        cell_w = self._width if width is None else Emu(int(width))
+        cell_h = self._height if height is None else Emu(int(height))
+        if cell_w is None or cell_h is None:
+            missing = "width" if cell_w is None else "height"
+            raise TypeError(
+                f"{self._direction} Stack.next() needs a `{missing}` "
+                "(either on the constructor or as a per-cell override)"
+            )
 
+        leading_gap = 0 if self._cursor == 0 else int(self._gap)
+        self._cursor += leading_gap
         if self._direction == "vertical":
-            if height is None:
-                raise TypeError("vertical Stack.next() requires `height=`")
-            cell_h = int(height)
-            cell_w = self._width if width is None else int(width)
-            if cell_w is None:
-                raise TypeError(
-                    "vertical Stack needs a `width` "
-                    "(either on the constructor or as a per-cell override)"
-                )
-            self._cursor += leading_gap
             box = Box(
                 self._origin_left,
                 Emu(self._origin_top + self._cursor),
-                Emu(cell_w),
-                Emu(cell_h),
+                cell_w,
+                cell_h,
             )
-            self._cursor += cell_h
+            self._cursor += int(cell_h)
         else:
-            if width is None:
-                raise TypeError("horizontal Stack.next() requires `width=`")
-            cell_w = int(width)
-            cell_h = self._height if height is None else int(height)
-            if cell_h is None:
-                raise TypeError(
-                    "horizontal Stack needs a `height` "
-                    "(either on the constructor or as a per-cell override)"
-                )
-            self._cursor += leading_gap
             box = Box(
                 Emu(self._origin_left + self._cursor),
                 self._origin_top,
-                Emu(cell_w),
-                Emu(cell_h),
+                cell_w,
+                cell_h,
             )
-            self._cursor += cell_w
+            self._cursor += int(cell_w)
         return box
 
     def place(
