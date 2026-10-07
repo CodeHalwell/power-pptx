@@ -171,13 +171,15 @@ def assert_powerpoint_strict_compliance(pptx_bytes):
                     v = elt.get(attr)
                     if v is None:
                         continue
-                    assert "." not in v and "e" not in v.lower(), (
+                    msg = (
                         f"{filename}: <a:{tag}> {attr}={v!r} is not "
-                        f"integer-valued (would trigger PowerPoint "
-                        f"Repair?). Likely cause: float coordinate "
-                        f"passed to a shape constructor — check for "
-                        f"`/` instead of `//` in the calling code."
+                        "integer-valued (would trigger PowerPoint "
+                        "Repair?). Likely cause: float coordinate "
+                        "passed to a shape constructor — check for "
+                        "`/` instead of `//` in the calling code."
                     )
+                    assert "." not in v, msg
+                    assert "e" not in v.lower(), msg
 
 
 class DescribeIssue0FamilyRegressions:

@@ -51,7 +51,7 @@ class Describe_BaseSlidePlaceholder(object):
         placeholder, prop_name, expected_value = override_fixture
         assert getattr(placeholder, prop_name) == expected_value
 
-    @pytest.mark.parametrize("prop_name", ("left", "top", "width", "height"))
+    @pytest.mark.parametrize("prop_name", ["left", "top", "width", "height"])
     def it_provides_inherited_dims_when_no_override(self, request, prop_name):
         method_mock(request, _BaseSlidePlaceholder, "_inherited_value", return_value=42)
         placeholder = _BaseSlidePlaceholder(element("p:sp/p:spPr"), None)
@@ -463,8 +463,8 @@ class DescribePicturePlaceholder(object):
         assert placeholder_picture is placeholder_picture_
 
     @pytest.mark.parametrize(
-        "image_size, crop_attr_names",
-        (((444, 333), ("l", "r")), ((333, 444), ("t", "b"))),
+        ("image_size", "crop_attr_names"),
+        [((444, 333), ("l", "r")), ((333, 444), ("t", "b"))],
     )
     def it_creates_a_pic_element_to_help(self, request, image_size, crop_attr_names):
         _get_or_add_image_ = method_mock(

@@ -16,7 +16,7 @@ from power_pptx.shapes.shapetree import (
     _compute_anchor_left_top,
     _resolve_anchor,
 )
-from power_pptx.util import Emu, Inches
+from power_pptx.util import Inches
 
 
 def _slide():
@@ -27,7 +27,7 @@ def _slide():
 
 class DescribeResolveAnchor:
     @pytest.mark.parametrize(
-        "raw, expected",
+        ("raw", "expected"),
         [
             ("top-left", ("top", "left")),
             ("top-center", ("top", "center")),
@@ -249,7 +249,7 @@ class DescribeLintGroupScope:
 
     def it_auto_generates_a_unique_name_when_not_supplied(self):
         prs, slide = _slide()
-        with slide.shapes.lint_group_scope() as g:
+        with slide.shapes.lint_group_scope():
             s1 = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
                 Inches(0),

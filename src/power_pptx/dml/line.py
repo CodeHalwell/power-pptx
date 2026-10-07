@@ -8,7 +8,6 @@ from power_pptx.enum.dml import MSO_LINE_JOIN_STYLE
 from power_pptx.oxml.ns import qn
 from power_pptx.util import Emu, lazyproperty
 
-
 _JOIN_TAG = {
     MSO_LINE_JOIN_STYLE.ROUND: "a:round",
     MSO_LINE_JOIN_STYLE.BEVEL: "a:bevel",

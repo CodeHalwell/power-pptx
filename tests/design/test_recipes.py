@@ -26,7 +26,6 @@ from power_pptx.enum.shapes import MSO_SHAPE_TYPE
 from power_pptx.enum.text import PP_ALIGN
 from power_pptx.util import Pt
 
-
 _TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
 
 

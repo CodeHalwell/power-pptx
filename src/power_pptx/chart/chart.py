@@ -481,9 +481,7 @@ class Chart(PartElementProxy):
         settings.
         """
         title = self._chartSpace.chart.title
-        if title is None:
-            return False
-        return True
+        return title is not None
 
     @has_title.setter
     def has_title(self, value):
@@ -619,9 +617,7 @@ class ChartTitle(ElementProxy):
         already present. Assigning |False| causes any existing text frame to
         be removed along with its text and formatting.
         """
-        if self._title.tx_rich is None:
-            return False
-        return True
+        return self._title.tx_rich is not None
 
     @has_text_frame.setter
     def has_text_frame(self, value):

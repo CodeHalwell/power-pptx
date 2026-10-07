@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import warnings
@@ -231,7 +232,6 @@ class _LintGroupScope:
         # On exception, still tag — the shapes were added; bailing
         # would leave them as untagged "real" overlaps in the lint
         # report, which is the worse default.
-        from power_pptx.shapes.base import BaseShape
 
         elms = list(self._shapetree._iter_member_elms())
         added = elms[self._snapshot :]
@@ -253,11 +253,9 @@ class _LintGroupScope:
 
         for elm in added:
             shape: BaseShape = self._shapetree._shape_factory(elm)
-            try:
+            # Some shape kinds don't carry a cNvPr (rare); skip those.
+            with contextlib.suppress(AttributeError, NotImplementedError):
                 shape.lint_group = name
-            except (AttributeError, NotImplementedError):
-                # Some shape kinds don't carry a cNvPr (rare); skip.
-                pass
         return False  # never suppress exceptions
 
 
@@ -274,11 +272,9 @@ def _apply_horizontal_bar_default(graphic_frame, chart_type) -> None:
     """
     if getattr(chart_type, "name", None) not in _HORIZONTAL_BAR_CHART_NAMES:
         return
-    try:
+    # Defensive: never break chart creation on a styling tweak.
+    with contextlib.suppress(AttributeError, ValueError):
         graphic_frame.chart.category_axis.reverse_order = True
-    except (AttributeError, ValueError):
-        # Defensive: never break chart creation on a styling tweak.
-        pass
 
 
 # +-- _BaseShapes
@@ -1536,7 +1532,7 @@ class SlidePlaceholders(ParentedElementProxy):
 
     def __iter__(self):
         """Generate placeholder shapes in `idx` order."""
-        ph_elms = sorted([e for e in self._element.iter_ph_elms()], key=lambda e: e.ph_idx)
+        ph_elms = sorted(self._element.iter_ph_elms(), key=lambda e: e.ph_idx)
         return (SlideShapeFactory(e, self) for e in ph_elms)
 
     def __len__(self) -> int:

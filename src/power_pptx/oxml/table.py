@@ -554,9 +554,7 @@ class TcRange(object):
     @lazyproperty
     def in_same_table(self):
         """True if both cells provided to constructor are in same table."""
-        if self._tc.tbl is self._other_tc.tbl:
-            return True
-        return False
+        return self._tc.tbl is self._other_tc.tbl
 
     def iter_except_left_col_tcs(self):
         """Generate each `a:tc` element not in leftmost column of range."""

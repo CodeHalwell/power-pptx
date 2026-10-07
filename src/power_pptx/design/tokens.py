@@ -390,7 +390,7 @@ class DesignTokens:
             raise ImportError(
                 "DesignTokens.from_yaml requires pyyaml; install with `pip install pyyaml`"
             ) from exc
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             spec = yaml.safe_load(f) or {}
         if not isinstance(spec, Mapping):
             raise ValueError(f"YAML at {path!r} did not parse to a mapping")
@@ -415,10 +415,7 @@ class DesignTokens:
         from power_pptx.api import Presentation
         from power_pptx.enum.dml import MSO_THEME_COLOR
 
-        if isinstance(path_or_prs, str):
-            prs = Presentation(path_or_prs)
-        else:
-            prs = path_or_prs
+        prs = Presentation(path_or_prs) if isinstance(path_or_prs, str) else path_or_prs
 
         theme: "Theme" = prs.theme
         slot_names = {
@@ -600,12 +597,15 @@ def _flatten_overrides(overrides: Mapping[str, Any], _prefix: str = "") -> dict[
     flat: dict[str, Any] = {}
     for key, value in overrides.items():
         full = f"{_prefix}.{key}" if _prefix else key
-        if isinstance(value, Mapping) and not isinstance(value, RGBColor):
-            # Mappings whose values are themselves token instances
-            # (TypographyToken, ShadowToken) shouldn't be walked.
-            if not _is_token_value(value):
-                flat.update(_flatten_overrides(value, full))
-                continue
+        # Mappings whose values are themselves token instances
+        # (TypographyToken, ShadowToken) shouldn't be walked.
+        if (
+            isinstance(value, Mapping)
+            and not isinstance(value, RGBColor)
+            and not _is_token_value(value)
+        ):
+            flat.update(_flatten_overrides(value, full))
+            continue
         flat[full] = value
     return flat
 

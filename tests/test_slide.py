@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx.dml.fill import FillFormat
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.package import Package
 from power_pptx.parts.presentation import PresentationPart
@@ -24,7 +25,6 @@ from power_pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
-from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.slide import (
     NotesMaster,
     NotesSlide,
@@ -33,8 +33,8 @@ from power_pptx.slide import (
     SlideLayouts,
     SlideMaster,
     SlideMasters,
-    SlideTransition,
     Slides,
+    SlideTransition,
     _Background,
     _BaseMaster,
     _BaseSlide,
@@ -681,7 +681,7 @@ class DescribeSlides(object):
 
     def it_can_iterate_its_slides(self, iter_fixture):
         slides, related_slide_, calls, expected_value = iter_fixture
-        slide_lst = [s for s in slides]
+        slide_lst = list(slides)
         assert related_slide_.call_args_list == calls
         assert slide_lst == expected_value
 
@@ -1105,7 +1105,7 @@ class DescribeSlideLayouts(object):
         related_slide_layout_.side_effect = _slide_layouts
         slide_layouts = SlideLayouts(sldLayoutIdLst, None)
 
-        slide_layout_lst = [sl for sl in slide_layouts]
+        slide_layout_lst = list(slide_layouts)
 
         assert related_slide_layout_.call_args_list == [call("a"), call("b")]
         assert slide_layout_lst == _slide_layouts
@@ -1288,7 +1288,7 @@ class DescribeSlideMasters(object):
 
     def it_can_iterate_the_slide_masters(self, iter_fixture):
         slide_masters, related_slide_master_, calls, expected_values = iter_fixture
-        _slide_masters = [sm for sm in slide_masters]
+        _slide_masters = list(slide_masters)
         assert related_slide_master_.call_args_list == calls
         assert _slide_masters == expected_values
 
@@ -1359,15 +1359,15 @@ class Describe_Background(object):
     """Unit-test suite for `power_pptx.slide._Background` objects."""
 
     @pytest.mark.parametrize(
-        "cSld_xml, expected_cxml",
-        (
+        ("cSld_xml", "expected_cxml"),
+        [
             ("p:cSld{a:b=c}", "p:cSld{a:b=c}/p:bg/p:bgPr/(a:noFill,a:effectLst)"),
             (
                 "p:cSld{a:b=c}/p:bg/p:bgRef",
                 "p:cSld{a:b=c}/p:bg/p:bgPr/(a:noFill,a:effectLst)",
             ),
             ("p:cSld/p:bg/p:bgPr/a:solidFill", "p:cSld/p:bg/p:bgPr/a:solidFill"),
-        ),
+        ],
     )
     def it_provides_access_to_its_fill(self, request, cSld_xml, expected_cxml):
         fill_ = instance_mock(request, FillFormat)

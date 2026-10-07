@@ -54,24 +54,24 @@ class DescribeGraphicFrame(object):
         assert chart_part is chart_part_
 
     @pytest.mark.parametrize(
-        "graphicData_uri, expected_value",
-        (
+        ("graphicData_uri", "expected_value"),
+        [
             (GRAPHIC_DATA_URI_CHART, True),
             (GRAPHIC_DATA_URI_OLEOBJ, False),
             (GRAPHIC_DATA_URI_TABLE, False),
-        ),
+        ],
     )
     def it_knows_whether_it_contains_a_chart(self, graphicData_uri, expected_value):
         graphicFrame = element("p:graphicFrame/a:graphic/a:graphicData{uri=%s}" % graphicData_uri)
         assert GraphicFrame(graphicFrame, None).has_chart is expected_value
 
     @pytest.mark.parametrize(
-        "graphicData_uri, expected_value",
-        (
+        ("graphicData_uri", "expected_value"),
+        [
             (GRAPHIC_DATA_URI_CHART, False),
             (GRAPHIC_DATA_URI_OLEOBJ, False),
             (GRAPHIC_DATA_URI_TABLE, True),
-        ),
+        ],
     )
     def it_knows_whether_it_contains_a_table(self, graphicData_uri, expected_value):
         graphicFrame = element("p:graphicFrame/a:graphic/a:graphicData{uri=%s}" % graphicData_uri)
@@ -119,14 +119,14 @@ class DescribeGraphicFrame(object):
             GraphicFrame(None, None).three_d
 
     @pytest.mark.parametrize(
-        "uri, oleObj_child, expected_value",
-        (
+        ("uri", "oleObj_child", "expected_value"),
+        [
             (GRAPHIC_DATA_URI_CHART, None, MSO_SHAPE_TYPE.CHART),
             (GRAPHIC_DATA_URI_OLEOBJ, "embed", MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT),
             (GRAPHIC_DATA_URI_OLEOBJ, "link", MSO_SHAPE_TYPE.LINKED_OLE_OBJECT),
             (GRAPHIC_DATA_URI_TABLE, None, MSO_SHAPE_TYPE.TABLE),
             ("foobar", None, None),
-        ),
+        ],
     )
     def it_knows_its_shape_type(self, uri, oleObj_child, expected_value):
         graphicFrame = element(

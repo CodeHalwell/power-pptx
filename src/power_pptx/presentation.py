@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from power_pptx.lint import LintIssue
     from power_pptx.oxml.presentation import CT_Presentation, CT_SlideId
     from power_pptx.parts.presentation import PresentationPart
-    from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import NotesMaster, Slide, SlideLayouts
     from power_pptx.util import Length
 
@@ -355,22 +354,21 @@ class Presentation(PartElementProxy):
         """
         for slide in self.slides:
             transition = slide.transition
-            if kind is not _UNSET:
-                # Skip slides that already have an explicit kind unless
-                # the caller has opted in to force-overwrite.  The
-                # ``transition.kind`` getter returns ``None`` only when
-                # no ``<p:transition>`` element is present.  An explicit
-                # ``<p:transition/>`` reads back as
-                # ``MSO_TRANSITION_TYPE.NONE`` and counts as an existing
-                # explicit choice (the slide author asked for "no
-                # transition"), so it is preserved unless ``force=True``.
-                #
-                # ``kind=None`` on the caller side means "clear" — apply
-                # unconditionally so callers can still wipe the
-                # transition off every slide in one call without an
-                # explicit ``force=True``.
-                if kind is None or transition.kind is None or force:
-                    transition.kind = kind
+            # Skip slides that already have an explicit kind unless
+            # the caller has opted in to force-overwrite.  The
+            # ``transition.kind`` getter returns ``None`` only when
+            # no ``<p:transition>`` element is present.  An explicit
+            # ``<p:transition/>`` reads back as
+            # ``MSO_TRANSITION_TYPE.NONE`` and counts as an existing
+            # explicit choice (the slide author asked for "no
+            # transition"), so it is preserved unless ``force=True``.
+            #
+            # ``kind=None`` on the caller side means "clear" — apply
+            # unconditionally so callers can still wipe the
+            # transition off every slide in one call without an
+            # explicit ``force=True``.
+            if kind is not _UNSET and (kind is None or transition.kind is None or force):
+                transition.kind = kind
             if duration is not _UNSET:
                 transition.duration = duration
             if advance_on_click is not _UNSET:

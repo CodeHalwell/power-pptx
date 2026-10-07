@@ -57,12 +57,12 @@ class DescribeTextFitter(object):
         # (floating-point truncation of 91439.999...) dominates, so the
         # 2-line height bound is 182878 EMU. Boundary cases exercised
         # here.  See IMPROVEMENTS item 7.
-        "extents, point_size, text_lines, expected_value",
-        (
+        ("extents", "point_size", "text_lines", "expected_value"),
+        [
             ((66, 182877), 6, ("foo", "bar"), False),
             ((66, 182878), 6, ("foo", "bar"), True),
             ((66, 182879), 6, ("foo", "bar"), True),
-        ),
+        ],
     )
     def it_provides_a_fits_inside_predicate_fn(
         self,

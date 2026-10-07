@@ -28,7 +28,6 @@ from power_pptx.spec import GRAPHIC_DATA_URI_DIAGRAM
 
 if TYPE_CHECKING:
     from power_pptx.oxml.xmlchemy import BaseOxmlElement
-
     from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import Slide
 

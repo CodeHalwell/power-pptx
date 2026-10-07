@@ -9,6 +9,8 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.lint import (
+    _LEGACY_LINT_GROUP_ATTR,
+    _LINT_EXT_URI,
     LayerOrderViolation,
     LintSeverity,
     LowContrast,
@@ -21,11 +23,8 @@ from power_pptx.lint import (
     ShapeCollisionShadow,
     SlideLintReport,
     ZOrderAnomaly,
-    _LEGACY_LINT_GROUP_ATTR,
-    _LINT_EXT_URI,
     _contrast_ratio,
     _find_lint_ext,
-    _write_lint_group,
 )
 from power_pptx.util import Emu, Inches, Pt
 
@@ -161,7 +160,8 @@ class DescribeSlideLintGroupBatch:
         a, b = _add_overlapping_rects(slide, 2)
         slide.lint_group("kpi", a, b)
         slide.lint_group(None, a, b)
-        assert a.lint_group is None and b.lint_group is None
+        assert a.lint_group is None
+        assert b.lint_group is None
 
     def it_accepts_zero_shapes_as_a_no_op(self):
         _, slide = _new_blank_slide()
@@ -799,8 +799,8 @@ class DescribeEffectBleedGeometry:
         # Charts / tables (GraphicFrame) expose ``shape.shadow == None``
         # since 2.1.1 — the bleed helper must handle that gracefully
         # and fall back to the raw bbox.
-        from power_pptx.shapes.base import BaseShape
         from power_pptx.lint import _effective_bbox, _shape_bbox
+        from power_pptx.shapes.base import BaseShape
 
         class _FakeGraphicFrame:
             name = "tbl"
@@ -874,7 +874,7 @@ class DescribeEffectBleedGeometry:
         a = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         a.shadow.blur_radius = Emu(914400)
         # Shape B: real OffSlide (raw bbox already past the bottom edge).
-        b = slide.shapes.add_shape(1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2))
+        slide.shapes.add_shape(1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2))
         # Skip the bleed-only variant on the bleed shape.
         a.lint_skip = {"OffSlideShadow"}
         report = slide.lint(include_effect_bleed=True)

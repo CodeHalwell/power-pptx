@@ -46,7 +46,6 @@ from power_pptx.opc.package import Part, PartFactory, XmlPart
 from power_pptx.opc.packuri import PackURI
 
 if TYPE_CHECKING:
-    from power_pptx.opc.package import _Relationships  # pyright: ignore[reportPrivateUsage]
     from power_pptx.package import Package
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart

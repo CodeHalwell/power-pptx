@@ -5,11 +5,8 @@ from __future__ import annotations
 import io
 import zipfile
 
-import pytest
-
 from power_pptx import Presentation
 from power_pptx.util import Inches
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,7 +87,7 @@ class Describe_apply_template_happy_path:
         template = Presentation()
         template.slides.add_slide(template.slide_layouts[0])
 
-        before_master_count = len(deck.slide_masters)
+        len(deck.slide_masters)
         deck.apply_template(_as_stream(template))
         after_master_count = len(deck.slide_masters)
 
@@ -141,7 +138,8 @@ class Describe_apply_template_old_masters:
     def it_removes_old_master_parts_from_the_saved_package(self):
         """After apply_template the old master/layout/theme XML should not appear."""
         # Give the original deck a uniquely identifiable theme
-        import io as _io, zipfile as _zf
+        import io as _io
+        import zipfile as _zf
 
         deck = _make_deck("slide")
         buf = _io.BytesIO()

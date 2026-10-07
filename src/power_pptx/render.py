@@ -35,13 +35,14 @@ the rest of the library never depends on subprocess or LibreOffice.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Iterable, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Union
 
 if TYPE_CHECKING:
     from power_pptx.presentation import Presentation as _Presentation
@@ -222,10 +223,8 @@ def render_slide_thumbnails(
             # Clean up partial PNG output from the auto-mode first attempt
             # so we don't confuse the slide-index lookup.
             for stale in png_paths:
-                try:
+                with contextlib.suppress(OSError):
                     stale.unlink()
-                except OSError:
-                    pass
             png_paths = _render_via_pdf(bin_path, deck_path, work_dir, timeout, dpi=dpi)
 
         if not png_paths:
@@ -307,10 +306,8 @@ def _render_via_pdf(
     try:
         return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi)
     finally:
-        try:
+        with contextlib.suppress(OSError):
             pdf_path.unlink()
-        except OSError:
-            pass
 
 
 def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:

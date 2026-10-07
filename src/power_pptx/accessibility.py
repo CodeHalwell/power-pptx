@@ -33,6 +33,7 @@ Issue codes:
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -136,10 +137,8 @@ def _iter_shapes_recursive(shapes: Any) -> "Any":
     for shape in shapes:
         yield shape
         if _shape_type_name(shape) == "GROUP":
-            try:
+            with contextlib.suppress(Exception):
                 yield from shape.walk()
-            except Exception:
-                pass
 
 
 def _has_text(shape: "BaseShape") -> bool:

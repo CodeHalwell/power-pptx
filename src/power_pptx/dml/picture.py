@@ -34,7 +34,7 @@ class PictureEffects:
 
     @property
     def transparency(self) -> float:
-        """Read/write float in ``[0.0, 1.0]``: ``0.0`` = fully opaque (default), ``1.0`` = invisible.
+        """Read/write float in ``[0.0, 1.0]``; ``0.0`` is fully opaque (default), ``1.0`` invisible.
 
         Maps to ``<a:alphaModFix amt="N"/>`` where ``amt`` is the *remaining* opacity
         (``100000`` = fully opaque).  Setting to ``0.0`` removes the element entirely,
@@ -150,7 +150,8 @@ class PictureEffects:
         _VALID_RECOLOR = frozenset({"grayscale", "washout", "sepia", "duotone"})
         if value is not None and value not in _VALID_RECOLOR:
             raise ValueError(
-                f"recolor must be 'grayscale', 'washout', 'sepia', 'duotone', or None; got {value!r}"
+                "recolor must be 'grayscale', 'washout', 'sepia', 'duotone', or None; "
+                f"got {value!r}"
             )
         self._clear_recolor()
         if value is None:

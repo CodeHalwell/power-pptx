@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from copy import deepcopy
 from typing import TYPE_CHECKING
@@ -14,7 +15,6 @@ if TYPE_CHECKING:
     from power_pptx.package import Package
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart
-    from power_pptx.slide import Slide
 
 
 def apply_template(
@@ -190,10 +190,8 @@ class _TemplateApplier:
         current_lo_type: str = ""
         if old_layout_rId is not None:
             old_lo_part: SlideLayoutPart = slide_part.related_part(old_layout_rId)  # type: ignore[assignment]
-            try:
+            with contextlib.suppress(AttributeError):
                 current_lo_name = old_lo_part._element.cSld.name  # pyright: ignore[reportPrivateUsage]
-            except AttributeError:
-                pass
             current_lo_type = old_lo_part._element.get("type") or ""  # pyright: ignore[reportPrivateUsage]
 
         # Match: name, then type, then first
@@ -293,7 +291,6 @@ def _clone_part(src_part: Part, new_partname: PackURI, dst_package: Package) -> 
 
 
 def _clone_xml_part(src_part: Part, new_partname: PackURI, dst_package: Package) -> Part:
-    from power_pptx.opc.package import XmlPart
 
     new_element = deepcopy(src_part._element)  # pyright: ignore[reportPrivateUsage]
     return src_part.__class__(new_partname, src_part.content_type, dst_package, new_element)

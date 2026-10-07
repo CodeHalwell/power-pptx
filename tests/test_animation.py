@@ -14,7 +14,6 @@ from power_pptx.animation import Emphasis, Entrance, MotionPath, Trigger
 from power_pptx.oxml.ns import qn
 from power_pptx.util import Inches
 
-
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 

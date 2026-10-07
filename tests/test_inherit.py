@@ -87,7 +87,7 @@ class DescribeResolveColor:
 
 class DescribeApplyBrightness:
     @pytest.mark.parametrize(
-        "brightness,expected",
+        ("brightness", "expected"),
         [
             (0, RGBColor(0x80, 0x80, 0x80)),
             (None, RGBColor(0x80, 0x80, 0x80)),

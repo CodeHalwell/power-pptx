@@ -9,7 +9,7 @@ from power_pptx import formats as fmt
 
 class DescribeCurrency:
     @pytest.mark.parametrize(
-        "symbol, decimals, expected",
+        ("symbol", "decimals", "expected"),
         [
             ("$", 0, '"$"#,##0'),
             ("$", 2, '"$"#,##0.00'),
@@ -27,7 +27,7 @@ class DescribeCurrency:
 
 class DescribePercent:
     @pytest.mark.parametrize(
-        "decimals, expected",
+        ("decimals", "expected"),
         [(0, "0%"), (1, "0.0%"), (3, "0.000%")],
     )
     def it_emits_excel_percent_format(self, decimals, expected):
@@ -36,7 +36,7 @@ class DescribePercent:
 
 class DescribeDecimal:
     @pytest.mark.parametrize(
-        "kwargs, expected",
+        ("kwargs", "expected"),
         [
             ({"decimals": 0}, "#,##0"),
             ({"decimals": 2}, "#,##0.00"),
@@ -50,7 +50,7 @@ class DescribeDecimal:
 
 class DescribeScientific:
     @pytest.mark.parametrize(
-        "decimals, expected",
+        ("decimals", "expected"),
         [(0, "0E+00"), (2, "0.00E+00")],
     )
     def it_emits_excel_scientific_format(self, decimals, expected):

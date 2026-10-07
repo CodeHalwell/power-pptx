@@ -1,8 +1,8 @@
 """Directly exposed API classes, Presentation for now.
 
-Provides some syntactic sugar for interacting with the power_pptx.presentation.Package graph and also
-provides some insulation so not so many classes in the other modules need to be named as internal
-(leading underscore).
+Provides some syntactic sugar for interacting with the power_pptx.presentation.Package graph
+and also provides some insulation so not so many classes in the other modules need to be
+named as internal (leading underscore).
 """
 
 from __future__ import annotations

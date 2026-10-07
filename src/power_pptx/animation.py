@@ -74,8 +74,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
 
 from power_pptx.enum.animation import PP_ANIM_TRIGGER
-from power_pptx.oxml.ns import nsdecls, qn
 from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import nsdecls, qn
 
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape
@@ -300,7 +300,8 @@ def _anim_effect_xml(
 
 def _anim_motion_xml(ctn_id: int, spid: int, duration: int, path: str) -> str:
     return (
-        f'<p:animMotion origin="parent" path="{path}" pathEditMode="relative" rAng="0" ptsTypes="AE">\n'
+        f'<p:animMotion origin="parent" path="{path}" pathEditMode="relative" '
+        'rAng="0" ptsTypes="AE">\n'
         "  <p:cBhvr>\n"
         f'    <p:cTn id="{ctn_id}" dur="{duration}" fill="hold"/>\n'
         f'    <p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>\n'
@@ -1064,7 +1065,9 @@ class SlideAnimations:
             "    <p:stCondLst>\n"
             f'      <p:cond delay="{wrapper_delay}"/>\n'
             "    </p:stCondLst>\n"
-            "    <p:childTnLst>\n" + "\n".join("      " + l for l in effect_par.splitlines()) + "\n"
+            "    <p:childTnLst>\n"
+            + "\n".join("      " + line for line in effect_par.splitlines())
+            + "\n"
             "    </p:childTnLst>\n"
             "  </p:cTn>\n"
             "</p:par>\n"
@@ -2056,7 +2059,8 @@ def _svg_to_ooxml_motion_path(
 
     def _to_ooxml(x: float, y: float) -> tuple[float, float]:
         # Rebase to origin then map viewbox → unit square.
-        assert origin_x is not None and origin_y is not None
+        assert origin_x is not None
+        assert origin_y is not None
         return (x - origin_x) / vb_w, (y - origin_y) / vb_h
 
     i = 0

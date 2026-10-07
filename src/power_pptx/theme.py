@@ -604,7 +604,7 @@ def _rebind_shape_colors(presentation, palette_map) -> int:
     # Build a hex-string lookup keyed by uppercase 6-char strings.
     hex_map: dict[str, str] = {}
     for (r, g, b), slot in palette_map.items():
-        hex_str = "{:02X}{:02X}{:02X}".format(r, g, b)
+        hex_str = f"{r:02X}{g:02X}{b:02X}"
         hex_map[hex_str] = slot.xml_value
 
     a_srgbClr = qn("a:srgbClr")

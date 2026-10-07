@@ -224,7 +224,7 @@ class DescribeOpcPackage:
         assert presentation_part is presentation_part_
 
     @pytest.mark.parametrize(
-        "ns, expected_n", (((), 1), ((1,), 2), ((1, 2), 3), ((2, 4), 3), ((1, 4), 3))
+        ("ns", "expected_n"), [((), 1), ((1,), 2), ((1, 2), 3), ((2, 4), 3), ((1, 4), 3)]
     )
     def it_can_find_the_next_available_partname(self, request, ns, expected_n):
         tmpl = "/x%d.xml"
@@ -579,13 +579,13 @@ class Describe_ContentTypeMap:
         )
 
     @pytest.mark.parametrize(
-        "partname, expected_value",
-        (
+        ("partname", "expected_value"),
+        [
             ("/docProps/core.xml", CT.OPC_CORE_PROPERTIES),
             ("/ppt/presentation.xml", CT.PML_PRESENTATION_MAIN),
             ("/PPT/Presentation.XML", CT.PML_PRESENTATION_MAIN),
             ("/ppt/viewprops.xml", CT.PML_VIEW_PROPS),
-        ),
+        ],
     )
     def it_matches_an_override_on_case_insensitive_partname(
         self, content_type_map, partname, expected_value
@@ -593,12 +593,12 @@ class Describe_ContentTypeMap:
         assert content_type_map[PackURI(partname)] == expected_value
 
     @pytest.mark.parametrize(
-        "partname, expected_value",
-        (
+        ("partname", "expected_value"),
+        [
             ("/foo/bar.xml", CT.XML),
             ("/FOO/BAR.Rels", CT.OPC_RELATIONSHIPS),
             ("/foo/bar.jpeg", CT.JPEG),
-        ),
+        ],
     )
     def it_falls_back_to_case_insensitive_extension_default_match(
         self, content_type_map, partname, expected_value
@@ -627,7 +627,7 @@ class Describe_ContentTypeMap:
 class Describe_Relationships:
     """Unit-test suite for `power_pptx.opc.package._Relationships` objects."""
 
-    @pytest.mark.parametrize("rId, expected_value", (("rId1", True), ("rId2", False)))
+    @pytest.mark.parametrize(("rId", "expected_value"), [("rId1", True), ("rId2", False)])
     def it_knows_whether_it_contains_a_relationship_with_rId(
         self, _rels_prop_, rId, expected_value
     ):
@@ -645,7 +645,7 @@ class Describe_Relationships:
         assert str(e.value) == "\"no relationship with key 'rId6'\""
 
     def it_can_iterate_the_rIds_of_the_relationships_it_contains(self, request, _rels_prop_):
-        rels_ = set(instance_mock(request, _Relationship) for n in range(5))
+        rels_ = {instance_mock(request, _Relationship) for n in range(5)}
         _rels_prop_.return_value = {"rId%d" % (i + 1): r for i, r in enumerate(rels_)}
         relationships = _Relationships(None)
 
@@ -837,14 +837,14 @@ class Describe_Relationships:
         assert rId == "rId9"
 
     @pytest.mark.parametrize(
-        "target_ref, is_external, expected_value",
-        (
+        ("target_ref", "is_external", "expected_value"),
+        [
             ("http://url", True, "rId1"),
             ("part_1", False, "rId2"),
             ("http://foo", True, "rId3"),
             ("part_2", False, "rId4"),
             ("http://bar", True, None),
-        ),
+        ],
     )
     def it_can_get_a_matching_relationship_to_help(
         self, request, _rels_by_reltype_prop_, target_ref, is_external, expected_value
@@ -882,18 +882,18 @@ class Describe_Relationships:
         assert relationships._get_matching(RT.HYPERLINK, "http://url", True) is None
 
     @pytest.mark.parametrize(
-        "rIds, expected_value",
-        (
+        ("rIds", "expected_value"),
+        [
             ((), "rId1"),
             (("rId1",), "rId2"),
             (("rId1", "rId2"), "rId3"),
             (("rId1", "rId4"), "rId3"),
             (("rId1", "rId4", "rId6"), "rId3"),
             (("rId1", "rId2", "rId6"), "rId4"),
-        ),
+        ],
     )
     def it_finds_the_next_rId_to_help(self, _rels_prop_, rIds, expected_value):
-        _rels_prop_.return_value = {rId: None for rId in rIds}
+        _rels_prop_.return_value = dict.fromkeys(rIds)
         relationships = _Relationships(None)
 
         assert relationships._next_rId == expected_value
@@ -970,8 +970,8 @@ class Describe_Relationship:
         assert isinstance(relationship, _Relationship)
 
     @pytest.mark.parametrize(
-        "target_mode, expected_value",
-        ((RTM.INTERNAL, False), (RTM.EXTERNAL, True), (None, False)),
+        ("target_mode", "expected_value"),
+        [(RTM.INTERNAL, False), (RTM.EXTERNAL, True), (None, False)],
     )
     def it_knows_whether_it_is_external(self, target_mode, expected_value):
         relationship = _Relationship(None, None, None, target_mode, None)

@@ -186,9 +186,10 @@ class DescribeChartAxisIds:
     def it_generates_unsigned_axis_ids(self, tmp_path):
         # axId / crossAx are xs:unsignedInt; the legacy templates used to emit
         # negative (signed) ids which fail schema validation.
+        from lxml import etree
+
         from power_pptx.chart.data import CategoryChartData
         from power_pptx.enum.chart import XL_CHART_TYPE
-        from lxml import etree
 
         prs = Presentation()
         s = prs.slides.add_slide(prs.slide_layouts[6])

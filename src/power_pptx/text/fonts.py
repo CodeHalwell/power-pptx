@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from struct import calcsize, error as struct_error, unpack_from
+from struct import calcsize, unpack_from
+from struct import error as struct_error
 
 from power_pptx.util import lazyproperty
 
@@ -210,10 +211,10 @@ class _Font(object):
         A mapping of OpenType table tag, e.g. 'name', to a table object
         providing access to the contents of that table.
         """
-        return dict(
-            (tag, _TableFactory(tag, self._stream, off, len_))
+        return {
+            tag: _TableFactory(tag, self._stream, off, len_)
             for tag, off, len_ in self._iter_table_records()
-        )
+        }
 
     @property
     def _table_count(self):

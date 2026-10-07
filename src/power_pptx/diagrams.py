@@ -28,6 +28,7 @@ identically.
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Sequence
@@ -38,9 +39,6 @@ from power_pptx.util import Emu, Inches, Pt
 
 if TYPE_CHECKING:
     from power_pptx.shapes.autoshape import Shape
-    from power_pptx.shapes.base import BaseShape
-    from power_pptx.shapes.connector import Connector
-    from power_pptx.slide import Slide
 
 
 __all__ = [
@@ -145,10 +143,8 @@ def _tag_group(slide, prefix: str, shapes: list[Any]) -> None:
         slide.lint_group_overlaps(*shapes)
     except Exception:
         for s in shapes:
-            try:
+            with contextlib.suppress(Exception):
                 s.lint_group = prefix
-            except Exception:
-                pass
 
 
 def _fit_circular_label(
@@ -175,17 +171,15 @@ def _fit_circular_label(
     v_inset = Emu(int(diameter * 0.08))
     tf.margin_left = tf.margin_right = h_inset
     tf.margin_top = tf.margin_bottom = v_inset
-    try:
+    # Degrade gracefully: if even 1pt won't fit (tiny circle) or no font
+    # metrics are available, keep the size the caller already set.
+    with contextlib.suppress(ValueError, OSError):
         tf.fit_text(
             font_family=font,
             max_size=max(1, int(round(max_size_pt))),
             bold=bold,
             italic=italic,
         )
-    except (ValueError, OSError):
-        # Degrade gracefully: if even 1pt won't fit (tiny circle) or no font
-        # metrics are available, keep the size the caller already set.
-        pass
 
 
 def _card(
@@ -230,14 +224,12 @@ def _card(
                 run.font.color.rgb = coerce_color(text_color)
         # Space-awareness: shrink the label so a long word never clips its card
         # (the rectangular siblings of the already-fitted circular nodes).
-        try:
+        with contextlib.suppress(ValueError, OSError):
             tf.fit_text(
                 font_family=font,
                 max_size=max(1, int(round(size_pt))),
                 bold=bool(bold),
             )
-        except (ValueError, OSError):
-            pass
     return rect
 
 
@@ -518,8 +510,8 @@ def cycle(
         card = slide.shapes.add_shape(MSO_SHAPE.OVAL, *card_box)
         card.fill_hex(step.fill or fill)
         card.line_hex(accent, weight_pt=1.5)
-        from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
         from power_pptx._color import coerce_color
+        from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
 
         tf = card.text_frame
         tf.word_wrap = True
@@ -721,8 +713,8 @@ def comparison_columns(
     header_h = int(int(bbox.height) * 0.18)
     built_columns: list[Any] = []
     built_headers: list[Any] = []
-    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
     from power_pptx._color import coerce_color
+    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 
     for spec, col in zip(columns, col_boxes):
         if isinstance(spec, str):
@@ -768,10 +760,8 @@ def comparison_columns(
                 run.font.size = Pt(float(body_size_pt))
                 run.font.color.rgb = coerce_color(text_color)
         # Shrink a long body so it doesn't overflow the column card / slide.
-        try:
+        with contextlib.suppress(ValueError, OSError):
             tf.fit_text(font_family=font, max_size=max(1, int(round(body_size_pt))))
-        except (ValueError, OSError):
-            pass
         built_headers.append(header)
         built_columns.append(body_card)
     _tag_group(slide, "columns", built_headers + built_columns)

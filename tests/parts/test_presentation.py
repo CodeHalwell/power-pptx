@@ -169,7 +169,7 @@ class DescribePresentationPart(object):
         with pytest.raises(ValueError):
             prs_part.slide_id(slide_part_)
 
-    @pytest.mark.parametrize("is_present", (True, False))
+    @pytest.mark.parametrize("is_present", [True, False])
     def it_finds_a_slide_by_slide_id(self, is_present, slide_, slide_part_, related_part_):
         prs_elm = element(
             "p:presentation/p:sldIdLst/(p:sldId{r:id=a,id=256},p:sldId{r:id="

@@ -789,10 +789,8 @@ class BaseShape(object):
             parent.remove(self._element)
 
         if slide is not None:
-            try:
+            with contextlib.suppress(Exception):
                 slide.animations.purge_orphans()
-            except Exception:
-                pass
             if deleted_ids:
                 self._purge_overlap_allowances(slide, deleted_ids)
 

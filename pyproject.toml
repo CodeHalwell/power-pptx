@@ -130,7 +130,7 @@ select = [
     "PLR0402",  # -- Name compared with itself like `foo == foo` --
     "PT",       # -- flake8-pytest-style --
     "SIM",      # -- flake8-simplify --
-    "TCH001",   # -- detect typing-only imports not under `if TYPE_CHECKING` --
+    "TC001",    # -- detect typing-only imports not under `if TYPE_CHECKING` --
     "UP015",    # -- redundant `open()` mode parameter (like "r" is default) --
     "UP018",    # -- Unnecessary {literal_type} call like `str("abc")`. (rewrite as a literal) --
     "UP032",    # -- Use f-string instead of `.format()` call --
@@ -140,7 +140,6 @@ select = [
 ignore = [
     "COM812",   # -- over aggressively insists on trailing commas where not desireable --
     "PT001",    # -- wants empty parens on @pytest.fixture where not used (essentially always) --
-    "PT005",    # -- flags mock fixtures with names intentionally matching private method name --
     "PT011",    # -- pytest.raises({exc}) too broad, use match param or more specific exception --
     "PT012",    # -- pytest.raises() block should contain a single simple statement --
     "SIM117",   # -- merge `with` statements for context managers that have same scope --

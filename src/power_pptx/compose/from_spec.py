@@ -52,6 +52,7 @@ YAML usage::
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any, Iterable, Mapping, Optional
 
@@ -244,7 +245,7 @@ def from_yaml(
         import yaml  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - import guard
         raise ImportError("from_yaml requires pyyaml; install with `pip install pyyaml`") from exc
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         spec = yaml.safe_load(f) or {}
     if not isinstance(spec, dict):
         raise ValueError(f"YAML at {path!r} did not parse to a mapping")
@@ -470,10 +471,9 @@ def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, to
 def _set_title(slide: Any, title: str | None) -> None:
     if title is None:
         return
-    try:
+    # A layout without a title placeholder has ``shapes.title is None``.
+    with contextlib.suppress(AttributeError):
         slide.shapes.title.text = title
-    except AttributeError:
-        pass  # layout has no title placeholder
 
 
 def _set_subtitle_or_body(slide: Any, spec: dict[str, Any], layout_name: str) -> None:
@@ -831,9 +831,9 @@ def _apply_overlap_allowances(
 
 def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
     """Add KPI card shapes to *slide* — label, value, and optional delta."""
+    from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import PP_ALIGN
     from power_pptx.util import Inches, Pt
-    from power_pptx.dml.color import RGBColor
 
     prs_part = slide.part.package.presentation_part
     slide_w = prs_part.presentation.slide_width or Inches(10)
@@ -843,7 +843,6 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         return
 
     card_w = Inches(2.2)
-    card_h = Inches(1.8)
     gap = Inches(0.2)
     total_w = n * card_w + (n - 1) * gap
     start_x = (slide_w - total_w) // 2

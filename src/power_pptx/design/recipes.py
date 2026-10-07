@@ -52,13 +52,14 @@ Example::
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:
@@ -705,17 +706,13 @@ def chart_slide(
 
     if smooth and chart_type in ("line", "line_markers"):
         for s in chart.series:
-            try:
+            with contextlib.suppress(Exception):
                 s.smooth = True
-            except Exception:
-                pass
 
     if data_labels:
         for plot in chart.plots:
-            try:
+            with contextlib.suppress(Exception):
                 plot.has_data_labels = True
-            except Exception:
-                pass
 
     _apply_transition(slide, transition)
     return slide
@@ -1415,13 +1412,11 @@ def _is_markup_string(value: Any) -> bool:
     # ``<tagname`` (opening) or ``</tagname>`` (closing) — both are
     # markup; differentiate from a stray ``<`` in a filename by
     # requiring an ASCII letter after the optional ``/``.
+    # A truly unrecognised ``<…`` is treated as a path (rare on real
+    # input, but preserves the historical behaviour for the corner case
+    # of weird filenames that happen to start with ``<``).
     rest = s[2:] if s.startswith("</") else s[1:]
-    if rest and rest[0].isalpha():
-        return True
-    # Truly unrecognised ``<…``: treat as a path (rare on real input,
-    # but preserves the historical behaviour for the corner case of
-    # weird filenames that happen to start with ``<``).
-    return False
+    return bool(rest and rest[0].isalpha())
 
 
 # ---------------------------------------------------------------------------
@@ -1873,13 +1868,11 @@ def _apply_card_styling(shape: Any, tokens: Optional[DesignTokens]) -> None:
         return
     shadow = tokens.shadows.get("card")
     if shadow is not None:
-        try:
+        # Some shape types (graphic frames, group shapes) don't carry a
+        # shadow facade.  Silently skip rather than fail the whole recipe
+        # — the caller can layer one on by hand.
+        with contextlib.suppress(Exception):
             shape.style.shadow = shadow
-        except Exception:
-            # Some shape types (graphic frames, group shapes) don't
-            # carry a shadow facade.  Silently skip rather than fail
-            # the whole recipe — the caller can layer one on by hand.
-            pass
     md = tokens.radii.get("md")
     if md is not None:
         try:

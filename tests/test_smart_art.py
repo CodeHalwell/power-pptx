@@ -123,7 +123,6 @@ class DescribeSmartArtShape_set_text:
 
     def it_leaves_layout_colors_and_style_parts_unchanged(self):
         """The three non-data parts should be byte-for-byte identical after set_text."""
-        from power_pptx import Presentation
 
         prs = _make_prs()
 

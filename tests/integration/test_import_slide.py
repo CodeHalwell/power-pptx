@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import io
 
-import pytest
-
 from power_pptx import Presentation
 from power_pptx.util import Inches
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -160,7 +157,7 @@ class Describe_import_slide_dedupe:
 
     def it_adds_a_new_master_on_dedupe_miss(self):
         """Importing from a different-looking master should add a new master."""
-        import zipfile, io as _io
+        import io as _io
 
         # Build a source pptx whose master has a subtly different theme XML
         src = Presentation()
@@ -253,7 +250,6 @@ class Describe_import_slide_dedupe:
         # branded template with a logo on a layout.
         import re
         import zipfile
-
         from copy import deepcopy
 
         from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT

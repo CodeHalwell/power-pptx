@@ -24,7 +24,8 @@ class DescribeResolvePalette:
     def it_resolves_every_built_in_palette(self):
         for name in palette_names():
             colors = resolve_palette(name)
-            assert colors and all(isinstance(c, RGBColor) for c in colors)
+            assert colors
+            assert all(isinstance(c, RGBColor) for c in colors)
 
     def it_resolves_a_sequence_of_color_likes(self):
         colors = resolve_palette(["#FF0000", "00FF00", (0, 0, 255), RGBColor(1, 2, 3)])

@@ -8,7 +8,7 @@ by their own dedicated test suites; this file just locks in re-exports.
 
 from __future__ import annotations
 
-import power_pptx.compose as compose
+from power_pptx import compose
 
 
 class Describe_compose_package:

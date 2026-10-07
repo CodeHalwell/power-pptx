@@ -59,13 +59,13 @@ class DescribeImagePart(object):
         assert image is image_
 
     @pytest.mark.parametrize(
-        "width, height, expected_width, expected_height",
-        (
+        ("width", "height", "expected_width", "expected_height"),
+        [
             (None, None, Emu(2590800), Emu(2590800)),
             (1000, None, 1000, 1000),
             (None, 3000, 3000, 3000),
             (3337, 9999, 3337, 9999),
-        ),
+        ],
     )
     def it_can_scale_its_dimensions(self, width, height, expected_width, expected_height):
         with open(test_image_path, "rb") as f:

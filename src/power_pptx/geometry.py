@@ -25,9 +25,9 @@ existence is item 1.3 of the v2.7-era recommendations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING, Iterator, Sequence
 
-from power_pptx.util import Emu, Inches, Length, _coerce_emu
+from power_pptx.util import Emu, Inches, _coerce_emu
 
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape

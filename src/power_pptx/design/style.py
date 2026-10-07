@@ -19,6 +19,7 @@ work and are the right tool when a caller needs fine-grained control.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from power_pptx.design.tokens import ShadowToken, TypographyToken
@@ -136,10 +137,8 @@ class ShapeStyle:
             # token didn't set one and the shape's shadow has no color
             # yet, leave alpha alone (the shadow keeps inheriting its
             # color, including its alpha, from the theme).
-            try:
+            with contextlib.suppress(ValueError):
                 shadow.color.alpha = value.alpha
-            except ValueError:
-                pass
 
     # ------------------------------------------------------------------
     # Text color / font (for shapes with text frames)

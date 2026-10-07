@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Iterator, Sequence, cast
 
 from power_pptx.dml.fill import FillFormat
@@ -619,9 +619,12 @@ class Slide(_BaseSlide):
                 box = BBox.from_shape(shape)
             except Exception:
                 continue
-            if not include_decorative:
-                if int(box.width) >= threshold_w and int(box.height) >= threshold_h:
-                    continue
+            if (
+                not include_decorative
+                and int(box.width) >= threshold_w
+                and int(box.height) >= threshold_h
+            ):
+                continue
             union_box = box if union_box is None else union_box.union(box)
         return union_box
 
@@ -653,10 +656,8 @@ class Slide(_BaseSlide):
         cells = slide_box.grid(12, 8)
         existing = []
         for shape in self.shapes:
-            try:
+            with suppress(Exception):
                 existing.append(BBox.from_shape(shape))
-            except Exception:
-                pass
 
         free = [c for c in cells if not any(c.intersects(s) for s in existing)]
         if not free:

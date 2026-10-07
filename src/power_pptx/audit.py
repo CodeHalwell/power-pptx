@@ -33,8 +33,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from power_pptx.presentation import Presentation
     from power_pptx.lint import LintIssue
+    from power_pptx.presentation import Presentation
 
 
 __all__ = ["AuditReport", "audit"]

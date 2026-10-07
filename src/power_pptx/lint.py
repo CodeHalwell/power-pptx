@@ -33,6 +33,7 @@ Declaring intentional overlap (so the collision detector stays quiet)::
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
@@ -1740,15 +1741,13 @@ def _check_collisions(
             area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
             area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
             size_ratio = min(area_i, area_j) / max(area_i, area_j)
-            if size_ratio < 0.9:
-                if _bbox_contains(bboxes[i], bboxes[j]) and area_j < area_i:
-                    # j is the smaller shape and it's drawn on top of i
-                    # (j > i in spTree order); skip.
-                    continue
-                # Note: ``i contained in j with i < j`` would mean the
-                # smaller shape is *under* the larger one — a
-                # ZOrderAnomaly, not a layered-design pattern — so we
-                # let collision detection proceed.
+            # When j is the clearly smaller shape and sits inside i, it is
+            # drawn on top of i (j > i in spTree order): skip.  Note that
+            # ``i contained in j with i < j`` would mean the smaller shape is
+            # *under* the larger one — a ZOrderAnomaly, not a layered-design
+            # pattern — so collision detection proceeds in that case.
+            if size_ratio < 0.9 and area_j < area_i and _bbox_contains(bboxes[i], bboxes[j]):
+                continue
 
             kind, score = _classify_collision(bboxes[i], bboxes[j], pct)
 
@@ -1976,10 +1975,8 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
 
     # Find a background to compare against: prefer shape fill, then slide bg.
     bg_rgb = None
-    try:
+    with contextlib.suppress(Exception):
         bg_rgb = _resolve_solid_rgb(shape.fill)  # type: ignore[attr-defined]
-    except Exception:
-        pass
     if bg_rgb is None:
         bg_rgb = _slide_background_rgb(slide)
     if bg_rgb is None:
@@ -2075,10 +2072,10 @@ def _placeholder_bboxes(slide: Slide) -> list[tuple[int, int, int, int, int]]:
                 continue
             if idx in used_idxs:
                 continue
-            l, t, r, b = _shape_bbox(ph)
-            if r - l <= 0 or b - t <= 0:
+            left, top, right, bottom = _shape_bbox(ph)
+            if right - left <= 0 or bottom - top <= 0:
                 continue
-            out.append((l, t, r, b, idx))
+            out.append((left, top, right, bottom, idx))
     except Exception:
         return out
     return out

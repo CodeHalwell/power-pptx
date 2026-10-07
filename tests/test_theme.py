@@ -63,6 +63,7 @@ class DescribeThemeColors:
         # Replace the existing srgbClr in the accent3 slot with sysClr,
         # then verify the writer drops the sysClr and replaces with srgbClr.
         from lxml import etree
+
         from power_pptx.oxml.ns import qn
 
         slot = prs.theme._theme_elm.find(  # type: ignore[attr-defined]

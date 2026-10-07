@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from power_pptx.dml.three_d import ThreeDFormat, _BevelFormat
 from power_pptx.enum.dml import BevelPreset, PresetMaterial
 from power_pptx.util import Emu, Pt

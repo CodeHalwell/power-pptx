@@ -37,11 +37,10 @@ import io
 import os
 from typing import IO, TYPE_CHECKING, Any, Optional, Tuple, Union
 
-from power_pptx.util import Length
-
 if TYPE_CHECKING:
     from power_pptx.shapes.picture import Picture
     from power_pptx.slide import Slide
+    from power_pptx.util import Length
 
 
 PathOrFile = Union[str, "os.PathLike[str]", IO[bytes], bytes]

@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from power_pptx.oxml.table import (
         CT_Table,
         CT_TableCell,
-        CT_TableCellProperties,
         CT_TableCol,
         CT_TableRow,
     )
