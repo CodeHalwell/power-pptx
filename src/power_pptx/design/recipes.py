@@ -62,7 +62,7 @@ from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:
@@ -933,22 +933,57 @@ def code_slide(
     without a *language* — the code is rendered as a plain monospace
     block on the surface fill.
 
+    The code is set in Consolas at 14 pt.  Long snippets shrink a point at a
+    time, never below 9 pt, until they fit the panel — lines that wrap count
+    for as many lines as they take — and the text frame is also marked to
+    shrink at render time as a last resort.  Tabs are expanded to four spaces.
+    A snippet that does not fit even at 9 pt raises :class:`ValueError`
+    suggesting you split it across slides.
+
     Tokens consumed:
 
     * **palette** — title from ``primary`` (fallback ``neutral``); code
-      panel fill from ``surface`` (fallback ``lt2``); plain code text
-      from ``neutral``; panel border from ``muted`` (fallback ``lt1``).
+      panel fill from ``surface`` (fallback ``lt2``, then a dark
+      default); plain code text from ``neutral`` — or white / near-black,
+      whichever reads better, when ``neutral`` is unset or too close to the
+      panel colour; panel border from ``muted`` (fallback ``lt1``).
     * **typography** — ``heading`` for the title; ``body`` is **not**
-      used for the code text (which is locked to a monospace family —
-      Cascadia Code → Consolas → Menlo → monospace).
+      used for the code text (which is locked to Consolas, a single
+      monospace family name — an OOXML typeface holds one name, so a
+      fallback list such as ``"Menlo, monospace"`` would leave PowerPoint
+      and LibreOffice with a proportional face).
     """
-    slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
-    _apply_background(slide, prs, tokens)
-
     margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
+    panel_top = Length(title_top + title_h + Inches(0.2))
+    panel_h = Length(slide_h - panel_top - Inches(0.5))
+    panel_w = Length(slide_w - 2 * margin)
+    pad = Inches(0.25)
+    code_w = Length(panel_w - 2 * pad)
+    code_h = Length(panel_h - 2 * pad)
+
+    # Tab stops are 1 in apart in PowerPoint, which would indent tab-indented code by
+    # several inches and invalidate the fit below, so indentation becomes spaces.
+    code = code.expandtabs(4)
+    # Try to highlight via Pygments; on any failure (missing dep,
+    # unknown lexer) fall back to plain monospace text — the slide
+    # renders correctly either way.
+    highlighted = _pygments_highlight(code, language) if language else None
+    lines = (
+        highlighted
+        if highlighted is not None
+        else [[(line, None)] for line in (code.splitlines() or [""])]
+    )
+    # Decide the size before touching the deck: a snippet that cannot fit raises here,
+    # not after a half-built slide has been appended.
+    mono_size = _fit_code_size(lines, code_w, code_h)
+    mono_family = _CODE_FAMILY
+
+    slide = _add_blank(prs)
+    _apply_background(slide, prs, tokens)
+
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
@@ -960,12 +995,10 @@ def code_slide(
         shrink_to_fit=True,
     )
 
-    panel_top = Length(title_top + title_h + Inches(0.2))
-    panel_h = Length(slide_h - panel_top - Inches(0.5))
-    panel_w = Length(slide_w - 2 * margin)
+    panel_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
     panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, margin, panel_top, panel_w, panel_h)
     panel.fill.solid()
-    panel.fill.fore_color.rgb = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
+    panel.fill.fore_color.rgb = panel_fill
     border = _palette(tokens, ("muted", "lt1"))
     if border is not None:
         panel.line.color.rgb = border
@@ -975,50 +1008,43 @@ def code_slide(
     _apply_card_styling(panel, tokens)
     panel.text_frame.text = ""
 
-    pad = Inches(0.25)
     code_box = slide.shapes.add_textbox(
-        Length(margin + pad),
-        Length(panel_top + pad),
-        Length(panel_w - 2 * pad),
-        Length(panel_h - 2 * pad),
+        Length(margin + pad), Length(panel_top + pad), code_w, code_h
     )
     tf = code_box.text_frame
     tf.word_wrap = True
     tf.vertical_anchor = MSO_ANCHOR.TOP
 
-    fallback_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
-    mono_size = Pt(14)
-    mono_family = "Cascadia Code, Consolas, Menlo, monospace"
-
-    # Try to highlight via Pygments; on any failure (missing dep,
-    # unknown lexer) fall back to plain monospace text — the slide
-    # renders correctly either way.
-    highlighted = _pygments_highlight(code, language) if language else None
+    # Plain code, and any token the highlighter leaves uncoloured (punctuation, names),
+    # takes this colour.  The text box has no fill of its own, so the linter cannot see
+    # that it sits on the panel; make sure it reads there.
+    fallback_color = _readable_on(_palette(tokens, ("neutral",)), panel_fill)
 
     para = tf.paragraphs[0]
     para.text = ""
-    para.alignment = PP_ALIGN.LEFT
-    if highlighted is None:
-        for line_idx, line in enumerate(code.splitlines() or [""]):
-            p = para if line_idx == 0 else tf.add_paragraph()
-            p.alignment = PP_ALIGN.LEFT
+    for line_idx, line_tokens in enumerate(lines):
+        p = para if line_idx == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT
+        for text, rgb in line_tokens:
+            if not text:
+                continue
             run = p.add_run()
-            run.text = line
+            run.text = text
             run.font.name = mono_family
-            run.font.size = mono_size
-            run.font.color.rgb = fallback_color
-    else:
-        for line_idx, line_tokens in enumerate(highlighted):
-            p = para if line_idx == 0 else tf.add_paragraph()
-            p.alignment = PP_ALIGN.LEFT
-            for text, rgb in line_tokens:
-                if not text:
-                    continue
-                run = p.add_run()
-                run.text = text
-                run.font.name = mono_family
-                run.font.size = mono_size
-                run.font.color.rgb = rgb if rgb is not None else fallback_color
+            run.font.size = Pt(mono_size)
+            run.font.color.rgb = rgb if rgb is not None else fallback_color
+
+    # A blank line has no run to carry the size, and an empty paragraph falls back
+    # to the 18 pt default for its height unless its end mark says otherwise.
+    from power_pptx.text.text import Font
+
+    for p in tf.paragraphs:
+        end_mark = Font(p._p.get_or_add_endParaRPr())  # pyright: ignore[reportPrivateUsage]
+        end_mark.name = mono_family
+        end_mark.size = Pt(mono_size)
+
+    # The size above is the baked, measured fit; autofit is the render-time fallback.
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     _apply_transition(slide, transition)
     return slide
@@ -1901,6 +1927,54 @@ def _pygments_highlight(
             if j < len(chunks) - 1:
                 lines.append([])
     return lines
+
+
+def _readable_on(preferred: Optional[RGBColor], background: RGBColor) -> RGBColor:
+    """Return *preferred* if it reads on *background* (WCAG AA), else white or near-black.
+
+    Whichever of the two defaults contrasts more with *background* is used when
+    *preferred* is missing or too close to it.
+    """
+    from power_pptx.lint import (
+        _CONTRAST_THRESHOLD,  # pyright: ignore[reportPrivateUsage]
+        _contrast_ratio,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    if preferred is not None and _contrast_ratio(preferred, background) >= _CONTRAST_THRESHOLD:
+        return preferred
+    dark, light = RGBColor(0x22, 0x22, 0x22), RGBColor(0xF2, 0xF2, 0xF2)
+    return max((dark, light), key=lambda color: _contrast_ratio(color, background))
+
+
+#: Typeface of ``code_slide``.  One family name: an OOXML ``a:latin typeface`` is not a
+#: CSS font stack, so a comma-separated fallback list resolves to no font at all.
+_CODE_FAMILY = "Consolas"
+#: Size ``code_slide`` starts from before shrinking long snippets.
+_CODE_MAX_PT = 14.0
+
+
+def _fit_code_size(
+    lines: Sequence[Sequence[tuple[str, Optional[RGBColor]]]], width: int, height: int
+) -> float:
+    """Return the largest size at which *lines* of code fit a *width* × *height* text box.
+
+    Wrapped lines count as the lines they occupy and the text frame's default insets
+    are subtracted.  Raises :class:`ValueError` when even the legibility floor does not
+    fit, saying how much would.
+    """
+    text = "\n".join("".join(chunk for chunk, _ in line) for line in lines)
+    inner_w = int(width) - 2 * int(_DEFAULT_INSET_X)
+    inner_h = int(height) - 2 * int(_DEFAULT_INSET_Y)
+    size = _fit_font_size(text, inner_w, inner_h, max_pt=_CODE_MAX_PT, mono=True)
+    if size is None:
+        rows = int(inner_h / (_MIN_LEGIBLE_PT * _LINE_PITCH * _EMU_PER_PT))
+        columns = int(inner_w / (_MONOSPACE_EM * _MIN_LEGIBLE_PT * _EMU_PER_PT))
+        raise ValueError(
+            f"code_slide: {len(lines)} lines of code do not fit on one slide, even at "
+            f"{_MIN_LEGIBLE_PT:g} pt (about {rows} lines of up to {columns} characters fit); "
+            "split the snippet across several slides or trim it"
+        )
+    return size
 
 
 _ALIGN_MAP: dict[str, PP_ALIGN] = {

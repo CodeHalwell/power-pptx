@@ -25,7 +25,7 @@ from power_pptx.design.recipes import (
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
-from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.util import Emu, Inches, Pt
 
 _TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
@@ -431,6 +431,172 @@ class DescribeCodeSlide:
             or "Cascadia" in (code_runs[0].font.name or "")
             or "monospace" in (code_runs[0].font.name or "")
         )
+
+
+def _code_box(slide):
+    """The text box ``code_slide`` puts the code in: the last shape that holds any text."""
+    return next(
+        s for s in reversed(list(slide.shapes)) if s.has_text_frame and s.text_frame.text.strip()
+    )
+
+
+def _code_sizes(slide):
+    return {r.font.size.pt for p in _code_box(slide).text_frame.paragraphs for r in p.runs}
+
+
+_CODE_30 = "\n".join(
+    f"def f{i}(x):  # {i}" if i % 2 == 0 else f"    return x * {i}" for i in range(30)
+)
+
+
+class DescribeCodeSlideFit:
+    """Code is set in one real monospace face and shrunk to fit its panel."""
+
+    def it_names_a_single_monospace_typeface(self, prs):
+        # OOXML ``a:latin typeface`` holds one family name; a CSS-style stack makes
+        # PowerPoint and LibreOffice fall back to a proportional face.
+        slide = code_slide(prs, title="C", code="x = 1\ny = 2")
+        names = {r.font.name for p in _code_box(slide).text_frame.paragraphs for r in p.runs}
+        assert names == {"Consolas"}
+
+    def it_keeps_that_name_when_highlighting(self, prs):
+        pytest.importorskip("pygments")
+        slide = code_slide(prs, title="C", code="def f(x):\n    return x", language="python")
+        names = {r.font.name for p in _code_box(slide).text_frame.paragraphs for r in p.runs}
+        assert names == {"Consolas"}
+
+    def it_keeps_the_token_size_for_a_short_snippet(self, prs):
+        slide = code_slide(prs, title="C", code="x = 1\ny = 2\nprint(x + y)")
+        assert _code_sizes(slide) == {14.0}
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("n_lines", [12, 20, 24, 30, 32])
+    def it_shrinks_a_long_snippet_until_it_fits_its_panel(self, aspect, n_lines):
+        code = "\n".join(f"line_{i} = compute({i})  # step {i}" for i in range(n_lines))
+        slide = code_slide(_presentation(aspect), title="Example", code=code)
+        box = _code_box(slide)
+        (size,) = _code_sizes(slide)
+        assert 9 <= size <= 14
+        assert _estimated_text_height_pt(box) <= _inner_height_pt(box)
+        if n_lines > 20:
+            assert size < 14
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_keeps_the_code_inside_the_panel_and_the_panel_on_the_slide(self, aspect):
+        prs = _presentation(aspect)
+        slide = code_slide(prs, title="Example", code=_CODE_30)
+        box = _code_box(slide)
+        panel = next(
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.width > box.width
+        )
+        b_left, b_top, b_right, b_bottom = _extents(box)
+        p_left, p_top, p_right, p_bottom = _extents(panel)
+        assert p_left <= b_left
+        assert p_top <= b_top
+        assert b_right <= p_right
+        assert b_bottom <= p_bottom
+        assert p_bottom <= int(prs.slide_height) - int(Inches(0.5))
+        assert _lint_problems(slide) == []
+
+    def it_counts_a_wrapped_long_line_against_the_height(self, prs):
+        # Fourteen 150-character lines wrap to two lines each on a 4:3 slide, so
+        # they need as much height as twenty-eight short ones.
+        code = "\n".join("x" * 150 for _ in range(14))
+        slide = code_slide(prs, title="Wide", code=code)
+        box = _code_box(slide)
+        (size,) = _code_sizes(slide)
+        assert size < 14
+        assert _estimated_text_height_pt(box) <= _inner_height_pt(box)
+
+    def it_asks_the_renderer_to_shrink_as_a_fallback(self, prs):
+        slide = code_slide(prs, title="C", code=_CODE_30)
+        assert _code_box(slide).text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        assert _code_box(slide).text_frame.word_wrap is True
+
+    def it_holds_blank_lines_to_the_code_size(self, prs):
+        # An empty paragraph takes its height from a:endParaRPr; left alone it would
+        # fall back to the 18 pt default and blow the fit.
+        slide = code_slide(prs, title="C", code="\n\n".join(f"x{i} = {i}" for i in range(12)))
+        (size,) = _code_sizes(slide)
+        assert size == 12  # 23 lines including the blank ones: shrunk, but not to the floor
+        for paragraph in _code_box(slide).text_frame.paragraphs:
+            end = paragraph._p.endParaRPr
+            assert end is not None
+            assert end.get("sz") == str(int(size * 100))
+
+    def it_expands_tabs_so_indentation_cannot_outgrow_the_fit(self, prs):
+        slide = code_slide(prs, title="C", code="if x:\n\treturn 1")
+        texts = [p.text for p in _code_box(slide).text_frame.paragraphs]
+        assert texts == ["if x:", "    return 1"]
+
+    @staticmethod
+    def _contrast_with_panel(slide):
+        from power_pptx.lint import _contrast_ratio
+
+        box = _code_box(slide)
+        panel = next(
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.width > box.width
+        )
+        text = box.text_frame.paragraphs[0].runs[0].font.color.rgb
+        return _contrast_ratio(text, panel.fill.fore_color.rgb)
+
+    def it_reads_against_the_default_panel_when_there_are_no_tokens(self, prs):
+        # The token-less panel is dark; the code must not be dark-on-dark.
+        slide = code_slide(prs, title="C", code="x = 1")
+        assert self._contrast_with_panel(slide) >= 4.5
+
+    def it_reads_against_a_dark_panel_whose_neutral_is_dark_too(self, prs):
+        # Tokens with a neutral but no surface fall back to the dark panel as well.
+        tokens = DesignTokens.from_dict({"palette": {"neutral": "#222222"}})
+        slide = code_slide(prs, title="C", code="x = 1", tokens=tokens)
+        assert self._contrast_with_panel(slide) >= 4.5
+
+    def it_keeps_a_neutral_that_already_reads_on_the_surface(self, prs):
+        tokens = DesignTokens.from_dict(
+            {"palette": {"neutral": "#222222", "surface": "#F4F2FB", "primary": "#3C2F80"}}
+        )
+        slide = code_slide(prs, title="C", code="x = 1", tokens=tokens)
+        run = _code_box(slide).text_frame.paragraphs[0].runs[0]
+        assert run.font.color.rgb == RGBColor(0x22, 0x22, 0x22)
+
+    def it_keeps_punctuation_legible_when_highlighting_on_the_default_panel(self, prs):
+        pytest.importorskip("pygments")
+        from power_pptx.lint import _contrast_ratio
+
+        slide = code_slide(prs, title="C", code="f(x)", language="python")
+        box = _code_box(slide)
+        panel = next(
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.width > box.width
+        )
+        backdrop = panel.fill.fore_color.rgb
+        runs = box.text_frame.paragraphs[0].runs
+        assert [r.text for r in runs][:2] == ["f", "("]
+        assert all(
+            _contrast_ratio(r.font.color.rgb, backdrop) >= 4.5 for r in runs if r.text == "("
+        )
+
+    def it_refuses_a_snippet_that_cannot_fit_on_one_slide(self, prs):
+        code = "\n".join(f"x{i} = {i}" for i in range(80))
+        with pytest.raises(ValueError, match="split"):
+            code_slide(prs, title="Too long", code=code)
+        assert len(prs.slides) == 0
+
+    def it_says_how_many_lines_do_fit(self, prs):
+        with pytest.raises(ValueError, match=r"about \d+ lines"):
+            code_slide(prs, title="Too long", code="\n".join("x" for _ in range(80)))
+
+    def it_fits_a_highlighted_snippet_too(self, prs):
+        pytest.importorskip("pygments")
+        slide = code_slide(prs, title="C", code=_CODE_30, language="python")
+        box = _code_box(slide)
+        assert len(_code_sizes(slide)) == 1
+        assert _estimated_text_height_pt(box) <= _inner_height_pt(box)
 
 
 class DescribeTimelineSlide:
@@ -1206,6 +1372,14 @@ class DescribeTextMeasurement:
         assert fitted.size == Pt(9)
 
 
+def _pygments_available():
+    try:
+        import pygments  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _schema_violations(prs):
     """Return the ISO-29500 schema violations of *prs* once saved (skips if unavailable)."""
     import io
@@ -1243,10 +1417,19 @@ class DescribeRecipeSchemaValidity:
         table_slide(prs, title="Shrunk", columns=["A", "B"], rows=[[i, i] for i in range(24)])
         assert _schema_violations(prs) == []
 
-    def it_round_trips_a_tight_table_and_a_timeline(self):
+    def it_validates_code_slides_including_blank_lines_and_end_marks(self):
+        prs = _presentation("4:3")
+        code_slide(prs, title="Plain", code="\n\n".join(f"x{i} = {i}" for i in range(12)))
+        code_slide(prs, title="Short", code="x = 1")
+        if _pygments_available():
+            code_slide(prs, title="Highlighted", code=_CODE_30, language="python")
+        assert _schema_violations(prs) == []
+
+    def it_round_trips_a_tight_table_a_timeline_and_a_code_slide(self):
         from tests.integration.round_trip import assert_round_trip
 
         prs = _presentation("4:3")
         timeline_slide(prs, title="Roadmap", milestones=_ROADMAP[:5])
         table_slide(prs, title="Shrunk", columns=["A", "B"], rows=[[i, i] for i in range(24)])
+        code_slide(prs, title="Code", code=_CODE_30)
         assert_round_trip(prs)
