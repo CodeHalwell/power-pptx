@@ -91,6 +91,103 @@ class DescribeSvgMotionPath:
         with pytest.raises(ValueError, match="unsupported svg path command"):
             _svg_to_ooxml_motion_path("M 0 0 A 10 10 0 0 1 100 100")
 
+    # -- malformed paths are rejected; none of them may loop ------------------------------
+
+    @pytest.fixture
+    def bounded(self, monkeypatch):
+        """Turn a conversion that stops consuming its input into a failure, not a hang.
+
+        Every coordinate the converter emits goes through ``_fmt``, and a loop that no longer
+        advances through the tokens keeps calling it, so a call budget makes the endless loop
+        fail the test promptly instead of wedging the run (and eating memory).
+        """
+        from power_pptx import animation
+
+        real_fmt = animation._fmt
+        calls = []
+
+        def budgeted(value):
+            calls.append(value)
+            if len(calls) > 10_000:
+                raise AssertionError("svg conversion loops without consuming its input")
+            return real_fmt(value)
+
+        monkeypatch.setattr(animation, "_fmt", budgeted)
+
+    @pytest.mark.parametrize("path", ["M 0 0 L 1 1 Z 5 5", "M 0 0 L 1 1 z 5", "M 0 0 Z 1"])
+    def it_rejects_a_number_after_closepath(self, bounded, path):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        with pytest.raises(ValueError, match="closepath"):
+            _svg_to_ooxml_motion_path(path)
+
+    def and_it_rejects_it_through_the_class_method_without_touching_the_slide(
+        self, slide_with_shape, bounded
+    ):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="closepath"):
+            MotionPath.svg(slide, shape, "M 0 0 L 1 1 Z 5 5")
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    @pytest.mark.parametrize("path", ["Z", "z", "Z M 0 0 L 1 1"])
+    def it_rejects_a_closepath_before_moveto(self, bounded, path):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        with pytest.raises(ValueError, match="must start with M"):
+            _svg_to_ooxml_motion_path(path)
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "M",
+            "M 1",
+            "5 5",
+            "M 0 0 L",
+            "M 0 0 L 1",
+            "M 0 0 L Z",
+            "M 0 0 H",
+            "M 0 0 V",
+            "M 0 0 C 1 2 3 4 5",
+            "M 0 0 Q 1 2 3",
+            "M 0 0 L 1 1 Z 5 5 Z",
+        ],
+    )
+    def it_rejects_truncated_or_malformed_paths(self, bounded, path):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        with pytest.raises(ValueError):
+            _svg_to_ooxml_motion_path(path)
+
+    @pytest.mark.parametrize(
+        ("svg", "expected"),
+        [
+            # a command's coordinates may repeat without restating the command letter
+            ("M 0 0 L 0.1 0.1 0.2 0.2", "M 0 0 L 0.1 0.1 L 0.2 0.2 E"),
+            ("M 0 0 l 0.1 0 0 0.1", "M 0 0 L 0.1 0 L 0.1 0.1 E"),
+            ("M 0 0 H 0.1 0.2", "M 0 0 L 0.1 0 L 0.2 0 E"),
+            ("M 0 0 V 0.1 0.2", "M 0 0 L 0 0.1 L 0 0.2 E"),
+            (
+                "M 0 0 C 0 0.1 0.1 0.1 0.1 0 0.2 -0.1 0.3 -0.1 0.4 0",
+                "M 0 0 C 0 0.1 0.1 0.1 0.1 0 C 0.2 -0.1 0.3 -0.1 0.4 0 E",
+            ),
+            ("M 0 0 Q 0.1 0.1 0.2 0 0.3 -0.1 0.4 0", "M 0 0 Q 0.1 0.1 0.2 0 Q 0.3 -0.1 0.4 0 E"),
+            # extra coordinate pairs after a moveto are implicit linetos
+            ("M 0 0 0.1 0.1 0.2 0", "M 0 0 L 0.1 0.1 L 0.2 0 E"),
+            ("m 0 0 0.1 0.1 0.1 0", "M 0 0 L 0.1 0.1 L 0.2 0.1 E"),
+            # a closepath may be followed by a new subpath
+            (
+                "M 0 0 L 0.1 0.1 Z M 0.5 0.5 L 0.6 0.6",
+                "M 0 0 L 0.1 0.1 L 0 0 M 0.5 0.5 L 0.6 0.6 E",
+            ),
+        ],
+    )
+    def but_it_keeps_supporting_implicit_command_repetition(self, bounded, svg, expected):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        assert _svg_to_ooxml_motion_path(svg) == expected
+
 
 class DescribeAnimationsAdd:
     """`SlideAnimations.add(kind, preset, shape)` polymorphic dispatcher."""

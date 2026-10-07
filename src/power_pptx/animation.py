@@ -2070,8 +2070,18 @@ def _svg_to_ooxml_motion_path(
         if tok.isalpha():
             cmd = tok
             i += 1
+        elif cmd in ("Z", "z"):
+            # Every other command may repeat its coordinates without restating the
+            # letter, but closepath takes none, so a number after it belongs to no
+            # command.  Falling through would leave ``i`` unchanged and loop forever.
+            raise ValueError(
+                f"unexpected coordinate after closepath {cmd!r} in svg path {svg!r}; "
+                "Z/z take no coordinates"
+            )
         # H / V take a single number; Z takes none.
         if cmd in ("Z", "z"):
+            if not started:
+                raise ValueError(f"svg path must start with M/m; got {cmd!r} in {svg!r}")
             # Close current subpath: SVG draws a line back to the
             # subpath origin.
             cx, cy = subpath_x, subpath_y
