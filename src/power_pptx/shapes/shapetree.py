@@ -718,7 +718,7 @@ class _BaseGroupShapes(_BaseShapes):
         icon_width = _coerce_emu(icon_width)
         icon_height = _coerce_emu(icon_height)
         if isinstance(object_file, os.PathLike):
-            object_file = os.fspath(object_file)
+            object_file = os.fsdecode(object_file)
         graphicFrame = _OleObjectElementCreator.graphicFrame(
             self,
             self._next_shape_id,
