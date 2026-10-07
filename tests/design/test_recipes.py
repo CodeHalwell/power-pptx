@@ -364,6 +364,27 @@ class DescribeChartSlide:
             )
             assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes)
 
+    def it_accepts_every_chart_type_its_docstring_lists(self, prs):
+        # The docstring once promised "scatter", which the recipe rejects.
+        intro = chart_slide.__doc__.split("*categories*")[0]
+        documented = re.findall(r'``"([a-z_]+)"``', intro)
+        assert {"line", "bar", "column", "pie", "area", "line_markers", "doughnut"} <= set(
+            documented
+        )
+        for kind in documented:
+            slide = chart_slide(
+                prs,
+                title="x",
+                chart_type=kind,
+                categories=["A", "B"],
+                series=[{"name": "S", "values": [1, 2]}],
+            )
+            assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes), kind
+
+    def it_points_to_xy_chart_data_instead_of_listing_scatter_as_a_type(self):
+        assert '"scatter"' not in chart_slide.__doc__
+        assert "XyChartData" in chart_slide.__doc__
+
     def it_rejects_unknown_chart_types(self, prs):
         with pytest.raises(ValueError, match="Unknown chart_type"):
             chart_slide(
@@ -1423,6 +1444,21 @@ class DescribeRecipeSchemaValidity:
         code_slide(prs, title="Short", code="x = 1")
         if _pygments_available():
             code_slide(prs, title="Highlighted", code=_CODE_30, language="python")
+        assert _schema_violations(prs) == []
+
+    def it_validates_an_inline_svg_figure_slide(self):
+        from unittest.mock import patch
+
+        from power_pptx.design.recipes import figure_slide
+
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><circle r="2"/></svg>'
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+            "0000000d4944415478da63fcffff3f0300070602ffa39d9aed0000000049454e44ae426082"
+        )
+        prs = _presentation("4:3")
+        with patch("power_pptx._svg.rasterize_svg", return_value=png):
+            figure_slide(prs, title="Diagram", figure=svg, caption="Source: x")
         assert _schema_violations(prs) == []
 
     def it_round_trips_a_tight_table_a_timeline_and_a_code_slide(self):

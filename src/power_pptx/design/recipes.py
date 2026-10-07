@@ -612,7 +612,10 @@ def chart_slide(
 
     *chart_type* is one of ``"line"``, ``"bar"`` (clustered horizontal
     bars), ``"column"`` (clustered vertical columns), ``"pie"``,
-    ``"area"``, ``"line_markers"``, ``"scatter"``, or ``"doughnut"``.
+    ``"area"``, ``"line_markers"``, or ``"doughnut"``.  Every one of
+    these plots *categories* against numbers; for an XY scatter chart
+    build the chart yourself with ``slide.shapes.add_chart`` and
+    :class:`~power_pptx.chart.data.XyChartData`.
 
     *categories* is the list of x-axis labels (or pie-slice labels).
     Each *series* mapping is ``{"name": str, "values": Sequence[float]}``;
@@ -1360,7 +1363,12 @@ def figure_slide(
     * a Matplotlib ``Figure`` (or anything with ``.savefig``) →
       :func:`add_matplotlib_figure`.
     * a string starting with ``"<svg"`` (after lstrip) or ``bytes``
-      whose head matches the SVG sniff → :func:`add_svg_figure`.
+      whose head matches the SVG sniff → :func:`add_svg_figure`.  Inline
+      markup needs ``cairosvg`` (``pip install cairosvg``) to draw the PNG
+      companion that PowerPoint requires; without it
+      :class:`~power_pptx._svg.CairoSvgUnavailable` is raised, and
+      calling :func:`add_svg_figure` yourself with ``png_fallback=`` is
+      the way around that.
     * a string starting with ``"<"`` (any other tag) → treated as an
       HTML snippet and rendered via :func:`add_html_figure` (needs
       Playwright).
@@ -1464,15 +1472,17 @@ def _embed_figure(
 
     # Bytes / strings: SVG sniff vs HTML.
     if isinstance(figure, (bytes, bytearray, str)):
-        head = (
-            figure if isinstance(figure, (bytes, bytearray)) else figure.encode("utf-8", "replace")
-        )
-        head = bytes(head[:512]).lstrip()
+        data = figure.encode("utf-8", "replace") if isinstance(figure, str) else bytes(figure)
+        head = data[:512].lstrip(b"\xef\xbb\xbf").lstrip()  # a UTF-8 BOM, then blanks
         if head.startswith(b"<?xml") or b"<svg" in head[:200]:
-            _figures.add_svg_figure(slide, figure, left, top, width, height)
+            # add_svg_picture reads a ``str`` as a *path* (and a ``bytes`` as the
+            # document itself), so inline markup has to be handed over encoded.
+            _figures.add_svg_figure(slide, data, left, top, width, height)
             return
         if head.startswith(b"<"):
-            _figures.add_html_figure(slide, figure, left, top, width, height)
+            _figures.add_html_figure(
+                slide, figure if isinstance(figure, str) else data, left, top, width, height
+            )
             return
 
     raise TypeError(
@@ -1503,7 +1513,9 @@ def _is_markup_string(value: Any) -> bool:
     """
     if not isinstance(value, str):
         return False
-    s = value.lstrip()
+    # A byte-order mark survives ``open(path).read()`` on a BOM-prefixed file and is
+    # not whitespace to ``str.lstrip``.
+    s = value.lstrip("﻿").lstrip()
     if not s.startswith("<"):
         return False
     # XML declarations, doctypes, comments.
