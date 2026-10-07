@@ -13,6 +13,12 @@ if TYPE_CHECKING:
 _SEPIA_DARK = "532400"
 _SEPIA_LIGHT = "FFEFCA"
 
+# PowerPoint's Recolor > Washout preset is brightness +70% with contrast -70%, i.e. an
+# `<a:lum bright="70000" contrast="-70000"/>` -- the very element that backs `brightness` and
+# `contrast`. (A two-colour `<a:biLevel>` is the "Black and White" preset, not Washout.)
+_WASHOUT_BRIGHTNESS = 0.7
+_WASHOUT_CONTRAST = -0.7
+
 
 class PictureEffects:
     """Provides access to image-level visual effects on a |Picture| shape.
@@ -88,7 +94,8 @@ class PictureEffects:
         """Read/write float in ``[-1.0, 1.0]``: ``0.0`` = no change (default).
 
         Maps to the ``contrast`` attribute of ``<a:lum>``.  Shares the same
-        ``<a:lum>`` element as :attr:`brightness`.
+        ``<a:lum>`` element as :attr:`brightness` -- and as the ``"washout"``
+        :attr:`recolor`, which is brightness ``0.7`` with contrast ``-0.7``.
         """
         lum = self._blip.lum
         return 0.0 if lum is None else lum.contrast
@@ -120,18 +127,39 @@ class PictureEffects:
 
     @property
     def recolor(self) -> str | None:
-        """Read/write recolor mode.  One of ``"grayscale"``, ``"washout"``,
-        ``"sepia"``, ``"duotone"``, or ``None`` (no recolor).
+        """Read/write recolor mode.  One of ``"grayscale"``, ``"sepia"``,
+        ``"washout"``, ``"black_and_white"``, ``"duotone"``, or ``None`` (no recolor).
+
+        * ``"grayscale"`` -- ``<a:grayscl/>``.
+        * ``"sepia"`` -- a preset ``<a:duotone>`` (dark brown to cream).
+        * ``"washout"`` -- PowerPoint's *Recolor > Washout*, a pale faded copy of the
+          picture: brightness ``+0.7`` and contrast ``-0.7``, written as
+          ``<a:lum bright="70000" contrast="-70000"/>``.
+        * ``"black_and_white"`` -- ``<a:biLevel thresh="50000"/>``, PowerPoint's
+          *Black and White: 50%*: every pixel becomes pure black or pure white.  Any
+          ``<a:biLevel>`` reads back as this, whatever its threshold.  (Releases before
+          this one wrote this element for ``"washout"``.)
+        * ``"duotone"`` -- a neutral grey duotone; use :meth:`set_duotone` for your own
+          two colors.
 
         Assigning a value removes any previously applied recolor before
         applying the new one.  Setting to ``None`` clears recolor entirely.
-        For custom duotone colors use :meth:`set_duotone`.
+
+        ``"washout"`` is stored in the same ``<a:lum>`` element as :attr:`brightness`
+        and :attr:`contrast`, so the three overlap, last write wins:
+
+        * assigning ``"washout"`` replaces any brightness and contrast already set;
+        * a picture reads back as ``"washout"`` only while brightness is exactly ``0.7``
+          *and* contrast exactly ``-0.7`` -- change either afterwards and what remains
+          is an ordinary brightness/contrast adjustment, so ``recolor`` reads ``None``;
+        * assigning any other recolor, or ``None``, removes a washout but never touches
+          a brightness/contrast pair that is not the washout one.
         """
         if self._blip.grayscl is not None:
             return "grayscale"
         biLevel = self._blip.biLevel
         if biLevel is not None:
-            return "washout"
+            return "black_and_white"
         duotone = self._blip.duotone
         if duotone is not None:
             children = list(duotone)
@@ -142,16 +170,18 @@ class PictureEffects:
                 if vals == [_SEPIA_DARK, _SEPIA_LIGHT]:
                     return "sepia"
             return "duotone"
+        if self._is_washout():
+            return "washout"
         return None
 
     @recolor.setter
     def recolor(self, value: str | None) -> None:
         # Validate before mutating so an invalid value leaves the existing effect intact.
-        _VALID_RECOLOR = frozenset({"grayscale", "washout", "sepia", "duotone"})
+        _VALID_RECOLOR = frozenset({"grayscale", "washout", "black_and_white", "sepia", "duotone"})
         if value is not None and value not in _VALID_RECOLOR:
             raise ValueError(
-                "recolor must be 'grayscale', 'washout', 'sepia', 'duotone', or None; "
-                f"got {value!r}"
+                "recolor must be 'grayscale', 'washout', 'black_and_white', 'sepia', "
+                f"'duotone', or None; got {value!r}"
             )
         self._clear_recolor()
         if value is None:
@@ -159,6 +189,11 @@ class PictureEffects:
         if value == "grayscale":
             self._blip.get_or_add_grayscl()
         elif value == "washout":
+            # -- shares `a:lum` with brightness/contrast: replaces whatever they held --
+            lum = self._blip.get_or_add_lum()
+            lum.bright = _WASHOUT_BRIGHTNESS  # type: ignore[assignment]
+            lum.contrast = _WASHOUT_CONTRAST  # type: ignore[assignment]
+        elif value == "black_and_white":
             self._blip.get_or_add_biLevel().thresh = 0.5  # type: ignore[assignment]
         elif value == "sepia":
             self.set_duotone(_SEPIA_DARK, _SEPIA_LIGHT)
@@ -195,6 +230,19 @@ class PictureEffects:
         self._blip._remove_grayscl()  # pyright: ignore[reportPrivateUsage]
         self._blip._remove_biLevel()  # pyright: ignore[reportPrivateUsage]
         self._blip._remove_duotone()  # pyright: ignore[reportPrivateUsage]
+        # -- a washout lives in `a:lum`, shared with brightness/contrast: only a lum that is
+        # -- exactly the washout pair is the recolor; any other adjustment is the user's.
+        if self._is_washout():
+            self._blip._remove_lum()  # pyright: ignore[reportPrivateUsage]
+
+    def _is_washout(self) -> bool:
+        """True when `a:lum` is exactly PowerPoint's Washout pair (+70% / -70%)."""
+        lum = self._blip.lum
+        return (
+            lum is not None
+            and round(lum.bright, 4) == _WASHOUT_BRIGHTNESS
+            and round(lum.contrast, 4) == _WASHOUT_CONTRAST
+        )
 
 
 def _color_to_hex(color: RGBColor | tuple | str) -> str:

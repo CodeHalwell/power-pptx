@@ -91,6 +91,9 @@ class Theme:
         whose hardcoded RGB matches a slot in the **old** (pre-swap)
         palette is rewritten to point at that theme slot instead — so
         re-skinning a deck no longer leaves orphan literal colors.
+        A color is rebound to its canonical ``dk1`` / ``lt1`` / ``dk2`` /
+        ``lt2`` / ``accent1``… slot, never to the ``bg1`` / ``tx1`` aliases;
+        where two slots hold the same RGB, the one earlier in that order wins.
         Requires *presentation* to be supplied.
 
         Returns the number of shape-color rebinds applied (0 when
@@ -106,13 +109,15 @@ class Theme:
         if rebind_shape_colors:
             if presentation is None:
                 raise ValueError("rebind_shape_colors=True requires presentation= to be supplied")
-            for slot in MSO_THEME_COLOR:
-                if not slot.xml_value:
-                    continue
+            # Walk the canonical clrScheme slots only, in schema order: the
+            # MSO_THEME_COLOR enum also lists the bg1/bg2/tx1/tx2 aliases, and
+            # puts BACKGROUND_* ahead of LIGHT_*, so iterating it let an alias
+            # shadow the canonical slot when it won the first-write below.
+            for slot in _canonical_theme_colors():
                 rgb = self.colors.get(slot)
                 if rgb is not None:
-                    # First-write wins so aliases (BACKGROUND_1 vs LIGHT_1)
-                    # don't shadow the canonical slot.
+                    # First-write wins: where two slots share an RGB, the one
+                    # earlier in schema order (dk1, lt1, dk2, lt2, accent1...) is used.
                     before_palette.setdefault(tuple(int(c) for c in rgb), slot)
 
         src_colors = other.colors
@@ -581,6 +586,16 @@ _CLR_SCHEME_SLOT_ORDER: tuple[str, ...] = (
     "hlink",
     "folHlink",
 )
+
+
+def _canonical_theme_colors() -> tuple[MSO_THEME_COLOR, ...]:
+    """The `MSO_THEME_COLOR` members that live in ``<a:clrScheme>``, in schema order.
+
+    Unlike iterating `MSO_THEME_COLOR` itself, this leaves out the ``bg1`` / ``bg2`` /
+    ``tx1`` / ``tx2`` aliases and the pseudo-slots (``NOT_THEME_COLOR``, ``MIXED``), so every
+    color appears once, under its canonical name.
+    """
+    return tuple(MSO_THEME_COLOR.from_xml(name) for name in _CLR_SCHEME_SLOT_ORDER)
 
 
 def _rebind_shape_colors(presentation, palette_map) -> int:

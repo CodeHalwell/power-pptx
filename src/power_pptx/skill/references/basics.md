@@ -183,11 +183,13 @@ divider.line.color.alpha = 0.08  # 8% opaque hairline
 ### Two-stop linear gradients
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)  # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is measured **counter-clockwise** from left→right (the
+python-pptx convention, not the clockwise sense of the XML): `0` is
+left→right, `90` is bottom→top, `180` is right→left, `270` is
+top→bottom — so top→bottom is `angle=270`, not `90`.
 
 → **Multi-stop gradients, gradient kinds, mutable stop lists, and the
 full alpha surface live in `effects.md`** — the canonical fills and

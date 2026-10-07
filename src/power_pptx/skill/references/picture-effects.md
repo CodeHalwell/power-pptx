@@ -30,21 +30,49 @@ pic.effects.contrast = 0.05
 ## Recolor presets
 
 `recolor` is a **property, not a method** — assign to it. There are
-exactly four modes; anything else raises `ValueError`, and the existing
+exactly five modes; anything else raises `ValueError`, and the existing
 effect is left intact because the value is validated before it mutates.
 
 ```python
 pic.effects.recolor = "grayscale"
 pic.effects.recolor = "sepia"  # a preset duotone under the hood
-pic.effects.recolor = "washout"  # PowerPoint's "Washout"
-pic.effects.recolor = "duotone"  # neutral grey duotone; see below
-# to pick your own two colours
+pic.effects.recolor = "washout"  # PowerPoint's Recolor > Washout: pale and faded
+pic.effects.recolor = "black_and_white"  # every pixel pure black or white (50% threshold)
+pic.effects.recolor = "duotone"  # neutral grey duotone; see below for your own colours
 
 pic.effects.recolor  # read it back: the mode, or None
 ```
 
-There is no `"black_and_white"` mode. `"washout"` is the closest
-equivalent.
+### Washout is not black and white
+
+The two are different PowerPoint presets:
+
+- `"washout"` is **Recolor → Washout**: a pale, low-contrast copy of the
+  picture, handy as a backdrop behind text. In the file it is simply
+  brightness +70% and contrast −70% (`<a:lum bright="70000" contrast="-70000"/>`).
+- `"black_and_white"` is **Recolor → Black and White: 50%**: a harsh
+  two-colour posterise (`<a:biLevel thresh="50000"/>`). Releases before this
+  one wrote this effect for `"washout"`; decks saved by them read back as
+  `"black_and_white"` and keep their look.
+
+Because a washout *is* a brightness/contrast pair, it shares one `<a:lum>`
+element with `pic.effects.brightness` / `pic.effects.contrast`, and the last
+write wins:
+
+```python
+pic.effects.brightness = 0.2
+pic.effects.recolor = "washout"  # replaces the 0.2: brightness is now 0.7, contrast -0.7
+pic.effects.brightness  # 0.7
+
+pic.effects.brightness = 0.3  # edit it afterwards...
+pic.effects.recolor  # None: ...and it is just a brightness/contrast adjustment again
+
+pic.effects.recolor = None  # removes a washout, but never a brightness/contrast
+```
+
+A picture reads back as `"washout"` only while brightness is exactly `0.7` and
+contrast exactly `-0.7`. Assigning any other recolor (or `None`) removes a
+washout; a brightness/contrast pair that is not the washout one is left alone.
 
 ## Duotone
 

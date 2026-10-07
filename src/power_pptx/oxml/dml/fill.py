@@ -257,7 +257,9 @@ class CT_BiLevelEffect(BaseOxmlElement):
     """`<a:biLevel>` element — converts the image to a two-color (black/white) palette.
 
     `thresh` is the luminance threshold: pixels darker than this become black,
-    brighter ones become white.  ``0.5`` (50%) approximates PowerPoint's "Washout" preset.
+    brighter ones become white.  ``0.5`` (50%) is PowerPoint's "Black and White: 50%"
+    recolor preset (``PictureEffects.recolor = "black_and_white"``).  It is *not* "Washout",
+    which PowerPoint stores as a brightness/contrast pair (see `CT_LuminanceEffect`).
 
     `thresh` is **required** by ``CT_BiLevelEffect`` in ISO/IEC 29500. It must be
     a ``RequiredAttribute``: as an ``OptionalAttribute`` with ``default=0.5``,
@@ -293,7 +295,8 @@ class CT_LuminanceEffect(BaseOxmlElement):
     """`<a:lum>` element — adjusts the brightness and contrast of an image.
 
     Both `bright` and `contrast` are `ST_Percentage` floats in the range
-    ``[-1.0, 1.0]`` where ``0.0`` means no change.
+    ``[-1.0, 1.0]`` where ``0.0`` means no change.  ``bright="70000"`` with
+    ``contrast="-70000"`` is PowerPoint's "Washout" recolor preset.
     """
 
     bright = OptionalAttribute("bright", ST_FixedPercentage, default=0.0)

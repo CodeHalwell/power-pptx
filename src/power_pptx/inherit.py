@@ -25,16 +25,19 @@ Scope (intentionally focused):
   side-effect-free answer.
 
 Brightness handling matches ``ColorFormat.brightness``: a value in
-``[-1.0, 1.0]`` where negative numbers darken the resolved RGB
-proportionally and positive numbers lighten it.  The math mirrors
-PowerPoint's ``lumMod``/``lumOff`` / ``tint``/``shade`` model closely
-enough to be useful for design-system code that needs to render
-mock-ups outside PowerPoint (e.g. the lint contrast check planned in
-Phase 2).
+``[-1.0, 1.0]`` where negative numbers darken the resolved color and
+positive numbers lighten it.  It is applied the way PowerPoint applies the
+``lumMod`` / ``lumOff`` transforms that ``brightness`` writes -- to the HSL
+*luminance*, leaving hue and saturation alone -- and not by blending the RGB
+channels toward black or white, which gives visibly duller results for
+saturated colors.  That is close enough to what PowerPoint renders to be
+useful for design-system code that needs to render mock-ups outside
+PowerPoint.
 """
 
 from __future__ import annotations
 
+import colorsys
 from typing import TYPE_CHECKING, Optional
 
 from power_pptx.dml.color import ColorFormat, RGBColor
@@ -78,32 +81,26 @@ def resolve_color(color_format: ColorFormat, *, theme: "Theme | None" = None) ->
 
 
 def _apply_brightness(rgb: RGBColor, brightness: float | None) -> RGBColor:
-    """Lighten/darken `rgb` toward white/black per PowerPoint's brightness model.
+    """Lighten/darken `rgb` the way PowerPoint applies ``lumMod`` / ``lumOff``.
 
-    A `brightness` of 0 (or `None`) is a no-op.  Positive values tint
-    toward white; negative values shade toward black.  The blend ratio
-    is the absolute value of `brightness`, capped at 1.0.
+    A `brightness` of 0 (or `None`) is a no-op.  Otherwise the HSL
+    *luminance* `l` is adjusted and hue and saturation are kept (PowerPoint
+    does not blend the RGB channels toward black or white).  `brightness` is
+    capped to ``[-1.0, 1.0]``; negative values shade, positive values tint:
+
+    * shade: ``lumMod = 1 - |brightness|``, so ``l' = l * (1 - |brightness|)``
+    * tint: ``lumMod = 1 - brightness`` and ``lumOff = brightness``, so
+      ``l' = l * (1 - brightness) + brightness``
     """
     if not brightness:
         return rgb
     delta = max(-1.0, min(1.0, brightness))
-    if delta > 0:
-        return _blend(rgb, _WHITE, delta)
-    return _blend(rgb, _BLACK, -delta)
-
-
-def _blend(a: RGBColor, b: RGBColor, t: float) -> RGBColor:
-    """Linear blend from `a` toward `b` by ratio `t` in ``[0, 1]``."""
-    return RGBColor(
-        _u8(a[0] + (b[0] - a[0]) * t),
-        _u8(a[1] + (b[1] - a[1]) * t),
-        _u8(a[2] + (b[2] - a[2]) * t),
-    )
+    lum_mod = 1.0 - abs(delta)  # a shade and a tint both scale the luminance down ...
+    lum_off = max(delta, 0.0)  # ... but only a tint then adds the offset back
+    hue, lum, sat = colorsys.rgb_to_hls(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
+    r, g, b = colorsys.hls_to_rgb(hue, max(0.0, min(1.0, lum * lum_mod + lum_off)), sat)
+    return RGBColor(_u8(r * 255.0), _u8(g * 255.0), _u8(b * 255.0))
 
 
 def _u8(value: float) -> int:
     return max(0, min(255, int(round(value))))
-
-
-_WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-_BLACK = RGBColor(0x00, 0x00, 0x00)

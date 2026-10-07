@@ -163,15 +163,21 @@ The two-liner most decks want — a multi-stop linear gradient at an
 angle:
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)  # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 bar.fill.linear_gradient(
     [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
     angle=45,
 )
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is measured **counter-clockwise** from the left→right direction
+(the python-pptx convention — the opposite sense to the clockwise
+`a:lin/@ang` stored in the XML): `0` is left→right, `90` is
+bottom→top, `180` is right→left, `270` is top→bottom. So a
+**top→bottom gradient is `angle=270`**; `angle=90` runs the other way,
+and `45` runs from the bottom-left corner towards the top-right. The same
+convention applies to `fill.gradient("linear", angle=...)` and
+`fill.gradient_angle`.
 
 ### Other kinds, and mutable stops
 
