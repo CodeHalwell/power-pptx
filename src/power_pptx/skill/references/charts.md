@@ -143,7 +143,7 @@ chart.apply_quick_layout("minimal")
 chart.apply_quick_layout("dense")
 ```
 
-Custom layouts can be supplied as a dict spec:
+Custom layouts can be supplied as a flat dict spec:
 
 ```python
 chart.apply_quick_layout(
@@ -152,15 +152,32 @@ chart.apply_quick_layout(
         "title_text": "ARR ($M)",
         "has_legend": True,
         "legend_position": "bottom",
-        "category_axis": {"has_major_gridlines": False},
-        "value_axis": {"has_major_gridlines": True, "tick_labels": True},
+        "has_major_gridlines": False,  # value-axis gridlines
     }
 )
 ```
 
-Missing keys leave the chart untouched so layouts compose cleanly.
-Charts without category/value axes (e.g. pie) silently skip the
-corresponding keys.
+The keys are the only ones there are:
+
+| Key                                                    | Effect                                              |
+| ------------------------------------------------------ | --------------------------------------------------- |
+| `has_title`, `title_text`                              | toggle the chart title / set its text               |
+| `has_legend`, `legend_position`, `legend_in_layout`    | toggle the legend / place it / overlap the plot     |
+| `has_category_axis_title`, `category_axis_title_text`  | toggle / set the category-axis title                |
+| `has_value_axis_title`, `value_axis_title_text`        | toggle / set the value-axis title                   |
+| `has_major_gridlines`, `has_minor_gridlines`           | value-axis gridlines                                |
+
+`legend_position` takes `"right"`, `"left"`, `"top"`, `"bottom"`,
+`"corner"` or an `XL_LEGEND_POSITION` member. Missing keys leave the
+chart untouched so layouts compose cleanly. Charts without
+category/value axes (e.g. pie) silently skip the corresponding keys.
+
+There is **no nested per-axis form** such as `{"value_axis": {...}}`.
+Any key that is not in the table, in a dict spec or as a keyword
+override (`chart.apply_quick_layout("minimal", title_text="Q4")`),
+raises `TypeError` before the chart is touched. To style one axis beyond
+these keys, set it directly:
+`chart.category_axis.has_major_gridlines = False`.
 
 ## Per-series gradient and pattern fills
 
