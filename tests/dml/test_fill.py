@@ -423,6 +423,31 @@ class Describe_GradFill(object):
             grad_fill.gradient_angle = 43.21
 
     @pytest.mark.parametrize(
+        ("cxml", "expected_cxml"),
+        [
+            # -- a bare `a:gradFill` just gains the `a:lin` --
+            ("a:gradFill", "a:gradFill/a:lin{ang=16200000}"),
+            # -- `a:lin` is inserted after `a:gsLst` ... --
+            ("a:gradFill/a:gsLst", "a:gradFill/(a:gsLst,a:lin{ang=16200000})"),
+            # -- ... and before `a:tileRect` (schema order: gsLst, lin|path, tileRect) --
+            (
+                "a:gradFill/(a:gsLst,a:tileRect)",
+                "a:gradFill/(a:gsLst,a:lin{ang=16200000},a:tileRect)",
+            ),
+        ],
+    )
+    def it_adds_the_missing_lin_element_when_the_angle_is_set(self, cxml, expected_cxml):
+        # -- a `gradFill` with neither `a:lin` nor `a:path` is legal OOXML (`gradient_kind` is
+        # -- None); assigning an angle makes it explicitly linear instead of raising.
+        grad_fill = _GradFill(element(cxml))
+
+        grad_fill.gradient_angle = 90.0
+
+        assert grad_fill._gradFill.xml == xml(expected_cxml)
+        assert grad_fill.gradient_kind == "linear"
+        assert grad_fill.gradient_angle == 90.0
+
+    @pytest.mark.parametrize(
         ("cxml", "expected_kind"),
         [
             ("a:gradFill", None),
@@ -978,3 +1003,44 @@ class DescribeLinearGradientHelper:
         )
         with pytest.raises(TypeError, match="end colour"):
             shape.fill.linear_gradient("#FF0000")
+
+
+class DescribeGradientWithoutAShadingElement:
+    """A `gradFill` having neither `a:lin` nor `a:path` is legal; angles still apply to it."""
+
+    @pytest.fixture
+    def spPr(self):
+        return element(
+            "p:spPr/a:gradFill/a:gsLst/(a:gs{pos=0}/a:srgbClr{val=FF0000}"
+            ",a:gs{pos=100000}/a:srgbClr{val=0000FF})"
+        )
+
+    @pytest.fixture
+    def fill(self, spPr):
+        fill = FillFormat.from_fill_parent(spPr)
+        assert fill.gradient_kind is None
+        return fill
+
+    def it_can_be_made_linear_with_gradient_and_an_angle(self, fill, spPr):
+        fill.gradient("linear", angle=45)
+
+        assert fill.gradient_kind == "linear"
+        assert fill.gradient_angle == 45.0
+        assert spPr.xpath("a:gradFill/a:lin/@ang") == ["18900000"]
+
+    def it_can_be_made_linear_with_linear_gradient(self, fill, spPr):
+        fill.linear_gradient("#FF0000", "#0000FF", angle=45)
+
+        assert fill.gradient_kind == "linear"
+        assert fill.gradient_angle == 45.0
+        assert spPr.xpath("a:gradFill/a:lin/@ang") == ["18900000"]
+        assert [str(stop.color.rgb) for stop in fill.gradient_stops] == ["FF0000", "0000FF"]
+
+    def it_can_be_given_an_angle_directly(self, fill, spPr):
+        fill.gradient_angle = 45
+
+        assert fill.gradient_kind == "linear"
+        assert fill.gradient_angle == 45.0
+        # -- shading element lands after `a:gsLst`, the position the schema requires --
+        gradFill = spPr.xpath("a:gradFill")[0]
+        assert [child.tag.split("}")[1] for child in gradFill] == ["gsLst", "lin"]

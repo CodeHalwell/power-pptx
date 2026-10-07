@@ -435,7 +435,12 @@ class _GradFill(_Fill):
     def gradient_angle(self, value):
         lin = self._gradFill.lin
         if lin is None:
-            raise ValueError("not a linear gradient")
+            if self._gradFill.path is not None:
+                raise ValueError("not a linear gradient")
+            # ---a `gradFill` having neither `a:lin` nor `a:path` is legal; assigning an angle
+            # ---makes it explicitly linear. `get_or_add_lin()` places the new element after
+            # ---`a:gsLst` and before `a:tileRect`, as the schema requires.
+            lin = self._gradFill.get_or_add_lin()
         lin.ang = 360.0 - value
 
     @lazyproperty
