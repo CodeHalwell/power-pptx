@@ -280,9 +280,12 @@ def render_slide_thumbnails(
         selected = [page_for_slide[i] for i in wanted]
 
         if dest_dir is not None:
-            selected = [
-                Path(shutil.move(str(page), str(dest_dir / page.name))) for page in selected
-            ]
+            # a slide may be asked for twice; each page is moved once
+            moved = {
+                page: Path(shutil.move(str(page), str(dest_dir / page.name)))
+                for page in dict.fromkeys(selected)
+            }
+            selected = [moved[page] for page in selected]
         elif not return_bytes:
             # The returned paths point into the work directory, which is now the caller's.
             keep_work_dir = True

@@ -574,6 +574,19 @@ class DescribeRenderingIntoAnExistingDirectory:
             "_render_input-page-2.png",
         ]
 
+    def it_returns_the_same_page_twice_for_a_slide_requested_twice(self, tmp_path):
+        with _fake_toolchain(_FakeToolchain(pdf_pages=[2])):
+            paths = render_slide_thumbnails(
+                _deck(2), out_dir=tmp_path, slide_indexes=[1, 0, 1], strategy="pdf"
+            )
+
+        assert [p.name for p in paths] == [
+            "_render_input-page-2.png",
+            "_render_input-page-1.png",
+            "_render_input-page-2.png",
+        ]
+        assert all(p.exists() for p in paths)
+
 
 class DescribeTheSavedInputDeck:
     """The `.pptx` handed to LibreOffice is a private temp file, never the caller's output."""
