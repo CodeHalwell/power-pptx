@@ -31,6 +31,7 @@ from power_pptx.util import Emu, Inches, _coerce_emu
 
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape
+    from power_pptx.slide import Slide
 
 
 __all__ = ["BBox"]
@@ -328,7 +329,7 @@ _DEFAULT_SLIDE_W = Emu(9144000)
 _DEFAULT_SLIDE_H = Emu(6858000)
 
 
-def _slide_dimensions(slide) -> tuple[Emu, Emu]:
+def _slide_dimensions(slide: Slide) -> tuple[Emu, Emu]:
     """Return ``(width, height)`` of the presentation *slide* belongs to, in EMU.
 
     A dimension the presentation does not declare (no ``<p:sldSz>``), or a slide that is not
