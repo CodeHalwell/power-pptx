@@ -53,6 +53,25 @@ chart.replace_data(data)  # formatting survives; the embedded
 Adding or removing series works too — the plot re-reads the series count
 from the new data.
 
+## Missing values: `None` and NaN are gaps, infinity is an error
+
+A point with no value is left out of the chart and its worksheet cell is
+blank. `None` marks it, and so does NaN (what pandas and numpy use for a
+missing value), in category, XY and bubble data alike:
+
+```python
+import numpy as np
+
+data = CategoryChartData()
+data.categories = ["Q1", "Q2", "Q3", "Q4"]
+data.add_series("ARR", (100, None, 155, np.nan))  # Q2 and Q4 are gaps
+```
+
+`inf` / `-inf` cannot be plotted and are not a gap: building the chart
+(`add_chart`, `replace_data`) raises `ValueError` naming the series, the
+point index and which value (`value`, `X value`, `Y value` or
+`bubble size`). Replace the value with a number, or with `None`.
+
 ## Recolouring (recommended entry point)
 
 `Chart.recolour(palette, by="auto")` is the single entry point you
@@ -233,6 +252,25 @@ Override post-creation with:
 ```python
 chart.category_axis.reverse_order = False  # legacy bottom-up ordering
 ```
+
+A reversed category axis would carry the value axis to the top of the
+plot, so `add_chart` also makes the value axis cross at the *maximum*
+category, which keeps its labels along the bottom (Excel's "Horizontal
+axis crosses: at maximum category"). That is
+`chart.category_axis.crosses == XL_AXIS_CROSSES.MAXIMUM`, stored on the
+`c:valAx`. `reverse_order = False` undoes both: a value axis crossing at
+the maximum category goes back to crossing automatically. To place the
+value axis yourself, for instance after reversing the categories of a
+column chart, set `category_axis.crosses`:
+
+```python
+from power_pptx.enum.chart import XL_AXIS_CROSSES
+
+chart.category_axis.crosses = XL_AXIS_CROSSES.MAXIMUM  # value axis at the far end
+```
+
+Mind which axis you ask: `chart.value_axis.crosses` is where the
+*category* axis crosses the value axis, which is a different thing.
 
 ## End-to-end: branded chart
 

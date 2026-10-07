@@ -120,8 +120,8 @@ def _write_node_text(pt: LxmlElement, text: str) -> None:
             p = etree.SubElement(t_body, qn("a:p"))
         _add_run(p, text)
 
-    # A node holding real text is no longer a placeholder: PowerPoint drops `phldr` once text
-    # is typed in, and a node left flagged would still be treated as the "[Text]" prompt.
+    # A node holding real text is no longer a placeholder: the nodes of a PowerPoint-saved
+    # diagram that have text carry no `phldr`, only the empty "[Text]" ones do.
     if text:
         for prSet in pt.findall(qn("dgm:prSet")):
             prSet.attrib.pop("phldr", None)
