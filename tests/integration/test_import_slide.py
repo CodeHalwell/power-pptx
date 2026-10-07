@@ -7,6 +7,17 @@ import io
 from power_pptx import Presentation
 from power_pptx.util import Inches
 
+from ..schema.hierarchy_decks import (
+    BLUE,
+    RED,
+    add_theme_image_fill,
+    embedded_images,
+    saved_bytes,
+    solid_png,
+    zip_names,
+)
+from ..schema.hierarchy_validator import iter_hierarchy_violations
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -466,3 +477,46 @@ class Describe_import_slide_relationship_remap:
                 rid,
                 relmap[rid],
             )
+
+
+# ---------------------------------------------------------------------------
+# Dependencies of a cloned master's theme
+# ---------------------------------------------------------------------------
+
+
+class Describe_import_slide_cloned_master_theme:
+    def it_copies_images_referenced_by_the_cloned_masters_theme(self):
+        src = Presentation()
+        add_theme_image_fill(src, solid_png(RED))
+        src.slides.add_slide(src.slide_layouts[6])
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        themes = {n: embedded_images(blob, n) for n in zip_names(blob, r"ppt/theme/theme\d+\.xml")}
+        assert sorted(themes.values(), key=len) == [[], [solid_png(RED)]]
+        assert list(iter_hierarchy_violations(blob)) == []
+
+    def it_keeps_deduping_onto_a_clone_whose_theme_image_was_renumbered(self):
+        # Once a cloned theme's own dependencies are copied, its image can land on a different
+        # rId than in the source (here the source numbering has a gap).  A raw-bytes theme
+        # comparison would then stop matching the master's own source and every later import
+        # would clone yet another master.
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        src = Presentation()
+        theme_part = src.slide_master.part.part_related_by(RT.THEME)
+        decoy = src.part.package.get_or_add_image_part(io.BytesIO(solid_png(BLUE)))
+        decoy_rId = theme_part.relate_to(decoy, RT.IMAGE)
+        add_theme_image_fill(src, solid_png(RED))
+        theme_part.rels.pop(decoy_rId)
+        src.slides.add_slide(src.slide_layouts[6])
+        src.slides.add_slide(src.slide_layouts[0])
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0])
+        assert len(dst.slide_masters) == 2
+        dst.import_slide(src.slides[1])
+
+        assert len(dst.slide_masters) == 2

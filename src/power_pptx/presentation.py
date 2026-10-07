@@ -279,7 +279,13 @@ class Presentation(PartElementProxy):
         the template.  Slide content (shapes, text, animations) is preserved.
 
         The template can be a ``.potx`` or any ``.pptx``/``.pptm`` file — the
-        master(s) inside are used regardless of the extension.
+        master(s) inside are used regardless of the extension.  They are copied
+        in with their themes, layouts and the pictures those use; the presentation's
+        previous masters and layouts are dropped, and the presentation is usable
+        right away (``slide_masters``, ``slide_layouts``, ``slides.add_slide()``),
+        without a save and reopen.  A template that has no slide layout cannot
+        take the slides over: a :class:`UserWarning` is issued and the
+        presentation is left as it was.
 
         Layout matching (in priority order):
 
