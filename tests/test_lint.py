@@ -25,6 +25,7 @@ from power_pptx.lint import (
     ZOrderAnomaly,
     _contrast_ratio,
     _find_lint_ext,
+    _overlap_allowed,
 )
 from power_pptx.util import Emu, Inches, Pt
 
@@ -1470,6 +1471,49 @@ class DescribeCollisionAllowanceSuppression:
         a, b = _add_overlapping_rects(slide, 2)
         a.overlap_allowances = {9999}
         assert len(_collisions(slide)) == 1
+
+
+class DescribeCollisionCheckCost:
+    """Per-shape lookups in the collision walk are done once, not once per pair."""
+
+    def it_resolves_each_shape_id_once_rather_than_once_per_pair(self, monkeypatch):
+        # Regression: ``_overlap_allowed`` used to re-read both shapes' ids (an xpath each) for
+        # every pair, which made a 400-shape slide take ~4.7s to lint against ~0.34s with the
+        # ids resolved up front.  Counting resolutions keeps the guard deterministic where a
+        # wall-clock threshold would be flaky.
+        import power_pptx.lint as lint_module
+
+        _, slide = _new_blank_slide()
+        count = 30
+        # Small, well-separated cells: nothing overlaps, so every one of the
+        # count * (count - 1) / 2 pairs reaches the allowance check.
+        for i in range(count):
+            left, top = Inches(0.9 * (i % 10)), Inches(0.9 * (i // 10))
+            slide.shapes.add_shape(1, left, top, Inches(0.5), Inches(0.5))
+        resolved = []
+        original = lint_module._shape_id
+
+        def counting(shape):
+            resolved.append(shape)
+            return original(shape)
+
+        monkeypatch.setattr(lint_module, "_shape_id", counting)
+
+        report = slide.lint()
+
+        assert [i for i in report.issues if isinstance(i, ShapeCollision)] == []
+        assert len(resolved) <= count
+
+    def it_takes_the_two_shape_ids_and_the_two_allowance_sets(self):
+        assert _overlap_allowed(1, 2, frozenset({2}), frozenset())
+        assert _overlap_allowed(1, 2, frozenset(), frozenset({1}))
+        assert not _overlap_allowed(1, 2, frozenset({3}), frozenset({4}))
+
+    def but_a_shape_with_no_id_cannot_be_named_by_an_allowance(self):
+        # Without an id there is nothing for the other side's set to name.
+        assert not _overlap_allowed(None, 2, frozenset(), frozenset({1}))
+        assert not _overlap_allowed(1, None, frozenset({2}), frozenset())
+        assert not _overlap_allowed(None, None, frozenset({1}), frozenset({2}))
 
 
 class DescribeShapeLayerHints:

@@ -1492,8 +1492,8 @@ def _shape_lint_layer(shape: BaseShape) -> tuple[str | None, str | None]:
 
 
 def _overlap_allowed(
-    shape_a: BaseShape,
-    shape_b: BaseShape,
+    id_a: int | None,
+    id_b: int | None,
     allow_a: frozenset[int],
     allow_b: frozenset[int],
 ) -> bool:
@@ -1504,8 +1504,11 @@ def _overlap_allowed(
     the collision to be suppressed, matching how a designer thinks
     about it ("the badge is allowed to sit on the card") without
     forcing them to tag both ends.
+
+    Takes the shapes' ids (as :func:`_shape_id` returns them) rather than
+    the shapes: resolving an id is an xpath lookup, so the caller does it
+    once per shape instead of twice per *pair*.
     """
-    id_a, id_b = _shape_id(shape_a), _shape_id(shape_b)
     if id_b is not None and id_b in allow_a:
         return True
     return id_a is not None and id_a in allow_b
@@ -1697,9 +1700,12 @@ def _check_collisions(
     # compare against.
     using_bleed = bbox_fn is not _shape_bbox
     raw_bboxes = [_shape_bbox(s) for s in shapes] if using_bleed else None
+    # Everything the pair loop needs to know about a shape is read once here;
+    # the loop below is O(n^2) and must not touch the XML.
     groups = [_shape_lint_group(s) for s in shapes]
     allows = [_shape_lint_allow(s) for s in shapes]
     layers = [_shape_lint_layer(s) for s in shapes]
+    ids = [_shape_id(s) for s in shapes]
 
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
@@ -1711,7 +1717,7 @@ def _check_collisions(
 
             # Explicit pairwise allowance — one side naming the other is
             # enough. Also intent, so it too runs before scoring.
-            if _overlap_allowed(shapes[i], shapes[j], allows[i], allows[j]):
+            if _overlap_allowed(ids[i], ids[j], allows[i], allows[j]):
                 continue
 
             # Layer hints: an overlap that agrees with a declared
