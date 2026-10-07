@@ -490,7 +490,9 @@ class Slide(_BaseSlide):
 
         Returns a |SlideLintReport| with a list of detected issues (text
         overflow, shapes off-slide, shape collisions).  The report is
-        generated fresh on each call.
+        generated fresh on each call.  Linting is read-only: the slide is
+        never modified (only :meth:`SlideLintReport.auto_fix` and
+        :meth:`tidy` change it).
 
         *include_effect_bleed* (opt-in, default |False|) widens each
         shape's bbox by its shadow blur radius before the OffSlide and

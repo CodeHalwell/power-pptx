@@ -1095,12 +1095,30 @@ def _run_font(run: _Run) -> Font | None:
 
 
 def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
-    """Return TextOverflow issues for *shape* using a simple line-count heuristic.
+    """Return TextOverflow issues for *shape* using a character-count heuristic.
 
-    Skips shapes with auto-size enabled or when no text frame is present.
-    The heuristic estimates the number of lines the text would require
-    (assuming ~60 characters per line at the default font size) and compares
-    that to the number of lines that fit in the text-frame height.
+    This is an estimate, not a measurement: no font is loaded.  The text is
+    split into lines at every paragraph break and explicit line break.
+    Each line is assumed to wrap after ``frame width / (0.55 em)``
+    characters (``0.45 em`` for a single-line string of up to 20
+    characters, which suits all-caps badge and pill labels) and every
+    resulting line to be ``1.2 em`` tall.  The frame is the shape's own
+    width and height less the text-frame margins.  The shape is flagged
+    when the estimated line count exceeds the number of lines that fit.
+
+    The em is the explicit size of the first run of the first paragraph,
+    else 18 pt.  Not taken into account: vertical anchor, line and
+    paragraph spacing, ``word_wrap``, the size of any later run, font sizes
+    and auto-size inherited from a layout or master placeholder, and the
+    shape's rotation.
+
+    Never checked: a shape without a text body, and a frame whose own
+    ``auto_size`` is ``SHAPE_TO_FIT_TEXT`` or ``TEXT_TO_FIT_SHAPE`` (it
+    cannot overflow by definition).  ``add_textbox`` creates its frames
+    with ``SHAPE_TO_FIT_TEXT``, so a text box is exempt unless its
+    ``auto_size`` is set to ``NONE``.  Per-shape checks like this one run
+    on the slide's top-level shapes only; shapes inside a group are not
+    visited.
     """
     issues: list[LintIssue] = []
     tf = _text_frame_if_present(shape)
