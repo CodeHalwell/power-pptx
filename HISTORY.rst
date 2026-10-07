@@ -1935,7 +1935,7 @@ Phase 6 — native SVG in ``add_picture``
   first-class image content type so SVG parts round-trip cleanly.
 
 Phase 7 — ``power_pptx.compose`` package
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - ``power_pptx.compose`` is now a real package re-exporting ``from_spec``,
   ``import_slide``, and ``apply_template`` from a single import path::

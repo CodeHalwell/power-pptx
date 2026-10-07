@@ -38,7 +38,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from power_pptx.api import Presentation
+    from power_pptx.presentation import Presentation
     from power_pptx.shapes.base import BaseShape
     from power_pptx.slide import Slide
 

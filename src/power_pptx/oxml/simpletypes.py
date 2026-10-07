@@ -60,11 +60,6 @@ class BaseSimpleType:
     def validate_string(cls, value):
         if isinstance(value, str):
             return value
-        try:
-            if isinstance(value, basestring):
-                return value
-        except NameError:  # means we're on Python 3
-            pass
         raise TypeError("value must be a string, got %s" % type(value))
 
 

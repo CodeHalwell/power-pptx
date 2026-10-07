@@ -409,7 +409,7 @@ class Slide(_BaseSlide):
         unique-on-the-slide group name when one isn't supplied, so
         callers don't have to invent ``"kpi-card-1"`` / ``"kpi-card-2"``
         labels by hand.  Inspired by IMPROVEMENT_PLAN.md item 12 — the
-        single-line equivalent of:
+        single-line equivalent of::
 
             slide.lint_group(f"design-group-{n}", *shapes)
 

@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, Iterable, List, Optional, Sequence, Union
 
 if TYPE_CHECKING:
-    from power_pptx.api import Presentation as _Presentation
+    from power_pptx.presentation import Presentation as _Presentation
     from power_pptx.slide import Slide as _Slide
 
 DEFAULT_SOFFICE_BIN = "soffice"
