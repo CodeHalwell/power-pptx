@@ -42,6 +42,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Sequence
 
 from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.geometry import _slide_dimensions  # pyright: ignore[reportPrivateUsage]
 from power_pptx.util import Emu
 
 if TYPE_CHECKING:
@@ -775,9 +776,6 @@ class SlideLintReport:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SLIDE_W = Emu(9144000)  # 10 inches in EMU (standard widescreen)
-_DEFAULT_SLIDE_H = Emu(6858000)  # 7.5 inches in EMU
-
 
 def _issue_fingerprint(issue: LintIssue) -> str:
     """Return a 12-char hex digest stable across runs for *issue*.
@@ -981,15 +979,6 @@ def lint_report_to_sarif(
         (start_index + i, report.issues) for i, report in enumerate(reports)
     ]
     return _build_sarif(grouped)
-
-
-def _slide_dimensions(slide: Slide) -> tuple[Length | None, Length | None]:
-    """Return (width, height) of the slide in EMU, falling back to widescreen defaults."""
-    try:
-        prs = slide.part.package.presentation_part.presentation
-        return prs.slide_width or _DEFAULT_SLIDE_W, prs.slide_height or _DEFAULT_SLIDE_H
-    except Exception:
-        return _DEFAULT_SLIDE_W, _DEFAULT_SLIDE_H
 
 
 def _shape_bbox(shape: BaseShape) -> tuple[int, int, int, int]:

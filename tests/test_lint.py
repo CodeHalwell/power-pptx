@@ -1368,6 +1368,28 @@ class DescribeAutoFixSizeClamp:
         assert int(s.height) <= int(slide_h)
 
 
+class DescribeLintWithoutASlideSize:
+    """A presentation with no ``<p:sldSz>`` is linted against the 10" x 7.5" default."""
+
+    def it_flags_a_shape_crossing_the_default_slide_edge(self):
+        prs, slide = _new_blank_slide()
+        prs._element.remove(prs._element.sldSz)
+        slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(2), Inches(1))  # reaches 11"
+
+        off = [i for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+        assert [i.side for i in off] == ["right"]
+
+    def and_clamps_it_back_inside_the_default(self):
+        prs, slide = _new_blank_slide()
+        prs._element.remove(prs._element.sldSz)
+        shape = slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(2), Inches(1))
+
+        slide.lint().auto_fix()
+
+        assert shape.left == Inches(8)
+
+
 class DescribeFingerprints:
     """Stable digests for CI baselining."""
 

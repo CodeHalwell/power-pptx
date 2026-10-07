@@ -91,9 +91,13 @@ class BBox:
 
     @classmethod
     def from_slide(cls, slide) -> "BBox":
-        """Return the BBox covering the full slide area."""
-        prs = slide.part.package.presentation_part.presentation
-        return cls(Emu(0), Emu(0), Emu(int(prs.slide_width)), Emu(int(prs.slide_height)))
+        """Return the BBox covering the full slide area.
+
+        A presentation that declares no slide size (no ``<p:sldSz>``) is taken to be the 10" x
+        7.5" default, the same assumption the linter makes.
+        """
+        width, height = _slide_dimensions(slide)
+        return cls(Emu(0), Emu(0), Emu(int(width)), Emu(int(height)))
 
     # -------------------------------------------------------------- properties
 
@@ -315,6 +319,26 @@ class BBox:
         shape.width = self.width
         shape.height = self.height
         return shape
+
+
+# Slide size assumed for a presentation that declares none: the 10" x 7.5" (4:3) default of the
+# bundled template.  Kept here, not in `lint`, so `BBox.from_slide` and the linter share one
+# fallback without `geometry` having to import the linter.
+_DEFAULT_SLIDE_W = Emu(9144000)
+_DEFAULT_SLIDE_H = Emu(6858000)
+
+
+def _slide_dimensions(slide) -> tuple[Emu, Emu]:
+    """Return ``(width, height)`` of the presentation *slide* belongs to, in EMU.
+
+    A dimension the presentation does not declare (no ``<p:sldSz>``), or a slide that is not
+    attached to a presentation, falls back to the 10" x 7.5" default.
+    """
+    try:
+        prs = slide.part.package.presentation_part.presentation
+        return prs.slide_width or _DEFAULT_SLIDE_W, prs.slide_height or _DEFAULT_SLIDE_H
+    except Exception:
+        return _DEFAULT_SLIDE_W, _DEFAULT_SLIDE_H
 
 
 def _positive_count(n: int, name: str) -> int:
