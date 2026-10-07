@@ -47,6 +47,7 @@ from power_pptx.util import Emu
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape
     from power_pptx.slide import Slide
+    from power_pptx.text.text import Font, TextFrame, _Run  # pyright: ignore[reportPrivateUsage]
     from power_pptx.util import Length
 
 
@@ -1059,6 +1060,37 @@ def _check_off_slide(
     return issues
 
 
+def _text_frame_if_present(shape: BaseShape) -> TextFrame | None:
+    """Return *shape*'s text frame if it has a text body, else ``None``.
+
+    ``shape.text_frame`` adds an empty ``<p:txBody>`` to a ``p:sp`` that
+    lacks one -- a picture or chart placeholder cloned from a layout, or a
+    shape from a file that never had text -- and linting must not change
+    the slide it inspects.  A shape with no text body has no text to check.
+    """
+    if not shape.has_text_frame:
+        return None
+    if getattr(shape._element, "txBody", None) is None:  # pyright: ignore[reportPrivateUsage]
+        return None
+    return shape.text_frame  # type: ignore[attr-defined]
+
+
+def _run_font(run: _Run) -> Font | None:
+    """Return *run*'s :class:`~power_pptx.text.text.Font`, or ``None`` if it has no ``<a:rPr>``.
+
+    ``run.font`` inserts an empty ``<a:rPr/>`` into a run that lacks one.
+    Wrapping the existing element instead leaves the slide untouched, and a
+    run with no run properties has no explicit font settings at all -- which
+    is what a ``Font`` with every property ``None`` would have told us anyway.
+    """
+    rPr = run._r.rPr  # pyright: ignore[reportPrivateUsage]
+    if rPr is None:
+        return None
+    from power_pptx.text.text import Font
+
+    return Font(rPr)
+
+
 def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     """Return TextOverflow issues for *shape* using a simple line-count heuristic.
 
@@ -1068,10 +1100,10 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     that to the number of lines that fit in the text-frame height.
     """
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
+    tf = _text_frame_if_present(shape)
+    if tf is None:
         return issues
 
-    tf = shape.text_frame  # type: ignore[attr-defined]
     # Skip when the shape auto-sizes (no overflow possible by definition)
     if tf.auto_size in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE):
         return issues
@@ -1084,8 +1116,9 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     _PT_TO_EMU = 12700
     _DEFAULT_FONT_PT = 18
     try:
-        first_run = tf.paragraphs[0].runs[0]
-        font_pt = (first_run.font.size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
+        first_font = _run_font(tf.paragraphs[0].runs[0])
+        first_size = first_font.size if first_font is not None else None
+        font_pt = (first_size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
     except (IndexError, AttributeError):
         font_pt = _DEFAULT_FONT_PT
 
@@ -1797,14 +1830,17 @@ def _check_min_font_size(
 ) -> list[LintIssue]:
     """Return a single MinFontSize issue if any run is below *threshold_pt*."""
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
+    tf = _text_frame_if_present(shape)
+    if tf is None:
         return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
     smallest: float | None = None
     for paragraph in tf.paragraphs:
         for run in paragraph.runs:
+            font = _run_font(run)
+            if font is None:
+                continue
             try:
-                size = run.font.size
+                size = font.size
             except (AttributeError, ValueError):
                 continue
             if size is None:
@@ -1956,10 +1992,8 @@ def _slide_background_rgb(slide: Slide):
 def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     """Return a LowContrast issue if shape's text has poor contrast against its fill."""
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
-        return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
-    if not tf.text.strip():
+    tf = _text_frame_if_present(shape)
+    if tf is None or not tf.text.strip():
         return issues
 
     # Pick the first run's font color (best-effort).
@@ -1967,8 +2001,9 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     try:
         for paragraph in tf.paragraphs:
             for run in paragraph.runs:
+                font = _run_font(run)
                 try:
-                    rgb = run.font.color.rgb
+                    rgb = font.color.rgb if font is not None else None
                 except (AttributeError, ValueError):
                     rgb = None
                 if rgb is not None:

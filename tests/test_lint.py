@@ -5,8 +5,9 @@ from __future__ import annotations
 import io
 
 import pytest
+from lxml import etree
 
-from power_pptx import Presentation
+from power_pptx import Presentation, audit
 from power_pptx.dml.color import RGBColor
 from power_pptx.lint import (
     _LEGACY_LINT_GROUP_ATTR,
@@ -745,6 +746,184 @@ class DescribeMasterPlaceholderCollision:
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         # Slide already inherits the title; no extra textbox added.
         assert [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)] == []
+
+
+def _bare_runs_slide():
+    """A textbox and a rectangle whose runs carry no ``<a:rPr>``."""
+    prs, slide = _new_blank_slide()
+    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "no run properties\nsecond paragraph"
+    # A textbox frame shrink-wraps, which exempts it from the overflow check; the rectangle's
+    # frame has no auto-size, so that check reads its runs too.
+    rect = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(3), Inches(1))
+    rect.text_frame.text = "bare run in a rectangle"
+    return prs, slide
+
+
+def _picture_with_caption_slide():
+    """A slide from the "Picture with Caption" layout.
+
+    Its picture placeholder is a ``p:sp`` that was cloned without a ``p:txBody``.
+    """
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[8])
+    slide.shapes.title.text_frame.text = "A caption title"
+    return prs, slide
+
+
+def _title_and_content_slide():
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text_frame.text = "A title"
+    slide.placeholders[1].text_frame.text = "a bullet\nanother bullet"
+    return prs, slide
+
+
+def _group_with_textbox_slide():
+    prs, slide = _new_blank_slide()
+    group = slide.shapes.add_group_shape()
+    box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "inside a group"
+    return prs, slide
+
+
+def _shape_without_a_text_body_slide():
+    """An autoshape with no ``p:txBody``, as written by tools that omit empty ones."""
+    prs, slide = _new_blank_slide()
+    shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+    shape._element.remove(shape._element.txBody)
+    return prs, slide
+
+
+_READ_ONLY_SCENARIOS = pytest.mark.parametrize(
+    "build",
+    [
+        _bare_runs_slide,
+        _picture_with_caption_slide,
+        _title_and_content_slide,
+        _group_with_textbox_slide,
+        _shape_without_a_text_body_slide,
+    ],
+    ids=["bare-runs", "picture-with-caption", "title-and-content", "group", "no-text-body"],
+)
+
+
+class DescribeLintIsReadOnly:
+    """``slide.lint()`` inspects a slide; it must never change it.
+
+    Reading ``run.font`` inserts an empty ``<a:rPr/>`` into a run that has none, and reading
+    ``shape.text_frame`` adds a ``<p:txBody>`` to a ``p:sp`` that lacks one.  Both are fine for
+    a caller who is about to write, and both change the bytes saved for a deck that was only
+    being checked (``lint_on_save``, ``audit()`` and every CI run included).
+    """
+
+    @_READ_ONLY_SCENARIOS
+    def it_leaves_the_slide_xml_untouched(self, build):
+        _, slide = build()
+        before = etree.tostring(slide._element)
+
+        slide.lint()
+
+        assert etree.tostring(slide._element) == before
+
+    @_READ_ONLY_SCENARIOS
+    def and_leaves_it_untouched_when_checking_effect_bleed(self, build):
+        _, slide = build()
+        before = etree.tostring(slide._element)
+
+        slide.lint(include_effect_bleed=True)
+
+        assert etree.tostring(slide._element) == before
+
+    @_READ_ONLY_SCENARIOS
+    def and_audit_leaves_it_untouched_too(self, build):
+        prs, slide = build()
+        before = etree.tostring(slide._element)
+
+        audit(prs)
+
+        assert etree.tostring(slide._element) == before
+
+    def it_still_reports_what_it_reads_from_explicit_run_properties(self):
+        # The read-only path must see exactly what the mutating one did.
+        _, slide = _new_blank_slide()
+        rect = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        rect.text_frame.text = "tiny and pale"
+        run = rect.text_frame.paragraphs[0].runs[0]
+        run.font.size = Pt(7)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        rect.fill.solid()
+        rect.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        codes = {i.code for i in slide.lint().issues}
+
+        assert {"MinFontSize", "LowContrast"} <= codes
+
+    def it_does_not_choke_on_a_shape_with_no_text_body(self):
+        _, slide = _shape_without_a_text_body_slide()
+        shape = list(slide.shapes)[0]
+        assert shape.has_text_frame  # the API says "yes"; the XML has nothing yet
+
+        codes = {i.code for i in slide.lint().issues}
+
+        assert not codes & {"TextOverflow", "MinFontSize", "LowContrast"}
+
+
+class DescribeReadOnlyTextAccess:
+    """The helpers the linter uses to look at text without creating any."""
+
+    def it_finds_no_text_frame_on_a_shape_that_has_no_text_body(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _shape_without_a_text_body_slide()
+        shape = list(slide.shapes)[0]
+        before = etree.tostring(slide._element)
+
+        assert _text_frame_if_present(shape) is None
+        assert etree.tostring(slide._element) == before
+
+    def it_finds_the_text_frame_when_there_is_a_text_body(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _new_blank_slide()
+        rect = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        rect.text_frame.text = "hello"
+
+        frame = _text_frame_if_present(rect)
+
+        assert frame is not None
+        assert frame.text == "hello"
+
+    def it_finds_no_text_frame_on_a_shape_that_cannot_hold_text(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _group_with_textbox_slide()
+        group = list(slide.shapes)[0]
+        assert _text_frame_if_present(group) is None
+
+    def it_finds_no_font_on_a_run_without_run_properties(self):
+        from power_pptx.lint import _run_font
+
+        _, slide = _bare_runs_slide()
+        run = list(slide.shapes)[0].text_frame.paragraphs[0].runs[0]
+        before = etree.tostring(slide._element)
+
+        assert _run_font(run) is None
+        assert etree.tostring(slide._element) == before
+
+    def it_reads_the_font_of_a_run_that_has_run_properties(self):
+        from power_pptx.lint import _run_font
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "sized"
+        run = box.text_frame.paragraphs[0].runs[0]
+        run.font.size = Pt(11)
+
+        font = _run_font(run)
+
+        assert font is not None
+        assert font.size == Pt(11)
 
 
 class DescribeReportSummary:
