@@ -545,9 +545,9 @@ def _kpi_dashboard(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "category_axis": {"has_major_gridlines": False},
-        "value_axis":    {"has_major_gridlines": False},
+        "has_major_gridlines": False,
     })
+    chart.category_axis.has_major_gridlines = False
 
 
 def _mini_kpi(card, label, value, owner, color_key):

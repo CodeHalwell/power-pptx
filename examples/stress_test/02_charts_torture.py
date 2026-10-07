@@ -122,7 +122,7 @@ def build():
         "title_text": "Scatter",
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "value_axis": {"has_major_gridlines": True},
+        "has_major_gridlines": True,
     })
 
     return prs

@@ -211,9 +211,9 @@ def _scatter_headline(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "value_axis":    {"has_major_gridlines": True},
-        "category_axis": {"has_major_gridlines": False},
+        "has_major_gridlines": True,
     })
+    chart.category_axis.has_major_gridlines = False
 
     cap = slide.shapes.add_textbox(
         Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.5),
@@ -405,9 +405,9 @@ def _small_multiples(prs: Presentation) -> None:
             "has_title": True,
             "title_text": name,
             "has_legend": False,
-            "category_axis": {"has_major_gridlines": False},
-            "value_axis":    {"has_major_gridlines": True},
+            "has_major_gridlines": True,
         })
+        chart.category_axis.has_major_gridlines = False
 
 
 # ----------------------------------------------------------------------

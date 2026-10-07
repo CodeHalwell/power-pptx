@@ -249,9 +249,9 @@ def _headline_chart(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "category_axis": {"has_major_gridlines": False},
-        "value_axis":    {"has_major_gridlines": True},
+        "has_major_gridlines": True,
     })
+    chart.category_axis.has_major_gridlines = False
 
     # Editorial caption tying chart back to the headline metric.
     cap = slide.shapes.add_textbox(
