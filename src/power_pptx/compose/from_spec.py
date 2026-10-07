@@ -53,6 +53,7 @@ YAML usage::
 from __future__ import annotations
 
 import contextlib
+import os
 import re
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -141,8 +142,10 @@ def from_spec(
         ``comparison_layout``); ``kpis`` (``kpi_grid``); ``image`` /
         ``caption`` (``picture``).  Text fields must be strings and list
         fields (``bullets``, ``kpis``, ``milestones``, ``categories``,
-        ``series``, ``columns``, ``rows``) lists of the right shape — a
-        bare string is not a one-item list.
+        ``series``, ``columns``, ``rows``, ``widths``, ``aligns``) lists of
+        the right shape — a bare string is not a one-item list.  A
+        ``null`` optional field counts as not given, and a required key
+        given as ``null`` as missing.
 
         A slide dict may also carry a ``shapes`` list of extra shapes
         drawn on top of whatever the layout produced — see
@@ -502,11 +505,15 @@ def _add_recipe_slide(
     recipe_name, required = _RECIPE_LAYOUTS[layout_name]
     recipe = getattr(_recipes, recipe_name)
 
-    missing = [k for k in required if k not in slide_spec]
+    # A required key given as null (YAML's ``title:`` with nothing after it) is
+    # as good as absent: the recipes cannot do anything with ``None`` there.
+    missing = [k for k in required if slide_spec.get(k) is None]
     if missing:
+        nulls = [k for k in sorted(missing) if k in slide_spec]
+        note = f" ({', '.join(nulls)} given as null)" if nulls else ""
         raise ValueError(
             f"{where}: layout {layout_name!r} requires keys {sorted(required)}; "
-            f"missing {sorted(missing)}"
+            f"missing {sorted(missing)}{note}"
         )
 
     kwargs = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
@@ -575,6 +582,8 @@ _TEXT_FIELDS = (
     "left_heading",
     "right_heading",
     "code",
+    "chart_type",
+    "figure_format",
 )
 
 # Slide-spec fields that must be lists, per layout, and what the list holds:
@@ -586,7 +595,7 @@ _LIST_FIELDS: dict[str, dict[str, str]] = {
     "kpi": {"kpis": "mappings"},
     "kpi_grid": {"kpis": "mappings"},
     "chart": {"categories": "list", "series": "mappings"},
-    "table": {"columns": "list", "rows": "rows"},
+    "table": {"columns": "list", "rows": "rows", "widths": "list", "aligns": "list"},
     "timeline": {"milestones": "mappings"},
     "comparison": {"rows": "mappings"},
 }
@@ -693,9 +702,27 @@ def _check_slide_fields(slide_spec: Mapping[str, Any], layout_name: str, where: 
     transition = slide_spec.get("transition")
     if transition and not isinstance(transition, str):
         raise ValueError(f"{where}.transition: must be a string; got {type(transition).__name__!r}")
+    # ``null`` means "not given" for every optional field below (YAML's ``bullets:``
+    # with nothing after it); a required key given as null is reported as missing
+    # by the recipe dispatcher.
     for field, kind in _LIST_FIELDS.get(layout_name, {}).items():
-        if field in slide_spec:
-            _check_list_field(slide_spec[field], kind, f"{where}.{field}")
+        value = slide_spec.get(field)
+        if value is not None:
+            _check_list_field(value, kind, f"{where}.{field}")
+    image = slide_spec.get("image")
+    if image is not None and not (isinstance(image, (str, os.PathLike)) or hasattr(image, "read")):
+        raise ValueError(
+            f"{where}.image: must be a file path or a binary file; got {type(image).__name__!r}"
+        )
+    progress = slide_spec.get("progress")
+    if progress is not None and not (isinstance(progress, (list, tuple)) and len(progress) == 2):
+        raise ValueError(f"{where}.progress: must be a [current, total] pair; got {progress!r}")
+    totals = slide_spec.get("totals")
+    if totals is not None and not isinstance(totals, Mapping):
+        raise ValueError(
+            f"{where}.totals: must be a mapping with 'label' and 'values' (or a whole 'row'); "
+            f"got {type(totals).__name__!r}"
+        )
     if layout_name == "chart":
         # ``series`` entries are known to be mappings by now.
         for pos, entry in enumerate(slide_spec.get("series") or ()):

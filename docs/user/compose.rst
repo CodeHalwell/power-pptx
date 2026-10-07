@@ -95,12 +95,18 @@ Each slide is checked before it is built, and every failure is a
 
 * **Values must have the right shape.**  Each slide is a mapping and
   ``layout`` a string.  Text fields (``title``, ``subtitle``, ``text``,
-  ``left``, ``right``, ``caption``, ``quote``, ``attribution``, ``code``, …)
-  are strings; YAML reads ``subtitle: 2026`` as a number, so quote it.
-  List fields are lists of the right thing: ``kpis``, ``milestones``,
-  ``series`` and the rows of a ``comparison`` are lists of mappings, the
-  ``rows`` of a ``table`` are lists of lists, and ``bullets``,
-  ``categories``, ``columns`` and each series' ``values`` are lists.
+  ``left``, ``right``, ``caption``, ``quote``, ``attribution``, ``code``,
+  ``chart_type``, …) are strings; YAML reads ``subtitle: 2026`` as a number,
+  so quote it.  List fields are lists of the right thing: ``kpis``,
+  ``milestones``, ``series`` and the rows of a ``comparison`` are lists of
+  mappings, the ``rows`` of a ``table`` are lists of lists, and ``bullets``,
+  ``categories``, ``columns``, ``widths``, ``aligns`` and each series'
+  ``values`` are lists.  ``image`` is a file path or a binary file,
+  ``progress`` a ``[current, total]`` pair and ``totals`` a mapping.
+
+* **null is not a value.**  An optional field given as null (YAML's
+  ``bullets:`` with nothing after it) is treated as not given; a required key
+  given as null (``title:``) is reported as missing.
 
 * **A bare string is not a one-item list.**  ``bullets: "one line"`` raises
   instead of being iterated per character, as it once was.

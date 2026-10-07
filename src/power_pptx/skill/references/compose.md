@@ -139,13 +139,18 @@ Everything below is checked before the slide is built and raises a
   A template's own layout name (`"Title Slide"`) fills only the title;
   the alias (`"title"`) also fills the subtitle.
 - **Values have the right type.** Each slide must be a mapping and
-  `layout` a string. Text fields (`title`, `subtitle`, `text`, `left`, `right`,
-  `caption`, `quote`, `attribution`, `code`, …) must be strings — YAML
-  reads `subtitle: 2026` as a number, so quote it. List fields must be
-  lists of the right thing: `kpis`, `milestones`, `series` and the rows
-  of a `comparison` are lists of mappings; the `rows` of a `table` are
-  lists of lists; `bullets`, `categories`, `columns` and each series'
-  `values` are lists.
+  `layout` a string. Text fields (`title`, `subtitle`, `text`, `left`,
+  `right`, `caption`, `quote`, `attribution`, `code`, `chart_type`, …)
+  must be strings — YAML reads `subtitle: 2026` as a number, so quote
+  it. List fields must be lists of the right thing: `kpis`, `milestones`,
+  `series` and the rows of a `comparison` are lists of mappings; the
+  `rows` of a `table` are lists of lists; `bullets`, `categories`,
+  `columns`, `widths`, `aligns` and each series' `values` are lists.
+  `image` is a file path or a binary file, `progress` a
+  `[current, total]` pair and `totals` a mapping.
+- **`null` is not a value.** An optional field given as null (YAML's
+  `bullets:` with nothing after it) is treated as not given; a required
+  key given as null (`title:`) is reported as missing.
 - **A bare string is not a one-item list.** `bullets: "one line"` raises
   rather than being iterated per character (it used to render as a
   bullet per letter).

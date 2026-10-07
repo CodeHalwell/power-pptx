@@ -1589,6 +1589,110 @@ class DescribeWrongShapedSlides:
         with pytest.raises(ValueError, match=pattern):
             from_spec({"slides": [slide]})
 
+    @pytest.mark.parametrize(
+        ("slide", "pattern"),
+        [
+            pytest.param(
+                {
+                    "layout": "chart",
+                    "title": "T",
+                    "chart_type": ["line"],
+                    "categories": ["a"],
+                    "series": [],
+                },
+                r"slides\[0\]\.chart_type: must be a string.*'list'",
+                id="chart-type-is-a-list",
+            ),
+            pytest.param(
+                {"layout": "picture", "title": "T", "image": 5},
+                r"slides\[0\]\.image: must be a file path or a binary file.*'int'",
+                id="picture-image-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "image_hero", "title": "T", "image": ["a.png"]},
+                r"slides\[0\]\.image: must be a file path or a binary file.*'list'",
+                id="image-hero-image-is-a-list",
+            ),
+            pytest.param(
+                {"layout": "section_divider", "title": "T", "progress": 5},
+                r"slides\[0\]\.progress: must be a \[current, total\] pair",
+                id="progress-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "section_divider", "title": "T", "progress": "37"},
+                r"slides\[0\]\.progress: must be a \[current, total\] pair",
+                id="progress-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "aligns": "right"},
+                r"slides\[0\]\.aligns: must be a list.*'str'",
+                id="aligns-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "widths": 0.5},
+                r"slides\[0\]\.widths: must be a list.*'float'",
+                id="widths-is-a-number",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "totals": [1]},
+                r"slides\[0\]\.totals: must be a mapping.*'list'",
+                id="totals-is-a-list",
+            ),
+        ],
+    )
+    def it_rejects_recipe_options_of_the_wrong_type_with_their_location(self, slide, pattern):
+        with pytest.raises(ValueError, match=pattern):
+            from_spec({"slides": [slide]})
+
+    @pytest.mark.parametrize(
+        ("slide", "missing"),
+        [
+            ({"layout": "kpi", "title": None, "kpis": []}, "title"),
+            ({"layout": "code", "title": "T", "code": None}, "code"),
+            ({"layout": "image_hero", "title": "T", "image": None}, "image"),
+            (
+                {
+                    "layout": "comparison",
+                    "title": "T",
+                    "left_heading": None,
+                    "right_heading": "R",
+                    "rows": [],
+                },
+                "left_heading",
+            ),
+        ],
+    )
+    def it_reports_a_required_key_given_as_null_as_missing(self, slide, missing):
+        # YAML's ``title:`` with nothing after it is ``None``.
+        pattern = (
+            rf"slides\[0\]: layout '\w+' requires keys.*"
+            rf"missing \['{missing}'\] \({missing} given as null\)"
+        )
+        with pytest.raises(ValueError, match=pattern):
+            from_spec({"slides": [slide]})
+
+    @pytest.mark.parametrize(
+        "slide",
+        [
+            {"layout": "bullets", "title": "T", "bullets": None},
+            {"layout": "kpi_grid", "title": "T", "kpis": None},
+            {"layout": "picture", "title": "T", "image": None, "caption": None},
+            {"layout": "title", "title": "T", "subtitle": None, "transition": None},
+            {
+                "layout": "table",
+                "title": "T",
+                "columns": ["a"],
+                "rows": [],
+                "widths": None,
+                "aligns": None,
+                "totals": None,
+            },
+            {"layout": "section_divider", "title": "T", "eyebrow": None, "progress": None},
+        ],
+    )
+    def it_treats_a_null_optional_field_as_not_given(self, slide):
+        assert len(from_spec({"slides": [slide]}).slides) == 1
+
     def it_reports_the_index_of_the_offending_slide(self):
         spec = {
             "slides": [
