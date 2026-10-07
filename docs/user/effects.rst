@@ -161,12 +161,14 @@ Line ends, caps, joins, compound lines
     from power_pptx.enum.dml import (
         MSO_LINE_CAP_STYLE,
         MSO_LINE_COMPOUND_STYLE,
+        MSO_LINE_END_SIZE,
+        MSO_LINE_END_TYPE,
         MSO_LINE_JOIN_STYLE,
     )
 
     line = shape.line
-    line.head_end.type = "TRIANGLE"
-    line.tail_end.length = "LARGE"
+    line.head_end.type = MSO_LINE_END_TYPE.TRIANGLE
+    line.tail_end.length = MSO_LINE_END_SIZE.LARGE
     line.cap = MSO_LINE_CAP_STYLE.ROUND
     line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE
     line.join = MSO_LINE_JOIN_STYLE.BEVEL
