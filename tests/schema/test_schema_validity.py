@@ -572,8 +572,8 @@ def _deck_names_with_markup_characters() -> bytes:
             try:
                 with open(path, "wb") as f:
                     f.write(data)
-            except OSError:  # -- e.g. a double quote in a Windows file name --
-                path = os.path.join(tmp, name.replace('"', "'"))
+            except OSError:  # -- e.g. quotes or angle brackets in a Windows file name --
+                path = os.path.join(tmp, "".join("_" if c in '"<>' else c for c in name))
                 with open(path, "wb") as f:
                     f.write(data)
             return path
