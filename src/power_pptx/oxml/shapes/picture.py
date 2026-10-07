@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls
@@ -62,13 +62,22 @@ class CT_Picture(BaseShapeElement):
         """
         Return a new `p:pic` placeholder element populated with the supplied
         parameters.
+
+        `name` and `desc` are plain text (e.g. a file name); they are escaped for use as
+        attribute values here.
         """
-        return parse_xml(cls._pic_ph_tmpl() % (id_, name, desc, rId))
+        return parse_xml(cls._pic_ph_tmpl() % (id_, quoteattr(name), quoteattr(desc), rId))
 
     @classmethod
     def new_pic(cls, shape_id, name, desc, rId, x, y, cx, cy):
-        """Return new `<p:pic>` element tree configured with supplied parameters."""
-        return parse_xml(cls._pic_tmpl() % (shape_id, name, escape(desc), rId, x, y, cx, cy))
+        """Return new `<p:pic>` element tree configured with supplied parameters.
+
+        `name` and `desc` are plain text (e.g. a file name); they are escaped for use as
+        attribute values here.
+        """
+        return parse_xml(
+            cls._pic_tmpl() % (shape_id, quoteattr(name), quoteattr(desc), rId, x, y, cx, cy)
+        )
 
     @classmethod
     def new_video_pic(
@@ -83,14 +92,18 @@ class CT_Picture(BaseShapeElement):
         cx: Length,
         cy: Length,
     ) -> CT_Picture:
-        """Return a new `p:pic` populated with the specified video."""
+        """Return a new `p:pic` populated with the specified video.
+
+        `shape_name` is plain text (the video's file name); it is escaped for use as an attribute
+        value here.
+        """
         return cast(
             CT_Picture,
             parse_xml(
                 cls._pic_video_tmpl()
                 % (
                     shape_id,
-                    shape_name,
+                    quoteattr(shape_name),
                     video_rId,
                     media_rId,
                     poster_frame_rId,
@@ -166,7 +179,7 @@ class CT_Picture(BaseShapeElement):
         return (
             "<p:pic %s>\n"
             "  <p:nvPicPr>\n"
-            '    <p:cNvPr id="%%d" name="%%s" descr="%%s"/>\n'
+            '    <p:cNvPr id="%%d" name=%%s descr=%%s/>\n'
             "    <p:cNvPicPr>\n"
             '      <a:picLocks noGrp="1" noChangeAspect="1"/>\n'
             "    </p:cNvPicPr>\n"
@@ -187,7 +200,7 @@ class CT_Picture(BaseShapeElement):
         return (
             "<p:pic %s>\n"
             "  <p:nvPicPr>\n"
-            '    <p:cNvPr id="%%d" name="%%s" descr="%%s"/>\n'
+            '    <p:cNvPr id="%%d" name=%%s descr=%%s/>\n'
             "    <p:cNvPicPr>\n"
             '      <a:picLocks noChangeAspect="1"/>\n'
             "    </p:cNvPicPr>\n"
@@ -216,7 +229,7 @@ class CT_Picture(BaseShapeElement):
         return (
             "<p:pic %s>\n"
             "  <p:nvPicPr>\n"
-            '    <p:cNvPr id="%%d" name="%%s">\n'
+            '    <p:cNvPr id="%%d" name=%%s>\n'
             '      <a:hlinkClick r:id="" action="ppaction://media"/>\n'
             "    </p:cNvPr>\n"
             "    <p:cNvPicPr>\n"

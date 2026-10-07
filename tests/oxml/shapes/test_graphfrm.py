@@ -11,6 +11,16 @@ from ...unitutil.cxml import xml
 CHART_URI = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
+# -- names that are legal shape names but break naive XML templating --
+AWKWARD_NAMES = [
+    'Hero "banner"',
+    "Hero & Logo",
+    "Q<4> results",
+    'it\'s 100% & "done"',
+    "tabbed\tname",
+    "two\nlines",
+]
+
 
 class DescribeCT_GraphicalObjectFrame(object):
     """Unit-test suite for `power_pptx.oxml.shapes.graphfrm.CT_GraphicalObjectFrame."""
@@ -41,6 +51,40 @@ class DescribeCT_GraphicalObjectFrame(object):
             id_, name, rows, cols, x, y, cx, cy
         )
         assert graphicFrame.xml == expected_xml
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_graphicFrame(self, name):
+        graphicFrame = CT_GraphicalObjectFrame.new_graphicFrame(42, name, 1, 2, 3, 4)
+        assert graphicFrame.xpath("p:nvGraphicFramePr/p:cNvPr")[0].get("name") == name
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_chart_graphicFrame(self, name):
+        graphicFrame = CT_GraphicalObjectFrame.new_chart_graphicFrame(42, name, "rId6", 1, 2, 3, 4)
+        assert graphicFrame.xpath("p:nvGraphicFramePr/p:cNvPr")[0].get("name") == name
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_table_graphicFrame(self, name):
+        graphicFrame = CT_GraphicalObjectFrame.new_table_graphicFrame(42, name, 1, 1, 1, 2, 3, 4)
+        assert graphicFrame.xpath("p:nvGraphicFramePr/p:cNvPr")[0].get("name") == name
+
+    @pytest.mark.parametrize("text", AWKWARD_NAMES)
+    def it_escapes_the_name_and_progId_of_a_new_ole_object_graphicFrame(self, text):
+        graphicFrame = CT_GraphicalObjectFrame.new_ole_object_graphicFrame(
+            id_=42,
+            name=text,
+            ole_object_rId="rId6",
+            progId=text,
+            icon_rId="rId7",
+            x=1,
+            y=2,
+            cx=3,
+            cy=4,
+            imgW=5,
+            imgH=6,
+            pic_id=43,
+        )
+        assert graphicFrame.xpath("p:nvGraphicFramePr/p:cNvPr")[0].get("name") == text
+        assert graphicFrame.xpath(".//p:oleObj")[0].get("progId") == text
 
     # fixtures -------------------------------------------------------
 

@@ -7,6 +7,8 @@ feature aren't silently corrupted by `Presentation(...).save()`.
 
 from __future__ import annotations
 
+import io
+
 import pytest
 
 from power_pptx import Presentation
@@ -234,3 +236,57 @@ class DescribeErgonomicsRoundTrip:
         for c in range(2):
             table.cell(0, c).text = "header %d" % c
         assert_round_trip(prs)
+
+
+class DescribeNamesWithMarkupCharactersRoundTrip:
+    """File names and placeholder names with `&`, `<` or `"` must survive save → open → save."""
+
+    @staticmethod
+    def _png(shade: int) -> bytes:
+        # -- a different image per file; identical bytes would share one image part (and so
+        # -- one description), by design --
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), (shade, shade, shade)).save(buf, "PNG")
+        return buf.getvalue()
+
+    def it_round_trips_pictures_and_movies_named_after_awkward_files(self, tmp_path):
+        names = ['my "best" photo.png', "Q&A chart.png", "R&D <draft>.png"]
+        paths = []
+        for shade, name in enumerate(names):
+            try:
+                (tmp_path / name).write_bytes(self._png(shade * 40))
+            except OSError:  # -- e.g. a double quote in a Windows file name --
+                pytest.skip("this file system does not allow the file name %r" % name)
+            paths.append(str(tmp_path / name))
+        (tmp_path / "Tom & Jerry.mp4").write_bytes(b"\x00" * 16)
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        for i, path in enumerate(paths):
+            slide.shapes.add_picture(path, Inches(1 + i), Inches(1), Inches(1), Inches(1))
+        slide.shapes.add_movie(
+            str(tmp_path / "Tom & Jerry.mp4"),
+            Inches(1),
+            Inches(3),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+        picture_slide = prs.slides.add_slide(prs.slide_layouts[8])
+        placeholder = next(p for p in picture_slide.placeholders if p.placeholder_format.type == 18)
+        placeholder.name = "Hero & Logo"
+        placeholder.insert_picture(paths[1])
+
+        assert_round_trip(prs)
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        reopened = Presentation(io.BytesIO(buf.getvalue()))
+        pictures = [s for s in reopened.slides[0].shapes if s.shape_type == 13]
+        descrs = [s.element.xpath("p:nvPicPr/p:cNvPr/@descr")[0] for s in pictures]
+        assert descrs == names
+        assert reopened.slides[0].shapes[-1].name == "Tom & Jerry.mp4"
+        hero = next(s for s in reopened.slides[1].shapes if s.name == "Hero & Logo")
+        assert hero.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ["Q&A chart.png"]

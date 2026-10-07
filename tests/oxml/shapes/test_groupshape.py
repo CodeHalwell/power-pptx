@@ -16,6 +16,13 @@ from ...unitutil.mock import call, class_mock, instance_mock, method_mock, prope
 class DescribeCT_GroupShape(object):
     """Unit-test suite for `power_pptx.oxml.shapes.groupshape.CT_GroupShape` objects."""
 
+    @pytest.mark.parametrize(
+        "name", ['Team "A"', "R&D", "Q<4> results", 'it\'s 100% & "done"', "tabbed\tname"]
+    )
+    def it_escapes_the_name_of_a_new_grpSp(self, name):
+        grpSp = CT_GroupShape.new_grpSp(9, name)
+        assert grpSp.xpath("p:nvGrpSpPr/p:cNvPr")[0].get("name") == name
+
     def it_can_add_a_graphicFrame_element_containing_a_table(self, add_table_fixt):
         spTree, id_, name, rows, cols, x, y, cx, cy = add_table_fixt[:9]
         new_table_graphicFrame_ = add_table_fixt[9]

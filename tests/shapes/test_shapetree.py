@@ -8,7 +8,8 @@ import io
 
 import pytest
 
-from power_pptx.chart.data import ChartData
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData, ChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_CONNECTOR, PP_PLACEHOLDER, PROG_ID
 from power_pptx.media import SPEAKER_IMAGE_BYTES, Video
@@ -2378,3 +2379,100 @@ class Describe_NotesSlideShapeFactory(object):
     @pytest.fixture
     def shapes_(self, request):
         return instance_mock(request, _BaseShapes)
+
+
+# ---------------------------------------------------------------------------
+# Integration-style regression tests: real slides, real XML, no mocks.
+# ---------------------------------------------------------------------------
+
+# a 1x1 pixel PNG
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+    "0049454e44ae426082"
+)
+
+
+def _blank_slide():
+    prs = Presentation()
+    return prs, prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _write_file(tmp_path, name, data):
+    """Write `data` to `tmp_path/name`, skipping the test if the OS rejects the file name."""
+    path = tmp_path / name
+    try:
+        path.write_bytes(data)
+    except (OSError, ValueError):  # e.g. a double quote in a Windows file name
+        pytest.skip("this file system does not allow the file name %r" % name)
+    return path
+
+
+class DescribeNamesContainingMarkupCharacters(object):
+    """File names and placeholder names are spliced into XML, so they must be escaped.
+
+    A name like `Q&A chart.png` or `my "best" photo.png` is perfectly legal on disk, and the
+    shape-tree API must carry it through to the `descr`/`name` attribute literally.
+    """
+
+    @pytest.mark.parametrize("stem", ['my "best" photo', "Q&A chart", "R&D <draft>"])
+    def it_can_add_a_picture_whose_file_name_contains_markup_or_quotes(self, tmp_path, stem):
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, stem + ".png", TINY_PNG)
+
+        picture = slide.shapes.add_picture(str(path), Inches(1), Inches(1))
+
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == [stem + ".png"]
+
+    def and_it_can_add_the_same_image_again_after_a_special_character_file_name(self, tmp_path):
+        # -- images are de-duplicated by SHA1, so the part that remembers the awkward file
+        # -- name is reused (and its name re-spliced into XML) by later, unrelated adds
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, 'my "best" photo.png', TINY_PNG)
+        slide.shapes.add_picture(str(path), Inches(1), Inches(1))
+
+        again = slide.shapes.add_picture(io.BytesIO(TINY_PNG), Inches(2), Inches(2))
+
+        assert again.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ['my "best" photo.png']
+
+    def it_can_add_a_movie_whose_file_name_contains_markup_or_quotes(self, tmp_path):
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, "Tom & Jerry.mp4", b"\x00" * 16)
+
+        movie = slide.shapes.add_movie(
+            str(path), Inches(1), Inches(1), Inches(2), Inches(1), mime_type="video/mp4"
+        )
+
+        assert movie.name == "Tom & Jerry.mp4"
+
+    def it_can_insert_a_picture_into_a_placeholder_whose_name_contains_an_ampersand(self, tmp_path):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        placeholder = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+        placeholder.name = "Hero & Logo"
+        path = _write_file(tmp_path, "Q&A chart.png", TINY_PNG)
+
+        picture = placeholder.insert_picture(str(path))
+
+        assert picture.name == "Hero & Logo"
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ["Q&A chart.png"]
+
+    @pytest.mark.parametrize("name", ["Hero & Logo", 'The "big" one', "Q<4>"])
+    def it_can_insert_a_chart_or_table_into_a_placeholder_whose_name_contains_markup(self, name):
+        _, slide = _blank_slide()
+        spTree = slide.shapes._spTree
+        for idx, ph_type in ((10, PP_PLACEHOLDER.CHART), (11, PP_PLACEHOLDER.TABLE)):
+            spTree.add_placeholder(100 + idx, "Placeholder %d" % idx, ph_type, "horz", "full", idx)
+            placeholder = slide.placeholders[idx]
+            placeholder.name = name  # -- as a designer (or a loaded deck) would have named it --
+            placeholder.left, placeholder.top = Inches(1), Inches(1)
+            placeholder.width, placeholder.height = Inches(4), Inches(3)
+        chart_data = CategoryChartData()
+        chart_data.categories = ["A", "B"]
+        chart_data.add_series("S1", (1, 2))
+
+        chart_frame = slide.placeholders[10].insert_chart(XL_CHART_TYPE.PIE, chart_data)
+        table_frame = slide.placeholders[11].insert_table(2, 2)
+
+        assert chart_frame.name == name
+        assert table_frame.name == name

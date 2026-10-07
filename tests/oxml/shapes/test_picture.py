@@ -7,6 +7,16 @@ import pytest
 from power_pptx.oxml.ns import nsdecls
 from power_pptx.oxml.shapes.picture import CT_Picture
 
+# -- names that are legal filenames and shape names but break naive XML templating --
+AWKWARD_NAMES = [
+    'my "best" photo.png',
+    "Q&A chart.png",
+    "R&D <draft>.png",
+    'it\'s 100% & "done"',
+    "tabbed\tname",
+    "two\nlines",
+]
+
 
 class DescribeCT_Picture(object):
     """Unit-test suite for `power_pptx.oxml.shapes.picture.CT_Picture` objects."""
@@ -105,3 +115,37 @@ class DescribeCT_Picture(object):
             "  </p:spPr>\n"
             "</p:pic>\n"
         ) % nsdecls("a", "p", "r")
+
+    @pytest.mark.parametrize("text", AWKWARD_NAMES)
+    def it_escapes_a_name_and_desc_containing_markup_or_quotes_in_a_new_pic(self, text):
+        pic = CT_Picture.new_pic(
+            shape_id=9, name=text, desc=text, rId="rId42", x=1, y=2, cx=3, cy=4
+        )
+
+        cNvPr = pic.xpath("p:nvPicPr/p:cNvPr")[0]
+        assert cNvPr.get("name") == text
+        assert cNvPr.get("descr") == text
+
+    @pytest.mark.parametrize("text", AWKWARD_NAMES)
+    def it_escapes_a_name_and_desc_containing_markup_or_quotes_in_a_placeholder_pic(self, text):
+        pic = CT_Picture.new_ph_pic(id_=9, name=text, desc=text, rId="rId42")
+
+        cNvPr = pic.xpath("p:nvPicPr/p:cNvPr")[0]
+        assert cNvPr.get("name") == text
+        assert cNvPr.get("descr") == text
+
+    @pytest.mark.parametrize("text", AWKWARD_NAMES)
+    def it_escapes_a_shape_name_containing_markup_or_quotes_in_a_video_pic(self, text):
+        pic = CT_Picture.new_video_pic(
+            shape_id=42,
+            shape_name=text,
+            video_rId="rId1",
+            media_rId="rId2",
+            poster_frame_rId="rId3",
+            x=1,
+            y=2,
+            cx=3,
+            cy=4,
+        )
+
+        assert pic.xpath("p:nvPicPr/p:cNvPr")[0].get("name") == text
