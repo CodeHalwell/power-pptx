@@ -1965,6 +1965,22 @@ def _resolve_solid_rgb(fill):
         return None
 
 
+def _paints_own_fill(shape: BaseShape) -> bool:
+    """Return ``True`` if *shape* has an explicit fill that covers what is behind it.
+
+    That is any fill type but "none": an unset fill is inherited (as far as
+    this linter can tell, the shape is transparent) and an explicit ``noFill``
+    paints nothing, so in both cases the slide behind shows through.
+    """
+    try:
+        from power_pptx.enum.dml import MSO_FILL_TYPE
+
+        fill_type = shape.fill.type  # type: ignore[attr-defined]
+    except Exception:
+        return False
+    return fill_type is not None and fill_type != MSO_FILL_TYPE.BACKGROUND
+
+
 def _slide_background_rgb(slide: Slide):
     """Best-effort RGB extraction from the slide's explicit background fill.
 
@@ -2021,6 +2037,13 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     with contextlib.suppress(Exception):
         bg_rgb = _resolve_solid_rgb(shape.fill)  # type: ignore[attr-defined]
     if bg_rgb is None:
+        # The slide only shows through a shape that paints no fill of its own.
+        # A fill we merely *can't read* as one RGB (a theme colour, a gradient)
+        # still covers the slide, and measuring against what it covers answers
+        # a different question -- white text on a dark-blue accent card would
+        # come out as 1.00:1 against a white slide.  Skip rather than guess.
+        if _paints_own_fill(shape):
+            return issues
         bg_rgb = _slide_background_rgb(slide)
     if bg_rgb is None:
         return issues

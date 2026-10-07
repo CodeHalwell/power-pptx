@@ -699,6 +699,78 @@ class DescribeLowContrast:
         assert [i for i in slide.lint().issues if isinstance(i, LowContrast)] == []
 
 
+class DescribeLowContrastBackground:
+    """Which background the text is measured against: the shape's fill, or the slide's."""
+
+    @staticmethod
+    def _white_text_in_a_card_on_a_white_slide(fill):
+        """A card with white text on a slide whose explicit background is white.
+
+        *fill* is applied to the card; the text colour and the slide background are fixed.
+        """
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        card = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(1))
+        card.text_frame.text = "White on a card"
+        card.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        fill(card)
+        return slide
+
+    @staticmethod
+    def _low_contrast(slide):
+        return [i for i in slide.lint().issues if isinstance(i, LowContrast)]
+
+    def it_skips_a_card_filled_with_a_theme_colour(self):
+        # Regression: a solid fill that is not an explicit RGB (here the dark-blue ACCENT_1) was
+        # treated as "no fill", so the white text was measured against the white slide and
+        # reported at 1.00:1 although it sits on dark blue.
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        def accent_fill(card):
+            card.fill.solid()
+            card.fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
+
+        slide = self._white_text_in_a_card_on_a_white_slide(accent_fill)
+
+        assert self._low_contrast(slide) == []
+
+    def it_skips_a_card_with_a_gradient_fill(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.gradient())
+        assert self._low_contrast(slide) == []
+
+    def it_skips_a_card_with_a_patterned_fill(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.patterned())
+        assert self._low_contrast(slide) == []
+
+    def but_it_still_measures_an_explicit_rgb_fill(self):
+        def white_fill(card):
+            card.fill.solid()
+            card.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        slide = self._white_text_in_a_card_on_a_white_slide(white_fill)
+
+        assert len(self._low_contrast(slide)) == 1
+
+    def but_it_still_falls_back_to_the_slide_when_the_shape_has_no_fill_of_its_own(self):
+        # A textbox has no fill, so the text sits on the slide itself.
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "White on white"
+        box.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        issues = self._low_contrast(slide)
+
+        assert len(issues) == 1
+        assert issues[0].ratio == pytest.approx(1.0)
+
+    def and_an_explicit_no_fill_means_the_text_sits_on_the_slide(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.background())
+        assert len(self._low_contrast(slide)) == 1
+
+
 class DescribeZOrderAnomaly:
     def it_flags_a_filled_shape_drawn_above_a_contained_shape(self):
         _, slide = _new_blank_slide()
