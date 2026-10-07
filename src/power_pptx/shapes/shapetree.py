@@ -237,21 +237,28 @@ def _move_to_anchor(shape, anchor, box, margin) -> None:
 class _LintGroupScope:
     """Context manager returned by :meth:`_BaseShapes.lint_group_scope`.
 
-    On enter it snapshots the current shape count of the tree; on
-    exit it tags every shape added in between with
+    On enter it snapshots the shape elements the tree already holds; on
+    exit it tags every shape that was not among them with
     ``shape.lint_group = name``. A diff-based approach keeps the
     implementation independent of which ``add_*`` method the caller
     uses — the proxy doesn't have to wrap each one individually, and
     custom helpers that ultimately call into the tree just work.
+
+    The snapshot is of the elements themselves, not a count: a count is
+    thrown off by a shape deleted inside the block, which shifts the
+    slice and leaves one of the new shapes untagged. lxml returns the
+    same proxy object for an element only while some reference to it is
+    alive, so the snapshot holds those references; that is what makes
+    the membership test on exit (by identity) trustworthy.
     """
 
     def __init__(self, shapetree, name):
         self._shapetree = shapetree
         self._name = name
-        self._snapshot = 0
+        self._existing: frozenset[ShapeElement] = frozenset()
 
     def __enter__(self):
-        self._snapshot = len(list(self._shapetree._iter_member_elms()))
+        self._existing = frozenset(self._shapetree._iter_member_elms())
         return self._shapetree
 
     def __exit__(self, exc_type, exc, tb):
@@ -260,7 +267,8 @@ class _LintGroupScope:
         # report, which is the worse default.
 
         elms = list(self._shapetree._iter_member_elms())
-        added = elms[self._snapshot :]
+        added = [elm for elm in elms if elm not in self._existing]
+        self._existing = frozenset()  # -- let go of the proxies held for the comparison --
         if not added:
             return False  # nothing to tag, propagate any exception
 

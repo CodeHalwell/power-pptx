@@ -290,6 +290,46 @@ class DescribeLintGroupScope:
         # The second auto-named scope must pick a fresh number.
         assert second.lint_group == "design-group-2"
 
+    def it_tags_every_new_shape_when_an_existing_one_is_deleted_inside_the_block(self):
+        # -- a shape count taken on entry is fooled by a deletion: two shapes before, one
+        # -- deleted and two added makes three, so only `elms[2:]` -- one new shape -- was tagged
+        prs, slide = _slide()
+        doomed = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+        survivor = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2), 0, Inches(1), Inches(1))
+
+        with slide.shapes.lint_group_scope("g"):
+            doomed.delete()
+            first = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), 0, Inches(1), Inches(1))
+            second = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(6), 0, Inches(1), Inches(1))
+
+        assert first.lint_group == "g"
+        assert second.lint_group == "g"
+        assert survivor.lint_group is None
+
+    def and_it_does_not_tag_an_existing_shape_that_was_only_reordered(self):
+        prs, slide = _slide()
+        a = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+        b = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2), 0, Inches(1), Inches(1))
+
+        with slide.shapes.lint_group_scope("g"):
+            slide.shapes._spTree.append(a.element)  # -- send `a` to the front of the z-order --
+            added = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), 0, Inches(1), Inches(1))
+
+        assert added.lint_group == "g"
+        assert a.lint_group is None
+        assert b.lint_group is None
+
+    def it_tags_shapes_added_to_a_group_inside_the_block(self):
+        prs, slide = _slide()
+        group = slide.shapes.add_group_shape()
+        existing = group.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+
+        with group.shapes.lint_group_scope("g"):
+            added = group.shapes.add_shape(MSO_SHAPE.OVAL, Inches(2), 0, Inches(1), Inches(1))
+
+        assert added.lint_group == "g"
+        assert existing.lint_group is None
+
     def it_still_tags_when_the_block_raises(self):
         # Better to tag than leave shapes flagged as real overlaps in
         # the lint report.
