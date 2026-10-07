@@ -203,20 +203,32 @@ slide.  Both mistakes raise :class:`ValueError` locating the bad entry.
 Cross-presentation operations
 -----------------------------
 
+Both operations are methods of the presentation being changed.  (The
+functions of the same names in :mod:`power_pptx.compose` are the lower-level
+entry points: they take the underlying parts, with the arguments in a
+different order.)
+
 ::
 
     from power_pptx import Presentation
-    from power_pptx.compose import import_slide, apply_template
 
     src = Presentation("source.pptx")
     dst = Presentation("destination.pptx")
 
     # Clone a slide with its layout reference, deduping the master.
-    import_slide(dst, src.slides[3], merge_master="dedupe")
+    dst.import_slide(src.slides[3], merge_master="dedupe")
 
     # Re-point existing slides at masters/layouts from a .potx.
-    apply_template(dst, "brand-template.potx")
+    dst.apply_template("brand-template.potx")
 
 ``merge_master="clone"`` keeps a fresh copy of the source master alongside
 existing masters; ``"dedupe"`` reuses an equivalent master in the
 destination when one is available.
+
+Images the destination already holds are reused rather than stored twice.  A
+hyperlink that jumps to another slide of the *source* deck cannot be kept, since
+that slide is not coming along: the jump is removed from the copy and one
+:class:`UserWarning` says how many were dropped.  ``apply_template`` brings the
+template's pictures (logos, background images) with its masters and layouts, and
+leaves the deck usable at once; a template with no layouts leaves the deck
+unchanged and warns.

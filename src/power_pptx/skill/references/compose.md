@@ -233,9 +233,14 @@ per slide. Both mistakes raise a `ValueError` locating the bad entry as
 
 ## Cross-presentation operations
 
+Both operations are methods of the presentation being changed,
+`Presentation.import_slide()` and `Presentation.apply_template()`. (The
+functions of the same names in `power_pptx.compose` are the lower-level
+entry points: they take the underlying parts, with the arguments in a
+different order, and are not what you want from a script.)
+
 ```python
 from power_pptx import Presentation
-from power_pptx.compose import import_slide, apply_template
 ```
 
 ### Importing a slide
@@ -245,7 +250,7 @@ src = Presentation("source.pptx")
 dst = Presentation("destination.pptx")
 
 # Clone src.slides[3] into dst, including its layout reference.
-import_slide(dst, src.slides[3], merge_master="dedupe")
+dst.import_slide(src.slides[3], merge_master="dedupe")
 ```
 
 Image-rename collisions, layout references, and master/theme parts are
@@ -256,16 +261,28 @@ handled automatically. Two strategies for masters:
 - `merge_master="clone"` always brings a fresh copy of the source
   master alongside.
 
+Images the destination already holds (identical bytes) are reused, not
+stored twice. A hyperlink that jumps to another slide of the *source*
+deck cannot be kept, because that slide is not coming along: the jump is
+removed from the copy and one `UserWarning` says how many were dropped.
+A jump to the imported slide itself is kept, and so are jumps to other
+slides when you copy a slide within one deck.
+
 ### Applying a template
 
 ```python
-apply_template(dst, "brand-template.potx")
+dst.apply_template("brand-template.potx")
 ```
 
 Re-points every slide's layout/master/theme at masters from the
 `.potx` (or `.pptx`). Slide content is preserved. Layout matching:
 name → type → first layout. Unreferenced old masters / layouts /
-themes are dropped from the saved package.
+themes are dropped from the saved package. Pictures on the template's
+masters, layouts and theme (logos, background images) come along, and the
+deck is usable straight away: `dst.slide_layouts`, `dst.slides.add_slide(...)`
+and a further `save()` all work without a save-and-reopen. A template
+with no slide layouts at all leaves the deck unchanged and emits a
+`UserWarning`.
 
 ## End-to-end pipeline
 
@@ -274,7 +291,7 @@ script:
 
 ```python
 from power_pptx import Presentation
-from power_pptx.compose import import_slide, apply_template, from_spec
+from power_pptx.compose import from_spec
 
 # 1. Generate the body slides from data
 body = from_spec(
@@ -288,10 +305,10 @@ body = from_spec(
 # 2. Open the cover deck and append the body slides
 deck = Presentation("cover.pptx")
 for slide in body.slides:
-    import_slide(deck, slide, merge_master="dedupe")
+    deck.import_slide(slide, merge_master="dedupe")
 
 # 3. Re-skin everything against the latest brand template
-apply_template(deck, "brand-2026.potx")
+deck.apply_template("brand-2026.potx")
 
 # 4. Lint and save (or set prs.lint_on_save = "raise" and just save)
 from power_pptx.exc import LintError
