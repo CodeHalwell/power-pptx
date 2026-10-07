@@ -97,4 +97,13 @@ Motion paths
     MotionPath.zigzag(slide, shape, Inches(4), Inches(0),
                       segments=6, amplitude=0.2)
     MotionPath.spiral(slide, shape, Inches(2), turns=2.5)
-    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5")  # OOXML expr
+
+    # An OOXML motion-path expression must end in the ``E`` terminator;
+    # without it ``custom()`` raises ValueError.
+    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0 E")
+
+    # For SVG path syntax (M/L/H/V/C/Q/Z, absolute or relative) use ``svg()``.
+    # It appends the terminator and maps the coordinates from the viewbox
+    # onto the slide; this is the same path as above.
+    MotionPath.svg(slide, shape, "M 0 0 L 50 50 L 100 0",
+                   viewbox=(0, 0, 100, 100))
