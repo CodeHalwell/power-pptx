@@ -1004,6 +1004,39 @@ class DescribeLinearGradientHelper:
         with pytest.raises(TypeError, match="end colour"):
             shape.fill.linear_gradient("#FF0000")
 
+    @pytest.mark.parametrize(
+        ("angle", "expected_ang", "direction"),
+        [
+            (0, "0", "left-to-right"),
+            (90, "16200000", "bottom-to-top"),
+            (180, "10800000", "right-to-left"),
+            (270, "5400000", "top-to-bottom"),
+        ],
+    )
+    def it_measures_the_angle_counter_clockwise_from_left_to_right(
+        self, angle, expected_ang, direction
+    ):
+        # -- `a:lin/@ang` is a *clockwise* angle (0 = left-to-right, 5400000 = 90 degrees
+        # -- clockwise = top-to-bottom), whereas the API angle is counter-clockwise, as in
+        # -- python-pptx. So top-to-bottom is 270, not 90; this pins the convention the docs
+        # -- describe (`direction` is derived from the ISO 29500 definition of `ang`).
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+        from power_pptx.oxml.ns import qn
+        from power_pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+
+        shape.fill.linear_gradient("#06D6FE", "#B14AED", angle=angle)
+
+        lin = shape.fill._xPr.find(qn("a:gradFill")).find(qn("a:lin"))
+        assert lin.get("ang") == expected_ang, direction
+        assert shape.fill.gradient_angle == float(angle)
+
 
 class DescribeGradientWithoutAShadingElement:
     """A `gradFill` having neither `a:lin` nor `a:path` is legal; angles still apply to it."""

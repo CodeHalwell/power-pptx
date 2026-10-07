@@ -121,6 +121,15 @@ stops::
         (1.0, (255, 255, 255)),
     ])
 
+The angle of a linear gradient (``fill.linear_gradient(..., angle=...)``,
+``fill.gradient("linear", angle=...)`` and ``fill.gradient_angle``) is
+measured counter-clockwise from the left-to-right direction, as in
+python-pptx: ``0`` is left to right, ``90`` is bottom to top, ``180`` is
+right to left and ``270`` is top to bottom. The clockwise ``ang`` stored
+in the XML is ``360 - angle``::
+
+    fill.linear_gradient("#0F2D6B", "#4F9DFF", angle=270)  # top to bottom
+
 Picture effects
 ---------------
 

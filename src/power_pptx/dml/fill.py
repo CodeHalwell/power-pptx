@@ -127,8 +127,9 @@ class FillFormat(object):
 
         If the fill is not already a gradient, a default gradient is added.
         The default gradient corresponds to the default in the built-in
-        PowerPoint "White" template. This gradient is linear at angle
-        90-degrees (upward), with two stops. The first stop is Accent-1 with
+        PowerPoint "White" template. This gradient is linear at angle 0
+        (left-to-right; its ``<a:lin scaled="0"/>`` carries no ``ang``),
+        with two stops. The first stop is Accent-1 with
         tint 100%, shade 100%, and satMod 130%. The second stop is Accent-1
         with tint 50%, shade 100%, and satMod 350%.
 
@@ -148,9 +149,11 @@ class FillFormat(object):
 
         The optional ``angle`` keyword sets ``gradient_angle`` after the
         fill has been initialized — symmetric with
-        :meth:`linear_gradient`'s ``angle=`` parameter.  Only meaningful
-        for ``kind="linear"``; passing it with a non-linear ``kind`` is
-        a :class:`ValueError`.
+        :meth:`linear_gradient`'s ``angle=`` parameter, and measured the
+        same way (see :attr:`gradient_angle`: counter-clockwise from
+        left-to-right, so ``angle=270`` runs top to bottom).  Only
+        meaningful for ``kind="linear"``; passing it with a non-linear
+        ``kind`` is a :class:`ValueError`.
         """
         if kind not in self._GRADIENT_KINDS:
             raise ValueError(
@@ -175,12 +178,23 @@ class FillFormat(object):
         Read/Write. May be |None|, indicating the angle should be inherited
         from the style hierarchy.
 
-        Angle convention (OOXML)::
+        The angle is measured **counter-clockwise** from the left-to-right
+        direction, as in python-pptx. That is the opposite sense to the
+        ``ang`` attribute stored in the XML, which is clockwise (the stored
+        value is ``360 - angle``)::
 
               0    →   left-to-right
-              90   →   top-to-bottom
+              90   →   bottom-to-top
               180  →   right-to-left
-              270  →   bottom-to-top
+              270  →   top-to-bottom
+
+        So a top-to-bottom gradient is ``270``, not ``90``::
+
+            fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top to bottom
+
+        Assigning an angle to a gradient that has neither an ``<a:lin>`` nor
+        an ``<a:path>`` shading element makes it an explicitly linear
+        gradient.
 
         Raises |TypeError| when the fill type is not
         MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
@@ -207,17 +221,20 @@ class FillFormat(object):
 
         Two equivalent input shapes are accepted:
 
-        * ``fill.linear_gradient("#06D6FE", "#B14AED", angle=90)`` —
-          two-stop short form: pass *start* as ``stops`` and *end* as
-          *end*; the stops are placed at positions ``0.0`` and ``1.0``.
+        * ``fill.linear_gradient("#06D6FE", "#B14AED", angle=270)`` —
+          two-stop short form (here running top to bottom): pass *start*
+          as ``stops`` and *end* as *end*; the stops are placed at
+          positions ``0.0`` and ``1.0``.
         * ``fill.linear_gradient([("#06D6FE", 0.0), ("#FFFFFF", 0.5),
           ("#B14AED", 1.0)], angle=45)`` — explicit list of
           ``(color, position)`` pairs (or just colors, in which case
           positions are spread evenly across ``[0.0, 1.0]``).
 
-        *angle* follows the OOXML convention: ``0`` is left-to-right,
-        ``90`` is top-to-bottom, ``180`` is right-to-left, ``270`` is
-        bottom-to-top.
+        *angle* is measured counter-clockwise from left-to-right, the same
+        convention as :attr:`gradient_angle` (and python-pptx): ``0`` is
+        left-to-right, ``90`` is bottom-to-top, ``180`` is right-to-left
+        and ``270`` is top-to-bottom. The XML stores the clockwise
+        complement, so ``angle=270`` is written as ``ang="5400000"``.
 
         Each colour may be an :class:`~power_pptx.dml.color.RGBColor`,
         a 6-digit hex string (with or without leading ``#``), or a
@@ -404,10 +421,11 @@ class _GradFill(_Fill):
 
         Read/Write. May be |None|, indicating the angle is inherited from the
         style hierarchy. An angle of 0.0 corresponds to a left-to-right
-        gradient. Increasing angles represent clockwise rotation of the line,
-        for example 90.0 represents a top-to-bottom gradient. Raises
-        |TypeError| when the fill type is not MSO_FILL_TYPE.GRADIENT. Raises
-        |ValueError| for a non-linear gradient (e.g. a radial gradient).
+        gradient. Increasing angles represent counter-clockwise rotation of
+        the line, for example 90.0 represents a bottom-to-top gradient and
+        270.0 a top-to-bottom one. Raises |TypeError| when the fill type is
+        not MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
+        gradient (e.g. a radial gradient).
         """
         # ---case 1: gradient path is explicit, but not linear---
         path = self._gradFill.path
