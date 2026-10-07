@@ -129,12 +129,22 @@ for entry in slide.animations:
     )
 ```
 
-Each entry is a read-only `AnimationEntry`. To remove the entry from
-the slide call `entry.remove()`; to wipe the whole slide call
+Each entry is a read-only `AnimationEntry`, one per effect, wherever the
+deck nests it: the flat click groups this library writes and the main
+sequence PowerPoint writes (with each With/After Previous effect sharing
+the click group of the effect before it) are both reported. To remove the
+entry from the slide call `entry.remove()`; to wipe the whole slide call
 `slide.animations.clear()` (returns the count of entries removed).
 
 `slide.animations.purge_orphans()` is the narrower cousin — it only
-removes entries whose target shape has been deleted.
+removes the effects whose target shape has been deleted, and nothing
+else: effects sharing a click group with a deleted shape's keep playing,
+and click groups left empty are dropped. It also drops the play controls
+of a deleted movie or sound, interactive sequences whose trigger shape is
+gone, and build-list entries (`p:bldP` and friends) for deleted shapes.
+`shape.delete()` calls it for you, and `group.ungroup()` does the same for
+the group it dissolves; use it directly only if you remove shape elements
+by other means.
 
 ## Motion paths
 

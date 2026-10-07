@@ -7,12 +7,23 @@ emphasis presets are exercised via the integration round-trip suite.
 
 from __future__ import annotations
 
+import copy
+import io
+
 import pytest
 
 from power_pptx import Presentation
 from power_pptx.animation import Emphasis, Entrance, MotionPath, Trigger
 from power_pptx.oxml.ns import qn
 from power_pptx.util import Inches
+
+from .unitutil.timing import (
+    build_ids,
+    cTn_ids,
+    install_timing,
+    powerpoint_timing_xml,
+    target_ids,
+)
 
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
@@ -838,3 +849,564 @@ class DescribeBlockTriggerCounting:
 
         node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
         assert node_types == ["withEffect", "afterEffect", "afterEffect"]
+
+
+# ---------------------------------------------------------------------------
+# Timing trees authored in PowerPoint: everything nested under a main sequence
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def three_shapes():
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    a, b, c = (
+        slide.shapes.add_shape(1, Inches(1 + 2 * i), Inches(1), Inches(1), Inches(1))
+        for i in range(3)
+    )
+    return slide, a, b, c
+
+
+def _click_groups(slide):
+    """The click-group ``p:par`` elements of the main sequence."""
+    return slide._element.xpath("p:timing//p:cTn[@nodeType='mainSeq']/p:childTnLst/p:par")
+
+
+def _childless_lists(slide):
+    """Time-node and build lists holding nothing; the schema requires at least one entry."""
+    return slide._element.xpath("p:timing//p:childTnLst[not(*)] | p:timing/p:bldLst[not(*)]")
+
+
+def _interactive_sequences(slide):
+    return slide._element.xpath("p:timing//p:seq/p:cTn[@nodeType='interactiveSeq']")
+
+
+def _share_click_group(slide, shape):
+    """Graft a withEffect for *shape* into the first click group's effect list.
+
+    The result is a click group holding two effects, which is how PowerPoint writes a
+    With Previous effect.
+    """
+    effects = slide._element.xpath(
+        "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par/p:cTn/p:childTnLst"
+    )[0]
+    clone = copy.deepcopy(effects[0])
+    for target in clone.iter(qn("p:spTgt")):
+        target.set("spid", str(shape.shape_id))
+    next_id = max(cTn_ids(slide)) + 1
+    for ctn in clone.iter(qn("p:cTn")):
+        ctn.set("id", str(next_id))
+        next_id += 1
+    clone.find(qn("p:cTn")).set("nodeType", "withEffect")
+    effects.append(clone)
+
+
+class DescribeMainSequenceIntrospection:
+    """`slide.animations` sees the effects of decks authored in PowerPoint."""
+
+    def it_reports_every_effect_in_a_main_sequence(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "afterEffect"),
+                ]
+            ),
+        )
+
+        entries = list(slide.animations)
+
+        assert len(slide.animations) == 3
+        assert bool(slide.animations) is True
+        assert [e.shape_id for e in entries] == [a.shape_id, b.shape_id, c.shape_id]
+        assert [e.shape.shape_id for e in entries] == [a.shape_id, b.shape_id, c.shape_id]
+        assert [e.trigger for e in entries] == [
+            Trigger.ON_CLICK,
+            Trigger.WITH_PREVIOUS,
+            Trigger.AFTER_PREVIOUS,
+        ]
+        assert [(e.kind, e.preset, e.duration) for e in entries] == [("entrance", "fade", 500)] * 3
+
+    def it_also_reports_interactive_sequences_and_effects_the_library_appended(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect")],
+                interactive=[(a.shape_id, [(b.shape_id, "clickEffect")])],
+            ),
+        )
+
+        Entrance.fade(slide, c)  # appended flat, after the structure PowerPoint wrote
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id, b.shape_id, c.shape_id]
+
+    def it_reports_nothing_for_a_main_sequence_without_effects(self, three_shapes):
+        slide, a, _, _ = three_shapes
+        install_timing(slide, powerpoint_timing_xml([], media=[("video", a.shape_id)]))
+
+        assert len(slide.animations) == 0
+        assert not slide.animations
+        assert list(slide.animations) == []
+
+    def it_clears_every_effect(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ],
+                bld=[a.shape_id, b.shape_id, c.shape_id],
+            ),
+        )
+
+        assert slide.animations.clear() == 3
+
+        assert len(slide.animations) == 0
+        # nothing meaningful is left, so the whole timing goes, build list included
+        assert slide._element.find(qn("p:timing")) is None
+
+    def and_it_clears_the_effects_of_interactive_sequences_too(self, three_shapes):
+        slide, a, b, _ = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect")],
+                interactive=[(a.shape_id, [(b.shape_id, "clickEffect")])],
+            ),
+        )
+
+        assert slide.animations.clear() == 2
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def but_it_keeps_media_play_controls_when_clearing(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect"), (b.shape_id, "withEffect")],
+                media=[("video", c.shape_id)],
+                bld=[a.shape_id],
+            ),
+        )
+
+        assert slide.animations.clear() == 2
+
+        assert target_ids(slide) == [c.shape_id]
+        # the build entries described the effects just cleared
+        assert slide._element.xpath("p:timing/p:bldLst") == []
+        # the emptied main sequence stays, as PowerPoint writes one without effects
+        assert slide._element.xpath("p:timing//p:seq/p:cTn[@nodeType='mainSeq'][not(*)]")
+        assert _childless_lists(slide) == []
+
+    def it_removes_one_entry_and_prunes_the_groups_it_empties(self, three_shapes):
+        slide, a, b, c = three_shapes
+        # A starts a click, B follows it, C starts the next click
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "afterEffect"),
+                    (c.shape_id, "clickEffect"),
+                ]
+            ),
+        )
+        entries = list(slide.animations)
+
+        entries[1].remove()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id, c.shape_id]
+        assert len(_click_groups(slide)) == 2
+        assert _childless_lists(slide) == []
+
+        entries[2].remove()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert len(_click_groups(slide)) == 1
+        assert _childless_lists(slide) == []
+
+
+class DescribeDeletingShapesAnimatedInAMainSequence:
+    """`shape.delete()` cleans the timing of decks authored in PowerPoint."""
+
+    def it_removes_only_the_deleted_shapes_effect_from_a_shared_click_group(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ],
+                bld=[a.shape_id, b.shape_id, c.shape_id],
+            ),
+        )
+
+        a.delete()
+
+        assert set(target_ids(slide)) == {b.shape_id, c.shape_id}
+        assert build_ids(slide) == [b.shape_id, c.shape_id]
+        assert [e.shape_id for e in slide.animations] == [b.shape_id, c.shape_id]
+        # B keeps playing from inside the first click group
+        assert len(_click_groups(slide)) == 2
+        assert _childless_lists(slide) == []
+
+    def it_prunes_the_group_pars_the_deleted_effect_leaves_empty(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "afterEffect"),
+                    (c.shape_id, "clickEffect"),
+                ]
+            ),
+        )
+        groups = "p:timing//p:cTn[@nodeType='mainSeq']/p:childTnLst/p:par/p:cTn/p:childTnLst/p:par"
+        assert len(slide._element.xpath(groups)) == 3  # A's, B's and C's with/after groups
+
+        b.delete()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id, c.shape_id]
+        assert len(_click_groups(slide)) == 2
+        assert len(slide._element.xpath(groups)) == 2
+
+        c.delete()
+
+        assert len(_click_groups(slide)) == 1
+        assert _childless_lists(slide) == []
+
+    def it_drops_the_timing_once_nothing_meaningful_remains(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ],
+                bld=[a.shape_id, b.shape_id, c.shape_id],
+            ),
+        )
+
+        a.delete()
+        b.delete()
+        assert slide._element.find(qn("p:timing")) is not None
+        c.delete()
+
+        # the emptied main sequence alone is not worth keeping
+        assert slide._element.find(qn("p:timing")) is None
+
+    def but_it_keeps_the_main_sequence_while_media_play_controls_remain(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect"), (b.shape_id, "withEffect")],
+                media=[("video", c.shape_id)],
+                bld=[a.shape_id, b.shape_id],
+            ),
+        )
+
+        a.delete()
+        b.delete()
+
+        assert target_ids(slide) == [c.shape_id]
+        assert slide._element.xpath("p:timing//p:seq/p:cTn[@nodeType='mainSeq'][not(*)]")
+        assert slide._element.xpath("p:timing/p:bldLst") == []
+        assert _childless_lists(slide) == []
+
+    def and_it_keeps_an_interactive_sequence_that_targets_live_shapes(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect")],
+                interactive=[(b.shape_id, [(c.shape_id, "clickEffect")])],
+            ),
+        )
+
+        a.delete()
+
+        assert [e.shape_id for e in slide.animations] == [c.shape_id]
+        assert len(_interactive_sequences(slide)) == 1
+        assert b.shape_id in target_ids(slide)  # the trigger is still wired up
+        assert _childless_lists(slide) == []
+
+    def it_drops_an_interactive_sequence_whose_trigger_shape_is_deleted(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect")],
+                interactive=[(b.shape_id, [(c.shape_id, "clickEffect")])],
+            ),
+        )
+
+        b.delete()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert _interactive_sequences(slide) == []
+        assert target_ids(slide) == [a.shape_id, a.shape_id]
+
+    def and_it_drops_an_interactive_sequence_left_without_effects(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect")],
+                interactive=[(b.shape_id, [(c.shape_id, "clickEffect")])],
+            ),
+        )
+
+        c.delete()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert _interactive_sequences(slide) == []
+        assert target_ids(slide) == [a.shape_id, a.shape_id]
+        assert _childless_lists(slide) == []
+
+    def it_drops_dead_build_entries_and_the_emptied_build_list(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect"), (b.shape_id, "withEffect")],
+                media=[("video", c.shape_id)],  # keeps the timing alive
+                bld=[a.shape_id, b.shape_id],
+            ),
+        )
+
+        a.delete()
+        assert build_ids(slide) == [b.shape_id]
+
+        b.delete()
+        assert slide._element.xpath("p:timing/p:bldLst") == []
+
+    def it_removes_the_effects_of_every_member_of_a_deleted_group(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ],
+                bld=[a.shape_id, b.shape_id, c.shape_id],
+            ),
+        )
+        group = slide.shapes.add_group_shape([a, b])
+
+        group.delete()
+
+        assert [e.shape_id for e in slide.animations] == [c.shape_id]
+        assert set(target_ids(slide)) == {c.shape_id}
+        assert build_ids(slide) == [c.shape_id]
+
+    def it_counts_the_entries_purge_orphans_removes(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ]
+            ),
+        )
+        for shape in (a, b):
+            shape._element.getparent().remove(shape._element)  # bypass delete()
+
+        assert slide.animations.purge_orphans() == 2
+        assert [e.shape_id for e in slide.animations] == [c.shape_id]
+        assert slide.animations.purge_orphans() == 0
+
+    def it_keeps_cTn_ids_unique_when_effects_are_added_afterwards(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [
+                    (a.shape_id, "clickEffect"),
+                    (b.shape_id, "withEffect"),
+                    (c.shape_id, "clickEffect"),
+                ]
+            ),
+        )
+
+        b.delete()
+        assert len(cTn_ids(slide)) == len(set(cTn_ids(slide)))
+
+        extra = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(1), Inches(1))
+        Entrance.fade(slide, extra)
+        Emphasis.pulse(slide, extra)
+
+        ids = cTn_ids(slide)
+        assert len(ids) == len(set(ids))
+        assert [e.shape_id for e in slide.animations] == [
+            a.shape_id,
+            c.shape_id,
+            extra.shape_id,
+            extra.shape_id,
+        ]
+
+    def it_keeps_the_cleaned_timing_through_a_save_and_reload(self, three_shapes):
+        slide, a, b, c = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml(
+                [(a.shape_id, "clickEffect"), (b.shape_id, "withEffect")],
+                bld=[a.shape_id, b.shape_id],
+            ),
+        )
+        a.delete()
+        buf = io.BytesIO()
+        slide.part.package.save(buf)
+        buf.seek(0)
+
+        reloaded = Presentation(buf).slides[0]
+
+        assert target_ids(reloaded) == [b.shape_id, b.shape_id]
+        assert build_ids(reloaded) == [b.shape_id]
+        assert [e.shape_id for e in reloaded.animations] == [b.shape_id]
+
+
+class DescribeDeletingShapesSharingAFlatClickGroup:
+    """The library's own flat structure, with a second effect inside a click group."""
+
+    def it_reports_each_effect_of_a_shared_click_group(self, three_shapes):
+        slide, a, b, c = three_shapes
+        Entrance.fade(slide, a)
+        _share_click_group(slide, b)
+        Entrance.fade(slide, c)
+
+        assert len(slide.animations) == 3
+        assert [e.shape_id for e in slide.animations] == [a.shape_id, b.shape_id, c.shape_id]
+        assert [e.trigger for e in slide.animations] == [
+            Trigger.ON_CLICK,
+            Trigger.WITH_PREVIOUS,
+            Trigger.ON_CLICK,
+        ]
+
+    def it_keeps_the_sibling_effect_of_a_deleted_shape(self, three_shapes):
+        slide, a, b, c = three_shapes
+        Entrance.fade(slide, a)
+        _share_click_group(slide, b)
+        Entrance.fade(slide, c)
+        assert target_ids(slide) == [a.shape_id] * 2 + [b.shape_id] * 2 + [c.shape_id] * 2
+
+        a.delete()
+
+        assert target_ids(slide) == [b.shape_id, b.shape_id, c.shape_id, c.shape_id]
+        assert [e.shape_id for e in slide.animations] == [b.shape_id, c.shape_id]
+        assert len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")) == 2
+
+    def and_it_still_drops_a_click_group_it_has_emptied(self, three_shapes):
+        slide, a, b, c = three_shapes
+        Entrance.fade(slide, a)
+        _share_click_group(slide, b)
+        Entrance.fade(slide, c)
+
+        a.delete()
+        b.delete()
+
+        assert target_ids(slide) == [c.shape_id, c.shape_id]
+        assert [e.shape_id for e in slide.animations] == [c.shape_id]
+        assert len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")) == 1
+        assert _childless_lists(slide) == []
+
+
+class DescribeDeletingMovies:
+    """A movie's play controls are timing nodes that target the movie shape."""
+
+    @staticmethod
+    def _add_movie(slide, left=1):
+        return slide.shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(left),
+            Inches(1),
+            Inches(2),
+            Inches(2),
+            mime_type="video/mp4",
+        )
+
+    def it_removes_the_play_controls_of_a_deleted_movie(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        movie = self._add_movie(slide)
+        assert target_ids(slide) == [movie.shape_id]
+
+        movie.delete()
+
+        assert slide._element.find(qn("p:timing")) is None
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        assert Presentation(buf).slides[0]._element.find(qn("p:timing")) is None
+
+    def but_it_keeps_the_play_controls_of_the_other_movies(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        first, second = self._add_movie(slide), self._add_movie(slide, left=4)
+
+        first.delete()
+
+        assert target_ids(slide) == [second.shape_id]
+        assert len(slide._element.xpath("p:timing//p:video")) == 1
+
+    def it_removes_the_play_controls_of_a_movie_inside_a_deleted_group(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        group.shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(2),
+            mime_type="video/mp4",
+        )
+        assert len(target_ids(slide)) == 1
+
+        group.delete()
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_removes_dead_audio_nodes_as_well(self, three_shapes):
+        slide, a, b, _ = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml([], media=[("audio", a.shape_id), ("video", b.shape_id)]),
+        )
+
+        a.delete()
+        assert target_ids(slide) == [b.shape_id]
+        assert slide._element.xpath("p:timing//p:audio") == []
+
+        b.delete()
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_removes_media_nodes_when_purged_directly(self, three_shapes):
+        slide, a, b, _ = three_shapes
+        install_timing(
+            slide,
+            powerpoint_timing_xml([], media=[("video", a.shape_id), ("video", b.shape_id)]),
+        )
+        a._element.getparent().remove(a._element)  # bypass delete()
+
+        slide.animations.purge_orphans()
+
+        assert target_ids(slide) == [b.shape_id]
