@@ -652,6 +652,24 @@ def _deck_shape_trees_with_extlst() -> bytes:
     return _saved(prs)
 
 
+def _deck_emf_images() -> bytes:
+    # Regression: Pillow reports an EMF as "WMF", so EMF pictures and the default OLE
+    # icons (which are EMF files) were stored as `image*.wmf` with `image/x-wmf`. They
+    # are now `.emf` / `image/x-emf`, and that extension must be declared in the
+    # package's [Content_Types].xml like every other part.
+    import os
+
+    import power_pptx
+    from power_pptx.enum.shapes import PROG_ID
+
+    templates = os.path.join(os.path.dirname(power_pptx.__file__), "templates")
+    prs = Presentation()
+    s = _blank_slide(prs)
+    s.shapes.add_picture(os.path.join(templates, "pptx-icon.emf"), Inches(1), Inches(1))
+    s.shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(4), Inches(1))
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -679,6 +697,7 @@ _DECK_BUILDERS = {
     "lint_relationship_model": _deck_lint_relationship_model,
     "names_with_markup_characters": _deck_names_with_markup_characters,
     "shape_trees_with_extlst": _deck_shape_trees_with_extlst,
+    "emf_images": _deck_emf_images,
 }
 
 

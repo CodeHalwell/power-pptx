@@ -5,9 +5,12 @@
 from __future__ import annotations
 
 import io
+import os
+import zipfile
 
 import pytest
 
+import power_pptx
 from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData, ChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
@@ -2613,3 +2616,71 @@ class DescribeGraphicFramesAreAddedBeforeAnExtLst(object):
         _, slide = _blank_slide()
         slide.shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(1), Inches(1))
         assert self._child_tags(slide.shapes)[-1] == "graphicFrame"
+
+
+class DescribeEmfImages(object):
+    """An EMF is stored as an `.emf` part of type `image/x-emf`, never as a WMF."""
+
+    EMF_PATH = os.path.join(os.path.dirname(power_pptx.__file__), "templates", "generic-icon.emf")
+
+    @staticmethod
+    def _image_parts(slide):
+        return [
+            rel.target_part
+            for rel in slide.part.rels.values()
+            if rel.reltype.endswith("/image") and not rel.is_external
+        ]
+
+    def it_stores_an_EMF_picture_as_an_emf_part(self):
+        _, slide = _blank_slide()
+
+        picture = slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+
+        (image_part,) = self._image_parts(slide)
+        assert image_part.partname == "/ppt/media/image1.emf"
+        assert image_part.content_type == "image/x-emf"
+        assert picture.image.ext == "emf"
+        assert picture.image.filename == "generic-icon.emf"
+
+    def and_it_still_stores_a_png_as_a_png(self):
+        _, slide = _blank_slide()
+
+        slide.shapes.add_picture(io.BytesIO(TINY_PNG), Inches(1), Inches(1))
+
+        (image_part,) = self._image_parts(slide)
+        assert image_part.partname == "/ppt/media/image1.png"
+        assert image_part.content_type == "image/png"
+
+    @pytest.mark.parametrize("prog_id", [PROG_ID.DOCX, PROG_ID.PPTX, PROG_ID.XLSX, "Foo.Bar.18"])
+    def it_stores_the_default_icon_of_an_OLE_object_as_an_emf_part(self, prog_id):
+        _, slide = _blank_slide()
+
+        slide.shapes.add_ole_object(io.BytesIO(b"payload"), prog_id, Inches(1), Inches(1))
+
+        (icon_part,) = self._image_parts(slide)
+        assert icon_part.partname.endswith(".emf")
+        assert icon_part.content_type == "image/x-emf"
+
+    def it_declares_the_emf_content_type_in_the_saved_package(self):
+        prs, slide = _blank_slide()
+        slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+        buf = io.BytesIO()
+        prs.save(buf)
+
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            names = zf.namelist()
+            content_types = zf.read("[Content_Types].xml").decode("utf-8")
+
+        assert "ppt/media/image1.emf" in names
+        assert not any(name.endswith(".wmf") for name in names)
+        assert 'Extension="emf" ContentType="image/x-emf"' in content_types
+
+    def and_it_reads_the_image_back_from_a_saved_deck(self):
+        prs, slide = _blank_slide()
+        slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+        buf = io.BytesIO()
+        prs.save(buf)
+
+        reopened = Presentation(io.BytesIO(buf.getvalue()))
+
+        assert reopened.slides[0].shapes[0].image.ext == "emf"

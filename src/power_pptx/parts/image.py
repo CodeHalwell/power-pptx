@@ -235,6 +235,11 @@ class Image(object):
         if format not in ext_map:
             tmpl = "unsupported image format, expected one of: %s, got '%s'"
             raise ValueError(tmpl % (ext_map.keys(), format))
+        # -- Pillow's WMF plugin opens both metafile formats and calls them both "WMF", but a
+        # -- Windows metafile and an enhanced metafile are different formats with different
+        # -- content types (and PowerPoint's own OLE icons are EMF) --
+        if format == "WMF" and _is_emf(self._blob):
+            return "emf"
         return ext_map[format]
 
     @property
@@ -273,3 +278,14 @@ class Image(object):
         )
         stream.close()
         return (format, (width_px, height_px), dpi)
+
+
+def _is_emf(blob: bytes | None) -> bool:
+    """True if `blob` begins like an EMF (enhanced metafile) rather than a WMF.
+
+    An EMF opens with an EMR_HEADER record: record type 1 as a little-endian 32-bit integer, and
+    at offset 40 the ENHMETA_SIGNATURE, which spells " EMF". A WMF has neither (a placeable one
+    starts with the key 0x9AC6CDD7, a plain one with a 16-bit type and header size). This is the
+    same test Pillow applies to decide whether a metafile is enhanced.
+    """
+    return blob is not None and blob[:4] == b"\x01\x00\x00\x00" and blob[40:44] == b" EMF"
