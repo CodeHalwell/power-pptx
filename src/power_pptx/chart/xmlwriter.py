@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from xml.sax.saxutils import escape
 
+from power_pptx.chart._values import plottable_values
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls
@@ -115,12 +116,13 @@ class _BaseSeriesXmlWriter(object):
         """
         return escape(self._series.name)
 
-    def numRef_xml(self, wksht_ref, number_format, values):
+    def numRef_xml(self, wksht_ref, number_format, values, label="value"):
         """
         Return the ``<c:numRef>`` element specified by the parameters as
-        unicode text.
+        unicode text. *label* says which of the series' values these are,
+        for the message when one of them is infinite.
         """
-        pt_xml = self.pt_xml(values)
+        pt_xml = self.pt_xml(values, label)
         return (
             "            <c:numRef>\n"
             "              <c:f>{wksht_ref}</c:f>\n"
@@ -131,15 +133,17 @@ class _BaseSeriesXmlWriter(object):
             "            </c:numRef>\n"
         ).format(**{"wksht_ref": wksht_ref, "number_format": number_format, "pt_xml": pt_xml})
 
-    def pt_xml(self, values):
+    def pt_xml(self, values, label="value"):
         """
         Return the ``<c:ptCount>`` and sequence of ``<c:pt>`` elements
         corresponding to *values* as a single unicode text string.
         `c:ptCount` refers to the number of `c:pt` elements in this sequence.
         The `idx` attribute value for `c:pt` elements locates the data point
         in the overall data point sequence of the chart and is started at
-        *offset*.
+        *offset*. A |None| or NaN value has no `c:pt`; an infinite one
+        raises |ValueError| naming the series, the point and *label*.
         """
+        values = plottable_values(self._series, values, label)
         xml = f'                <c:ptCount val="{len(values)}"/>\n'
 
         pt_tmpl = (
@@ -1600,7 +1604,8 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
         the values for this series.
         """
         xml = ""
-        for idx, value in enumerate(self._series.values):
+        values = plottable_values(self._series, self._series.values, "value")
+        for idx, value in enumerate(values):
             if value is None:
                 continue
             xml += (
@@ -1648,6 +1653,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
                     self._series.x_values_ref,
                     self._series.number_format,
                     self._series.x_values,
+                    "X value",
                 ),
             }
         )
@@ -1666,6 +1672,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
                     self._series.x_values_ref,
                     self._series.number_format,
                     self._series.x_values,
+                    "X value",
                 ),
             }
         )
@@ -1683,6 +1690,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
                     self._series.y_values_ref,
                     self._series.number_format,
                     self._series.y_values,
+                    "Y value",
                 ),
             }
         )
@@ -1701,6 +1709,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
                     self._series.y_values_ref,
                     self._series.number_format,
                     self._series.y_values,
+                    "Y value",
                 ),
             }
         )
@@ -1741,6 +1750,7 @@ class _BubbleSeriesXmlWriter(_XySeriesXmlWriter):
                     self._series.bubble_sizes_ref,
                     self._series.number_format,
                     self._series.bubble_sizes,
+                    "bubble size",
                 ),
             }
         )
@@ -1760,6 +1770,7 @@ class _BubbleSeriesXmlWriter(_XySeriesXmlWriter):
                     self._series.bubble_sizes_ref,
                     self._series.number_format,
                     self._series.bubble_sizes,
+                    "bubble size",
                 ),
             }
         )
