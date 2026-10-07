@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 
 import pytest
@@ -24,7 +25,7 @@ from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
 from power_pptx.enum.text import PP_ALIGN
-from power_pptx.util import Pt
+from power_pptx.util import Emu, Inches, Pt
 
 _TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
 
@@ -77,6 +78,25 @@ def _runs(slide):
 
 def _paragraph_texts(slide):
     return [p.text for sh in slide.shapes if sh.has_text_frame for p in sh.text_frame.paragraphs]
+
+
+def _presentation(aspect):
+    """Return a fresh Presentation at the ``"4:3"`` (default) or ``"16:9"`` size."""
+    prs = Presentation()
+    if aspect == "16:9":
+        prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+    return prs
+
+
+def _lint_problems(slide):
+    """ERROR and WARNING lint issues on *slide*, rendered as strings."""
+    return [str(issue) for issue in slide.lint(min_severity="warning").issues]
+
+
+def _extents(shape):
+    """Return ``(left, top, right, bottom)`` of *shape* in EMU."""
+    left, top = int(shape.left), int(shape.top)
+    return left, top, left + int(shape.width), top + int(shape.height)
 
 
 class DescribeTitleSlide:
@@ -447,6 +467,144 @@ class DescribeTimelineSlide:
             timeline_slide(prs, title="T", milestones=[])
 
 
+_ROADMAP = [
+    {
+        "date": f"2026-0{i + 1}",
+        "label": f"Milestone {i + 1}: ship the integration layer",
+        "done": i < 2,
+    }
+    for i in range(8)
+]
+
+
+def _estimated_text_height_pt(shape):
+    """Linter-style height estimate: 0.55 em per character, 1.2 line pitch."""
+    tf = shape.text_frame
+    size = tf.paragraphs[0].runs[0].font.size.pt
+    inner_w = (int(shape.width) - int(tf.margin_left) - int(tf.margin_right)) / 12700
+    per_line = max(1.0, inner_w / (0.55 * size))
+    lines = sum(max(1, math.ceil(len(p.text) / per_line)) for p in tf.paragraphs)
+    return lines * size * 1.2
+
+
+def _inner_height_pt(shape):
+    tf = shape.text_frame
+    return (int(shape.height) - int(tf.margin_top) - int(tf.margin_bottom)) / 12700
+
+
+class DescribeTimelineSlideLayout:
+    """The recipe's own output is physically correct on every slide size."""
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("n", range(1, 9))
+    def it_lints_clean_for_one_to_eight_milestones(self, aspect, n):
+        slide = timeline_slide(_presentation(aspect), title="Roadmap", milestones=_ROADMAP[:n])
+        assert _lint_problems(slide) == []
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("n", [2, 5, 8])
+    def it_lints_clean_with_token_typography(self, aspect, n, tokens):
+        slide = timeline_slide(
+            _presentation(aspect), title="Roadmap", milestones=_ROADMAP[:n], tokens=tokens
+        )
+        assert _lint_problems(slide) == []
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("n", [1, 2, 3, 5, 8])
+    def it_keeps_every_shape_inside_the_slide_margins(self, aspect, n):
+        prs = _presentation(aspect)
+        slide = timeline_slide(prs, title="Roadmap", milestones=_ROADMAP[:n])
+        margin = int(Inches(0.6))
+        for shape in slide.shapes:
+            left, _top, right, _bottom = _extents(shape)
+            assert left >= margin - 2, shape.name
+            assert right <= int(prs.slide_width) - margin + 2, shape.name
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_keeps_text_clear_of_the_rail_and_dots(self, aspect):
+        slide = timeline_slide(_presentation(aspect), title="Roadmap", milestones=_ROADMAP[:5])
+        dots = [
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.width == s.height
+        ]
+        assert len(dots) == 5
+        band_top = min(_extents(d)[1] for d in dots)
+        band_bottom = max(_extents(d)[3] for d in dots)
+        text_boxes = [s for s in slide.shapes if s.has_text_frame and s.text_frame.text]
+        assert len(text_boxes) == 1 + 2 * 5  # title + a date and a label per milestone
+        for box in text_boxes:
+            _left, top, _right, bottom = _extents(box)
+            assert bottom <= band_top or top >= band_bottom, box.text_frame.text
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_spaces_the_dots_evenly_and_symmetrically(self, aspect):
+        prs = _presentation(aspect)
+        slide = timeline_slide(prs, title="Roadmap", milestones=_ROADMAP[:6])
+        dots = [
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.width == s.height
+        ]
+        centres = [int(d.left) + int(d.width) // 2 for d in dots]
+        steps = [b - a for a, b in zip(centres, centres[1:])]
+        assert max(steps) - min(steps) <= 2
+        assert abs(centres[0] - (int(prs.slide_width) - centres[-1])) <= 2
+
+    @pytest.mark.parametrize("n", [3, 8])
+    def it_fits_milestone_text_inside_its_boxes_under_large_token_typography(self, n, tokens):
+        # The deck's 16 pt body size must not be dropped into 0.3 in / 0.7 in boxes
+        # unchecked: the recipe bakes a size at which the text actually fits.
+        slide = timeline_slide(
+            _presentation("4:3"), title="Roadmap", milestones=_ROADMAP[:n], tokens=tokens
+        )
+        boxes = [s for s in slide.shapes if s.has_text_frame and s.text_frame.text][1:]
+        assert len(boxes) == 2 * n
+        for box in boxes:
+            size = box.text_frame.paragraphs[0].runs[0].font.size.pt
+            assert size >= 9, box.text_frame.text
+            assert _estimated_text_height_pt(box) <= _inner_height_pt(box), box.text_frame.text
+
+    def it_still_flags_a_label_dragged_onto_the_rail(self):
+        # The dot/rail overlap is allowed pair-by-pair, not by tagging the whole
+        # timeline as one group, so a genuine collision stays visible to lint.
+        slide = timeline_slide(_presentation("4:3"), title="Roadmap", milestones=_ROADMAP[:3])
+        assert {s.lint_group for s in slide.shapes} == {None}
+        label = next(
+            s for s in slide.shapes if s.has_text_frame and "Milestone 2" in s.text_frame.text
+        )
+        rail = next(
+            s
+            for s in slide.shapes
+            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.height < s.width // 10
+        )
+        label.top = Emu(int(rail.top) - int(label.height) // 2)
+        assert any("ShapeCollision" in p for p in _lint_problems(slide))
+
+    def it_passes_lint_raise_through_from_spec(self):
+        # The original repro: four OffSlide errors on a 16:9 three-milestone timeline.
+        from power_pptx.compose import from_spec
+
+        prs = from_spec(
+            {
+                "slide_size": "16:9",
+                "slides": [
+                    {
+                        "layout": "timeline",
+                        "title": "R",
+                        "milestones": [
+                            {"date": "Q1", "label": "Kickoff"},
+                            {"date": "Q2", "label": "Beta"},
+                            {"date": "Q3", "label": "GA"},
+                        ],
+                    }
+                ],
+                "lint": "raise",
+            }
+        )
+        assert len(prs.slides) == 1
+
+
 class DescribeComparisonSlide:
     def it_renders_left_and_right_columns_with_matched_rows(self, prs):
         slide = comparison_slide(
@@ -662,3 +820,114 @@ class DescribeIsMarkupStringAdditional:
         # pattern is treated as a path (preserves docstring intent).
         assert _is_markup_string("<<<weird") is False
         assert _is_markup_string("<1file") is False
+
+
+def _width_for(chars, size_pt, *, em=0.55):
+    """Box width in EMU that holds exactly *chars* characters at *size_pt*."""
+    return int(chars * em * size_pt * 12700) + 1
+
+
+class DescribeTextMeasurement:
+    """The font-independent fit model the recipes use to size their text."""
+
+    def it_counts_one_line_for_short_or_empty_text(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        assert _wrapped_line_count("", _width_for(10, 10), 10) == 1
+        assert _wrapped_line_count("short", _width_for(10, 10), 10) == 1
+
+    def it_starts_a_new_line_at_every_explicit_break(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        width = _width_for(40, 10)
+        assert _wrapped_line_count("a\nb\n\nc", width, 10) == 4
+        assert _wrapped_line_count("a\vb", width, 10) == 2
+
+    def it_wraps_greedily_at_spaces(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        # Ten characters per line: "aaaa bbbb" fills one line, "cccc" spills over.
+        assert _wrapped_line_count("aaaa bbbb cccc", _width_for(10, 10), 10) == 2
+
+    def it_breaks_a_word_wider_than_the_box(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        assert _wrapped_line_count("x" * 25, _width_for(10, 10), 10) == 3
+        # ... and starts it on a fresh line when something precedes it.
+        assert _wrapped_line_count("ab " + "x" * 25, _width_for(10, 10), 10) == 4
+
+    def it_does_not_wrap_for_trailing_whitespace(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        assert _wrapped_line_count("0123456789" + " " * 12, _width_for(10, 10), 10) == 1
+
+    def it_counts_monospace_indentation_and_tabs(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        width = _width_for(10, 10, em=0.6)
+        # Four columns of indent plus "return" fill the ten-column line exactly ...
+        assert _wrapped_line_count("    return", width, 10, mono=True) == 1
+        # ... so whatever follows it wraps; a tab counts as four columns.
+        assert _wrapped_line_count("    return x", width, 10, mono=True) == 2
+        assert _wrapped_line_count("\treturn", width, 10, mono=True) == 1
+        assert _wrapped_line_count("\treturn x", width, 10, mono=True) == 2
+
+    def it_widens_bold_text(self):
+        from power_pptx.design.recipes import _wrapped_line_count
+
+        width = _width_for(20, 10)
+        text = "0123456789 0123456789"  # 21 characters
+        assert _wrapped_line_count(text, width, 10) == 2
+        assert _wrapped_line_count("0123456789 012345678", width, 10) == 1
+        assert _wrapped_line_count("0123456789 012345678", width, 10, bold=True) == 2
+
+    def it_prices_each_line_at_one_point_two_times_the_size(self):
+        from power_pptx.design.recipes import _text_height
+
+        assert _text_height("a\nb\nc", _width_for(10, 10), 10) == int(3 * 10 * 1.2 * 12700)
+
+    def it_keeps_the_requested_size_when_the_text_fits(self):
+        from power_pptx.design.recipes import _fit_font_size
+
+        assert _fit_font_size("hello", _width_for(20, 14), int(Inches(1)), max_pt=14) == 14
+
+    def it_steps_down_a_point_at_a_time_until_the_text_fits(self):
+        from power_pptx.design.recipes import _fit_font_size, _text_height
+
+        text = "one two three four five six seven eight nine ten"
+        width, height = int(Inches(1.5)), int(Inches(0.6))
+        size = _fit_font_size(text, width, height, max_pt=20)
+        assert size is not None
+        assert size < 20
+        assert _text_height(text, width, size) <= height
+        assert _text_height(text, width, size + 1) > height
+
+    def it_reports_none_when_even_the_floor_overflows(self):
+        from power_pptx.design.recipes import _fit_font_size
+
+        assert _fit_font_size("word " * 200, int(Inches(1)), int(Inches(0.5)), max_pt=14) is None
+
+    def it_never_enlarges_text_already_below_the_floor(self):
+        from power_pptx.design.recipes import _fit_font_size
+
+        assert _fit_font_size("tiny", int(Inches(2)), int(Inches(1)), max_pt=7) == 7
+
+    def it_resizes_a_token_to_the_tightest_text_in_a_row(self):
+        from dataclasses import replace
+
+        from power_pptx.design.recipes import _fit_token, _typography
+
+        token = _typography(None, "body", default_size=Pt(16))
+        width, height = int(Inches(1.4)), int(Inches(0.45))
+        fitted = _fit_token(token, ["ok", "a rather longer label that must wrap"], width, height)
+        alone = _fit_token(token, ["ok"], width, height)
+        assert alone.size == Pt(16)  # a text that fits leaves the size alone
+        assert Pt(9) <= fitted.size < Pt(16)
+        assert replace(fitted, size=token.size) == token  # only the size changes
+
+    def it_pins_a_hopeless_text_to_the_legibility_floor(self):
+        from power_pptx.design.recipes import _fit_token, _typography
+
+        token = _typography(None, "body", default_size=Pt(16))
+        fitted = _fit_token(token, ["word " * 400], int(Inches(1)), int(Inches(0.4)))
+        assert fitted.size == Pt(9)

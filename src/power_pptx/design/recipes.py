@@ -53,7 +53,10 @@ Example::
 from __future__ import annotations
 
 import contextlib
+import math
 import os
+import re
+from dataclasses import replace
 from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
@@ -1028,11 +1031,36 @@ def timeline_slide(
         shrink_to_fit=True,
     )
 
-    # Rail across the middle.
+    # Geometry.  A rail runs through the middle of the slide and milestone text
+    # alternates above / below it, so neighbours don't fight for the same space.
+    n = len(milestones)
     rail_y = Length(slide_h // 2)
     rail_h = Pt(2)
-    rail_left = Length(margin + Inches(0.5))
-    rail_right = Length(slide_w - margin - Inches(0.5))
+    dot_d = Inches(0.28)
+    date_h = Inches(0.3)
+    label_h = Inches(0.7)
+    text_gap = Inches(0.1)  # clear space between a dot and the text above / below it
+    side_gap = Inches(0.1)  # clear space between two text boxes on the same side
+    content_w = int(slide_w) - 2 * int(margin)
+
+    if n == 1:
+        label_w = Length(min(int(Inches(2.4)), content_w))
+        rail_left = Length(margin + Inches(0.5))
+        rail_right = Length(slide_w - margin - Inches(0.5))
+        positions = [Length(rail_left + (rail_right - rail_left) // 2)]
+    else:
+        # Text boxes on one side sit two milestones apart, so each may be up to two
+        # steps wide.  The rail is inset by half a box at either end, which keeps the
+        # first and last box inside the slide margins while every box stays centred
+        # on its dot.
+        label_w = Length(
+            min(int(Inches(2.4)), (2 * content_w - int(side_gap) * (n - 1)) // (n + 1))
+        )
+        rail_left = Length(margin + label_w // 2)
+        rail_right = Length(slide_w - margin - label_w // 2)
+        span = int(rail_right) - int(rail_left)
+        positions = [Length(rail_left + int(round(i * span / (n - 1)))) for i in range(n)]
+
     rail = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         rail_left,
@@ -1046,26 +1074,28 @@ def timeline_slide(
     rail.line.fill.background()
     rail.text_frame.text = ""
 
-    n = len(milestones)
-    span = rail_right - rail_left
-    # Equally space milestones along the rail; n=1 sits dead center.
-    if n == 1:
-        positions = [Length(rail_left + span // 2)]
-    else:
-        positions = [Length(rail_left + int(i * span / (n - 1))) for i in range(n)]
-
-    dot_d = Inches(0.28)
-    # Cap the label width to the per-milestone spacing so adjacent labels don't
-    # overlap once milestones get close together (many milestones on one rail).
-    label_w = Inches(2.4)
-    if n > 1:
-        label_w = Length(min(int(label_w), int(span // (n - 1))))
-    body_token = _typography(tokens, "body", default_size=Pt(12))
-    date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
+    date_texts = [str(ms.get("date", "")) for ms in milestones]
+    label_texts = [str(ms.get("label", "")) for ms in milestones]
+    # The deck's body size is not necessarily 11-12 pt, but the boxes are fixed: bake
+    # one size per row at which every date / label actually fits its box.
+    inner_w = int(label_w) - 2 * int(_DEFAULT_INSET_X)
+    date_token = _fit_token(
+        _typography(tokens, "body", default_size=Pt(11), default_bold=True),
+        date_texts,
+        inner_w,
+        int(date_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
+    body_token = _fit_token(
+        _typography(tokens, "body", default_size=Pt(12)),
+        label_texts,
+        inner_w,
+        int(label_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
     body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
     pending_color = rail_color
     done_color = _palette(tokens, ("positive", "success")) or RGBColor(0x00, 0x8A, 0x3C)
 
+    dots: list[Any] = []
     for i, ms in enumerate(milestones):
         cx = positions[i]
         # Milestone dot.
@@ -1080,43 +1110,45 @@ def timeline_slide(
         dot.fill.fore_color.rgb = done_color if ms.get("done") else pending_color
         dot.line.fill.background()
         dot.text_frame.text = ""
+        dots.append(dot)
 
-        date_text = str(ms.get("date", ""))
-        label_text = str(ms.get("label", ""))
-        # Alternate above / below the rail so labels don't fight for the
-        # same vertical space when milestones are close together.
-        above = i % 2 == 0
-        if above:
-            date_top = Length(rail_y - dot_d // 2 - Inches(0.6))
-            label_top = Length(date_top + Inches(0.25))
+        # Above the rail the label sits next to the dot and the date above it; below
+        # the rail the date sits next to the dot and the label under it.  Either way
+        # the date is read first, and neither box touches the rail or the dot.
+        if i % 2 == 0:
+            label_top = Length(rail_y - dot_d // 2 - text_gap - label_h)
+            date_top = Length(label_top - date_h)
         else:
-            date_top = Length(rail_y + dot_d // 2 + Inches(0.15))
-            label_top = Length(date_top + Inches(0.3))
+            date_top = Length(rail_y + dot_d // 2 + text_gap)
+            label_top = Length(date_top + date_h)
 
-        if date_text:
-            db = slide.shapes.add_textbox(Length(cx - label_w // 2), date_top, label_w, Inches(0.3))
+        left = Length(cx - label_w // 2)
+        if date_texts[i]:
+            db = slide.shapes.add_textbox(left, date_top, label_w, date_h)
             _fill_text_frame(
                 db.text_frame,
-                date_text,
+                date_texts[i],
                 token=date_token,
                 color=body_color,
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
                 shrink_to_fit=True,
             )
-        if label_text:
-            lb = slide.shapes.add_textbox(
-                Length(cx - label_w // 2), label_top, label_w, Inches(0.7)
-            )
+        if label_texts[i]:
+            lb = slide.shapes.add_textbox(left, label_top, label_w, label_h)
             _fill_text_frame(
                 lb.text_frame,
-                label_text,
+                label_texts[i],
                 token=body_token,
                 color=body_color,
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
                 shrink_to_fit=True,
             )
+
+    # The dots sit on the rail by design.  Allow exactly those overlaps — a blanket
+    # lint group would also hide a text box that really did land on the rail.
+    rail.allow_overlap_with(*dots)
 
     _apply_transition(slide, transition)
     return slide
@@ -1543,6 +1575,126 @@ def _fill_text_frame(
     _apply_typography(run.font, token)
     if color is not None:
         run.font.color.rgb = color
+
+
+# ---------------------------------------------------------------------------
+# Text measurement — a deterministic fit model that needs no font file
+# ---------------------------------------------------------------------------
+#
+# A recipe owns the geometry of the boxes it fills, so it has to know whether
+# the text fits *before* anything renders.  ``TextFrame.fit_text`` is the right
+# tool when a real font file is at hand, but it flows a whole frame as a single
+# paragraph (explicit line breaks and indentation are ignored) and warns when
+# the named family isn't installed.  The recipes therefore use the small
+# conservative model below: the per-character width and line pitch that the
+# linter's own overflow heuristic assumes, plus a greedy word wrap that honours
+# line breaks.  It over-estimates slightly, which is the safe direction.
+
+_EMU_PER_PT = 12700
+#: Average advance of a mixed-case proportional face, as a fraction of the font size.
+_PROPORTIONAL_EM = 0.55
+#: ... of its bold weight.
+_BOLD_EM = 0.58
+#: Widest common monospace advance (Courier New, Menlo, DejaVu Sans Mono).
+_MONOSPACE_EM = 0.6
+#: Rendered line height as a multiple of the font size.
+_LINE_PITCH = 1.2
+#: Smallest size the recipes shrink text to; matches the linter's MinFontSize threshold.
+_MIN_LEGIBLE_PT = 9.0
+#: Inset python-pptx text frames carry until told otherwise (left/right, top/bottom).
+_DEFAULT_INSET_X = Inches(0.1)
+_DEFAULT_INSET_Y = Inches(0.05)
+
+
+def _wrapped_line_count(
+    text: str, width: int, size_pt: float, *, bold: bool = False, mono: bool = False
+) -> int:
+    """Estimate the lines *text* occupies in a box *width* EMU wide at *size_pt*.
+
+    Explicit line breaks start a new line, words wrap greedily at spaces, and a
+    word wider than the box is broken mid-word — the way PowerPoint and
+    LibreOffice both lay out a wrapped text frame.  Monospace text keeps its
+    leading indentation (tabs count as four columns); proportional text does
+    not need to, but is handled by the same loop.
+    """
+    em = _MONOSPACE_EM if mono else (_BOLD_EM if bold else _PROPORTIONAL_EM)
+    per_line = max(1, int(width / (em * size_pt * _EMU_PER_PT)))
+    total = 0
+    for line in re.split(r"[\n\v]", text):
+        if mono:
+            line = line.expandtabs(4)
+        lines, used = 1, 0
+        for token in re.findall(r"\s+|\S+", line):
+            n = len(token)
+            if token.isspace():
+                # Whitespace that overruns the box is swallowed by the break, so
+                # it only ever fills the line; the next word decides to wrap.
+                used = min(per_line, used + n)
+                continue
+            if used + n > per_line and used > 0:
+                lines += 1
+                used = 0
+            while n > per_line:
+                lines += 1
+                n -= per_line
+            used += n
+        total += lines
+    return total
+
+
+def _text_height(
+    text: str, width: int, size_pt: float, *, bold: bool = False, mono: bool = False
+) -> int:
+    """Estimated height in EMU of *text* wrapped to *width* EMU at *size_pt*."""
+    lines = _wrapped_line_count(text, width, size_pt, bold=bold, mono=mono)
+    return int(lines * size_pt * _LINE_PITCH * _EMU_PER_PT)
+
+
+def _fit_font_size(
+    text: str,
+    width: int,
+    height: int,
+    *,
+    max_pt: float,
+    min_pt: float = _MIN_LEGIBLE_PT,
+    bold: bool = False,
+    mono: bool = False,
+) -> Optional[float]:
+    """Return the largest size at which *text* fits *width* × *height* EMU, or ``None``.
+
+    Tries *max_pt* first (so a size that already fits is never changed), then
+    each whole point below it down to *min_pt*.  ``None`` means even *min_pt*
+    overflows.  A *max_pt* already below *min_pt* is its own floor — the model
+    never enlarges text it was asked to keep small.
+    """
+    floor = min(min_pt, max_pt)
+    size = float(max_pt)
+    while size >= floor:
+        if _text_height(text, width, size, bold=bold, mono=mono) <= height:
+            return size
+        size = float(math.ceil(size) - 1)
+    return None
+
+
+def _fit_token(
+    token: TypographyToken, texts: Sequence[str], width: int, height: int
+) -> TypographyToken:
+    """Return *token* resized so every one of *texts* fits a *width* × *height* box.
+
+    A row of sibling labels reads as one system only when they share a size, so
+    the size is the smallest any single text needs, and never larger than the
+    token's own.  A text that does not fit even at the legibility floor pins the
+    result to that floor; the box's autofit flag is the last line of defence.
+    """
+    max_pt = token.size.pt if token.size is not None else 12.0
+    floor = min(_MIN_LEGIBLE_PT, max_pt)
+    chosen = max_pt
+    for text in texts:
+        if not text:
+            continue
+        fit = _fit_font_size(text, width, height, max_pt=max_pt, bold=bool(token.bold))
+        chosen = min(chosen, floor if fit is None else fit)
+    return replace(token, size=Pt(chosen))
 
 
 def _apply_transition(slide: "Slide", transition: Optional[str]) -> None:
