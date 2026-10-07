@@ -2051,11 +2051,19 @@ def _bbox_contains(outer: tuple[int, int, int, int], inner: tuple[int, int, int,
 
 
 def _shape_has_opaque_fill(shape: BaseShape) -> bool:
-    """Return ``True`` if *shape* has an opaque (solid) fill."""
+    """Return ``True`` if *shape* has an opaque (solid, not translucent) fill.
+
+    A solid fill whose colour carries an alpha below 100% lets what is
+    drawn beneath it show through -- a scrim over a photo, a tinted
+    overlay -- so it does not hide the shapes it covers.
+    """
     try:
         from power_pptx.enum.dml import MSO_FILL_TYPE
 
-        return shape.fill.type == MSO_FILL_TYPE.SOLID  # type: ignore[attr-defined]
+        fill = shape.fill  # type: ignore[attr-defined]
+        if fill.type != MSO_FILL_TYPE.SOLID:
+            return False
+        return fill.fore_color.alpha >= 1.0
     except Exception:
         return False
 

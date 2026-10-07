@@ -31,6 +31,13 @@ from power_pptx.lint import (
 )
 from power_pptx.util import Emu, Inches, Pt
 
+# A 1x1 PNG: the smallest image ``add_picture`` will accept.
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"
+    "53de0000000c4944415478da6300010000000500010d0a2db40000000049"
+    "454e44ae426082"
+)
+
 
 def _new_blank_slide():
     prs = Presentation()
@@ -719,6 +726,41 @@ class DescribeZOrderAnomaly:
         small.text_frame.text = "visible"
         # No fill on the big rect.
         slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
+        assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
+
+    @staticmethod
+    def _photo_under_a_full_slide_scrim(alpha):
+        """The picture + scrim + text pattern: a photo, then a slide-sized black scrim over it."""
+        _, slide = _new_blank_slide()
+        slide.shapes.add_picture(io.BytesIO(_TINY_PNG), Inches(2), Inches(2), Inches(3), Inches(2))
+        scrim = slide.shapes.add_shape(1, Emu(0), Emu(0), Inches(10), Inches(7.5))
+        scrim.fill.solid()
+        scrim.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        if alpha is not None:
+            scrim.fill.fore_color.alpha = alpha
+        return slide
+
+    @pytest.mark.parametrize("alpha", [0.4, 0.99, 0.0])
+    def it_does_not_flag_a_translucent_scrim_over_a_photo(self, alpha):
+        # Regression: a fill with ``<a:alpha>`` below 100% lets what is under it show through,
+        # but any solid fill used to count as opaque, so the photo was reported as "hidden".
+        slide = self._photo_under_a_full_slide_scrim(alpha)
+        assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
+
+    @pytest.mark.parametrize("alpha", [None, 1.0])
+    def but_it_still_flags_an_opaque_scrim_over_a_photo(self, alpha):
+        slide = self._photo_under_a_full_slide_scrim(alpha)
+        assert len([i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]) == 1
+
+    def it_reads_the_alpha_of_a_theme_colour_fill_too(self):
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_textbox(Inches(2), Inches(2), Inches(1), Inches(1))
+        veil = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
+        veil.fill.solid()
+        veil.fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
+        veil.fill.fore_color.alpha = 0.5
         assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
 
 
