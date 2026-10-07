@@ -208,6 +208,32 @@ def _container_extents(shapetree, container) -> tuple[int, int]:
     return (w, h)
 
 
+def _measure_anchor_container(shapetree, anchor, container) -> tuple[int, int, int, int] | None:
+    """Return the box a new shape's `anchor` is relative to, or |None| without an `anchor`.
+
+    Called *before* the shape is added. An invalid `anchor` or `container` then raises with
+    the shape tree untouched, and a `container` that is the group being added to is measured
+    as it is now rather than after the new shape's unanchored starting position has stretched
+    it.
+    """
+    if anchor is None:
+        return None
+    _resolve_anchor(anchor)
+    return _container_box(shapetree, container)
+
+
+def _move_to_anchor(shape, anchor, box, margin) -> None:
+    """Move `shape` to its `anchor` position within `box`, as from `_measure_anchor_container`."""
+    if box is None:
+        return
+    cl, ct, cw, ch = box
+    new_left, new_top = _compute_anchor_left_top(
+        anchor, cw, ch, int(shape.width), int(shape.height), int(margin)
+    )
+    shape.left = Emu(cl + new_left)
+    shape.top = Emu(ct + new_top)
+
+
 class _LintGroupScope:
     """Context manager returned by :meth:`_BaseShapes.lint_group_scope`.
 
@@ -729,17 +755,13 @@ class _BaseGroupShapes(_BaseShapes):
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         image_part, rId = self.part.get_or_add_image_part(image_file)
         pic = self._add_pic_from_image_part(image_part, rId, left, top, width, height)
-        self._recalculate_extents()
         picture = cast(Picture, self._shape_factory(pic))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(picture.width), int(picture.height), int(margin)
-            )
-            picture.left = Emu(cl + new_left)
-            picture.top = Emu(ct + new_top)
+        _move_to_anchor(picture, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the picture's final position --
+        self._recalculate_extents()
         return picture
 
     def add_svg_picture(
@@ -831,16 +853,12 @@ class _BaseGroupShapes(_BaseShapes):
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
         autoshape_type = AutoShapeType(autoshape_type_id)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         sp = self._add_sp(autoshape_type, left, top, width, height)
-        self._recalculate_extents()
         shape = cast(Shape, self._shape_factory(sp))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(shape.width), int(shape.height), int(margin)
-            )
-            shape.left = Emu(cl + new_left)
-            shape.top = Emu(ct + new_top)
+        _move_to_anchor(shape, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the shape's final position --
+        self._recalculate_extents()
         return shape
 
     def add_textbox(
@@ -863,16 +881,12 @@ class _BaseGroupShapes(_BaseShapes):
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         sp = self._add_textbox_sp(left, top, width, height)
-        self._recalculate_extents()
         textbox = cast(Shape, self._shape_factory(sp))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(textbox.width), int(textbox.height), int(margin)
-            )
-            textbox.left = Emu(cl + new_left)
-            textbox.top = Emu(ct + new_top)
+        _move_to_anchor(textbox, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the text box's final position --
+        self._recalculate_extents()
         return textbox
 
     def add_text(
