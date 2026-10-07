@@ -55,6 +55,7 @@ pic.effects.contrast = -0.05         # -1.0 .. 1.0, 0.0 = unchanged`;
 const snippet5 = `pic.effects.recolor = "grayscale"
 pic.effects.recolor = "sepia"
 pic.effects.recolor = "washout"
+pic.effects.recolor = "black_and_white"
 pic.effects.recolor = "duotone"       # neutral grey duotone
 pic.effects.recolor = None            # clear it
 
@@ -217,16 +218,20 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
   <h3 id="recolor">Recolour presets</h3>
   <p>
     <code>effects.recolor</code> is a <strong>property, not a method</strong>. Assigning a new
-    value clears whatever recolour was there before, so the four modes are mutually exclusive by
+    value clears whatever recolour was there before, so the five modes are mutually exclusive by
     construction:
   </p>
   <Code code={snippet5} />
   <p>
-    <code>"grayscale"</code> writes <code>&lt;a:grayscl&gt;</code>; <code>"washout"</code> writes a
-    two-level threshold (<code>&lt;a:biLevel thresh="50%"/&gt;</code>); <code>"sepia"</code> is a
-    duotone using the warm brown / cream pair PowerPoint uses for its own sepia preset. Any other
-    string — <code>"black_and_white"</code>, say — raises <code>ValueError</code>, and validation
-    happens <em>before</em> anything is mutated, so a typo leaves the existing effect intact.
+    <code>"grayscale"</code> writes <code>&lt;a:grayscl&gt;</code>; <code>"washout"</code> is
+    PowerPoint's Recolor &rarr; Washout, a pale faded copy written as brightness +70% with contrast
+    &minus;70% (<code>&lt;a:lum bright="70000" contrast="-70000"/&gt;</code>, the element that also
+    backs <code>brightness</code> and <code>contrast</code>, so the last write wins);
+    <code>"black_and_white"</code> is the two-level threshold
+    (<code>&lt;a:biLevel thresh="50%"/&gt;</code>); <code>"sepia"</code> is a duotone using the
+    warm brown / cream pair PowerPoint uses for its own sepia preset. Any other string raises
+    <code>ValueError</code>, and validation happens <em>before</em> anything is mutated, so a typo
+    leaves the existing effect intact.
   </p>
 
   <h3 id="duotone">Duotone</h3>

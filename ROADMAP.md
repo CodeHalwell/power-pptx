@@ -403,7 +403,8 @@ loss.
   deferred to a follow-up — this resolver covers the 80% case
   (theme-color lookup) without touching XML.
 - [x] **Picture effects.** `Picture.transparency`, `.brightness`,
-  `.contrast`, `.recolor` (grayscale, sepia, washout, duotone). Maps to
+  `.contrast`, `.recolor` (grayscale, sepia, washout, black_and_white,
+  duotone). Maps to
   `<a:lum>`, `<a:alphaModFix>`, `<a:duotone>`, `<a:biLevel>`,
   `<a:grayscl>` inside `<a:blip>`.  Exposed via `picture.effects`
   (`PictureEffects` proxy in `power_pptx/dml/picture.py`).  `set_duotone()`

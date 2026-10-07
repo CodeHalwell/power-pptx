@@ -169,7 +169,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/transitions.md` | Per-slide and deck-wide transitions including Morph and other `p14:` extensions. **Phase 4.** |
 | `references/compose.md` | `from_spec` (JSON authoring with built-in lint), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
 | `references/theme.md` | Reading + writing the theme palette and fonts; `theme.apply(...)`; theme-aware color resolution via `power_pptx.inherit.resolve_color`. **Phase 6 + Phase 7.** |
-| `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / duotone) and SVG embedding. **Phase 6.** |
+| `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / black_and_white / duotone) and SVG embedding. **Phase 6.** |
 | `references/charts.md` | Chart palettes, quick layouts, per-series gradient/pattern fills, plus the inherited chart API. **Phase 10.** |
 | `references/render.md` | Slide thumbnails via LibreOffice. **Phase 10.** |
 | `references/three-d.md` | Bevels and extrusion via `shape.three_d`. **Phase 8.** |

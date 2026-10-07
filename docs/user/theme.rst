@@ -29,8 +29,8 @@ mutating XML::
 
     rgb = resolve_color(run.font.color, theme=prs.theme)
 
-``brightness`` is applied by blending toward white or black, mirroring
-PowerPoint's ``lumMod`` / ``lumOff`` model.
+``brightness`` is applied to the colour's HSL luminance, keeping hue and
+saturation, as PowerPoint applies its ``lumMod`` / ``lumOff`` transforms.
 
 Writing
 -------
