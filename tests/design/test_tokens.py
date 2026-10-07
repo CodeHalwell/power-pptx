@@ -180,7 +180,7 @@ class DescribeNestedDictOverrides:
         tokens = DesignTokens.from_dict(
             {
                 "palette": {"primary": "#000000"},
-                "typography": {"heading": {"family": "Inter", "size": 24}},
+                "typography": {"heading": {"family": "Inter", "size": 24.0}},
             }
         )
         result = tokens.with_overrides(
@@ -304,3 +304,249 @@ class DescribeValidateColorBlindness:
     def it_rejects_an_unknown_kind(self):
         with pytest.raises(ValueError):
             DesignTokens.from_seed("#3B5BDB").validate_color_blindness("x")
+
+
+# ---------------------------------------------------------------------------
+# Coercion: colours from JSON/YAML lists, unit-less lengths, shadow alpha
+# ---------------------------------------------------------------------------
+
+_UNIT_HINT = r"use a float for points, or Pt\(\.\.\.\)"
+
+
+class DescribeColorCoercionFromJsonShapes:
+    """JSON / YAML have no tuples; a 3-item list must work as an RGB triple."""
+
+    def it_coerces_a_list_of_three_ints(self):
+        tokens = DesignTokens.from_dict({"palette": {"primary": [51, 51, 51]}})
+        assert tokens.palette["primary"] == RGBColor(51, 51, 51)
+
+    def it_coerces_a_list_in_an_override(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        assert tokens.with_overrides({"palette.primary": [1, 2, 3]}).palette["primary"] == RGBColor(
+            1, 2, 3
+        )
+
+    def it_coerces_a_list_in_a_typography_color(self):
+        tokens = DesignTokens.from_dict(
+            {"typography": {"body": {"family": "Inter", "color": [10, 20, 30]}}}
+        )
+        assert tokens.typography["body"].color == RGBColor(10, 20, 30)
+
+    @pytest.mark.parametrize("bad", [[], [1, 2], [1, 2, 3, 4]])
+    def it_rejects_a_list_of_the_wrong_length(self, bad):
+        with pytest.raises(TypeError, match="cannot coerce"):
+            DesignTokens.from_dict({"palette": {"primary": bad}})
+
+    def it_rejects_a_channel_outside_0_to_255(self):
+        with pytest.raises(ValueError):
+            DesignTokens.from_dict({"palette": {"primary": [0, 0, 300]}})
+
+
+class DescribeFontSizeUnits:
+    """A bare int is EMU; a size that small is a unit slip, so it fails loudly."""
+
+    def it_rejects_a_bare_int_size_and_names_the_token(self):
+        with pytest.raises(ValueError, match=rf"tokens\.typography\.heading\.size.*{_UNIT_HINT}"):
+            DesignTokens.from_dict({"typography": {"heading": {"family": "Inter", "size": 36}}})
+
+    def it_says_what_the_int_was_read_as(self):
+        with pytest.raises(ValueError, match=r"36 EMU"):
+            DesignTokens.from_dict({"typography": {"heading": {"family": "Inter", "size": 36}}})
+
+    def it_reads_a_float_size_as_points(self):
+        tokens = DesignTokens.from_dict(
+            {"typography": {"heading": {"family": "Inter", "size": 36.0}}}
+        )
+        assert tokens.typography["heading"].size == Pt(36)
+
+    def it_accepts_a_Pt_size(self):
+        tokens = DesignTokens.from_dict(
+            {"typography": {"heading": {"family": "Inter", "size": Pt(36)}}}
+        )
+        assert tokens.typography["heading"].size == Pt(36)
+
+    def it_still_accepts_an_int_that_really_is_a_font_sized_emu_count(self):
+        t = TypographyToken.from_value({"family": "Inter", "size": 457200})
+        assert t.size == Pt(36)
+
+    @pytest.mark.parametrize("size", [0.0, 0.5, Pt(0.5), Emu(24), -12.0])
+    def it_rejects_any_size_below_one_point(self, size):
+        with pytest.raises(ValueError, match=rf"tokens\.typography\.body\.size.*{_UNIT_HINT}"):
+            DesignTokens.from_dict({"typography": {"body": {"family": "Inter", "size": size}}})
+
+    def it_accepts_exactly_one_point(self):
+        tokens = DesignTokens.from_dict({"typography": {"body": {"family": "Inter", "size": 1.0}}})
+        assert tokens.typography["body"].size == Pt(1)
+
+    @pytest.mark.parametrize("size", [4001.0, 457200.0, 5_000_000_000])
+    def it_rejects_a_size_above_the_ooxml_maximum(self, size):
+        with pytest.raises(ValueError, match=r"tokens\.typography\.body\.size"):
+            DesignTokens.from_dict({"typography": {"body": {"family": "Inter", "size": size}}})
+
+    def it_names_the_token_when_called_directly(self):
+        with pytest.raises(ValueError, match=r"size.*EMU"):
+            TypographyToken.from_value({"family": "Inter", "size": 36})
+
+    def it_validates_a_size_override_on_a_sub_field(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=rf"tokens\.typography\.heading\.size.*{_UNIT_HINT}"):
+            tokens.with_overrides({"typography.heading.size": 40})
+
+    def it_validates_a_size_override_in_a_nested_dict(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.typography\.heading\.size"):
+            tokens.with_overrides({"typography": {"heading": {"size": 40}}})
+
+    def it_validates_a_size_inside_a_whole_token_override(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.typography\.heading\.size"):
+            tokens.with_overrides({"typography.heading": {"family": "Inter", "size": 40}})
+
+    def it_accepts_a_float_size_override(self):
+        tokens = DesignTokens.from_preset("modern_light").with_overrides(
+            {"typography.heading.size": 40.0}
+        )
+        assert tokens.typography["heading"].size == Pt(40)
+
+
+class DescribeRadiusAndSpacingUnits:
+    """A radius / spacing given as a tiny bare int would silently be ~0 pt."""
+
+    @pytest.mark.parametrize("category", ["radii", "spacings"])
+    def it_rejects_a_tiny_bare_int_and_names_the_token(self, category):
+        with pytest.raises(ValueError, match=rf"tokens\.{category}\.md.*{_UNIT_HINT}"):
+            DesignTokens.from_dict({category: {"md": 8}})
+
+    @pytest.mark.parametrize("value", [1, 8, 99, -8])
+    def it_rejects_any_nonzero_int_below_100_emu(self, value):
+        with pytest.raises(ValueError, match=r"tokens\.radii\.md"):
+            DesignTokens.from_dict({"radii": {"md": value}})
+
+    @pytest.mark.parametrize("category", ["radii", "spacings"])
+    def it_accepts_zero_which_has_no_unit_to_get_wrong(self, category):
+        tokens = DesignTokens.from_dict({category: {"none": 0}})
+        assert getattr(tokens, category)["none"] == Emu(0)
+
+    @pytest.mark.parametrize("category", ["radii", "spacings"])
+    def it_accepts_floats_as_points(self, category):
+        tokens = DesignTokens.from_dict({category: {"md": 8.0}})
+        assert getattr(tokens, category)["md"] == Pt(8)
+
+    def it_accepts_a_Length_of_any_size(self):
+        tokens = DesignTokens.from_dict({"radii": {"hairline": Emu(8), "lg": Pt(16)}})
+        assert tokens.radii["hairline"] == Emu(8)
+        assert tokens.radii["lg"] == Pt(16)
+
+    def it_accepts_an_int_of_at_least_100_emu(self):
+        tokens = DesignTokens.from_dict({"spacings": {"md": 100, "lg": 203200}})
+        assert tokens.spacings["md"] == Emu(100)
+        assert tokens.spacings["lg"] == Pt(16)
+
+    def it_does_not_read_a_bool_as_a_one_emu_length(self):
+        with pytest.raises(TypeError, match="cannot coerce"):
+            DesignTokens.from_dict({"radii": {"md": True}})
+
+    @pytest.mark.parametrize(
+        ("key", "path"),
+        [("radii.md", r"tokens\.radii\.md"), ("spacings.md", r"tokens\.spacings\.md")],
+    )
+    def it_validates_dotted_overrides(self, key, path):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=rf"{path}.*{_UNIT_HINT}"):
+            tokens.with_overrides({key: 8})
+
+    def it_validates_nested_overrides(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.radii\.lg"):
+            tokens.with_overrides({"radii": {"lg": 16}})
+
+    def it_accepts_float_overrides(self):
+        tokens = DesignTokens.from_preset("modern_light").with_overrides({"radii.md": 12.0})
+        assert tokens.radii["md"] == Pt(12)
+
+
+class DescribeShadowExtentUnits:
+    @pytest.mark.parametrize("field", ["blur_radius", "distance"])
+    def it_rejects_a_tiny_bare_int_and_names_the_token(self, field):
+        with pytest.raises(ValueError, match=rf"tokens\.shadows\.card\.{field}.*{_UNIT_HINT}"):
+            DesignTokens.from_dict({"shadows": {"card": {field: 8}}})
+
+    def it_accepts_floats_as_points_and_zero(self):
+        tokens = DesignTokens.from_dict({"shadows": {"card": {"blur_radius": 8.0, "distance": 0}}})
+        assert tokens.shadows["card"].blur_radius == Pt(8)
+        assert tokens.shadows["card"].distance == Emu(0)
+
+    def it_validates_sub_field_overrides(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.shadows\.card\.blur_radius"):
+            tokens.with_overrides({"shadows.card.blur_radius": 8})
+
+
+class DescribeShadowAlphaOverrides:
+    """``with_overrides`` must apply the same [0, 1] rule as ``from_value``."""
+
+    @pytest.mark.parametrize("alpha", [2.0, 1.01, -0.1, float("nan")])
+    def it_rejects_an_out_of_range_alpha_override(self, alpha):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.shadows\.card\.alpha.*\[0\.0, 1\.0\]"):
+            tokens.with_overrides({"shadows.card.alpha": alpha})
+
+    def it_rejects_an_out_of_range_alpha_in_a_nested_override(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match=r"tokens\.shadows\.card\.alpha"):
+            tokens.with_overrides({"shadows": {"card": {"alpha": 5}}})
+
+    @pytest.mark.parametrize("alpha", [0, 0.5, 1, 1.0])
+    def it_accepts_alpha_within_the_range(self, alpha):
+        tokens = DesignTokens.from_preset("modern_light")
+        result = tokens.with_overrides({"shadows.card.alpha": alpha})
+        assert result.shadows["card"].alpha == float(alpha)
+
+    def it_keeps_the_base_untouched_when_the_override_is_rejected(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        before = tokens.shadows["card"].alpha
+        with pytest.raises(ValueError):
+            tokens.with_overrides({"shadows.card.alpha": 2.0})
+        assert tokens.shadows["card"].alpha == before
+
+
+class DescribeSectionShapes:
+    """Each token category is a mapping; anything else is a clear ValueError."""
+
+    @pytest.mark.parametrize("section", ["palette", "typography", "radii", "spacings", "shadows"])
+    @pytest.mark.parametrize("bad", ["modern_blue", ["#FF0000"], 12])
+    def it_rejects_a_non_mapping_category(self, section, bad):
+        with pytest.raises(ValueError, match=rf"tokens\.{section} must be a mapping"):
+            DesignTokens.from_dict({section: bad})
+
+    def it_names_the_offending_value(self):
+        with pytest.raises(ValueError, match=r"'str'.*modern_blue"):
+            DesignTokens.from_dict({"palette": "modern_blue"})
+
+    @pytest.mark.parametrize("section", ["palette", "typography", "radii", "spacings", "shadows"])
+    def it_treats_a_null_category_as_empty(self, section):
+        tokens = DesignTokens.from_dict({section: None})
+        assert getattr(tokens, section) == {}
+
+    def it_rejects_a_spec_that_is_not_a_mapping(self):
+        with pytest.raises(ValueError, match="mapping"):
+            DesignTokens.from_dict(None)  # pyright: ignore[reportArgumentType]
+
+
+class DescribeOverrideKeyShapes:
+    def it_rejects_a_key_with_too_many_segments(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match="too many segments"):
+            tokens.with_overrides({"typography.heading.size.bogus": Pt(99)})
+
+    def it_still_rejects_a_sub_field_on_a_palette_entry(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        with pytest.raises(ValueError, match="only supported on typography and shadows"):
+            tokens.with_overrides({"palette.primary.x": "#000000"})
+
+
+class DescribePresetNames:
+    @pytest.mark.parametrize("name", [["modern_light"], None, 3])
+    def it_rejects_a_non_string_preset_name_as_unknown(self, name):
+        with pytest.raises(ValueError, match="Unknown preset"):
+            DesignTokens.from_preset(name)  # pyright: ignore[reportArgumentType]
