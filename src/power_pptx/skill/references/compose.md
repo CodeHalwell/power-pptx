@@ -68,15 +68,33 @@ explicitly when you actually want a blank slide.
 `tokens` accepts five shapes:
 
 - A preset by name: `{"preset": "modern_light"}` (optionally with
-  `"overrides": {...}` to layer brand-specific tweaks on top).
-- A YAML brand file: `{"yaml": "brand.yml"}`.
+  `"overrides": {...}` to layer brand-specific tweaks on top). The
+  presets are `corporate_navy`, `modern_dark`, `modern_light` and
+  `vibrant`.
+- A YAML brand file: `{"yaml": "brand.yml"}` (it takes `"overrides"`
+  too).
 - An inline dict matching `DesignTokens.from_dict` (palette,
-  typography, radii, shadows, spacings).
+  typography, radii, shadows, spacings). Lengths follow the token unit
+  rule — a float is points, a bare int is EMU, and a size that small
+  is rejected; see "Design tokens" in `design.md`.
 - A `DesignTokens` instance — handy when the same token bag is
   reused between imperative recipe calls and `from_spec`.
 - `None` (omitted) — falls through to the placeholder layouts on
   the host template; the recipe slides render with their built-in
   defaults.
+
+A `preset` or `yaml` spec takes nothing but `"overrides"` beside it:
+`{"preset": "modern_light", "palette": {...}}` raises (put the palette
+under `"overrides"`), and so do `preset` together with `yaml`, and
+`overrides` with no base. `"theme"` is an alias for `"tokens"` when
+`"tokens"` is absent, with the same shapes — `{"theme": {"palette":
+"modern_blue"}}` is not one of them.
+
+A slide may carry its own `tokens` (the same shapes), which replace the
+deck-level ones **for that slide**; `"tokens": null` opts the slide out.
+A slide-level `tokens` also upgrades `"title"` / `"bullets"` in a deck
+that has none. Placeholder layouts other than those two take their look
+from the template and reject a non-null slide-level `tokens`.
 
 `slide_size` is optional. With no setting, the bundled template's
 4:3 dimensions (10" × 7.5") are used. The shorthand resolves
@@ -96,6 +114,50 @@ The `lint` field accepts `"off"`, `"warn"`, or `"raise"`:
 
 `from_spec` runs the lint pass internally; outside of `from_spec`,
 iterate the slides yourself (see `lint.md`).
+
+### What `from_spec` validates
+
+Everything below is checked before the slide is built and raises a
+`ValueError` that names the slide (`slides[3]`) or the field
+(`slides[3].kpis`), so a fault in a 40-slide spec is findable:
+
+- **Unknown keys are rejected on every layout**, with a did-you-mean
+  hint (`subtitlz` → `subtitle`). That includes the placeholder layouts,
+  which used to drop what they did not read. What they read, besides
+  `title`, `transition` and `shapes`:
+
+  | Layout | Also reads |
+  | --- | --- |
+  | `title` | `subtitle` |
+  | `bullets` | `bullets` |
+  | `section` | `subtitle` or `text` |
+  | `two_column`, `comparison_layout` | `left` / `right` (or `content_left` / `content_right`) |
+  | `kpi_grid` | `kpis` — cards are 2.2" wide at most and share the width when there are too many for one row |
+  | `picture` | `image` (inserted into the picture placeholder) and `caption` |
+  | `title_only`, `blank`, `caption`, a template's own layout name | nothing more |
+
+  A template's own layout name (`"Title Slide"`) fills only the title;
+  the alias (`"title"`) also fills the subtitle.
+- **Values have the right type.** Each slide must be a mapping and
+  `layout` a string. Text fields (`title`, `subtitle`, `text`, `left`, `right`,
+  `caption`, `quote`, `attribution`, `code`, …) must be strings — YAML
+  reads `subtitle: 2026` as a number, so quote it. List fields must be
+  lists of the right thing: `kpis`, `milestones`, `series` and the rows
+  of a `comparison` are lists of mappings; the `rows` of a `table` are
+  lists of lists; `bullets`, `categories`, `columns` and each series'
+  `values` are lists.
+- **A bare string is not a one-item list.** `bullets: "one line"` raises
+  rather than being iterated per character (it used to render as a
+  bullet per letter).
+
+### Variables
+
+`vars` (and the `vars=` argument) fill `{{name}}` — or `{{a.b}}` into
+nested mappings — in every string of the spec; an unknown name raises
+`KeyError`. **A slide's `code` field is the exception:** it is shown
+exactly as written, so a `code` slide can display a Jinja, Handlebars or
+Go template (`Hello {{ user.name }}!`) without being treated as a
+variable reference. Other fields have no escape syntax.
 
 ## Free-standing shapes on a spec slide
 
