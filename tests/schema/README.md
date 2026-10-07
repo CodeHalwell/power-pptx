@@ -29,6 +29,32 @@ violations = list(iter_schema_violations(pptx_path_or_bytes))  # (partname, mess
 
 The tests skip automatically if `lxml` or the bundled XSDs are unavailable.
 
+## Master / layout hierarchy checks
+
+The XSD cannot express how the slide masters and layouts hang together, and a
+mistake there makes PowerPoint repair the deck. `hierarchy_validator.py`
+checks what the schema cannot, with the same `(partname, message)` shape:
+
+```python
+from tests.schema.hierarchy_validator import iter_hierarchy_violations
+
+violations = list(iter_hierarchy_violations(pptx_path_or_bytes))
+```
+
+* every `p:sldMasterId` / `p:sldLayoutId` `r:id` resolves to a relationship of
+  the right type — a layout entry that lands on the theme part is
+  schema-valid;
+* a master lists each of its layouts exactly once and each layout points back
+  at its master;
+* the ids of all masters and layouts share one space: unique, and in
+  `2147483648 .. 4294967295`.
+
+Run it next to `iter_schema_violations()` for any feature that clones or
+rewrites masters or layouts (`import_slide`, `apply_template`);
+`hierarchy_decks.py` has the deck builders (pictures on a master, a layout or
+the theme) and zip inspectors those tests share, and
+`test_hierarchy_schema.py` is where such decks are validated.
+
 ## Adding coverage
 
 When you add a feature that emits new OOXML, add a small deck builder to
