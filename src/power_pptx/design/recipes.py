@@ -749,9 +749,13 @@ def table_slide(
     palette's ``surface`` slot to improve scanning.
 
     *widths* assigns column widths.  Accepts a sequence of either
-    fractions summing to ~1.0 (``[0.5, 0.25, 0.25]``) or absolute
-    :class:`~power_pptx.util.Length` values.  Unspecified columns split
-    the remaining width evenly.
+    fractions of the table width (``[0.5, 0.25, 0.25]``) or absolute
+    :class:`~power_pptx.util.Length` values.  Fractions that name every
+    column are rescaled to fill the table; when fewer widths than columns are
+    given, those columns keep exactly the width asked for and the unspecified
+    ones split what remains evenly (``widths=[0.25, 0.25]`` on four columns
+    gives four equal columns).  Widths that leave nothing for the unspecified
+    columns raise :class:`ValueError`.
 
     *aligns* assigns horizontal alignment per column.  Accepts
     ``"left"`` / ``"center"`` / ``"right"``; defaults to ``"left"``
@@ -759,8 +763,19 @@ def table_slide(
 
     *totals* adds a footer row that visually separates from the data.
     Mapping shape: ``{"label": "Total", "values": [n1, n2, ...]}`` or
-    ``{"row": [c1, c2, c3, ...]}`` for a fully-explicit row.  The
-    footer is bold and uses ``primary`` palette text on a subtle band.
+    ``{"row": [c1, c2, c3, ...]}`` for a fully-explicit row.  The label
+    takes column 0 and the values fill the last columns, so there can be at
+    most one value fewer than there are columns; more raise
+    :class:`ValueError`.  The footer is bold and uses ``primary`` palette
+    text on a subtle band.
+
+    The table fills the space under the title and its rows share that height
+    equally.  When there are too many rows for the text to fit its row, the
+    cell margins are tightened first and then the font is shrunk a point at a
+    time (never below 9 pt); a table that still cannot fit raises
+    :class:`ValueError` suggesting you split it across slides.  Cells are
+    assumed to hold a single line of text: a cell that wraps makes its row
+    taller than this check can know.
 
     Tokens consumed:
 
@@ -774,13 +789,43 @@ def table_slide(
     if not columns:
         raise ValueError("table_slide requires at least one column")
 
-    slide = _add_blank(prs)
+    # Everything that can reject the input runs before the slide is added, so a
+    # ValueError never leaves a half-built slide behind in the deck.
     slide_w, slide_h = _slide_dims(prs)
-    _apply_background(slide, prs, tokens)
-
     margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
+
+    n_cols = len(columns)
+    totals_row = _coerce_totals_row(totals, n_cols) if totals else None
+    n_rows = len(rows) + 1 + (1 if totals_row is not None else 0)
+    table_top = Length(title_top + title_h + Inches(0.2))
+    table_h = Length(slide_h - table_top - Inches(0.5))
+    table_w = Length(slide_w - 2 * margin)
+    col_widths = _resolve_column_widths(widths, table_w, n_cols) if widths is not None else None
+    align_map = _coerce_aligns(aligns, n_cols)
+
+    header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
+    cell_token = _typography(tokens, "body", default_size=Pt(13))
+    totals_token = _typography(tokens, "body", default_size=Pt(13), default_bold=True)
+    row_tokens = [header_token]
+    if rows:
+        row_tokens.append(cell_token)
+    if totals_row is not None:
+        row_tokens.append(totals_token)
+    shrink_pt, cell_margin_y = _fit_table_rows(
+        n_data=len(rows),
+        has_totals=totals_row is not None,
+        table_h=int(table_h),
+        sizes_pt=[t.size.pt for t in row_tokens if t.size is not None],
+    )
+    header_token = _shrink_token(header_token, shrink_pt)
+    cell_token = _shrink_token(cell_token, shrink_pt)
+    totals_token = _shrink_token(totals_token, shrink_pt)
+
+    slide = _add_blank(prs)
+    _apply_background(slide, prs, tokens)
+
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
@@ -792,24 +837,13 @@ def table_slide(
         shrink_to_fit=True,
     )
 
-    totals_row = _coerce_totals_row(totals, len(columns)) if totals else None
-    n_rows = len(rows) + 1 + (1 if totals_row is not None else 0)
-    n_cols = len(columns)
-    table_top = Length(title_top + title_h + Inches(0.2))
-    table_h = Length(slide_h - table_top - Inches(0.5))
-    table_w = Length(slide_w - 2 * margin)
-
     gframe = slide.shapes.add_table(n_rows, n_cols, margin, table_top, table_w, table_h)
     table = gframe.table
 
-    if widths is not None:
-        _apply_column_widths(table, widths, table_w, n_cols)
+    if col_widths is not None:
+        for col, width in zip(table.columns, col_widths):
+            col.width = Emu(width)
 
-    align_map = _coerce_aligns(aligns, n_cols)
-
-    header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
-    cell_token = _typography(tokens, "body", default_size=Pt(13))
-    totals_token = _typography(tokens, "body", default_size=Pt(13), default_bold=True)
     header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
     header_text = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
     band_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
@@ -864,6 +898,14 @@ def table_slide(
                 align=align_map[c],
                 anchor=MSO_ANCHOR.MIDDLE,
             )
+
+    for table_row in table.rows:
+        for cell in table_row.cells:
+            # A table cell takes its vertical alignment from ``a:tcPr``; the ``anchor``
+            # that _fill_text_frame puts on the cell's text body is ignored.
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if cell_margin_y is not None:
+                cell.margin_top = cell.margin_bottom = Emu(cell_margin_y)
 
     _apply_transition(slide, transition)
     return slide
@@ -1887,55 +1929,117 @@ def _coerce_aligns(aligns: Optional[Sequence[str]], n_cols: int) -> list[PP_ALIG
     return out
 
 
-def _apply_column_widths(
-    table: Any,
-    widths: Sequence[Union[float, Length]],
-    table_w: Length,
-    n_cols: int,
-) -> None:
-    """Set table column widths from a sequence of fractions or Lengths.
+def _resolve_column_widths(
+    widths: Sequence[Union[float, Length]], table_w: int, n_cols: int
+) -> list[int]:
+    """Turn *widths* into one EMU width per column.
 
     Supports two input modes:
 
-    * **Fractions**: values < 5 are treated as fractions of *table_w*;
-      they should sum to ~1.0 (we normalise on a defensive basis so a
-      slightly-off list still lays out reasonably).
+    * **Fractions**: values < 5 are treated as fractions of *table_w*.
     * **Absolute lengths**: any :class:`Length` (or value ≥ 5) is taken
       verbatim.
 
-    Columns past ``len(widths)`` keep their default share of the
-    remaining width.
+    When *widths* names every column and uses fractions, they are rescaled to fill
+    *table_w* if they stray more than 1% from it (so a slightly-off list still lays
+    out).  When it names *fewer* columns, the named ones keep exactly the width
+    asked for and the rest share what remains evenly, the remainder going to the
+    last one so the columns add up to *table_w*.  Raises :class:`ValueError` if
+    nothing remains for the unspecified columns — they would be zero-width.
     """
-    total_table_w = int(table_w)
-    spec_lengths: list[int] = []
-    spec_is_fraction = False
+    specified: list[int] = []
+    uses_fractions = False
     for w in widths[:n_cols]:
         if isinstance(w, Length):
-            spec_lengths.append(int(w))
-        elif isinstance(w, (int, float)) and float(w) < 5:
-            spec_is_fraction = True
-            spec_lengths.append(int(round(float(w) * total_table_w)))
+            specified.append(int(w))
+        elif float(w) < 5:
+            uses_fractions = True
+            specified.append(int(round(float(w) * table_w)))
         else:
-            spec_lengths.append(int(w))
+            specified.append(int(w))
 
-    # Normalise fractions defensively if they don't sum to ~1.
-    if spec_is_fraction:
-        total_spec = sum(spec_lengths)
-        if total_spec > 0 and abs(total_spec - total_table_w) > total_table_w * 0.01:
-            scale = total_table_w / total_spec
-            spec_lengths = [int(round(v * scale)) for v in spec_lengths]
+    unspecified = n_cols - len(specified)
+    if unspecified > 0:
+        remaining = table_w - sum(specified)
+        if remaining <= 0:
+            raise ValueError(
+                f"widths= names {len(specified)} of {n_cols} columns but already takes "
+                f"{Emu(sum(specified)).inches:.2f} in of the {Emu(table_w).inches:.2f} in "
+                f"table, leaving no room for the other {unspecified}; give the named "
+                "columns less width or name every column"
+            )
+        share, extra = divmod(remaining, unspecified)
+        specified += [share] * unspecified
+        specified[-1] += extra
+    elif uses_fractions:
+        total = sum(specified)
+        if total > 0 and abs(total - table_w) > table_w * 0.01:
+            specified = [int(round(v * table_w / total)) for v in specified]
+            specified[-1] += table_w - sum(specified)
+    return specified
 
-    used = sum(spec_lengths)
-    remaining = max(0, total_table_w - used)
-    unspecified = n_cols - len(spec_lengths)
-    fill = (remaining // unspecified) if unspecified > 0 else 0
 
-    for i in range(n_cols):
-        col = table.columns[i]
-        if i < len(spec_lengths):
-            col.width = Emu(spec_lengths[i])
-        else:
-            col.width = Emu(fill)
+#: Top/bottom cell margin a table cell has until told otherwise.
+_TABLE_CELL_MARGIN_Y = int(_DEFAULT_INSET_Y)
+#: Margin ``table_slide`` drops to, before shrinking any text, when rows run short.
+_TABLE_COMPACT_MARGIN_Y = int(Inches(0.02))
+
+
+def _table_row_need(size_pt: float, margin_y: int) -> int:
+    """EMU a row needs for one line of *size_pt* text: its line height plus both margins."""
+    return int(size_pt * _LINE_PITCH * _EMU_PER_PT) + 2 * margin_y
+
+
+def _shrunk_pt(size_pt: float, shrink_pt: float) -> float:
+    """*size_pt* reduced by *shrink_pt*, but not below the legibility floor.
+
+    Text already smaller than the floor is left alone rather than enlarged.
+    """
+    return max(size_pt - shrink_pt, min(size_pt, _MIN_LEGIBLE_PT))
+
+
+def _shrink_token(token: TypographyToken, shrink_pt: float) -> TypographyToken:
+    """Return *token* with its size reduced by *shrink_pt* (see :func:`_shrunk_pt`)."""
+    if not shrink_pt or token.size is None:
+        return token
+    return replace(token, size=Pt(_shrunk_pt(token.size.pt, shrink_pt)))
+
+
+def _fit_table_rows(
+    *, n_data: int, has_totals: bool, table_h: int, sizes_pt: Sequence[float]
+) -> tuple[float, Optional[int]]:
+    """Choose how far a table must be tightened for its rows to hold their text.
+
+    The table's rows share *table_h* equally, and each has to be at least as tall
+    as one line of its text plus the cell margins.  The cheapest change that gets
+    there wins: nothing at all, then compact cell margins, then compact margins and
+    a font shrunk a point at a time (never below the legibility floor).  Returns
+    ``(shrink_pt, margin_y)`` where ``margin_y`` is ``None`` for "leave the margins
+    alone".  Raises :class:`ValueError`, naming how many rows would fit, when even
+    the tightest setting leaves the rows too short.
+    """
+    n_rows = n_data + 1 + (1 if has_totals else 0)
+    row_h = table_h // n_rows
+    if max(_table_row_need(s, _TABLE_CELL_MARGIN_Y) for s in sizes_pt) <= row_h:
+        return 0.0, None
+    shrink = 0.0
+    while True:
+        need = max(
+            _table_row_need(_shrunk_pt(s, shrink), _TABLE_COMPACT_MARGIN_Y) for s in sizes_pt
+        )
+        if need <= row_h:
+            return shrink, _TABLE_COMPACT_MARGIN_Y
+        if all(_shrunk_pt(s, shrink) <= min(s, _MIN_LEGIBLE_PT) for s in sizes_pt):
+            break
+        shrink += 1.0
+    tightest = max(
+        _table_row_need(min(s, _MIN_LEGIBLE_PT), _TABLE_COMPACT_MARGIN_Y) for s in sizes_pt
+    )
+    capacity = max(0, table_h // tightest - 1 - (1 if has_totals else 0))
+    raise ValueError(
+        f"table_slide: {n_data} data rows do not fit on one slide; at most {capacity} data "
+        f"rows fit at {_MIN_LEGIBLE_PT:g} pt. Please split the table across several slides."
+    )
 
 
 def _coerce_totals_row(totals: Mapping[str, Any], n_cols: int) -> list[Any]:
@@ -1947,17 +2051,20 @@ def _coerce_totals_row(totals: Mapping[str, Any], n_cols: int) -> list[Any]:
         return row
     label = totals.get("label", "Total")
     values = list(totals.get("values", []))
+    if len(values) > n_cols - 1:
+        raise ValueError(
+            f"totals.values takes at most {n_cols - 1} value(s) for a {n_cols}-column table "
+            f"(column 0 holds the label), got {len(values)}; use totals.row to spell out "
+            "every column"
+        )
     # Right-pad values with empty strings, place label in column 0,
     # values fill from the right.  This matches how spreadsheet
     # totals usually read.
     out: list[Any] = [""] * n_cols
     out[0] = label
-    if values:
-        # Place values in the *last* len(values) columns.
-        start = max(1, n_cols - len(values))
-        for i, v in enumerate(values):
-            if start + i < n_cols:
-                out[start + i] = v
+    # Place values in the *last* len(values) columns.
+    for i, v in enumerate(values):
+        out[n_cols - len(values) + i] = v
     return out
 
 

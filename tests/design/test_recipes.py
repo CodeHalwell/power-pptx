@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 
 import pytest
 
@@ -24,7 +25,7 @@ from power_pptx.design.recipes import (
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
-from power_pptx.enum.text import PP_ALIGN
+from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from power_pptx.util import Emu, Inches, Pt
 
 _TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
@@ -760,6 +761,278 @@ class DescribeTableSlidePolish:
             )
 
 
+def _table_frame(slide):
+    return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE)
+
+
+def _column_widths(slide):
+    return [int(c.width) for c in _table_frame(slide).table.columns]
+
+
+class DescribeTableSlideColumnWidths:
+    """`widths=` may name fewer columns than the table has."""
+
+    def it_splits_the_remaining_width_evenly_over_unspecified_columns(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C", "D"],
+            rows=[["1", "2", "3", "4"]],
+            widths=[0.25, 0.25],
+        )
+        widths = _column_widths(slide)
+        quarter = int(_table_frame(slide).width) / 4
+        assert all(abs(w - quarter) <= 2 for w in widths), widths
+
+    def it_keeps_specified_fractions_when_columns_are_unspecified(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C"],
+            rows=[["1", "2", "3"]],
+            widths=[0.5],
+        )
+        widths = _column_widths(slide)
+        total = int(_table_frame(slide).width)
+        assert abs(widths[0] - total / 2) <= 2
+        assert abs(widths[1] - total / 4) <= 2
+        assert abs(widths[2] - total / 4) <= 2
+
+    def it_splits_what_absolute_lengths_leave_over(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C", "D"],
+            rows=[["1", "2", "3", "4"]],
+            widths=[Inches(1), Inches(2)],
+        )
+        widths = _column_widths(slide)
+        assert widths[:2] == [int(Inches(1)), int(Inches(2))]
+        leftover = (int(_table_frame(slide).width) - int(Inches(3))) / 2
+        assert all(abs(w - leftover) <= 2 for w in widths[2:])
+
+    def it_fills_the_table_width_exactly(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C", "D", "E", "F", "G"],
+            rows=[["1"] * 7],
+            widths=[0.1, 0.1, 0.1],
+        )
+        assert sum(_column_widths(slide)) == int(_table_frame(slide).width)
+
+    def it_still_rescales_fractions_that_name_every_column(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C"],
+            rows=[["1", "2", "3"]],
+            widths=[1, 1, 2],
+        )
+        widths = _column_widths(slide)
+        assert abs(sum(widths) - int(_table_frame(slide).width)) <= 3
+        assert abs(widths[2] / widths[0] - 2.0) < 0.01
+
+    @pytest.mark.parametrize("widths", [[0.6, 0.6], [Inches(5), Inches(5)]])
+    def it_rejects_widths_that_leave_no_room_for_the_rest(self, prs, widths):
+        with pytest.raises(ValueError, match="no room"):
+            table_slide(
+                prs,
+                title="t",
+                columns=["A", "B", "C"],
+                rows=[["1", "2", "3"]],
+                widths=widths,
+            )
+
+    def but_it_does_not_leave_a_stray_slide_behind_when_it_raises(self, prs):
+        with pytest.raises(ValueError):
+            table_slide(
+                prs,
+                title="t",
+                columns=["A", "B", "C"],
+                rows=[["1", "2", "3"]],
+                widths=[0.6, 0.6],
+            )
+        assert len(prs.slides) == 0
+
+
+class DescribeTableSlideTotals:
+    def it_rejects_more_totals_values_than_value_columns(self, prs):
+        # Column 0 holds the label, so two columns leave room for one value.
+        with pytest.raises(ValueError, match=r"totals\.values"):
+            table_slide(
+                prs,
+                title="t",
+                columns=["A", "B"],
+                rows=[["1", "2"]],
+                totals={"label": "Tot", "values": [10, 20, 30]},
+            )
+
+    def it_rejects_a_value_per_column_because_the_label_takes_one(self, prs):
+        with pytest.raises(ValueError, match=r"totals\.values"):
+            table_slide(
+                prs,
+                title="t",
+                columns=["A", "B"],
+                rows=[["1", "2"]],
+                totals={"values": [10, 20]},
+            )
+
+    def it_still_right_aligns_fewer_values_than_columns(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B", "C", "D"],
+            rows=[["1", "2", "3", "4"]],
+            totals={"label": "Total", "values": [7, 9]},
+        )
+        table = _table_frame(slide).table
+        assert [table.cell(2, c).text for c in range(4)] == ["Total", "", "7", "9"]
+
+
+def _cell_margins(cell):
+    top = cell.margin_top if cell.margin_top is not None else Inches(0.05)
+    bottom = cell.margin_bottom if cell.margin_bottom is not None else Inches(0.05)
+    return int(top) + int(bottom)
+
+
+def _table_rows_big_enough_for_their_text(slide):
+    """Return a description of every row too short for its text, or ``[]``."""
+    table = _table_frame(slide).table
+    problems = []
+    for r, row in enumerate(table.rows):
+        for c in range(len(table.columns)):
+            cell = table.cell(r, c)
+            size = cell.text_frame.paragraphs[0].runs[0].font.size
+            need = int(size * 1.2) + _cell_margins(cell)
+            if int(row.height) < need - 2:
+                problems.append(f"row {r}: {Emu(row.height).pt:.1f}pt < {Emu(need).pt:.1f}pt")
+    return problems
+
+
+class DescribeTableSlideRowHeights:
+    """Rows never get shorter than the text inside them."""
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("n", [5, 12, 20, 26])
+    def it_keeps_every_row_tall_enough_for_its_text(self, aspect, n):
+        slide = table_slide(
+            _presentation(aspect),
+            title="Regional results",
+            columns=["Region", "Revenue"],
+            rows=[[f"Region {i}", f"${i}M"] for i in range(n)],
+            totals={"label": "Total", "values": ["$1B"]},
+        )
+        assert _table_rows_big_enough_for_their_text(slide) == []
+
+    def it_shrinks_the_text_and_keeps_the_table_on_the_slide(self):
+        prs = _presentation("4:3")
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["Region", "Revenue"],
+            rows=[[f"Region {i}", i] for i in range(20)],
+        )
+        frame = _table_frame(slide)
+        sizes = {
+            cell.text_frame.paragraphs[0].runs[0].font.size.pt
+            for row in frame.table.rows
+            for cell in row.cells
+        }
+        assert max(sizes) < 14  # the 14 pt header shrank too
+        assert min(sizes) >= 9
+        assert int(frame.top) + int(frame.height) <= int(prs.slide_height) - int(Inches(0.5))
+        assert sum(int(r.height) for r in frame.table.rows) <= int(frame.height) + 3
+        assert _lint_problems(slide) == []
+
+    def it_centres_cell_text_vertically(self, prs):
+        # Cells take their vertical alignment from a:tcPr, not the cell's text body.
+        slide = table_slide(prs, title="t", columns=["A", "B"], rows=[["1", "2"]])
+        table = _table_frame(slide).table
+        assert all(
+            cell.vertical_anchor == MSO_ANCHOR.MIDDLE for row in table.rows for cell in row.cells
+        )
+
+    def it_leaves_a_short_table_exactly_as_it_was(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["A", "B"],
+            rows=[["1", "2"], ["3", "4"]],
+            totals={"row": ["s", "t"]},
+        )
+        table = _table_frame(slide).table
+        assert table.cell(0, 0).text_frame.paragraphs[0].runs[0].font.size == Pt(14)
+        assert table.cell(1, 0).text_frame.paragraphs[0].runs[0].font.size == Pt(13)
+        assert table.cell(3, 0).text_frame.paragraphs[0].runs[0].font.size == Pt(13)
+        assert all("marT" not in cell._tc.xml for row in table.rows for cell in row.cells)
+
+    @staticmethod
+    def _sizes(slide):
+        table = _table_frame(slide).table
+        return {
+            cell.text_frame.paragraphs[0].runs[0].font.size.pt
+            for row in table.rows
+            for cell in row.cells
+        }
+
+    def it_keeps_the_default_margins_while_they_fit(self, prs):
+        # The 5.4 in frame gives each of 16 rows 24.3 pt: room for the 14 pt header
+        # (16.8 pt of text + 7.2 pt of margin).
+        slide = table_slide(
+            prs, title="t", columns=["A", "B"], rows=[[f"r{i}", i] for i in range(15)]
+        )
+        table = _table_frame(slide).table
+        assert self._sizes(slide) == {14.0, 13.0}
+        assert all("marT" not in cell._tc.xml for row in table.rows for cell in row.cells)
+
+    def it_tightens_the_cell_margins_before_it_touches_the_font(self, prs):
+        # 18 rows leave 21.6 pt each: too little for the default margins, but plenty
+        # once they drop to 2.88 pt.  The text keeps its size.
+        slide = table_slide(
+            prs, title="t", columns=["A", "B"], rows=[[f"r{i}", i] for i in range(17)]
+        )
+        table = _table_frame(slide).table
+        assert self._sizes(slide) == {14.0, 13.0}
+        assert all("marT" in cell._tc.xml for row in table.rows for cell in row.cells)
+        assert _table_rows_big_enough_for_their_text(slide) == []
+
+    def it_fits_big_token_typography_by_shrinking_it(self, tokens):
+        slide = table_slide(
+            _presentation("16:9"),
+            title="t",
+            columns=["Region", "Revenue"],
+            rows=[[f"Region {i}", i] for i in range(20)],
+            tokens=tokens,
+        )
+        assert _table_rows_big_enough_for_their_text(slide) == []
+
+    def it_refuses_a_table_that_cannot_fit_on_one_slide(self, prs):
+        with pytest.raises(ValueError, match="split"):
+            table_slide(
+                prs,
+                title="t",
+                columns=["A", "B"],
+                rows=[[f"r{i}", i] for i in range(80)],
+            )
+        assert len(prs.slides) == 0
+
+    def it_says_how_many_rows_do_fit(self, prs):
+        with pytest.raises(ValueError, match=r"at most \d+ data rows"):
+            table_slide(prs, title="t", columns=["A"], rows=[[i] for i in range(80)])
+
+    def it_accepts_the_largest_table_it_says_will_fit(self, prs):
+        with pytest.raises(ValueError) as excinfo:
+            table_slide(prs, title="t", columns=["A"], rows=[[i] for i in range(80)])
+        found = re.search(r"at most (\d+) data rows", str(excinfo.value))
+        assert found is not None
+        capacity = int(found.group(1))
+        slide = table_slide(prs, title="t", columns=["A"], rows=[[i] for i in range(capacity)])
+        assert _table_rows_big_enough_for_their_text(slide) == []
+        with pytest.raises(ValueError, match="split"):
+            table_slide(prs, title="t", columns=["A"], rows=[[i] for i in range(capacity + 1)])
+
+
 class DescribeIsMarkupString:
     """`_is_markup_string` correctly recognises inline SVG/HTML."""
 
@@ -931,3 +1204,49 @@ class DescribeTextMeasurement:
         token = _typography(None, "body", default_size=Pt(16))
         fitted = _fit_token(token, ["word " * 400], int(Inches(1)), int(Inches(0.4)))
         assert fitted.size == Pt(9)
+
+
+def _schema_violations(prs):
+    """Return the ISO-29500 schema violations of *prs* once saved (skips if unavailable)."""
+    import io
+
+    from tests.schema.oxml_schema_validator import (
+        iter_schema_violations,
+        schema_validation_available,
+    )
+
+    if not schema_validation_available():
+        pytest.skip("schema validation unavailable")
+    buf = io.BytesIO()
+    prs.save(buf)
+    return list(iter_schema_violations(buf.getvalue()))
+
+
+class DescribeRecipeSchemaValidity:
+    """Whatever geometry the recipes work out, the XML they emit stays valid."""
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_validates_timelines_and_tables(self, aspect, tokens):
+        prs = _presentation(aspect)
+        for n in (1, 2, 8):
+            timeline_slide(prs, title="Roadmap", milestones=_ROADMAP[:n], tokens=tokens)
+        # Roomy, compact-margin and shrunk-font tables, with and without partial widths.
+        table_slide(prs, title="Short", columns=["A", "B"], rows=[["1", "2"]])
+        table_slide(
+            prs,
+            title="Compact margins",
+            columns=["A", "B", "C", "D"],
+            rows=[[i] * 4 for i in range(17)],
+            widths=[0.4, 0.2],
+            totals={"label": "Sum", "values": [1, 2]},
+        )
+        table_slide(prs, title="Shrunk", columns=["A", "B"], rows=[[i, i] for i in range(24)])
+        assert _schema_violations(prs) == []
+
+    def it_round_trips_a_tight_table_and_a_timeline(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        prs = _presentation("4:3")
+        timeline_slide(prs, title="Roadmap", milestones=_ROADMAP[:5])
+        table_slide(prs, title="Shrunk", columns=["A", "B"], rows=[[i, i] for i in range(24)])
+        assert_round_trip(prs)
