@@ -269,12 +269,23 @@ def _apply_horizontal_bar_default(graphic_frame, chart_type) -> None:
     top-to-bottom; column charts keep their default left-to-right
     ordering. Caller can override post-creation if the legacy default
     is wanted.
+
+    A reversed category axis drags the value axis along to its other end,
+    the top, so the value axis is also made to cross at the maximum
+    category, which keeps it along the bottom (Excel's "Horizontal axis
+    crosses: at maximum category"). Setting ``reverse_order = False``
+    again undoes both.
     """
     if getattr(chart_type, "name", None) not in _HORIZONTAL_BAR_CHART_NAMES:
         return
+    from power_pptx.enum.chart import XL_AXIS_CROSSES
+
     # Defensive: never break chart creation on a styling tweak.
     with contextlib.suppress(AttributeError, ValueError):
-        graphic_frame.chart.category_axis.reverse_order = True
+        category_axis = graphic_frame.chart.category_axis
+        category_axis.reverse_order = True
+        # `crosses` of the category axis lives on the value axis' element, `c:valAx`.
+        category_axis.crosses = XL_AXIS_CROSSES.MAXIMUM
 
 
 # +-- _BaseShapes
