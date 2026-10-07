@@ -237,6 +237,15 @@ class Presentation(PartElementProxy):
 
         The imported slide is appended after any existing slides.
 
+        A hyperlink on the slide that jumps to another slide (a click action or
+        text hyperlink set with ``target_slide``) survives only when it targets
+        the imported slide itself or, when the slide is imported into the
+        presentation it comes from, another slide of that presentation.  A jump
+        to any other slide is removed from the imported copy — the target is
+        not copied along, and a link to nowhere would be a broken action — and
+        a :class:`UserWarning` reports how many links were removed.  Relative
+        jumps (next, previous, first or last slide) are unaffected.
+
         Parameters
         ----------
         source_slide:

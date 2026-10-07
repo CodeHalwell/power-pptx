@@ -10,6 +10,7 @@ master/layout hierarchy checks.
 from __future__ import annotations
 
 import io
+import warnings
 from typing import Callable
 
 import pytest
@@ -93,6 +94,45 @@ def _deck_import_slides_cloning_a_branded_master() -> bytes:
     return saved_bytes(dst)
 
 
+def _deck_import_slide_with_slide_jumps() -> bytes:
+    src = Presentation()
+    jumper = src.slides.add_slide(src.slide_layouts[6])
+    target = src.slides.add_slide(src.slide_layouts[6])
+    target.shapes.add_picture(
+        io.BytesIO(solid_png(RED)), Inches(1), Inches(1), Inches(1), Inches(1)
+    )
+    box = jumper.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "shape jump"
+    box.click_action.target_slide = target
+    run = jumper.shapes.add_textbox(Inches(1), Inches(3), Inches(3), Inches(1))
+    run.text_frame.paragraphs[0].add_run().text = "run jump"
+    run.text_frame.paragraphs[0].runs[0].hyperlink.target_slide = target
+    selfjump = jumper.shapes.add_textbox(Inches(1), Inches(5), Inches(3), Inches(1))
+    selfjump.text_frame.text = "self jump"
+    selfjump.click_action.target_slide = jumper
+    dst = Presentation()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        dst.import_slide(jumper)
+    return saved_bytes(dst)
+
+
+def _deck_duplicate_slides_within_one_deck() -> bytes:
+    prs = Presentation()
+    first = prs.slides.add_slide(prs.slide_layouts[6])
+    second = prs.slides.add_slide(prs.slide_layouts[6])
+    second.shapes.add_picture(
+        io.BytesIO(solid_png(BLUE)), Inches(1), Inches(1), Inches(1), Inches(1)
+    )
+    box = first.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "to second"
+    box.click_action.target_slide = second
+    first.notes_slide.notes_text_frame.text = "notes"
+    prs.import_slide(first)
+    prs.import_slide(second)
+    return saved_bytes(prs)
+
+
 def _deck_import_after_apply_template() -> bytes:
     template = _branded_template()
     deck = _deck_with_slides()
@@ -107,6 +147,8 @@ _DECK_BUILDERS: dict[str, Callable[[], bytes]] = {
     "apply_two_master_template": _deck_apply_two_master_template,
     "apply_template_twice": _deck_apply_template_twice,
     "import_cloning_a_branded_master": _deck_import_slides_cloning_a_branded_master,
+    "import_slide_with_slide_jumps": _deck_import_slide_with_slide_jumps,
+    "duplicate_slides_within_one_deck": _deck_duplicate_slides_within_one_deck,
     "import_after_apply_template": _deck_import_after_apply_template,
 }
 

@@ -9,6 +9,8 @@ import pytest
 
 from power_pptx import Presentation
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import nsdecls
 from power_pptx.util import Inches
 
 from ..schema.hierarchy_decks import (
@@ -328,6 +330,34 @@ class Describe_apply_template_dependencies:
         blob = saved_bytes(deck)
         [slide] = zip_names(blob, r"ppt/slides/slide\d+\.xml")
         assert embedded_images(blob, slide) == [solid_png(BLUE)]
+
+    def it_drops_slide_jump_links_of_template_layouts_instead_of_cloning_template_slides(self):
+        template = Presentation()
+        target = template.slides.add_slide(template.slide_layouts[6])
+        layout_part = template.slide_layouts[0].part
+        rId = layout_part.relate_to(target.part, RT.SLIDE)
+        layout_part._element.cSld.spTree.append(
+            parse_xml(
+                f"<p:sp {nsdecls('p', 'a', 'r')}><p:nvSpPr>"
+                '<p:cNvPr id="900" name="Jump">'
+                f'<a:hlinkClick r:id="{rId}" action="ppaction://hlinksldjump"/></p:cNvPr>'
+                '<p:cNvSpPr/><p:nvPr userDrawn="1"/></p:nvSpPr><p:spPr><a:xfrm>'
+                '<a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>'
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:sp>'
+            )
+        )
+        deck = _make_deck("A")
+
+        with pytest.warns(UserWarning, match=r"apply_template: removed 1 slide-jump") as record:
+            deck.apply_template(_as_stream(template))
+
+        assert record[0].filename == __file__
+        blob = saved_bytes(deck)
+        assert zip_names(blob, r"ppt/slides/slide\d+\.xml") == ["ppt/slides/slide1.xml"]
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            for name in zip_names(blob, r"ppt/slideLayouts/slideLayout\d+\.xml"):
+                assert b"hlinkClick" not in z.read(name)
+        assert list(iter_hierarchy_violations(blob)) == []
 
 
 # ---------------------------------------------------------------------------

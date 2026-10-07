@@ -34,6 +34,11 @@ The following are intentionally **not** deep-copied:
 * The notes master — the copied notes slide is re-linked to the destination's
   own notes master; the source's is cloned only when the destination has none.
 * The handout master.
+* Other slides.  A slide-jump hyperlink (``ppaction://hlinksldjump``) keeps its
+  target only when that target is the slide being imported or, when copying
+  within one presentation, another slide of that presentation.  A jump to any
+  other slide is removed from the copy (with a :class:`UserWarning`): cloning
+  the target would leave an orphan slide in the package.
 
 ``Presentation.apply_template()`` shares the master / layout / theme cloning
 machinery (:class:`_PartCopier`) with the importer.
@@ -42,6 +47,7 @@ machinery (:class:`_PartCopier`) with the importer.
 from __future__ import annotations
 
 import hashlib
+import warnings
 from copy import deepcopy
 from typing import TYPE_CHECKING, Literal
 
@@ -77,6 +83,11 @@ def import_slide(
     merge_master: MergeMaster = "dedupe",
 ) -> Slide:
     """Copy *src_slide_part* into *dst_prs_part* and return the new |Slide|.
+
+    Slide-jump hyperlinks on the slide that target a slide other than the one
+    being imported are removed from the copy (see the module docstring) and a
+    :class:`UserWarning` reports how many; the exception is a copy made within
+    one presentation, where links to that presentation's other slides stay.
 
     Parameters
     ----------
@@ -120,6 +131,8 @@ class _PartCopier:
         self._part_map: dict[Part, Part] = {}
         # Partnames already picked in this run (but not yet in the package graph)
         self._reserved_partnames: set[str] = set()
+        # Number of slide-jump hyperlinks dropped from the copied parts
+        self._removed_slide_links = 0
 
     def _next_partname(self, tmpl: str) -> PackURI:
         """Return the next non-colliding partname for *tmpl*, accounting for parts
@@ -163,7 +176,7 @@ class _PartCopier:
         new_partname = self._next_partname("/ppt/slideLayouts/slideLayout%d.xml")
         dst_layout_part = _clone_xml_part(src_layout_part, new_partname, self._dst_package)
         id_map = self._copy_dependencies(src_layout_part, dst_layout_part)
-        _remap_rids(dst_layout_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
+        self._remap(dst_layout_part, id_map)
         # Relate layout → master
         dst_layout_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
         # Relate master → layout
@@ -214,7 +227,7 @@ class _PartCopier:
             sldLayoutIdLst.remove(stale_entry)
 
         id_map = self._copy_dependencies(src_master_part, dst_master_part)
-        _remap_rids(dst_master_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
+        self._remap(dst_master_part, id_map)
 
         # --- Register new master with presentation (fresh unique id) ---
         rId = self._dst_prs_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
@@ -276,18 +289,21 @@ class _PartCopier:
     # Dependency copy
     # ------------------------------------------------------------------
 
-    def _copy_dependencies(self, src_part: Part, dst_part: Part) -> dict[str, str]:
+    def _copy_dependencies(self, src_part: Part, dst_part: Part) -> dict[str, str | None]:
         """Copy *src_part*'s dependencies onto *dst_part*; return the rId map.
 
         External relationships are re-created verbatim; master-hierarchy
         relationships (layout / master / theme) are skipped — callers wire
         those explicitly; a notes-master relationship is re-pointed at the
         destination's own notes master (importing the source's only when the
-        destination has none).  Every other related part is copied
-        recursively.  The caller is responsible for running the returned
-        source-rId → destination-rId map through :func:`_remap_rids`.
+        destination has none).  A slide relationship is re-pointed rather
+        than copied (see :meth:`_slide_link_target`) — or, when the copy has
+        no slide to point it at, dropped: its entry in the returned map is
+        `None`.  Every other related part is copied recursively.  The caller
+        is responsible for running the returned source-rId → destination-rId
+        map through :meth:`_remap`.
         """
-        id_map: dict[str, str] = {}
+        id_map: dict[str, str | None] = {}
         for rel in src_part.rels.values():
             if rel.is_external:
                 id_map[rel.rId] = dst_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
@@ -302,9 +318,41 @@ class _PartCopier:
                 dst_notes_master = self._dst_prs_part.notes_master_part
                 id_map[rel.rId] = dst_part.relate_to(dst_notes_master, RT.NOTES_MASTER)
                 continue
+            if rel.reltype == RT.SLIDE:
+                dst_slide = self._slide_link_target(rel.target_part)
+                id_map[rel.rId] = (
+                    None if dst_slide is None else dst_part.relate_to(dst_slide, RT.SLIDE)
+                )
+                continue
             dst_dep = self._copy_part_recursive(rel.target_part)
             id_map[rel.rId] = dst_part.relate_to(dst_dep, rel.reltype)
         return id_map
+
+    def _slide_link_target(self, src_slide_part: Part) -> Part | None:
+        """Return the part a copied slide relationship to *src_slide_part* should point at.
+
+        A slide relationship is either a slide-jump hyperlink or a notes slide's link back to
+        its slide.  Copying the target slide along would leave an orphan slide (not in
+        `p:sldIdLst`, no layout) in the package, so instead:
+
+        * a target that is itself being copied (the slide being imported) maps to its copy;
+        * a target that already is a slide of the destination presentation — the slide is being
+          copied within one deck — stays as it is;
+        * any other target has no counterpart: `None`, and the link is removed from the copy.
+        """
+        copied = self._part_map.get(src_slide_part)
+        if copied is not None:
+            return copied
+        return src_slide_part if self._is_dst_slide(src_slide_part) else None
+
+    def _is_dst_slide(self, part: Part) -> bool:
+        """True when *part* is one of the slides listed in the destination's `p:sldIdLst`."""
+        sldIdLst = self._dst_prs_part._element.sldIdLst  # pyright: ignore[reportPrivateUsage]
+        if sldIdLst is None:
+            return False
+        return any(
+            self._dst_prs_part.related_part(sldId.rId) is part for sldId in sldIdLst.sldId_lst
+        )
 
     def _copy_part_recursive(self, src_part: Part, partname: PackURI | None = None) -> Part:
         """Return a copy of *src_part* in the destination package.
@@ -327,10 +375,36 @@ class _PartCopier:
 
         # Rewrite embedded rId references in cloned XML parts (e.g. a chart's
         # <c:externalData r:id=…> pointing at its embedded workbook).
-        if isinstance(dst_part, XmlPart):
-            _remap_rids(dst_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
+        self._remap(dst_part, id_map)
 
         return dst_part
+
+    def _remap(self, dst_part: Part, id_map: dict[str, str | None]) -> None:
+        """Rewrite the relationship ids in *dst_part*'s XML, if it has any, through *id_map*."""
+        if isinstance(dst_part, XmlPart):
+            self._removed_slide_links += _remap_rids(
+                dst_part._element,  # pyright: ignore[reportPrivateUsage]
+                id_map,
+            )
+
+    def _warn_removed_slide_links(self, operation: str) -> None:
+        """Warn that slide-jump hyperlinks were dropped from the copy, if any were.
+
+        Meant to be called from the operation's `run()`, which is reached through the public
+        function and then the `Presentation` method: the warning is attributed to the caller
+        of the latter.
+        """
+        n = self._removed_slide_links
+        if not n:
+            return
+        links = "1 slide-jump hyperlink" if n == 1 else f"{n} slide-jump hyperlinks"
+        warnings.warn(
+            f"{operation}: removed {links} pointing at a slide outside the copied set. Such "
+            "slides are not copied along, so the affected shape or text keeps no action; "
+            "re-create the link on the copy if you need it.",
+            UserWarning,
+            stacklevel=5,
+        )
 
 
 class _SlideImporter(_PartCopier):
@@ -351,6 +425,7 @@ class _SlideImporter(_PartCopier):
         dst_layout_part = self._resolve_layout()
         dst_slide_part = self._copy_slide(dst_layout_part)
         self._register_slide(dst_slide_part)
+        self._warn_removed_slide_links("import_slide")
         return dst_slide_part.slide
 
     # ------------------------------------------------------------------
@@ -472,7 +547,7 @@ class _SlideImporter(_PartCopier):
                 id_map[rel.rId] = layout_rId
                 break
 
-        _remap_rids(dst_slide_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
+        self._remap(dst_slide_part, id_map)
         return dst_slide_part  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
@@ -525,20 +600,43 @@ def _clone_xml_part(src_part: XmlPart, new_partname: PackURI, dst_package: Packa
 # destination.  PowerPoint then can't resolve the image and repairs the deck.
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
+# The DrawingML hyperlink elements; any of them may carry a slide-jump ``r:id``.
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_HYPERLINK_TAGS = frozenset(
+    "{%s}%s" % (_A_NS, name) for name in ("hlinkClick", "hlinkHover", "hlinkMouseOver")
+)
 
-def _remap_rids(element, id_map: dict[str, str]) -> None:
+
+def _remap_rids(element, id_map: dict[str, str | None]) -> int:
     """Rewrite every ``r:*`` attribute on *element*'s tree through *id_map*.
 
     Only relationship-namespace attributes whose value is a known source rId are
-    touched, so non-relationship attributes are never disturbed.
+    touched, so non-relationship attributes are never disturbed.  A source rId
+    mapped to `None` names a relationship that is not part of the copy: the
+    hyperlink element (``a:hlinkClick`` and friends) using it is removed, and any
+    other element just loses the attribute rather than keep a reference to
+    whatever relationship happens to carry that rId in the copy.  Returns the
+    number of hyperlink elements removed.
     """
     if not id_map:
-        return
+        return 0
     prefix = "{%s}" % _R_NS
+    doomed = []
     for el in element.iter():
         for name, value in list(el.attrib.items()):
-            if name.startswith(prefix) and value in id_map:
-                el.set(name, id_map[value])
+            if not name.startswith(prefix) or value not in id_map:
+                continue
+            new_value = id_map[value]
+            if new_value is not None:
+                el.set(name, new_value)
+            elif el.tag in _HYPERLINK_TAGS:
+                if el not in doomed:
+                    doomed.append(el)
+            else:
+                del el.attrib[name]
+    for el in doomed:
+        el.getparent().remove(el)
+    return len(doomed)
 
 
 def _master_fingerprint(master_part: Part) -> bytes:

@@ -90,6 +90,8 @@ class _TemplateApplier(_PartCopier):
         # saved)
         self._drop_old_masters(new_masters)
 
+        self._warn_removed_slide_links("apply_template")
+
     def _iter_template_masters(self) -> Iterator[SlideMasterPart]:
         """Yield each slide master of the template, in `p:sldMasterIdLst` order."""
         sldMasterIdLst = self._tpl_prs_part._element.sldMasterIdLst  # pyright: ignore[reportPrivateUsage]
