@@ -812,6 +812,10 @@ class _BaseGroupShapes(_BaseShapes):
         `left` / `top` / `width` / `height` work exactly as in
         :meth:`add_picture` — both extents default to the rasterised
         PNG's native size when omitted.
+
+        As with :meth:`add_picture`, adding the same SVG again — on this
+        slide or another — reuses its part in the package rather than
+        storing a second copy.
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
