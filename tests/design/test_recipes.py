@@ -1532,3 +1532,160 @@ class DescribeRecipeSchemaValidity:
         table_slide(prs, title="Shrunk", columns=["A", "B"], rows=[[i, i] for i in range(24)])
         code_slide(prs, title="Code", code=_CODE_30)
         assert_round_trip(prs)
+
+
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d4944415478da63fcffff3f0300070602ffa39d9aed0000000049454e44ae426082"
+)
+_FIGURE_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">'
+    '<rect width="40" height="20"/></svg>'
+)
+
+
+def _every_recipe(prs, tokens):
+    """Build one slide with each recipe from realistic content; return ``{name: slide}``."""
+    from unittest.mock import patch
+
+    from power_pptx.design.recipes import figure_slide
+
+    slides = {}
+    slides["title"] = title_slide(
+        prs,
+        title="Quarterly Business Review: Platform, Growth and Operations",
+        subtitle="April 2026 — prepared for the executive leadership team",
+        tokens=tokens,
+    )
+    slides["bullets"] = bullet_slide(
+        prs,
+        title="Highlights",
+        bullets=[
+            f"Bullet {i}: we shipped a thing and it was good for customers." for i in range(8)
+        ],
+        tokens=tokens,
+    )
+    slides["kpi"] = kpi_slide(
+        prs,
+        title="Run-rate metrics",
+        kpis=[
+            {"label": "Annual recurring revenue", "value": "$182.4M", "delta": 0.27},
+            {"label": "Net dollar retention", "value": "131%", "delta": 0.03},
+            {"label": "Gross margin", "value": "78.2%", "delta": -0.012},
+            {"label": "Customers", "value": "12,480", "delta_text": "+1,204"},
+        ],
+        tokens=tokens,
+    )
+    slides["quote"] = quote_slide(
+        prs,
+        quote="The best way to predict the future is to invent it.",
+        attribution="Alan Kay",
+        tokens=tokens,
+    )
+    slides["image_hero"] = image_hero_slide(
+        prs, title="Q4 2026", image=_TEST_IMAGE, caption="Our year in review", tokens=tokens
+    )
+    slides["section"] = section_divider(
+        prs, title="Part Two: Operating Model", eyebrow="PART TWO", progress=(2, 5), tokens=tokens
+    )
+    slides["chart"] = chart_slide(
+        prs,
+        title="Revenue by quarter",
+        chart_type="column",
+        categories=["Q1", "Q2", "Q3", "Q4"],
+        series=[
+            {"name": "ARR", "values": [82, 110, 132, 150]},
+            {"name": "Costs", "values": [60, 70, 80, 90]},
+        ],
+        tokens=tokens,
+    )
+    slides["table"] = table_slide(
+        prs,
+        title="Regional results",
+        columns=["Region", "Revenue", "Growth", "Margin"],
+        rows=[[f"Region {i}", f"${i * 10}M", f"{i}%", f"{70 + i}%"] for i in range(12)],
+        totals={"label": "Total", "values": ["$660M", "", "75%"]},
+        tokens=tokens,
+    )
+    slides["code"] = code_slide(
+        prs,
+        title="Example",
+        code="\n".join(f"def f{i}(x):\n    return x * {i}  # comment" for i in range(10)),
+        language="python",
+        tokens=tokens,
+    )
+    slides["timeline"] = timeline_slide(
+        prs,
+        title="Roadmap",
+        milestones=[
+            {"date": f"2026-0{i + 1}", "label": f"Milestone {i + 1}: ship the layer", "done": i < 2}
+            for i in range(6)
+        ],
+        tokens=tokens,
+    )
+    slides["comparison"] = comparison_slide(
+        prs,
+        title="Build vs buy",
+        left_heading="Build in-house",
+        right_heading="Buy from vendor",
+        rows=[
+            {"left": f"Left point {i} with detail", "right": f"Right point {i}"} for i in range(5)
+        ],
+        tokens=tokens,
+    )
+    with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+        slides["figure"] = figure_slide(
+            prs,
+            title="Architecture",
+            figure=_FIGURE_SVG,
+            caption="Source: internal",
+            tokens=tokens,
+        )
+    return slides
+
+
+_TOKEN_SETS = ["none", "fixture", "modern_light", "modern_dark", "corporate_navy", "vibrant"]
+# The presets whose own ``on_primary`` / ``primary`` pair is under WCAG AA (4.41:1 and 3.55:1;
+# the others are 5.7:1 and above).  ``comparison_slide`` draws that pair on a shape the linter
+# can read, so for these two the sweep tolerates LowContrast — a property of the palette data,
+# not of any recipe's geometry — and holds everything else to zero.
+_PALETTE_BELOW_AA = ("modern_dark", "vibrant")
+
+
+class DescribeEveryRecipeIsPhysicallyCorrect:
+    """The project's own acceptance rule: a recipe's default output lints clean and is valid."""
+
+    @staticmethod
+    def _tokens(name, fixture_tokens):
+        if name == "none":
+            return None
+        if name == "fixture":
+            return fixture_tokens
+        return DesignTokens.from_preset(name)
+
+    def it_builds_one_slide_per_public_recipe(self):
+        # A recipe added to ``__all__`` without a line in ``_every_recipe`` escapes the sweep.
+        from power_pptx.design import recipes
+
+        built = _every_recipe(_presentation("4:3"), None)
+        assert len(built) == len(recipes.__all__)
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("token_set", _TOKEN_SETS)
+    def it_lints_clean_on_both_aspect_ratios(self, aspect, token_set, tokens):
+        prs = _presentation(aspect)
+        slides = _every_recipe(prs, self._tokens(token_set, tokens))
+        problems = {name: _lint_problems(slide) for name, slide in slides.items()}
+        if token_set in _PALETTE_BELOW_AA:
+            problems = {
+                name: [p for p in found if "LowContrast" not in p]
+                for name, found in problems.items()
+            }
+        assert {name: p for name, p in problems.items() if p} == {}
+
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    @pytest.mark.parametrize("token_set", ["none", "modern_light", "modern_dark"])
+    def it_validates_against_the_schema(self, aspect, token_set, tokens):
+        prs = _presentation(aspect)
+        _every_recipe(prs, self._tokens(token_set, tokens))
+        assert _schema_violations(prs) == []
