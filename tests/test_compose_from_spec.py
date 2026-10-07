@@ -1786,3 +1786,93 @@ class DescribeCodeFieldInterpolation:
         texts = _slide_texts(prs.slides[0])
         assert "DRAFT" in texts
         assert "{{ verbatim }}" in texts
+
+
+def _documented_layouts(image_path):
+    """One slide per layout using every key the layout documents."""
+    return {
+        "title_recipe": {"title": "T", "subtitle": "S", "transition": "fade"},
+        "bullets_recipe": {"title": "T", "bullets": ["a", "b", 3]},
+        "kpi": {
+            "title": "T",
+            "kpis": [
+                {"label": "A", "value": 1, "delta": 0.2},
+                {"label": "B", "value": "2", "delta_text": "vs plan"},
+            ],
+        },
+        "quote": {"quote": "Q", "attribution": "- Someone"},
+        "image_hero": {"title": "T", "image": image_path, "caption": "cap"},
+        "section_divider": {"title": "T", "eyebrow": "PART", "progress": [3, 7]},
+        "chart": {
+            "title": "T",
+            "chart_type": "column",
+            "categories": ["a", "b"],
+            "series": [{"name": "s", "values": [1, 2.5]}],
+            "chart_palette": "modern",
+            "legend": False,
+            "smooth": True,
+            "data_labels": True,
+        },
+        "table": {
+            "title": "T",
+            "columns": ["a", "b"],
+            "rows": [[1, 2], ("x", "y")],
+            "banded": False,
+            "widths": [0.5, 0.5],
+            "aligns": ["left", "right"],
+            "totals": {"label": "Total", "values": [3, 4]},
+        },
+        "code": {"title": "T", "code": "print('hi')  # {{ not_a_var }}", "language": "python"},
+        "timeline": {
+            "title": "T",
+            "milestones": [{"date": "Q1", "label": "L", "done": True}, {"date": "Q2"}],
+        },
+        "comparison": {
+            "title": "T",
+            "left_heading": "L",
+            "right_heading": "R",
+            "rows": [{"left": "a", "right": "b"}, {"left": 1, "right": 2}],
+        },
+        "figure": {"title": "T", "figure": image_path, "caption": "c"},
+        "title": {"title": "T", "subtitle": "S", "transition": "fade"},
+        "bullets": {"title": "T", "bullets": ["a", "b"]},
+        "section": {"title": "T", "text": "S"},
+        "two_column": {"title": "T", "left": "L", "right": "R"},
+        "comparison_layout": {"title": "T", "content_left": "L", "content_right": "R"},
+        "title_only": {"title": "T"},
+        "blank": {},
+        "caption": {"title": "T"},
+        "picture": {"title": "T", "image": image_path, "caption": "cap"},
+        "kpi_grid": {"title": "T", "kpis": [{"label": "A", "value": "1", "delta": -0.1}]},
+    }
+
+
+class DescribeEveryDocumentedLayout:
+    """The validation must not reject what a layout documents it accepts."""
+
+    @pytest.fixture
+    def image_path(self, tmp_path):
+        from PIL import Image
+
+        path = tmp_path / "pic.png"
+        Image.new("RGB", (40, 30), "blue").save(path)
+        return str(path)
+
+    @pytest.mark.parametrize("with_tokens", [False, True])
+    @pytest.mark.parametrize("layout", sorted(_documented_layouts("x.png")))
+    def it_builds_with_and_without_tokens(self, layout, with_tokens, image_path):
+        slide = {"layout": layout, **_documented_layouts(image_path)[layout]}
+        spec = {"slides": [slide]}
+        if with_tokens:
+            spec["tokens"] = {"preset": "modern_light"}
+        assert len(from_spec(spec).slides) == 1
+
+    def it_builds_them_all_in_one_deck_from_yaml(self, tmp_path, image_path):
+        import yaml
+
+        deck = {"tokens": {"preset": "vibrant"}, "slides": []}
+        for layout, content in _documented_layouts(image_path).items():
+            deck["slides"].append({"layout": layout, **content})
+        path = tmp_path / "deck.yml"
+        path.write_text(yaml.safe_dump(deck))
+        assert len(from_yaml(str(path)).slides) == len(deck["slides"])
