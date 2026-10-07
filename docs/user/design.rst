@@ -34,8 +34,8 @@ for brand tokens — palette, typography, radii, shadows, and spacings::
     })
 
 Lengths are |Length| values such as ``Pt(44)``.  A bare ``float`` is read as
-points, but a bare ``int`` is read as EMU, so ``"size": 44`` would be a 44 EMU
-font.
+points, but a bare ``int`` is read as EMU, so a font size written ``44`` is
+rejected as a unit slip.
 
 Other constructors:
 
