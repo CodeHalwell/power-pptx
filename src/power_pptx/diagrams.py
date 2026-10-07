@@ -29,6 +29,7 @@ identically.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Sequence
@@ -147,6 +148,83 @@ def _tag_group(slide, prefix: str, shapes: list[Any]) -> None:
                 s.lint_group = prefix
 
 
+#: Nodes shrink no further than this fraction of their requested size when a ring is crowded.
+_MIN_RING_SCALE = 0.05
+
+
+def _ring_is_clear(
+    n: int,
+    half: float,
+    node_d: float,
+    hub_d: float,
+    scale: float,
+    node_gap: float,
+    hub_gap: float,
+) -> bool:
+    """Return True when *n* nodes of diameter ``node_d * scale`` clear each other and the hub.
+
+    The nodes sit on a circle that touches the edge of a square of half-width *half*,
+    starting at the top.  Clearance is judged on the nodes' *bounding boxes* — the
+    shapes the linter compares — and each pair must also be at least *node_gap* /
+    *hub_gap* (a fraction of the node diameter) apart, so an arrow between them has
+    something to draw.
+    """
+    d = node_d * scale
+    radius = half - d / 2
+    if radius <= 0:
+        return False
+    points = [
+        (
+            radius * math.cos(2 * math.pi * i / n - math.pi / 2),
+            radius * math.sin(2 * math.pi * i / n - math.pi / 2),
+        )
+        for i in range(n)
+    ]
+    if hub_d:
+        reach = (hub_d * scale + d) / 2 + hub_gap * d
+        if any(max(abs(x), abs(y)) < reach for x, y in points):
+            return False
+    need = d * (1 + node_gap)
+    return all(
+        max(abs(ax - bx), abs(ay - by)) >= need
+        for (ax, ay), (bx, by) in itertools.combinations(points, 2)
+    )
+
+
+def _fit_ring(
+    n: int,
+    half: float,
+    node_d: float,
+    *,
+    hub_d: float = 0.0,
+    node_gap: float = 0.12,
+    hub_gap: float = 0.12,
+) -> tuple[float, float]:
+    """Return ``(scale, radius)`` for *n* nodes of diameter *node_d* (EMU) on a ring.
+
+    The ring touches the edge of a square of half-width *half*.  *scale* is 1.0 when
+    the nodes — and the optional centre hub of diameter *hub_d* — fit as requested,
+    and otherwise the largest factor (found by bisection, since shrinking only ever
+    adds room) at which nothing overlaps; apply it to every diameter.  *radius* is the
+    distance from the centre to each node's centre.
+    """
+
+    def clear(scale: float) -> bool:
+        return _ring_is_clear(n, half, node_d, hub_d, scale, node_gap, hub_gap)
+
+    scale = 1.0
+    if not clear(1.0):
+        low, high = _MIN_RING_SCALE, 1.0
+        for _ in range(30):
+            mid = (low + high) / 2
+            if clear(mid):
+                low = mid
+            else:
+                high = mid
+        scale = low
+    return scale, half - node_d * scale / 2
+
+
 def _fit_circular_label(
     shape: Any,
     *,
@@ -161,16 +239,21 @@ def _fit_circular_label(
     The headline reason this fork exists is space-awareness, so the diagram
     recipes use the same ``fit_text`` pre-flight as everything else.  A circle's
     usable text area is narrower than its bounding box, so we inset the text
-    frame by a fraction of the diameter before fitting — that keeps long words
-    such as "Retrieval" inside the inscribed area instead of wrapping to
-    "Retriev al".
+    frame by a fraction of the diameter — that keeps long words such as
+    "Retrieval" inside the circle instead of wrapping to "Retriev al".
+
+    The text area of an ellipse is its *inscribed* rectangle, 0.7071 of the box
+    a side, and the insets come off that.  ``fit_text`` only knows the bounding
+    box less the margins, so the fit is measured with margins wide enough that
+    what is left is the real text area, and the render insets are set afterwards.
     """
     tf = shape.text_frame
     tf.word_wrap = True
     h_inset = Emu(int(diameter * 0.14))
     v_inset = Emu(int(diameter * 0.08))
-    tf.margin_left = tf.margin_right = h_inset
-    tf.margin_top = tf.margin_bottom = v_inset
+    rim = int(diameter * (1 - math.cos(math.pi / 4)) / 2)
+    tf.margin_left = tf.margin_right = Emu(int(h_inset) + rim)
+    tf.margin_top = tf.margin_bottom = Emu(int(v_inset) + rim)
     # Degrade gracefully: if even 1pt won't fit (tiny circle) or no font
     # metrics are available, keep the size the caller already set.
     with contextlib.suppress(ValueError, OSError):
@@ -180,6 +263,8 @@ def _fit_circular_label(
             bold=bold,
             italic=italic,
         )
+    tf.margin_left = tf.margin_right = h_inset
+    tf.margin_top = tf.margin_bottom = v_inset
 
 
 def _card(
@@ -386,14 +471,25 @@ def hub_and_spoke(
 
     ``centre`` is the label of the hub.  ``spokes`` is an iterable of
     string labels or step-dicts (see :func:`horizontal_pipeline`).
+
+    The hub sits in the middle of *bbox* and the spokes on a ring that
+    touches the edge of its shorter side, so the arrows have room to show.
+    The hub is ``0.25 * hub_size`` and each spoke ``0.2 * spoke_size`` of
+    that side; when that many spokes would overlap the hub or each other
+    the hub and every spoke shrink together, keeping their proportions,
+    until they do not.  The only overlaps the diagram declares are each
+    arrow's with the hub and with its own spoke, so the linter still sees
+    any other.
     """
     coerced = _coerce_steps(spokes)
     n = len(coerced)
 
-    # Place the hub in the centre at ~25% of the smaller dimension.
+    # Place the hub in the centre at ~25% of the smaller dimension, then fit the
+    # ring of spokes around it: the diameters shrink when the ring is crowded.
     short = min(int(bbox.width), int(bbox.height))
-    hub_diameter = int(short * 0.25 * hub_size)
-    spoke_diameter = int(short * 0.2 * spoke_size)
+    scale, radius = _fit_ring(n, short / 2, short * 0.2 * spoke_size, hub_d=short * 0.25 * hub_size)
+    hub_diameter = int(short * 0.25 * hub_size * scale)
+    spoke_diameter = int(short * 0.2 * spoke_size * scale)
     cx, cy = int(bbox.cx), int(bbox.cy)
 
     hub_box = BBox(
@@ -424,7 +520,6 @@ def hub_and_spoke(
     _fit_circular_label(hub, diameter=hub_diameter, font=font, max_size_pt=size_pt, bold=True)
 
     # Place spokes evenly around the hub.
-    radius = (min(int(bbox.width), int(bbox.height)) - hub_diameter - spoke_diameter) // 2
     spokes_built: list[Any] = []
     arrows: list[Any] = []
     for i, step in enumerate(coerced):
@@ -464,8 +559,10 @@ def hub_and_spoke(
             weight_pt=1.5,
             inset_pt=2.0,
         )
+        # An arrow runs into the two shapes it joins; that is the only overlap this
+        # diagram intends, so allow it pair by pair rather than as one big group.
+        arrow.allow_overlap_with(hub, spoke)
         arrows.append(arrow)
-    _tag_group(slide, "hub-and-spoke", [hub] + spokes_built + arrows)
     return HubAndSpokeResult(hub=hub, spokes=spokes_built, arrows=arrows)
 
 
@@ -486,15 +583,19 @@ def cycle(
     """Cyclic diagram — N cards arranged in a circle with arrows ``i → i+1``.
 
     The last arrow loops back from card N-1 to card 0, completing the
-    cycle.  Works best with 3–8 steps; falls back to a small circle for
-    larger counts.
+    cycle.  The cards sit on a ring touching the edge of the shorter side
+    of *bbox* and are ``0.22`` of that side across; they stay that size for
+    up to about eight steps and shrink, together, beyond that so that
+    neighbouring cards never overlap and each arrow has room to show.  The
+    only overlaps the diagram declares are each arrow's with the two cards
+    it joins, so the linter still sees any other.
     """
     coerced = _coerce_steps(steps)
     n = len(coerced)
     short = min(int(bbox.width), int(bbox.height))
-    card_diameter = int(short * 0.22)
+    scale, radius = _fit_ring(n, short / 2, short * 0.22, node_gap=0.25)
+    card_diameter = int(short * 0.22 * scale)
     cx, cy = int(bbox.cx), int(bbox.cy)
-    radius = (short - card_diameter) // 2
 
     cards: list[Any] = []
     for i, step in enumerate(coerced):
@@ -539,8 +640,9 @@ def cycle(
             inset_pt=2.0,
             route="curved",
         )
+        # An arrow runs into the two cards it joins; allow exactly that, pair by pair.
+        arrow.allow_overlap_with(cards[i], cards[j])
         arrows.append(arrow)
-    _tag_group(slide, "cycle", cards + arrows)
     return CycleResult(cards=cards, arrows=arrows)
 
 
