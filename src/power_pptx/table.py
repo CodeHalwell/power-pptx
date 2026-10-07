@@ -265,7 +265,8 @@ class Table(object):
         Useful for runtime-driven tables where row counts and string
         lengths aren't known up front.
 
-        Parameters mirror :meth:`TextFrame.fit_text`.
+        Parameters mirror :meth:`TextFrame.fit_text`. A `font_file` that cannot be
+        loaded raises |ValueError|.
         """
         from power_pptx.text.fonts import find_font_file
         from power_pptx.text.layout import TextFitter
@@ -300,6 +301,10 @@ class Table(object):
                     size = TextFitter.best_fit_font_size(
                         cell.text, (Emu(cx), Emu(cy)), max_font_pt, font_file
                     )
+                except ValueError:
+                    # An unusable `font_file` is the caller's mistake and names itself; quietly
+                    # shrinking every cell to the minimum would hide it.
+                    raise
                 except Exception:
                     # If measurement fails for a populated cell, treat it as
                     # the worst case so the final uniform size remains safe

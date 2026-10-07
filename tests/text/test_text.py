@@ -26,6 +26,7 @@ from power_pptx.util import Inches, Pt
 
 from ..oxml.unitdata.text import a_p, a_t, an_hlinkClick, an_r, an_rPr
 from ..unitutil.cxml import element, xml
+from ..unitutil.file import testfile
 from ..unitutil.mock import (
     class_mock,
     function_mock,
@@ -1776,3 +1777,52 @@ class DescribeFitTextFontMetrics(object):
         shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
         shape.text_frame.text = "Space-aware authoring, measured"
         return shape.text_frame
+
+
+_CALIBRIZ = testfile("calibriz.ttf")
+
+
+def _textbox_frame(text: str, width=Inches(4), height=Inches(1.5)) -> TextFrame:
+    """Return the text frame of a new text box on a blank slide, holding `text`."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    shape = slide.shapes.add_textbox(Inches(1), Inches(1), width, height)
+    shape.text_frame.text = text
+    return shape.text_frame
+
+
+class DescribeFitTextEdgeCases(object):
+    """`TextFrame.fit_text` copes with text it cannot measure and sizes it cannot apply."""
+
+    @pytest.mark.parametrize("text", ["   ", "\n", "\t", "\xa0", "\n\n", " \n ", "\v"])
+    def it_does_nothing_when_the_text_is_only_whitespace(self, text):
+        text_frame = _textbox_frame(text)
+        xml_before = text_frame._txBody.xml
+
+        size = text_frame.fit_text("Calibri", font_file=_CALIBRIZ)
+
+        assert size is None
+        assert text_frame._txBody.xml == xml_before
+
+    def and_it_does_nothing_when_the_text_frame_is_empty(self):
+        text_frame = _textbox_frame("")
+        xml_before = text_frame._txBody.xml
+
+        assert text_frame.fit_text("Calibri", font_file=_CALIBRIZ) is None
+        assert text_frame._txBody.xml == xml_before
+
+    @pytest.mark.parametrize("max_size", [0, -3, 0.9])
+    def it_rejects_a_max_size_below_one_point(self, max_size):
+        text_frame = _textbox_frame("Hello")
+        xml_before = text_frame._txBody.xml
+
+        with pytest.raises(ValueError, match="max_size"):
+            text_frame.fit_text("Calibri", max_size=max_size, font_file=_CALIBRIZ)
+
+        assert text_frame._txBody.xml == xml_before
+
+    def it_names_a_font_file_it_cannot_load(self):
+        text_frame = _textbox_frame("Hello")
+
+        with pytest.raises(ValueError, match="no-such-font.ttf"):
+            text_frame.fit_text("Calibri", font_file="/nonexistent/dir/no-such-font.ttf")

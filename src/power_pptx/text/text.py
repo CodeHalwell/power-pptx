@@ -102,13 +102,15 @@ class TextFrame(Subshape):
 
         Make the text in this text frame fit entirely within the bounds of its shape by setting
         word wrap on and applying the "best-fit" font size to all the text it contains.  Returns
-        the point size applied (|None| when the frame is empty and nothing was done).
+        the point size applied (|None| when the frame is empty, or holds nothing but whitespace,
+        and nothing was done).
 
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
-        be set larger than `max_size` points. If the path to a matching TrueType font is provided
-        as `font_file`, that font file will be used for the font metrics. If `font_file` is |None|,
-        best efforts are made to locate a font file with matching `font_family`, `bold`, and
-        `italic` installed on the current system (usually succeeds if the font is installed).
+        be set larger than `max_size` points, which must be at least 1. If the path to a matching
+        TrueType font is provided as `font_file`, that font file will be used for the font
+        metrics. If `font_file` is |None|, best efforts are made to locate a font file with
+        matching `font_family`, `bold`, and `italic` installed on the current system (usually
+        succeeds if the font is installed).
 
         `font_family` defaults to ``"Calibri"`` when omitted.
 
@@ -130,10 +132,17 @@ class TextFrame(Subshape):
 
         :func:`power_pptx.text.fonts.font_is_installed` answers the same question up front,
         without measuring anything.
+
+        Raises |ValueError| when `max_size` is less than 1, when `font_file` cannot be loaded,
+        when `strict` is |True| and the requested face is not installed, and when the text does
+        not fit at any size from 1pt to `max_size`.
         """
-        # ---no-op when empty as fit behavior not defined for that case---
-        if self.text == "":
-            return None  # pragma: no cover
+        if max_size < 1:
+            raise ValueError(f"fit_text: max_size must be at least 1 point, got {max_size!r}")
+
+        # ---no-op when there is no text, as fit behavior is not defined for that case---
+        if self.text.strip() == "":
+            return None
 
         family = _DEFAULT_FIT_FAMILY if font_family is None else font_family
         font_size = self._best_fit_font_size(

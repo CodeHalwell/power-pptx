@@ -28,6 +28,9 @@ class TextFitter(tuple):
         using font defined in `font_file`.  Returns ``None`` when even 1pt overflows the
         extents — callers are expected to surface that as an error (see
         :meth:`TextFrame._best_fit_font_size`).
+
+        Raises |ValueError| when `max_size` is less than 1, because no whole-number point size
+        qualifies, or when `font_file` cannot be loaded as a font.
         """
         line_source = _LineSource(text)
         text_fitter = cls(line_source, extents, font_file)
@@ -38,6 +41,8 @@ class TextFitter(tuple):
         Return the largest whole-number point size less than or equal to
         *max_size* that this fitter can fit, or ``None`` when no size fits.
         """
+        if max_size < 1:
+            raise ValueError(f"max_size must be at least 1 point, got {max_size!r}")
         predicate = self._fits_inside_predicate
         sizes = _BinarySearchTree.from_ordered_sequence(range(1, int(max_size) + 1))
         return sizes.find_max(predicate)
@@ -349,7 +354,15 @@ class _Fonts(object):
                 # to the unsized bitmap default. Less accurate but at least
                 # never blows up.
                 return ImageFont.load_default()
-        return ImageFont.truetype(font_path, point_size)
+        try:
+            return ImageFont.truetype(font_path, point_size)
+        except OSError as e:
+            # Pillow reports a missing or unreadable file as a bare "cannot open resource"
+            # that does not even say which file; name it.
+            raise ValueError(
+                f"cannot load font file {font_path!r} ({e}); font_file must be the path of a "
+                "readable TrueType or OpenType font"
+            ) from e
 
 
 def _rendered_size(text, point_size, font_file):

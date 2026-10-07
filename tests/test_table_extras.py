@@ -128,6 +128,13 @@ class DescribeFitToBox:
         with pytest.raises(ValueError):
             table.fit_to_box(min_font_pt=0)
 
+    def it_names_a_font_file_it_cannot_load(self):
+        _, _, table = _new_table()
+        table.cell(0, 0).text = "short"
+
+        with pytest.raises(ValueError, match="no-such-font.ttf"):
+            table.fit_to_box(font_file="/nonexistent/dir/no-such-font.ttf")
+
 
 class DescribeCellExtents:
     def it_exposes_cell_width_and_height(self):

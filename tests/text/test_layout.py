@@ -50,6 +50,15 @@ class DescribeTextFitter(object):
         sizes_.find_max.assert_called_once_with(predicate_)
         assert font_size is font_size_
 
+    @pytest.mark.parametrize("max_size", [0, -3, 0.9])
+    def but_it_refuses_a_max_size_below_one_point(self, max_size, _BinarySearchTree_):
+        text_fitter = TextFitter(None, (None, None), None)
+
+        with pytest.raises(ValueError, match="max_size must be at least 1 point"):
+            text_fitter._best_fit_font_size(max_size)
+
+        _BinarySearchTree_.from_ordered_sequence.assert_not_called()
+
     @pytest.mark.parametrize(
         # ``cy`` used by the predicate is now ``max(ink_cy, leading_cy)``
         # where ``leading_cy = int(point_size * 1.2 * 914400 / 72.0)``.
@@ -268,6 +277,14 @@ class Describe_Fonts(object):
         assert load_default_.call_args_list == [call(size=12), call()]
         assert font == "old-default"
         _Fonts.fonts = {}
+
+    def it_raises_a_ValueError_naming_a_font_file_it_cannot_load(self):
+        _Fonts.fonts = {}
+
+        with pytest.raises(ValueError, match="no-such-font.ttf"):
+            _Fonts.font("/nonexistent/dir/no-such-font.ttf", 12)
+
+        assert _Fonts.fonts == {}
 
 
 # produces different results on Linux, fails Travis-CI
