@@ -10,8 +10,8 @@ generated from LLM output or arbitrary user input.
 
 ```python
 report = slide.lint()
-report.issues          # list[LintIssue]
-report.has_errors      # bool
+report.issues  # list[LintIssue]
+report.has_errors  # bool
 print(report.summary())
 ```
 
@@ -38,8 +38,7 @@ for issue in report.issues:
         print("off-slide", issue.shapes[0].name, "side", issue.side)
     elif isinstance(issue, ShapeCollision):
         a, b = issue.shapes
-        print("collision", a.name, b.name,
-              "intersection_pct", issue.intersection_pct)
+        print("collision", a.name, b.name, "intersection_pct", issue.intersection_pct)
 ```
 
 `LayerOrderViolation` carries the declared `layer` name, and its
@@ -55,8 +54,8 @@ anchor, line spacing, and `auto_size`.
 ## Auto-fix
 
 ```python
-fixes = report.auto_fix()                  # mutates; returns list[str]
-preview = report.auto_fix(dry_run=True)    # no mutation; returns list[str]
+fixes = report.auto_fix()  # mutates; returns list[str]
+preview = report.auto_fix(dry_run=True)  # no mutation; returns list[str]
 ```
 
 What's currently fixable:
@@ -96,13 +95,13 @@ meant and it stops guessing. Three ways, narrowest last:
 #    tag may overlap everything else in the tag.
 card.lint_group = "kpi-1"
 accent.lint_group = "kpi-1"
-slide.lint_group("kpi-1", card, accent, label)     # batch form
-slide.lint_group_overlaps(card, accent, label)     # auto-names the group
+slide.lint_group("kpi-1", card, accent, label)  # batch form
+slide.lint_group_overlaps(card, accent, label)  # auto-names the group
 
 # 2. Pairwise allowance — licenses exactly one pair, nothing else.
 badge.allow_overlap_with(card)
-badge.disallow_overlap_with(card)                  # revoke
-badge.overlap_allowances                           # frozenset[int] of shape ids
+badge.disallow_overlap_with(card)  # revoke
+badge.overlap_allowances  # frozenset[int] of shape ids
 
 # 3. Layer hints — the only form that also asserts z-order.
 card.layer = "card"
@@ -133,7 +132,7 @@ order is what failed to deliver it:
 
 ```python
 report = slide.lint()
-report.auto_fix()          # restacks it for you; geometry untouched
+report.auto_fix()  # restacks it for you; geometry untouched
 ```
 
 A shape name with a dotted prefix is grouped implicitly, so naming
@@ -153,8 +152,8 @@ instead of regex-parsing the summary string.
 
 ```python
 report = slide.lint()
-report.to_dict()    # {"has_errors", "issue_count", "issues": [...]}
-report.to_json()    # same, as a JSON string (indent=2 default)
+report.to_dict()  # {"has_errors", "issue_count", "issues": [...]}
+report.to_json()  # same, as a JSON string (indent=2 default)
 ```
 
 Each issue is self-describing — it carries `code`, `severity`,
@@ -173,9 +172,9 @@ The whole-deck `audit()` report has the same pair:
 ```python
 from power_pptx import audit
 
-data = audit(prs).to_dict()   # adds a "slide" index to every lint issue
+data = audit(prs).to_dict()  # adds a "slide" index to every lint issue
 if data["has_errors"]:
-    ...                        # hand `data` straight to the model to fix
+    ...  # hand `data` straight to the model to fix
 ```
 
 ## Save-time hooks (via `from_spec`)
@@ -186,10 +185,12 @@ accepts a top-level ``"lint"`` field:
 ```python
 from power_pptx.compose import from_spec
 
-prs = from_spec({
-    "slides": [...],
-    "lint": "raise",          # also "warn" or "off" (default)
-})
+prs = from_spec(
+    {
+        "slides": [...],
+        "lint": "raise",  # also "warn" or "off" (default)
+    }
+)
 ```
 
 `"warn"` logs every issue through stdlib `logging`; `"raise"` raises
@@ -201,9 +202,9 @@ Every `Presentation` has a `lint_on_save` switch, whatever built it:
 
 ```python
 prs = power_pptx.Presentation("deck.pptx")
-prs.lint_on_save = "off"      # default — no checks, no cost
-prs.lint_on_save = "warn"     # log error-severity issues, still write the file
-prs.lint_on_save = "raise"    # raise LintError instead of writing the file
+prs.lint_on_save = "off"  # default — no checks, no cost
+prs.lint_on_save = "warn"  # log error-severity issues, still write the file
+prs.lint_on_save = "raise"  # raise LintError instead of writing the file
 
 prs.save("out.pptx")
 ```
@@ -229,8 +230,7 @@ for slide in prs.slides:
 # 2. Re-run and bail on any remaining errors
 remaining = []
 for slide in prs.slides:
-    remaining.extend(i for i in slide.lint().issues
-                     if getattr(i, "severity", None) == "error")
+    remaining.extend(i for i in slide.lint().issues if getattr(i, "severity", None) == "error")
 if remaining:
     raise LintError("; ".join(str(i) for i in remaining))
 
@@ -243,14 +243,15 @@ prs.save("out.pptx")
 
 ```python
 report = slide.lint()
-report.to_sarif(slide_index=0)        # SARIF v2.1.0 dict (GitHub code-scanning)
-report.to_sarif_json()                # JSON string
+report.to_sarif(slide_index=0)  # SARIF v2.1.0 dict (GitHub code-scanning)
+report.to_sarif_json()  # JSON string
 
 from power_pptx.lint import lint_report_to_sarif
-sarif = lint_report_to_sarif([s.lint() for s in prs.slides])   # whole deck
 
-report.fingerprints()                 # list[str] -- the stable ids diff() uses
-new_issues = current.diff(baseline)   # only issues NOT in baseline
+sarif = lint_report_to_sarif([s.lint() for s in prs.slides])  # whole deck
+
+report.fingerprints()  # list[str] -- the stable ids diff() uses
+new_issues = current.diff(baseline)  # only issues NOT in baseline
 both = current.diff_detail(baseline)  # {"added": [...], "fixed": [...]}
 ```
 
@@ -261,14 +262,15 @@ flag it as new.
 ## Accessibility
 
 ```python
-picture.alt_text = "Bar chart of Q3 revenue by region."   # -> <p:cNvPr descr=...>
-picture.title_text = "Q3 revenue"                          # -> <p:cNvPr title=...>
+picture.alt_text = "Bar chart of Q3 revenue by region."  # -> <p:cNvPr descr=...>
+picture.title_text = "Q3 revenue"  # -> <p:cNvPr title=...>
 
 from power_pptx import accessibility
-report = accessibility.audit_accessibility(prs)            # read-only
-if report.has_errors:                  # picture with no alt text = error
+
+report = accessibility.audit_accessibility(prs)  # read-only
+if report.has_errors:  # picture with no alt text = error
     print(report.markdown())
-report.to_dict()                       # JSON-serializable for a CI gate / LLM loop
+report.to_dict()  # JSON-serializable for a CI gate / LLM loop
 ```
 
 Flags: `MissingAltText` (pictures = error), `LowContrast` (below WCAG AA

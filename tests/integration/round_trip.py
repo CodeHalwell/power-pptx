@@ -85,6 +85,4 @@ def assert_round_trip(
     prs = prs_or_factory() if callable(prs_or_factory) else prs_or_factory
     diff = round_trip_diff(prs)
     if diff:
-        raise AssertionError(
-            "round-trip changed the following parts: " + ", ".join(sorted(diff))
-        )
+        raise AssertionError("round-trip changed the following parts: " + ", ".join(sorted(diff)))

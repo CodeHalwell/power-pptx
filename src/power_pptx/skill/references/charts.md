@@ -23,7 +23,10 @@ data.add_series("NDR (%)", (115, 118, 124, 131))
 
 chart_shape = slide.shapes.add_chart(
     XL_CHART_TYPE.COLUMN_CLUSTERED,
-    Inches(1), Inches(2), Inches(11), Inches(5),
+    Inches(1),
+    Inches(2),
+    Inches(11),
+    Inches(5),
     data,
 )
 chart = chart_shape.chart
@@ -43,8 +46,8 @@ data = CategoryChartData()
 data.categories = ["Q1", "Q2", "Q3", "Q4"]
 data.add_series("FY27", (18.2, 19.6, 21.4, 24.9))
 
-chart.replace_data(data)      # formatting survives; the embedded
-                              # worksheet is rewritten to match
+chart.replace_data(data)  # formatting survives; the embedded
+# worksheet is rewritten to match
 ```
 
 Adding or removing series works too — the plot re-reads the series count
@@ -63,7 +66,7 @@ helper applies. ``recolor`` is the US-spelling alias.
 chart.recolour(["#4F9DFF", "#7FCFA1", "#F7B500"])
 
 # Force a mode if you need to:
-chart.recolour(palette, by="series")    # always per-series
+chart.recolour(palette, by="series")  # always per-series
 chart.recolour(palette, by="category")  # always per-point
 ```
 
@@ -80,16 +83,19 @@ order from a named built-in or an iterable of color-likes. Palettes
 wrap when the chart has more series than colors:
 
 ```python
-chart.apply_palette("modern")          # built-in
+chart.apply_palette("modern")  # built-in
 chart.apply_palette(["#4F9DFF", "#7FCFA1", "#F7B500"])
 
 # Mix and match — any color-like works
 from power_pptx.dml.color import RGBColor
-chart.apply_palette([
-    RGBColor(0x4F, 0x9D, 0xFF),
-    "#7FCFA1",
-    (247, 181, 0),
-])
+
+chart.apply_palette(
+    [
+        RGBColor(0x4F, 0x9D, 0xFF),
+        "#7FCFA1",
+        (247, 181, 0),
+    ]
+)
 ```
 
 Six built-ins ship in `power_pptx.chart.palettes`:
@@ -108,7 +114,7 @@ from power_pptx.chart.palettes import (
     resolve_palette,
 )
 
-print(palette_names())                 # → ['modern', 'classic', ...]
+print(palette_names())  # → ['modern', 'classic', ...]
 colors = resolve_palette("editorial")  # → list[RGBColor]
 ```
 
@@ -140,15 +146,16 @@ chart.apply_quick_layout("dense")
 Custom layouts can be supplied as a dict spec:
 
 ```python
-chart.apply_quick_layout({
-    "has_title":       True,
-    "title_text":      "ARR ($M)",
-    "has_legend":      True,
-    "legend_position": "bottom",
-    "category_axis":   {"has_major_gridlines": False},
-    "value_axis":      {"has_major_gridlines": True,
-                        "tick_labels": True},
-})
+chart.apply_quick_layout(
+    {
+        "has_title": True,
+        "title_text": "ARR ($M)",
+        "has_legend": True,
+        "legend_position": "bottom",
+        "category_axis": {"has_major_gridlines": False},
+        "value_axis": {"has_major_gridlines": True, "tick_labels": True},
+    }
+)
 ```
 
 Missing keys leave the chart untouched so layouts compose cleanly.
@@ -164,16 +171,19 @@ chart-specific shim:
 ```python
 fill = chart.series[0].format.fill
 fill.gradient(kind="linear")
-fill.gradient_stops.replace([
-    (0.0, "#0F2D6B"),
-    (1.0, "#4F9DFF"),
-])
+fill.gradient_stops.replace(
+    [
+        (0.0, "#0F2D6B"),
+        (1.0, "#4F9DFF"),
+    ]
+)
 
 # Patterned fill on the second series
 from power_pptx.enum.dml import MSO_PATTERN_TYPE
+
 pat = chart.series[1].format.fill
 pat.patterned()
-pat.pattern   = MSO_PATTERN_TYPE.WIDE_DOWNWARD_DIAGONAL
+pat.pattern = MSO_PATTERN_TYPE.WIDE_DOWNWARD_DIAGONAL
 pat.fore_color.rgb = (0x10, 0xB9, 0x81)
 pat.back_color.rgb = (0xFF, 0xFF, 0xFF)
 ```
@@ -185,8 +195,8 @@ location *and* every axis line / gridline. Two write-only facades and
 one one-call helper handle it:
 
 ```python
-chart.text_color = "#FFFFFF"   # walks chart font, legend, title, data labels
-chart.line_color = "#3A3E5F"   # walks axis lines + gridlines (where present)
+chart.text_color = "#FFFFFF"  # walks chart font, legend, title, data labels
+chart.line_color = "#3A3E5F"  # walks axis lines + gridlines (where present)
 
 # Or, the one-liner:
 chart.apply_dark_theme(text="#FFFFFF", line="#3A3E5F")
@@ -204,7 +214,7 @@ natural reading order. Column charts retain left-to-right ordering.
 Override post-creation with:
 
 ```python
-chart.category_axis.reverse_order = False   # legacy bottom-up ordering
+chart.category_axis.reverse_order = False  # legacy bottom-up ordering
 ```
 
 ## End-to-end: branded chart
@@ -229,8 +239,8 @@ Knobs that previously required hand-editing in Excel:
 
 ```python
 plot = chart.plots[0]
-plot.hole_size = 65            # doughnut
-plot.smooth = True            # line chart
+plot.hole_size = 65  # doughnut
+plot.smooth = True  # line chart
 chart.value_axis.log_base = 10
 ```
 
@@ -239,14 +249,14 @@ chart.value_axis.log_base = 10
 ```python
 s = chart.series[0]
 s.trendlines.add("linear", show_equation=True, show_r_squared=True)
-s.trendlines.add("poly", order=3)            # polynomial
-s.trendlines.add("movingAvg", period=2)      # moving average
+s.trendlines.add("poly", order=3)  # polynomial
+s.trendlines.add("movingAvg", period=2)  # moving average
 
-s.error_bars.fixed(0.5)                       # or .percentage(5),
-s.error_bars.standard_deviation(1)            # .standard_error(), .custom(plus, minus)
+s.error_bars.fixed(0.5)  # or .percentage(5),
+s.error_bars.standard_deviation(1)  # .standard_error(), .custom(plus, minus)
 
-chart.secondary_value_axis                     # add right-hand value axis
-chart.series[1].axis_group = "secondary"       # move a series onto it
+chart.secondary_value_axis  # add right-hand value axis
+chart.series[1].axis_group = "secondary"  # move a series onto it
 ```
 
 Trendlines / error bars are available on bar, line, scatter, area, and

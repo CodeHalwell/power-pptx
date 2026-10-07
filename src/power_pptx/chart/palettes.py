@@ -108,9 +108,7 @@ def resolve_palette(palette: Union[str, Iterable[ColorLike]]) -> tuple[RGBColor,
         try:
             colors = CHART_PALETTES[palette]
         except KeyError:
-            raise ValueError(
-                "unknown palette %r; choose from %r" % (palette, palette_names())
-            )
+            raise ValueError("unknown palette %r; choose from %r" % (palette, palette_names()))
         return tuple(RGBColor.from_hex(c) for c in colors)
 
     resolved = tuple(_to_rgb(c) for c in palette)

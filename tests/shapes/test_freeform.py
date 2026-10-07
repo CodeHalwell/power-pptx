@@ -220,7 +220,7 @@ class DescribeFreeformBuilder(object):
 
         _local_to_shape_.assert_called_once_with(builder, start_x, start_y)
         assert sp.xml == xml(
-            "p:sp/p:spPr/a:custGeom/a:pathLst/a:path{w=1001,h=2002}/a:moveTo" "/a:pt{x=101,y=202}"
+            "p:sp/p:spPr/a:custGeom/a:pathLst/a:path{w=1001,h=2002}/a:moveTo/a:pt{x=101,y=202}"
         )
         assert path is sp.xpath(".//a:path")[-1]
 

@@ -80,7 +80,7 @@ class DescribeLegend(object):
             ("c:legend/c:layout/c:manualLayout/c:xMode{val=factor}", 0.0),
             ("c:legend/c:layout/c:manualLayout/(c:xMode,c:x{val=0.42})", 0.42),
             (
-                "c:legend/c:layout/c:manualLayout/(c:xMode{val=factor},c:x{val=0.42" "})",
+                "c:legend/c:layout/c:manualLayout/(c:xMode{val=factor},c:x{val=0.42})",
                 0.42,
             ),
         ]

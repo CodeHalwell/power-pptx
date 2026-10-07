@@ -285,11 +285,7 @@ class ThreeDFormat:
 
     @preset_material.setter
     def preset_material(self, value: PresetMaterial | None) -> None:
-        if (
-            value is None
-            or value is PresetMaterial.NONE
-            or value == PresetMaterial.NONE.value
-        ):
+        if value is None or value is PresetMaterial.NONE or value == PresetMaterial.NONE.value:
             # -- ``PresetMaterial.NONE`` means "no explicit material". Its
             # -- ``xml_value`` is the token ``"none"``, which the OOXML
             # -- ``ST_PresetMaterialType`` enumeration does not allow — writing

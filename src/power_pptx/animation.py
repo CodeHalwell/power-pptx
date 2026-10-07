@@ -110,8 +110,7 @@ def _resolve_easing(easing) -> tuple[float, float]:
         except KeyError:
             raise ValueError(
                 "unknown easing preset %r; choose from %r or pass an "
-                "explicit (accel, decel) tuple"
-                % (easing, sorted(_EASING_PRESETS))
+                "explicit (accel, decel) tuple" % (easing, sorted(_EASING_PRESETS))
             )
     if (
         isinstance(easing, tuple)
@@ -120,13 +119,10 @@ def _resolve_easing(easing) -> tuple[float, float]:
     ):
         accel, decel = float(easing[0]), float(easing[1])
         if not (0.0 <= accel <= 1.0 and 0.0 <= decel <= 1.0 and accel + decel <= 1.0):
-            raise ValueError(
-                "easing accel and decel must each be in [0, 1] and sum to ≤ 1"
-            )
+            raise ValueError("easing accel and decel must each be in [0, 1] and sum to ≤ 1")
         return accel, decel
     raise TypeError(
-        "easing must be a preset name (e.g. 'ease_in_out') or an "
-        "(accel, decel) 2-tuple of floats"
+        "easing must be a preset name (e.g. 'ease_in_out') or an (accel, decel) 2-tuple of floats"
     )
 
 
@@ -157,6 +153,7 @@ def _apply_easing(group_elm, easing) -> None:
         if decel_pct:
             ctn.set("decel", str(decel_pct))
 
+
 # Sentinel for "trigger not specified" — lets `sequence()` distinguish an
 # explicit caller-supplied trigger from the default.  Don't use ``None``
 # because that's a valid attribute value elsewhere.
@@ -175,7 +172,7 @@ _PRESET_CLASS_TO_KIND: dict[str, str] = {
 # AnimationEntry.trigger.
 _NODE_TYPE_TO_TRIGGER: dict[str, "PP_ANIM_TRIGGER"] = {
     "clickEffect": PP_ANIM_TRIGGER.ON_CLICK,
-    "withEffect":  PP_ANIM_TRIGGER.WITH_PREVIOUS,
+    "withEffect": PP_ANIM_TRIGGER.WITH_PREVIOUS,
     "afterEffect": PP_ANIM_TRIGGER.AFTER_PREVIOUS,
 }
 
@@ -192,32 +189,33 @@ _NS = {"p": _P_NS}
 
 # presetID values match PowerPoint's internal numbering
 _ENTRANCE_PRESETS = {
-    "appear":       (1,  0),   # (presetID, presetSubtype)
-    "fade":         (10, 0),
-    "fly_in":       (2,  8),   # default: from bottom (subtype 8)
-    "float_in":     (22, 0),
-    "wipe":         (8,  2),   # default: left
-    "zoom":         (18, 0),
-    "wheel":        (20, 1),   # 1 spoke
-    "random_bars":  (12, 1),   # horizontal
+    "appear": (1, 0),  # (presetID, presetSubtype)
+    "fade": (10, 0),
+    "fly_in": (2, 8),  # default: from bottom (subtype 8)
+    "float_in": (22, 0),
+    "wipe": (8, 2),  # default: left
+    "zoom": (18, 0),
+    "wheel": (20, 1),  # 1 spoke
+    "random_bars": (12, 1),  # horizontal
 }
 
 _EXIT_PRESETS = {
-    "disappear":    (1,  0),
-    "fade":         (10, 0),
-    "fly_out":      (2,  8),
-    "float_out":    (22, 0),
-    "wipe":         (8,  2),
-    "zoom":         (18, 0),
-    "wheel":        (20, 1),
-    "random_bars":  (12, 1),
+    "disappear": (1, 0),
+    "fade": (10, 0),
+    "fly_out": (2, 8),
+    "float_out": (22, 0),
+    "wipe": (8, 2),
+    "zoom": (18, 0),
+    "wheel": (20, 1),
+    "random_bars": (12, 1),
 }
 
 _EMPHASIS_PRESETS = {
-    "pulse":  (13, 0),
-    "spin":   (5,  0),
-    "teeter": (6,  0),
+    "pulse": (13, 0),
+    "spin": (5, 0),
+    "teeter": (6, 0),
 }
+
 
 # Reverse mappings from (presetID, presetSubtype) → preset name, keyed by
 # preset class.  Used by AnimationEntry.preset for read-side introspection.
@@ -231,6 +229,7 @@ def _build_reverse_presets() -> dict[str, dict[tuple[int, int], str]]:
     }
     return out
 
+
 _REVERSE_PRESETS = _build_reverse_presets()
 _REVERSE_PRESET_BY_ID: dict[str, dict[int, str]] = {
     cls: {pid: name for (pid, _sub), name in entries.items()}
@@ -239,27 +238,27 @@ _REVERSE_PRESET_BY_ID: dict[str, dict[int, str]] = {
 
 # animEffect filter strings for each preset name (entrance direction)
 _EFFECT_FILTER = {
-    "fade":        "fade",
-    "float_in":    "fade",
-    "float_out":   "fade",
-    "wipe":        "wipe(dir=left)",
-    "zoom":        "zoom(dir=in)",
-    "wheel":       "wheel(spokes=1)",
+    "fade": "fade",
+    "float_in": "fade",
+    "float_out": "fade",
+    "wipe": "wipe(dir=left)",
+    "zoom": "zoom(dir=in)",
+    "wheel": "wheel(spokes=1)",
     "random_bars": "randomBar(dir=horz)",
 }
 
 # FlyIn/FlyOut path templates (M start L end E)
 _FLY_PATHS_IN = {
     "bottom": "M 0 1 L 0 0 E",
-    "top":    "M 0 -1 L 0 0 E",
-    "left":   "M -1 0 L 0 0 E",
-    "right":  "M 1 0 L 0 0 E",
+    "top": "M 0 -1 L 0 0 E",
+    "left": "M -1 0 L 0 0 E",
+    "right": "M 1 0 L 0 0 E",
 }
 _FLY_PATHS_OUT = {
     "bottom": "M 0 0 L 0 1 E",
-    "top":    "M 0 0 L 0 -1 E",
-    "left":   "M 0 0 L -1 0 E",
-    "right":  "M 0 0 L 1 0 E",
+    "top": "M 0 0 L 0 -1 E",
+    "left": "M 0 0 L -1 0 E",
+    "right": "M 0 0 L 1 0 E",
 }
 
 # ---------------------------------------------------------------------------
@@ -286,7 +285,9 @@ def _visibility_set_xml(ctn_id: int, spid: int, visible: bool) -> str:
     )
 
 
-def _anim_effect_xml(ctn_id: int, spid: int, duration: int, filter_str: str, transition: str) -> str:
+def _anim_effect_xml(
+    ctn_id: int, spid: int, duration: int, filter_str: str, transition: str
+) -> str:
     return (
         f'<p:animEffect transition="{transition}" filter="{filter_str}">\n'
         "  <p:cBhvr>\n"
@@ -482,9 +483,7 @@ class SlideAnimations:
     def _top_level_pars(self) -> list[Any]:
         """Return the top-level click-group ``<p:par>`` elements."""
         sld = self._slide._element
-        return list(
-            sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
-        )
+        return list(sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"))
 
     # -- public API ----------------------------------------------------------
 
@@ -525,24 +524,21 @@ class SlideAnimations:
         if kind == "exit":
             if not hasattr(shape, "shape_id"):
                 raise TypeError(
-                    f"add(kind='exit') requires a BaseShape; got "
-                    f"{type(shape).__name__!r}."
+                    f"add(kind='exit') requires a BaseShape; got {type(shape).__name__!r}."
                 )
             self.add_exit(preset, cast("BaseShape", shape), **kwargs)
             return
         if kind == "emphasis":
             if not hasattr(shape, "shape_id"):
                 raise TypeError(
-                    f"add(kind='emphasis') requires a BaseShape; got "
-                    f"{type(shape).__name__!r}."
+                    f"add(kind='emphasis') requires a BaseShape; got {type(shape).__name__!r}."
                 )
             self.add_emphasis(preset, cast("BaseShape", shape), **kwargs)
             return
         if kind == "motion":
             if not hasattr(shape, "shape_id"):
                 raise TypeError(
-                    f"add(kind='motion') requires a BaseShape; got "
-                    f"{type(shape).__name__!r}."
+                    f"add(kind='motion') requires a BaseShape; got {type(shape).__name__!r}."
                 )
             # For motion, *preset* carries the raw OOXML path string;
             # validating ``E``-termination here keeps the error site
@@ -592,8 +588,7 @@ class SlideAnimations:
         """
         if preset not in _ENTRANCE_PRESETS:
             raise ValueError(
-                f"Unknown entrance preset {preset!r}. "
-                f"Choose from: {sorted(_ENTRANCE_PRESETS)}"
+                f"Unknown entrance preset {preset!r}. Choose from: {sorted(_ENTRANCE_PRESETS)}"
             )
 
         if by_paragraph:
@@ -616,8 +611,14 @@ class SlideAnimations:
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
         behaviors = self._entrance_behaviors(preset, bshape.shape_id, duration, direction)
         self._append_effect(
-            bshape.shape_id, preset_id, "entr", preset_subtype, trigger, delay,
-            behaviors, easing=easing,
+            bshape.shape_id,
+            preset_id,
+            "entr",
+            preset_subtype,
+            trigger,
+            delay,
+            behaviors,
+            easing=easing,
         )
 
     def add_exit(
@@ -638,8 +639,7 @@ class SlideAnimations:
         """
         if preset not in _EXIT_PRESETS:
             raise ValueError(
-                f"Unknown exit preset {preset!r}. "
-                f"Choose from: {sorted(_EXIT_PRESETS)}"
+                f"Unknown exit preset {preset!r}. Choose from: {sorted(_EXIT_PRESETS)}"
             )
         preset_id, preset_subtype = _EXIT_PRESETS[preset]
         behaviors = self._exit_behaviors(preset, shape.shape_id, duration, direction)
@@ -666,8 +666,7 @@ class SlideAnimations:
         """
         if preset not in _EMPHASIS_PRESETS:
             raise ValueError(
-                f"Unknown emphasis preset {preset!r}. "
-                f"Choose from: {sorted(_EMPHASIS_PRESETS)}"
+                f"Unknown emphasis preset {preset!r}. Choose from: {sorted(_EMPHASIS_PRESETS)}"
             )
         preset_id, preset_subtype = _EMPHASIS_PRESETS[preset]
         behaviors = self._emphasis_behaviors(preset, shape.shape_id, duration, degrees)
@@ -699,9 +698,7 @@ class SlideAnimations:
         ids = self._reserve_ids(1)
         behaviors = _anim_motion_xml(ids[0], shape.shape_id, duration, path)
         # presetID 64 is PowerPoint's "Custom Path" path animation.
-        self._append_effect(
-            shape.shape_id, 64, "path", 0, trigger, delay, behaviors
-        )
+        self._append_effect(shape.shape_id, 64, "path", 0, trigger, delay, behaviors)
 
     @contextmanager
     def sequence(
@@ -799,9 +796,7 @@ class SlideAnimations:
 
     # -- behavior builders ---------------------------------------------------
 
-    def _entrance_behaviors(
-        self, preset: str, spid: int, duration: int, direction: str
-    ) -> str:
+    def _entrance_behaviors(self, preset: str, spid: int, duration: int, direction: str) -> str:
         ids = self._reserve_ids(3)
         vis_xml = _visibility_set_xml(ids[0], spid, visible=True)
 
@@ -822,9 +817,7 @@ class SlideAnimations:
         filter_str = _EFFECT_FILTER.get(preset, "fade")
         return vis_xml + _anim_effect_xml(ids[1], spid, duration, filter_str, "in")
 
-    def _exit_behaviors(
-        self, preset: str, spid: int, duration: int, direction: str
-    ) -> str:
+    def _exit_behaviors(self, preset: str, spid: int, duration: int, direction: str) -> str:
         ids = self._reserve_ids(3)
 
         if preset == "disappear":
@@ -876,9 +869,16 @@ class SlideAnimations:
     # makes sense.  Direction-aware presets (fly_in, float_in) are
     # excluded because PowerPoint's per-paragraph wrappers don't support
     # the motion-path component cleanly.
-    _PARAGRAPH_PRESETS = frozenset({
-        "appear", "fade", "wipe", "zoom", "wheel", "random_bars",
-    })
+    _PARAGRAPH_PRESETS = frozenset(
+        {
+            "appear",
+            "fade",
+            "wipe",
+            "zoom",
+            "wheel",
+            "random_bars",
+        }
+    )
 
     def _add_entrance_by_paragraph(
         self,
@@ -961,9 +961,7 @@ class SlideAnimations:
     ) -> str:
         """Return the behaviors XML for a paragraph-targeted entrance preset."""
         ids = self._reserve_ids(2)
-        vis_xml = _visibility_set_xml_for_paragraph(
-            ids[0], spid, paragraph_idx, visible=True
-        )
+        vis_xml = _visibility_set_xml_for_paragraph(ids[0], spid, paragraph_idx, visible=True)
         if preset == "appear":
             return vis_xml
         filter_str = _EFFECT_FILTER.get(preset, "fade")
@@ -1043,9 +1041,7 @@ class SlideAnimations:
         delay = self._consume_block_delay(delay)
         grp_id, node_type, wrapper_delay = self._resolve_trigger(trigger)
 
-        indent_behaviors = "\n".join(
-            "      " + line for line in behaviors_xml.splitlines()
-        ) + "\n"
+        indent_behaviors = "\n".join("      " + line for line in behaviors_xml.splitlines()) + "\n"
 
         effect_par = (
             "<p:par>\n"
@@ -1064,12 +1060,11 @@ class SlideAnimations:
 
         click_group = (
             "<p:par %s>\n"
-            "  <p:cTn fill=\"hold\">\n"
+            '  <p:cTn fill="hold">\n'
             "    <p:stCondLst>\n"
             f'      <p:cond delay="{wrapper_delay}"/>\n'
             "    </p:stCondLst>\n"
-            "    <p:childTnLst>\n"
-            + "\n".join("      " + l for l in effect_par.splitlines()) + "\n"
+            "    <p:childTnLst>\n" + "\n".join("      " + l for l in effect_par.splitlines()) + "\n"
             "    </p:childTnLst>\n"
             "  </p:cTn>\n"
             "</p:par>\n"
@@ -1206,9 +1201,7 @@ class SlideAnimations:
             _prune_empty_timing(sld)
         return removed
 
-    def _resolve_trigger(
-        self, trigger: PP_ANIM_TRIGGER
-    ) -> tuple[int, str, str]:
+    def _resolve_trigger(self, trigger: PP_ANIM_TRIGGER) -> tuple[int, str, str]:
         """Return ``(grp_id, node_type, wrapper_delay)`` for *trigger*."""
         sld = self._slide._element
         click_grp_ids = sld.xpath("p:timing//p:cTn[@nodeType='clickEffect']/@grpId")
@@ -1572,9 +1565,7 @@ class Exit:
         duration: int = 500,
     ) -> None:
         """Shape fades out."""
-        slide.animations.add_exit(
-            "fade", shape, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_exit("fade", shape, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def fly_out(
@@ -1623,9 +1614,7 @@ class Exit:
         duration: int = 500,
     ) -> None:
         """Shape is wiped away from the left."""
-        slide.animations.add_exit(
-            "wipe", shape, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_exit("wipe", shape, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def zoom(
@@ -1638,9 +1627,7 @@ class Exit:
         duration: int = 500,
     ) -> None:
         """Shape zooms away to the center."""
-        slide.animations.add_exit(
-            "zoom", shape, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_exit("zoom", shape, trigger=trigger, delay=delay, duration=duration)
 
 
 class Emphasis:
@@ -1749,9 +1736,7 @@ class MotionPath:
         nx = float(dx) / slide_w
         ny = float(dy) / slide_h
         path = f"M 0 0 L {_fmt(nx)} {_fmt(ny)} E"
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def custom(
@@ -1778,12 +1763,8 @@ class MotionPath:
         :meth:`svg` instead.
         """
         if not path or "E" not in path:
-            raise ValueError(
-                "motion path must be a non-empty OOXML path string ending in 'E'"
-            )
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+            raise ValueError("motion path must be a non-empty OOXML path string ending in 'E'")
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def svg(
@@ -1849,8 +1830,13 @@ class MotionPath:
         direction a "line" travels.
         """
         cls.line(
-            slide, shape, dx, dy,
-            trigger=trigger, delay=delay, duration=duration,
+            slide,
+            shape,
+            dx,
+            dy,
+            trigger=trigger,
+            delay=delay,
+            duration=duration,
         )
 
     @classmethod
@@ -1892,9 +1878,7 @@ class MotionPath:
             f"{_fmt(s * ry)} {_fmt(rx)} {_fmt(s * ry)} "
             f"C {_fmt(rx - k * rx)} {_fmt(s * ry)} 0 {_fmt(s * (ry - k * ry))} 0 0 E"
         )
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def arc(
@@ -1930,9 +1914,7 @@ class MotionPath:
         cx = nx / 2 + height * ny
         cy = ny / 2 - height * nx
         path = f"M 0 0 Q {_fmt(cx)} {_fmt(cy)} {_fmt(nx)} {_fmt(ny)} E"
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def zigzag(
@@ -1974,9 +1956,7 @@ class MotionPath:
             parts.append(f"L {_fmt(mid_x)} {_fmt(mid_y)}")
         parts.append("E")
         path = " ".join(parts)
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
     @classmethod
     def spiral(
@@ -2019,16 +1999,12 @@ class MotionPath:
             parts.append(f"L {_fmt(x)} {_fmt(y)}")
         parts.append("E")
         path = " ".join(parts)
-        slide.animations.add_motion(
-            shape, path, trigger=trigger, delay=delay, duration=duration
-        )
+        slide.animations.add_motion(shape, path, trigger=trigger, delay=delay, duration=duration)
 
 
 # Match SVG path command letters (any letter, so unsupported ones can be
 # diagnosed) and signed/exponent-form numbers.
-_SVG_TOKEN_RE = __import__("re").compile(
-    r"[A-Za-z]|-?\d*\.?\d+(?:[eE][+-]?\d+)?"
-)
+_SVG_TOKEN_RE = __import__("re").compile(r"[A-Za-z]|-?\d*\.?\d+(?:[eE][+-]?\d+)?")
 
 
 def _svg_to_ooxml_motion_path(
@@ -2055,10 +2031,7 @@ def _svg_to_ooxml_motion_path(
     else:
         vb_x, vb_y, vb_w, vb_h = (float(v) for v in viewbox)
     if vb_w <= 0 or vb_h <= 0:
-        raise ValueError(
-            "viewbox width and height must be positive; got "
-            f"{viewbox!r}"
-        )
+        raise ValueError(f"viewbox width and height must be positive; got {viewbox!r}")
 
     tokens = _SVG_TOKEN_RE.findall(svg)
     if not tokens:
@@ -2104,9 +2077,7 @@ def _svg_to_ooxml_motion_path(
         try:
             n = float(tokens[i])
         except (IndexError, ValueError):
-            raise ValueError(
-                f"expected coordinate after {cmd!r} in svg path {svg!r}"
-            )
+            raise ValueError(f"expected coordinate after {cmd!r} in svg path {svg!r}")
         i += 1
 
         if cmd in ("M", "m"):
@@ -2115,9 +2086,7 @@ def _svg_to_ooxml_motion_path(
             try:
                 m = float(tokens[i])
             except (IndexError, ValueError):
-                raise ValueError(
-                    f"expected y after x in moveto in svg path {svg!r}"
-                )
+                raise ValueError(f"expected y after x in moveto in svg path {svg!r}")
             i += 1
             new_x = n if cmd == "M" else cx + n
             new_y = m if cmd == "M" else cy + m
@@ -2139,17 +2108,13 @@ def _svg_to_ooxml_motion_path(
 
         if not started:
             # Any non-M command must be preceded by a moveto in valid SVG.
-            raise ValueError(
-                f"svg path must start with M/m; got {cmd!r} in {svg!r}"
-            )
+            raise ValueError(f"svg path must start with M/m; got {cmd!r} in {svg!r}")
 
         if cmd in ("L", "l"):
             try:
                 m = float(tokens[i])
             except (IndexError, ValueError):
-                raise ValueError(
-                    f"expected y after x in lineto in svg path {svg!r}"
-                )
+                raise ValueError(f"expected y after x in lineto in svg path {svg!r}")
             i += 1
             cx = n if cmd == "L" else cx + n
             cy = m if cmd == "L" else cy + m
@@ -2168,15 +2133,16 @@ def _svg_to_ooxml_motion_path(
             try:
                 pts = [n] + [float(tokens[i + k]) for k in range(5)]
             except (IndexError, ValueError):
-                raise ValueError(
-                    f"cubic curve needs 6 coords in svg path {svg!r}"
-                )
+                raise ValueError(f"cubic curve needs 6 coords in svg path {svg!r}")
             i += 5
             x1, y1, x2, y2, x, y = pts
             if cmd == "c":
-                x1 += cx; y1 += cy
-                x2 += cx; y2 += cy
-                x += cx; y += cy
+                x1 += cx
+                y1 += cy
+                x2 += cx
+                y2 += cy
+                x += cx
+                y += cy
             cx, cy = x, y
             o1x, o1y = _to_ooxml(x1, y1)
             o2x, o2y = _to_ooxml(x2, y2)
@@ -2187,22 +2153,21 @@ def _svg_to_ooxml_motion_path(
             try:
                 pts = [n] + [float(tokens[i + k]) for k in range(3)]
             except (IndexError, ValueError):
-                raise ValueError(
-                    f"quadratic curve needs 4 coords in svg path {svg!r}"
-                )
+                raise ValueError(f"quadratic curve needs 4 coords in svg path {svg!r}")
             i += 3
             x1, y1, x, y = pts
             if cmd == "q":
-                x1 += cx; y1 += cy
-                x += cx; y += cy
+                x1 += cx
+                y1 += cy
+                x += cx
+                y += cy
             cx, cy = x, y
             o1x, o1y = _to_ooxml(x1, y1)
             ox, oy = _to_ooxml(x, y)
             _emit("Q", o1x, o1y, ox, oy)
         else:
             raise ValueError(
-                f"unsupported svg path command {cmd!r}; supported: "
-                "M/m L/l H/h V/v C/c Q/q Z/z"
+                f"unsupported svg path command {cmd!r}; supported: M/m L/l H/h V/v C/c Q/q Z/z"
             )
 
     out_parts.append("E")
@@ -2217,7 +2182,7 @@ def _slide_dimensions_emu(slide: Slide) -> tuple[int, int]:
     """
     prs_part = slide.part.package.presentation_part
     presentation = prs_part.presentation
-    width = presentation.slide_width or 9_144_000   # 10 inches
+    width = presentation.slide_width or 9_144_000  # 10 inches
     height = presentation.slide_height or 6_858_000  # 7.5 inches
     return int(width), int(height)
 

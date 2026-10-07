@@ -727,8 +727,7 @@ class _Relationship:
         """|Part| or subtype referred to by this relationship."""
         if self.is_external:
             raise ValueError(
-                "`.target_part` property on _Relationship is undefined when "
-                "target-mode is external"
+                "`.target_part` property on _Relationship is undefined when target-mode is external"
             )
         assert isinstance(self._target, Part)
         return self._target

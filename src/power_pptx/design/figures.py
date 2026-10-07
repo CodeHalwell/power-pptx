@@ -110,8 +110,11 @@ def add_plotly_figure(
         pip install plotly kaleido
     """
     blob, fmt = _plotly_to_blob(
-        figure, format=format, scale=scale,
-        width_px=width_px, height_px=height_px,
+        figure,
+        format=format,
+        scale=scale,
+        width_px=width_px,
+        height_px=height_px,
     )
     return _embed_blob(slide, blob, fmt, left, top, width, height)
 
@@ -145,8 +148,7 @@ def _plotly_to_blob(
             raise FigureBackendUnavailable(
                 "Plotly figure → SVG export failed.  Ensure both "
                 "`plotly` and `kaleido` are installed (`pip install "
-                "plotly kaleido`); the underlying error was: %s"
-                % (exc,)
+                "plotly kaleido`); the underlying error was: %s" % (exc,)
             ) from exc
         return blob, "svg"
 
@@ -248,9 +250,7 @@ def add_svg_figure(
     When *png_fallback* is omitted the SVG is rasterised via
     ``cairosvg`` for the Office SVG-extension PNG companion.
     """
-    return slide.shapes.add_svg_picture(
-        svg, left, top, width, height, png_fallback=png_fallback
-    )
+    return slide.shapes.add_svg_picture(svg, left, top, width, height, png_fallback=png_fallback)
 
 
 # ---------------------------------------------------------------------------
@@ -332,8 +332,7 @@ def _html_to_png(
         except Exception as exc:
             raise FigureBackendUnavailable(
                 "Playwright failed to launch Chromium.  Did you run "
-                "`playwright install chromium`?  Original error: %s"
-                % (exc,)
+                "`playwright install chromium`?  Original error: %s" % (exc,)
             ) from exc
         try:
             page = browser.new_page(
@@ -362,20 +361,14 @@ def _embed_blob(
     height: Optional[Length],
 ) -> "Picture":
     if fmt == "svg":
-        return slide.shapes.add_svg_picture(
-            blob, left, top, width, height
-        )
-    return slide.shapes.add_picture(
-        io.BytesIO(blob), left, top, width=width, height=height
-    )
+        return slide.shapes.add_svg_picture(blob, left, top, width, height)
+    return slide.shapes.add_picture(io.BytesIO(blob), left, top, width=width, height=height)
 
 
 def _resolve_format(format: str) -> str:
     """Return ``"svg"`` or ``"png"`` based on *format* and cairosvg availability."""
     if format not in ("auto", "svg", "png"):
-        raise ValueError(
-            f"format must be 'auto', 'svg', or 'png'; got {format!r}"
-        )
+        raise ValueError(f"format must be 'auto', 'svg', or 'png'; got {format!r}")
     if format == "auto":
         # SVG is the visual win when both halves of the Office SVG
         # extension can be produced — i.e. when cairosvg is installed

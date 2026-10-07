@@ -178,9 +178,7 @@ class Picture(_BasePicture):
         try:
             slide = self.part.slide
         except AttributeError as exc:
-            raise ValueError(
-                "replace_with() requires the picture to be on a slide"
-            ) from exc
+            raise ValueError("replace_with() requires the picture to be on a slide") from exc
         self.delete()
         return builder(slide, bbox)
 
@@ -352,7 +350,9 @@ def _exclude_obstacle(trimmed, obstacle, *, must_contain):
             (
                 cost,
                 BBox(
-                    trimmed.left, Emu(new_top), trimmed.width,
+                    trimmed.left,
+                    Emu(new_top),
+                    trimmed.width,
                     Emu(int(trimmed.bottom) - new_top),
                 ),
             )
@@ -369,7 +369,9 @@ def _exclude_obstacle(trimmed, obstacle, *, must_contain):
             (
                 cost,
                 BBox(
-                    trimmed.left, trimmed.top, trimmed.width,
+                    trimmed.left,
+                    trimmed.top,
+                    trimmed.width,
                     Emu(new_bottom - int(trimmed.top)),
                 ),
             )
@@ -386,8 +388,10 @@ def _exclude_obstacle(trimmed, obstacle, *, must_contain):
             (
                 cost,
                 BBox(
-                    Emu(new_left), trimmed.top,
-                    Emu(int(trimmed.right) - new_left), trimmed.height,
+                    Emu(new_left),
+                    trimmed.top,
+                    Emu(int(trimmed.right) - new_left),
+                    trimmed.height,
                 ),
             )
         )
@@ -403,8 +407,10 @@ def _exclude_obstacle(trimmed, obstacle, *, must_contain):
             (
                 cost,
                 BBox(
-                    trimmed.left, trimmed.top,
-                    Emu(new_right - int(trimmed.left)), trimmed.height,
+                    trimmed.left,
+                    trimmed.top,
+                    Emu(new_right - int(trimmed.left)),
+                    trimmed.height,
                 ),
             )
         )

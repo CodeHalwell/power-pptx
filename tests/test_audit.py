@@ -51,8 +51,7 @@ class DescribeAudit:
             font="Definitely-Not-A-Real-Font-Name",
         )
         report = audit(prs)
-        assert any(font == "Definitely-Not-A-Real-Font-Name"
-                   for _, font in report.font_warnings)
+        assert any(font == "Definitely-Not-A-Real-Font-Name" for _, font in report.font_warnings)
 
     def it_treats_full_bleed_only_slide_as_empty(self, prs):
         # A slide whose only shape is a slide-spanning background rect
@@ -60,7 +59,10 @@ class DescribeAudit:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(0), Inches(0), prs.slide_width, prs.slide_height,
+            Inches(0),
+            Inches(0),
+            prs.slide_width,
+            prs.slide_height,
         )
         report = audit(prs)
         assert 0 in report.empty_slides
@@ -88,8 +90,7 @@ class DescribeAuditMachineReadable:
 
         assert d["has_errors"] is True
         assert any(
-            issue["slide"] == 0 and issue["code"] == "OffSlide"
-            for issue in d["lint_issues"]
+            issue["slide"] == 0 and issue["code"] == "OffSlide" for issue in d["lint_issues"]
         )
 
     def it_is_json_serializable_for_a_rich_deck(self, prs):

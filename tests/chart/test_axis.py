@@ -673,7 +673,9 @@ class Describe_BaseAxis(object):
 
     @pytest.fixture
     def MajorGridlines_(self, request, major_gridlines_):
-        return class_mock(request, "power_pptx.chart.axis.MajorGridlines", return_value=major_gridlines_)
+        return class_mock(
+            request, "power_pptx.chart.axis.MajorGridlines", return_value=major_gridlines_
+        )
 
     @pytest.fixture
     def major_gridlines_(self, request):

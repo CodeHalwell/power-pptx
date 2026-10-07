@@ -211,7 +211,10 @@ class DescribeGroupShapeSurface(object):
 
         movie = group.shapes.add_movie(
             absjoin(test_file_dir, "dummy.mp4"),
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             poster_frame_image=absjoin(test_file_dir, "monty-truth.png"),
             mime_type="video/mp4",
         )

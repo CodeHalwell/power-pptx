@@ -514,8 +514,7 @@ class Describe_BaseSeriesXmlRewriter(object):
     def replace_fixture(self, request, chart_data_, _adjust_ser_count_, _rewrite_ser_data_):
         rewriter = _BaseSeriesXmlRewriter(chart_data_)
         chartSpace = element(
-            "c:chartSpace/c:chart/c:plotArea/c:barChart/(c:ser/c:order{val=0"
-            "},c:ser/c:order{val=1})"
+            "c:chartSpace/c:chart/c:plotArea/c:barChart/(c:ser/c:order{val=0},c:ser/c:order{val=1})"
         )
         plotArea = chartSpace.xpath("c:chart/c:plotArea")[0]
         sers = chartSpace.xpath(".//c:ser")
@@ -778,6 +777,5 @@ class DescribeEndParaRPrLang(object):
 
         for match in re.finditer(r"<a:endParaRPr\b[^>]*>", xml):
             assert "lang=" in match.group(0), (
-                f"{writer_cls.__name__} emitted endParaRPr without lang: "
-                f"{match.group(0)!r}"
+                f"{writer_cls.__name__} emitted endParaRPr without lang: {match.group(0)!r}"
             )

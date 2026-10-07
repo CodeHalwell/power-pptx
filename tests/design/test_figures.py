@@ -59,8 +59,12 @@ class DescribeAddPlotlyFigure:
         fig = _FakePlotlyFigure()
         before = len(list(slide.shapes))
         add_plotly_figure(
-            slide, fig,
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            fig,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             format="png",
         )
         # Exactly one new shape — the embedded picture.
@@ -95,13 +99,15 @@ class DescribeAddPlotlyFigure:
 
     def it_wraps_kaleido_failures_in_FigureBackendUnavailable(self, slide):
         broken = MagicMock()
-        broken.to_image.side_effect = RuntimeError(
-            "kaleido binary not found"
-        )
+        broken.to_image.side_effect = RuntimeError("kaleido binary not found")
         with pytest.raises(FigureBackendUnavailable, match="kaleido"):
             add_plotly_figure(
-                slide, broken,
-                Inches(1), Inches(1), Inches(4), Inches(3),
+                slide,
+                broken,
+                Inches(1),
+                Inches(1),
+                Inches(4),
+                Inches(3),
                 format="png",
             )
 
@@ -128,7 +134,12 @@ class DescribeAddMatplotlibFigure:
         fig = _FakeMatplotlibFigure()
         before = len(list(slide.shapes))
         add_matplotlib_figure(
-            slide, fig, Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            fig,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             format="png",
         )
         after = list(slide.shapes)
@@ -146,8 +157,12 @@ class DescribeAddSvgFigure:
         # Bypass cairosvg by passing png_fallback explicitly.
         before = len(list(slide.shapes))
         add_svg_figure(
-            slide, _STUB_SVG,
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            _STUB_SVG,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             png_fallback=_TINY_PNG,
         )
         after = list(slide.shapes)
@@ -176,18 +191,14 @@ class DescribeFigureSlideDispatch:
         prs = Presentation()
         fig = _FakePlotlyFigure()
         slide = figure_slide(prs, title="Plot", figure=fig, figure_format="png")
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_dispatches_a_matplotlib_figure(self):
         prs = Presentation()
         fig = _FakeMatplotlibFigure()
         slide = figure_slide(prs, title="Plot", figure=fig, figure_format="png")
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_dispatches_inline_svg_bytes(self):
@@ -196,26 +207,25 @@ class DescribeFigureSlideDispatch:
         # through figure_slide; instead, this path needs cairosvg.
         # Mock the rasteriser so we don't depend on cairosvg.
         with patch(
-            "power_pptx._svg.rasterize_svg", return_value=_TINY_PNG,
+            "power_pptx._svg.rasterize_svg",
+            return_value=_TINY_PNG,
         ):
             slide = figure_slide(prs, title="SVG", figure=_STUB_SVG)
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_renders_a_caption_when_provided(self):
         prs = Presentation()
         fig = _FakePlotlyFigure()
         slide = figure_slide(
-            prs, title="Plot", figure=fig, figure_format="png",
+            prs,
+            title="Plot",
+            figure=fig,
+            figure_format="png",
             caption="Source: internal data",
         )
         texts = [
-            p.text
-            for sh in slide.shapes
-            if sh.has_text_frame
-            for p in sh.text_frame.paragraphs
+            p.text for sh in slide.shapes if sh.has_text_frame for p in sh.text_frame.paragraphs
         ]
         assert any("Source" in t for t in texts)
 

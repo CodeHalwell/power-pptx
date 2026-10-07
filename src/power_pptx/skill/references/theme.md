@@ -9,12 +9,12 @@ writes round-trip on save.
 ```python
 from power_pptx.enum.dml import MSO_THEME_COLOR
 
-accent1 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]    # → RGBColor
+accent1 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]  # → RGBColor
 accent2 = prs.theme.colors[MSO_THEME_COLOR.ACCENT_2]
-bg1     = prs.theme.colors[MSO_THEME_COLOR.BACKGROUND_1]    # canonical lt1
-text1   = prs.theme.colors[MSO_THEME_COLOR.TEXT_1]          # canonical dk1
-hyper   = prs.theme.colors[MSO_THEME_COLOR.HYPERLINK]
-follow  = prs.theme.colors[MSO_THEME_COLOR.FOLLOWED_HYPERLINK]
+bg1 = prs.theme.colors[MSO_THEME_COLOR.BACKGROUND_1]  # canonical lt1
+text1 = prs.theme.colors[MSO_THEME_COLOR.TEXT_1]  # canonical dk1
+hyper = prs.theme.colors[MSO_THEME_COLOR.HYPERLINK]
+follow = prs.theme.colors[MSO_THEME_COLOR.FOLLOWED_HYPERLINK]
 ```
 
 The six accent slots, the dk1/dk2/lt1/lt2 background slots, and the
@@ -23,8 +23,8 @@ hyperlink slots are addressable.
 ## Reading fonts
 
 ```python
-major = prs.theme.fonts.major     # heading font (str)
-minor = prs.theme.fonts.minor     # body font  (str)
+major = prs.theme.fonts.major  # heading font (str)
+minor = prs.theme.fonts.minor  # body font  (str)
 ```
 
 ## Writing the palette
@@ -53,7 +53,7 @@ typeface.
 
 ```python
 brand = Presentation("brand.potx")
-prs.theme.apply(brand.theme)        # copies palette + major/minor fonts
+prs.theme.apply(brand.theme)  # copies palette + major/minor fonts
 ```
 
 ## Theme-aware color resolution
@@ -110,8 +110,8 @@ Flip a deck to a dark palette in one call (backgrounds/text invert,
 accents stay AA-legible):
 
 ```python
-prs.theme.to_dark_mode()                 # in place; returns the Theme
-prs.theme.to_dark_mode(min_contrast=7.0) # AAA accents
+prs.theme.to_dark_mode()  # in place; returns the Theme
+prs.theme.to_dark_mode(min_contrast=7.0)  # AAA accents
 ```
 
 Bootstrap a whole palette from one brand colour:
@@ -120,8 +120,8 @@ Bootstrap a whole palette from one brand colour:
 from power_pptx.design.tokens import DesignTokens
 
 tokens = DesignTokens.from_seed("#3B5BDB", harmony="triadic")
-tokens.palette["primary"]                          # == the seed
-tokens.validate_color_blindness("deuteranopia")    # -> [(name_a, name_b), ...]
+tokens.palette["primary"]  # == the seed
+tokens.validate_color_blindness("deuteranopia")  # -> [(name_a, name_b), ...]
 ```
 
 `from_seed` is deterministic and accepts hex / `RGBColor` / `(r, g, b)`.

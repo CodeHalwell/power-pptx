@@ -464,7 +464,9 @@ class DescribeXmlPart:
         partname = PackURI("/ppt/slides/slide1.xml")
         element_ = element("p:sld")
         package_ = instance_mock(request, OpcPackage)
-        parse_xml_ = function_mock(request, "power_pptx.opc.package.parse_xml", return_value=element_)
+        parse_xml_ = function_mock(
+            request, "power_pptx.opc.package.parse_xml", return_value=element_
+        )
         _init_ = initializer_mock(request, XmlPart)
 
         part = XmlPart.load(partname, CT.PML_SLIDE, package_, b"blob")
@@ -516,9 +518,11 @@ class DescribePartFactory:
         partname = PackURI("/ppt/slides/slide7.xml")
         original = PartFactory.part_type_for.get(CT.PML_SLIDE)
         request.addfinalizer(
-            lambda: PartFactory.part_type_for.__setitem__(CT.PML_SLIDE, original)
-            if original is not None
-            else PartFactory.part_type_for.pop(CT.PML_SLIDE, None)
+            lambda: (
+                PartFactory.part_type_for.__setitem__(CT.PML_SLIDE, original)
+                if original is not None
+                else PartFactory.part_type_for.pop(CT.PML_SLIDE, None)
+            )
         )
         PartFactory.part_type_for[CT.PML_SLIDE] = SlidePart_
 
@@ -605,7 +609,7 @@ class Describe_ContentTypeMap:
         with pytest.raises(KeyError) as e:
             content_type_map[PackURI("/!blat/rhumba.1x&")]
         assert str(e.value) == (
-            "\"no content-type for partname '/!blat/rhumba.1x&' " 'in [Content_Types].xml"'
+            "\"no content-type for partname '/!blat/rhumba.1x&' in [Content_Types].xml\""
         )
 
     def it_raises_TypeError_on_key_not_instance_of_PackURI(self, content_type_map):
@@ -990,7 +994,7 @@ class Describe_Relationship:
         with pytest.raises(ValueError) as e:
             relationship.target_part
         assert str(e.value) == (
-            "`.target_part` property on _Relationship is undefined when " "target-mode is external"
+            "`.target_part` property on _Relationship is undefined when target-mode is external"
         )
 
     def it_knows_its_target_partname(self, part_):
@@ -1006,8 +1010,7 @@ class Describe_Relationship:
             relationship.target_partname
 
         assert str(e.value) == (
-            "`.target_partname` property on _Relationship is undefined when "
-            "target-mode is external"
+            "`.target_partname` property on _Relationship is undefined when target-mode is external"
         )
 
     def it_knows_the_target_uri_for_an_external_rel(self):

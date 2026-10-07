@@ -22,7 +22,13 @@ if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
     from power_pptx.oxml.shapes.shared import CT_LineProperties
-    from power_pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCellProperties, CT_TableCol, CT_TableRow
+    from power_pptx.oxml.table import (
+        CT_Table,
+        CT_TableCell,
+        CT_TableCellProperties,
+        CT_TableCol,
+        CT_TableRow,
+    )
     from power_pptx.parts.slide import BaseSlidePart
     from power_pptx.shapes.graphfrm import GraphicFrame
     from power_pptx.types import ProvidesPart
@@ -71,15 +77,12 @@ def _resolve_selector(selector: _CellSelector, count: int, name: str) -> list[in
     return out
 
 
-def _apply_cell_margins(
-    cell: "_Cell", margin: "float | Length | Sequence[float | Length]"
-) -> None:
+def _apply_cell_margins(cell: "_Cell", margin: "float | Length | Sequence[float | Length]") -> None:
     """Set a cell's four insets from a scalar or ``(top, right, bottom, left)``."""
     if isinstance(margin, (tuple, list)):
         if len(margin) != 4:
             raise ValueError(
-                "margin tuple must have 4 elements (top, right, bottom, left); "
-                f"got {len(margin)}"
+                f"margin tuple must have 4 elements (top, right, bottom, left); got {len(margin)}"
             )
         top, right, bottom, left = (coerce_length(v) for v in margin)
     else:
@@ -270,9 +273,7 @@ class Table(object):
         from power_pptx.util import Emu, Pt
 
         if min_font_pt <= 0 or max_font_pt < min_font_pt:
-            raise ValueError(
-                "min_font_pt must be > 0 and max_font_pt must be >= min_font_pt"
-            )
+            raise ValueError("min_font_pt must be > 0 and max_font_pt must be >= min_font_pt")
 
         if font_file is None:
             font_file = find_font_file(font_family, bold, italic)
@@ -681,7 +682,7 @@ class _Cell(Subshape):
         `.is_merge_origin` before calling.
         """
         if not self.is_merge_origin:
-            raise ValueError("not a merge-origin cell; only a merge-origin cell can be sp" "lit")
+            raise ValueError("not a merge-origin cell; only a merge-origin cell can be split")
 
         tc_range = TcRange.from_merge_origin(self._tc)
 
@@ -1076,8 +1077,14 @@ class _Borders(object):
         (`"1F4E79"`), an `(r, g, b)` 3-tuple, or an |RGBColor|. Either argument
         may be |None| to leave that aspect alone.
         """
-        for edge in (self.left, self.right, self.top, self.bottom,
-                     self.diagonal_down, self.diagonal_up):
+        for edge in (
+            self.left,
+            self.right,
+            self.top,
+            self.bottom,
+            self.diagonal_down,
+            self.diagonal_up,
+        ):
             self._apply(edge, width, color)
 
     def outer(self, width: Length | None = None, color: _ColorLike | None = None) -> None:

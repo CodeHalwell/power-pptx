@@ -45,12 +45,34 @@ __all__ = ["AuditReport", "audit"]
 _COMMON_FONTS = frozenset(
     name.lower()
     for name in (
-        "Arial", "Calibri", "Helvetica", "Times New Roman", "Cambria",
-        "Verdana", "Tahoma", "Georgia", "Courier New", "Consolas",
-        "Segoe UI", "Trebuchet MS", "Garamond", "Impact", "Comic Sans MS",
-        "Lucida Console", "Palatino", "Palatino Linotype", "Symbol",
-        "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings",
-        "Inter", "Roboto", "Open Sans", "Lato", "Noto Sans",
+        "Arial",
+        "Calibri",
+        "Helvetica",
+        "Times New Roman",
+        "Cambria",
+        "Verdana",
+        "Tahoma",
+        "Georgia",
+        "Courier New",
+        "Consolas",
+        "Segoe UI",
+        "Trebuchet MS",
+        "Garamond",
+        "Impact",
+        "Comic Sans MS",
+        "Lucida Console",
+        "Palatino",
+        "Palatino Linotype",
+        "Symbol",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Webdings",
+        "Inter",
+        "Roboto",
+        "Open Sans",
+        "Lato",
+        "Noto Sans",
     )
 )
 
@@ -70,10 +92,7 @@ class AuditReport:
     def has_errors(self) -> bool:
         from power_pptx.lint import LintSeverity
 
-        return any(
-            issue.severity == LintSeverity.ERROR
-            for _idx, issue in self.lint_issues
-        )
+        return any(issue.severity == LintSeverity.ERROR for _idx, issue in self.lint_issues)
 
     def markdown(self) -> str:
         """Render the report as a markdown string suitable for chat replies."""
@@ -118,9 +137,7 @@ class AuditReport:
             lines.append("")
             lines.append(f"## Large pictures ({len(self.size_warnings)})")
             for idx, name, size_bytes in self.size_warnings:
-                lines.append(
-                    f"- slide {idx}: `{name}` is {size_bytes / 1_000_000:.1f} MB"
-                )
+                lines.append(f"- slide {idx}: `{name}` is {size_bytes / 1_000_000:.1f} MB")
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
@@ -143,16 +160,12 @@ class AuditReport:
         return {
             "total_slides": self.total_slides,
             "has_errors": self.has_errors,
-            "lint_issues": [
-                {"slide": idx, **issue.to_dict()} for idx, issue in self.lint_issues
-            ],
+            "lint_issues": [{"slide": idx, **issue.to_dict()} for idx, issue in self.lint_issues],
             "broken_pictures": [
                 {"slide": idx, "shape": shape.name} for idx, shape in self.broken_pictures
             ],
             "empty_slides": list(self.empty_slides),
-            "font_warnings": [
-                {"slide": idx, "font": font} for idx, font in self.font_warnings
-            ],
+            "font_warnings": [{"slide": idx, "font": font} for idx, font in self.font_warnings],
             "size_warnings": [
                 {"slide": idx, "shape": name, "bytes": size_bytes}
                 for idx, name, size_bytes in self.size_warnings
@@ -216,16 +229,8 @@ def audit(
                 sh = int(shape.height)
             except Exception:
                 sw = sh = 0
-            if (
-                bleed_w > 0
-                and bleed_h > 0
-                and sw >= bleed_w
-                and sh >= bleed_h
-            ):
-                has_text = (
-                    getattr(shape, "has_text_frame", False)
-                    and shape.text_frame.text.strip()
-                )
+            if bleed_w > 0 and bleed_h > 0 and sw >= bleed_w and sh >= bleed_h:
+                has_text = getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip()
                 if not has_text:
                     continue
             content_shapes += 1

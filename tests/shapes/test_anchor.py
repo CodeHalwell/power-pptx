@@ -212,11 +212,17 @@ class DescribeLintGroupScope:
         with slide.shapes.lint_group_scope("progress_bar") as g:
             track = slide.shapes.add_shape(
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                Inches(1), Inches(1), Inches(4), Inches(0.3),
+                Inches(1),
+                Inches(1),
+                Inches(4),
+                Inches(0.3),
             )
             fill = g.add_shape(  # using yielded handle works too
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                Inches(1), Inches(1), Inches(2), Inches(0.3),
+                Inches(1),
+                Inches(1),
+                Inches(2),
+                Inches(0.3),
             )
         assert track.lint_group == "progress_bar"
         assert fill.lint_group == "progress_bar"
@@ -225,12 +231,18 @@ class DescribeLintGroupScope:
         prs, slide = _slide()
         prior = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(0), Inches(0), Inches(1), Inches(1),
+            Inches(0),
+            Inches(0),
+            Inches(1),
+            Inches(1),
         )
         with slide.shapes.lint_group_scope("group-x"):
             new_shape = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(2), Inches(2), Inches(1), Inches(1),
+                Inches(2),
+                Inches(2),
+                Inches(1),
+                Inches(1),
             )
         assert prior.lint_group is None
         assert new_shape.lint_group == "group-x"
@@ -240,11 +252,17 @@ class DescribeLintGroupScope:
         with slide.shapes.lint_group_scope() as g:
             s1 = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(0), Inches(0), Inches(1), Inches(1),
+                Inches(0),
+                Inches(0),
+                Inches(1),
+                Inches(1),
             )
             s2 = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(2), Inches(0), Inches(1), Inches(1),
+                Inches(2),
+                Inches(0),
+                Inches(1),
+                Inches(1),
             )
         assert s1.lint_group == s2.lint_group
         assert s1.lint_group.startswith("design-group-")
@@ -254,12 +272,18 @@ class DescribeLintGroupScope:
         with slide.shapes.lint_group_scope():
             slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(0), Inches(0), Inches(1), Inches(1),
+                Inches(0),
+                Inches(0),
+                Inches(1),
+                Inches(1),
             )
         with slide.shapes.lint_group_scope():
             second = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(2), Inches(0), Inches(1), Inches(1),
+                Inches(2),
+                Inches(0),
+                Inches(1),
+                Inches(1),
             )
         # The second auto-named scope must pick a fresh number.
         assert second.lint_group == "design-group-2"
@@ -272,7 +296,10 @@ class DescribeLintGroupScope:
             with slide.shapes.lint_group_scope("g"):
                 shape = slide.shapes.add_shape(
                     MSO_SHAPE.RECTANGLE,
-                    Inches(0), Inches(0), Inches(1), Inches(1),
+                    Inches(0),
+                    Inches(0),
+                    Inches(1),
+                    Inches(1),
                 )
                 raise RuntimeError("boom")
         assert shape.lint_group == "g"

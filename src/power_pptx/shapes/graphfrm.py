@@ -225,9 +225,7 @@ class GraphicFrame(BaseShape):
         try:
             from PIL import Image
         except ImportError as e:  # pragma: no cover - Pillow is a dep
-            raise RuntimeError(
-                "render_to_png requires Pillow; install power-pptx[render]"
-            ) from e
+            raise RuntimeError("render_to_png requires Pillow; install power-pptx[render]") from e
 
         return_bytes = kwargs.pop("return_bytes", False)
         out_path = kwargs.pop("out_path", None)

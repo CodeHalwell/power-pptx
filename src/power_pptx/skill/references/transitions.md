@@ -9,10 +9,10 @@ keeping theme inheritance intact.
 ```python
 from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 
-slide.transition.kind             = MSO_TRANSITION_TYPE.MORPH
-slide.transition.duration         = 1500          # milliseconds
+slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
+slide.transition.duration = 1500  # milliseconds
 slide.transition.advance_on_click = True
-slide.transition.advance_after    = 5000          # 5-second auto-advance
+slide.transition.advance_after = 5000  # 5-second auto-advance
 ```
 
 To remove a transition entirely:
@@ -81,7 +81,7 @@ slide2 = prs.slides.add_slide(prs.slide_layouts[5])
 slide2.shapes.title.text = "Run-rate metrics"
 
 # Use Morph between the two title slides
-slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
+slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH
 slide1.transition.duration = 1500
 
 # Default everything else to a quick fade
@@ -93,7 +93,7 @@ prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
 
 # Correct order:
 prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
-slide1.transition.kind     = MSO_TRANSITION_TYPE.MORPH
+slide1.transition.kind = MSO_TRANSITION_TYPE.MORPH
 slide1.transition.duration = 1500
 
 prs.save("with-transitions.pptx")

@@ -105,9 +105,7 @@ class Theme:
         before_palette: dict[tuple[int, int, int], MSO_THEME_COLOR] = {}
         if rebind_shape_colors:
             if presentation is None:
-                raise ValueError(
-                    "rebind_shape_colors=True requires presentation= to be supplied"
-                )
+                raise ValueError("rebind_shape_colors=True requires presentation= to be supplied")
             for slot in MSO_THEME_COLOR:
                 if not slot.xml_value:
                     continue
@@ -238,9 +236,7 @@ def embed_font(
 
     valid_weights = ("regular", "bold", "italic", "boldItalic")
     if weight not in valid_weights:
-        raise ValueError(
-            f"weight must be one of {valid_weights}, got {weight!r}"
-        )
+        raise ValueError(f"weight must be one of {valid_weights}, got {weight!r}")
     if not os.path.isfile(font_path):
         raise FileNotFoundError(f"font file not found: {font_path}")
     with open(font_path, "rb") as f:
@@ -336,9 +332,7 @@ def _theme_embed_font(self, presentation, font_path, *, typeface=None, weight="r
     Convenience method on :class:`Theme`.  See :func:`embed_font` for
     the full description.
     """
-    return embed_font(
-        presentation, font_path, typeface=typeface, weight=weight
-    )
+    return embed_font(presentation, font_path, typeface=typeface, weight=weight)
 
 
 Theme.embed_font = _theme_embed_font  # type: ignore[attr-defined]
@@ -406,20 +400,14 @@ class ThemeColors:
                 f"key must be an MSO_THEME_COLOR member, got {type(theme_color).__name__!r}"
             )
         if not isinstance(rgb, RGBColor):
-            raise TypeError(
-                f"value must be an RGBColor, got {type(rgb).__name__!r}"
-            )
+            raise TypeError(f"value must be an RGBColor, got {type(rgb).__name__!r}")
         if not theme_color.xml_value:
-            raise ValueError(
-                f"{theme_color!r} has no <a:clrScheme> slot and cannot be assigned"
-            )
+            raise ValueError(f"{theme_color!r} has no <a:clrScheme> slot and cannot be assigned")
 
         slot_name = _CLR_SCHEME_ALIAS.get(theme_color.xml_value, theme_color.xml_value)
         clr_scheme = self._clr_scheme()
         if clr_scheme is None:
-            raise ValueError(
-                "theme has no <a:clrScheme>; cannot write to color slot"
-            )
+            raise ValueError("theme has no <a:clrScheme>; cannot write to color slot")
 
         slot_elm = clr_scheme.find(qn(f"a:{slot_name}"))
         if slot_elm is None:
@@ -544,13 +532,9 @@ class ThemeFonts:
         if not isinstance(typeface, str) or not typeface:
             raise TypeError("typeface must be a non-empty string")
 
-        font_scheme = self._theme_elm.find(
-            f"{qn('a:themeElements')}/{qn('a:fontScheme')}"
-        )
+        font_scheme = self._theme_elm.find(f"{qn('a:themeElements')}/{qn('a:fontScheme')}")
         if font_scheme is None:
-            raise ValueError(
-                "theme has no <a:fontScheme>; cannot set typeface"
-            )
+            raise ValueError("theme has no <a:fontScheme>; cannot set typeface")
 
         kind_elm = font_scheme.find(qn(f"a:{font_kind}"))
         if kind_elm is None:
@@ -584,9 +568,18 @@ class ThemeFonts:
 # CT_ColorScheme defines its children in this exact sequence; later slots
 # (e.g. hlink) must follow earlier ones, and <a:extLst> is allowed last.
 _CLR_SCHEME_SLOT_ORDER: tuple[str, ...] = (
-    "dk1", "lt1", "dk2", "lt2",
-    "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
-    "hlink", "folHlink",
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "hlink",
+    "folHlink",
 )
 
 
@@ -677,17 +670,13 @@ def _raise_contrast(rgb: RGBColor, background: RGBColor, min_contrast: float) ->
     if _contrast_ratio(rgb, background) >= min_contrast:
         return rgb
 
-    h, light, s = colorsys.rgb_to_hls(
-        rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
-    )
+    h, light, s = colorsys.rgb_to_hls(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
     best = rgb
     steps = 100
     for i in range(1, steps + 1):
         new_l = light + (1.0 - light) * (i / steps)
         r, g, b = colorsys.hls_to_rgb(h, new_l, s)
-        candidate = RGBColor(
-            round(r * 255), round(g * 255), round(b * 255)
-        )
+        candidate = RGBColor(round(r * 255), round(g * 255), round(b * 255))
         best = candidate
         if _contrast_ratio(candidate, background) >= min_contrast:
             break

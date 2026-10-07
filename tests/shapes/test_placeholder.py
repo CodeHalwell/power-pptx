@@ -474,7 +474,7 @@ class DescribePicturePlaceholder(object):
             return_value=(42, "bar", image_size),
         )
         picture_ph = PicturePlaceholder(
-            element("p:sp/(p:nvSpPr/p:cNvPr{id=2,name=foo},p:spPr/a:xfrm/a:ext{cx=99" ",cy=99})"),
+            element("p:sp/(p:nvSpPr/p:cNvPr{id=2,name=foo},p:spPr/a:xfrm/a:ext{cx=99,cy=99})"),
             None,
         )
 

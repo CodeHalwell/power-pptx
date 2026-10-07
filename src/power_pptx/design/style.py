@@ -147,9 +147,7 @@ class ShapeStyle:
 
     @property
     def text_color(self) -> None:
-        raise AttributeError(
-            "ShapeStyle.text_color is write-only; iterate runs for reads"
-        )
+        raise AttributeError("ShapeStyle.text_color is write-only; iterate runs for reads")
 
     @text_color.setter
     def text_color(self, value: Optional[ColorLike]) -> None:
@@ -173,9 +171,7 @@ class ShapeStyle:
 
     @property
     def font(self) -> None:
-        raise AttributeError(
-            "ShapeStyle.font is write-only; iterate runs for reads"
-        )
+        raise AttributeError("ShapeStyle.font is write-only; iterate runs for reads")
 
     @font.setter
     def font(self, value: TypographyToken) -> None:

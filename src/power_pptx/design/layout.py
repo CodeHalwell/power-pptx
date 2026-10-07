@@ -77,9 +77,7 @@ def _slide_dimensions(slide: "Slide") -> tuple[Length, Length]:
         ) from e
     width, height = presentation.slide_width, presentation.slide_height
     if width is None or height is None:
-        raise ValueError(
-            "slide width/height must be set on the presentation to use a Grid"
-        )
+        raise ValueError("slide width/height must be set on the presentation to use a Grid")
     return width, height
 
 
@@ -174,18 +172,14 @@ class Grid:
         self._cols = int(cols)
         self._rows = int(rows)
         self._gutter = Emu(int(gutter))
-        self._top_m, self._right_m, self._bottom_m, self._left_m = self._coerce_margin(
-            margin
-        )
+        self._top_m, self._right_m, self._bottom_m, self._left_m = self._coerce_margin(margin)
         self._origin_left = Emu(int(origin_left))
         self._origin_top = Emu(int(origin_top))
 
         usable_w = extent_w - self._left_m - self._right_m - self._gutter * (self._cols - 1)
         usable_h = extent_h - self._top_m - self._bottom_m - self._gutter * (self._rows - 1)
         if usable_w <= 0 or usable_h <= 0:
-            raise ValueError(
-                "grid margins+gutters consume the entire slide; reduce them"
-            )
+            raise ValueError("grid margins+gutters consume the entire slide; reduce them")
         # store as float so col_span math is exact; we round on emission
         self._col_w = usable_w / self._cols
         self._row_h = usable_h / self._rows
@@ -249,9 +243,7 @@ class Grid:
             if len(margin) == 4:
                 top, right, bottom, left = margin
                 return Emu(int(top)), Emu(int(right)), Emu(int(bottom)), Emu(int(left))
-            raise ValueError(
-                "margin tuple must have 2 or 4 elements, got %d" % len(margin)
-            )
+            raise ValueError("margin tuple must have 2 or 4 elements, got %d" % len(margin))
         m = Emu(int(margin))
         return m, m, m, m
 
@@ -290,9 +282,7 @@ class Stack:
         height: int | None = None,
     ):
         if direction not in self._AXES:
-            raise ValueError(
-                "direction must be 'vertical' or 'horizontal', got %r" % direction
-            )
+            raise ValueError("direction must be 'vertical' or 'horizontal', got %r" % direction)
         self._direction = direction
         self._gap = Emu(int(gap))
         self._origin_left = Emu(int(left))

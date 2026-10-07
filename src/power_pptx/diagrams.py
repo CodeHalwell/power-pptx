@@ -87,8 +87,7 @@ def _coerce_steps(steps: Sequence[Any]) -> list[_Step]:
             out.append(s)
         else:
             raise TypeError(
-                "steps must be strings, dicts, or _Step instances; got "
-                f"{type(s).__name__}"
+                f"steps must be strings, dicts, or _Step instances; got {type(s).__name__}"
             )
     if not out:
         raise ValueError("steps must be non-empty")
@@ -345,7 +344,8 @@ def vertical_pipeline(
             label = f"{label}\n{step.sublabel}"
         cards.append(
             _card(
-                slide, cb,
+                slide,
+                cb,
                 fill=step.fill or fill,
                 line=card_line,
                 text=label,
@@ -359,8 +359,11 @@ def vertical_pipeline(
     arrows: list[Any] = []
     for i in range(n - 1):
         arrow = slide.shapes.add_arrow(
-            cards[i], cards[i + 1],
-            head=arrow_head, color=accent, weight_pt=2.0,
+            cards[i],
+            cards[i + 1],
+            head=arrow_head,
+            color=accent,
+            weight_pt=2.0,
             inset_pt=arrow_inset_pt,
         )
         arrows.append(arrow)
@@ -458,9 +461,7 @@ def hub_and_spoke(
                 from power_pptx._color import coerce_color
 
                 run.font.color.rgb = coerce_color(step.text_color or text_color)
-        _fit_circular_label(
-            spoke, diameter=spoke_diameter, font=font, max_size_pt=size_pt * 0.85
-        )
+        _fit_circular_label(spoke, diameter=spoke_diameter, font=font, max_size_pt=size_pt * 0.85)
 
         spokes_built.append(spoke)
         arrow = slide.shapes.add_arrow(
@@ -538,7 +539,8 @@ def cycle(
     for i in range(n):
         j = (i + 1) % n
         arrow = slide.shapes.add_arrow(
-            cards[i], cards[j],
+            cards[i],
+            cards[j],
             head="triangle",
             color=accent,
             weight_pt=1.5,
@@ -620,10 +622,7 @@ def decision_tree(
         elif isinstance(b, dict):
             coerced.append({"label": b["label"], "children": b.get("children", [])})
         else:
-            raise TypeError(
-                "branches items must be str or dict; got "
-                f"{type(b).__name__}"
-            )
+            raise TypeError(f"branches items must be str or dict; got {type(b).__name__}")
 
     n = len(coerced)
     col_boxes = branch_area.split_h([1] * n, gap=int(Pt(8)))
@@ -639,14 +638,24 @@ def decision_tree(
             label_box = col
             children_box = None
         branch_card = _card(
-            slide, label_box, fill=fill, line=accent,
-            text=branch["label"], text_color=text_color,
-            font=font, size_pt=size_pt, bold=False, radius=0.04,
+            slide,
+            label_box,
+            fill=fill,
+            line=accent,
+            text=branch["label"],
+            text_color=text_color,
+            font=font,
+            size_pt=size_pt,
+            bold=False,
+            radius=0.04,
         )
         built.append(branch_card)
         arrow = slide.shapes.add_arrow(
-            root_card, branch_card,
-            head="triangle", color=accent, weight_pt=1.5,
+            root_card,
+            branch_card,
+            head="triangle",
+            color=accent,
+            weight_pt=1.5,
             inset_pt=4.0,
         )
         arrows.append(arrow)
@@ -655,17 +664,25 @@ def decision_tree(
             for c, cb in zip(branch["children"], child_boxes):
                 label = c if isinstance(c, str) else c.get("label", "")
                 child_card = _card(
-                    slide, cb, fill=leaf_fill, line=None,
-                    text=label, text_color=leaf_text_color,
-                    font=font, size_pt=size_pt * 0.9,
+                    slide,
+                    cb,
+                    fill=leaf_fill,
+                    line=None,
+                    text=label,
+                    text_color=leaf_text_color,
+                    font=font,
+                    size_pt=size_pt * 0.9,
                     radius=0.04,
                 )
                 built.append(child_card)
                 arrows.append(
                     slide.shapes.add_arrow(
-                        branch_card, child_card,
-                        head="triangle", color=accent,
-                        weight_pt=1.0, inset_pt=3.0,
+                        branch_card,
+                        child_card,
+                        head="triangle",
+                        color=accent,
+                        weight_pt=1.0,
+                        inset_pt=3.0,
                     )
                 )
     _tag_group(slide, "decision-tree", [root_card] + built + arrows)
@@ -724,9 +741,16 @@ def comparison_columns(
         )
 
         header = _card(
-            slide, header_box, fill=header_fill, line=None,
-            text=title, text_color=header_text_color,
-            font=font, size_pt=header_size_pt, bold=True, radius=0.05,
+            slide,
+            header_box,
+            fill=header_fill,
+            line=None,
+            text=title,
+            text_color=header_text_color,
+            font=font,
+            size_pt=header_size_pt,
+            bold=True,
+            radius=0.05,
         )
         body_card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *body_box)
         body_card.fill_hex(body_fill)

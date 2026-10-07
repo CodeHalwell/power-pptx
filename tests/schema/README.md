@@ -23,6 +23,7 @@ morph) validate through their fallback instead of being reported as
 
 ```python
 from tests.schema.oxml_schema_validator import iter_schema_violations
+
 violations = list(iter_schema_violations(pptx_path_or_bytes))  # (partname, message) pairs
 ```
 

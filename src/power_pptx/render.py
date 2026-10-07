@@ -188,14 +188,14 @@ def render_slide_thumbnails(
     LibreOffice version that doesn't ship the PNG filter).
     """
     if strategy not in ("auto", "png", "pdf"):
-        raise ValueError(
-            f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}"
-        )
+        raise ValueError(f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}")
 
     bin_path = _resolve_binary(soffice_bin)
 
     cleanup_tmp = out_dir is None
-    work_dir = Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+    work_dir = (
+        Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+    )
     work_dir.mkdir(parents=True, exist_ok=True)
 
     expected_slide_count = len(list(prs.slides))
@@ -207,9 +207,7 @@ def render_slide_thumbnails(
         png_paths: List[Path] = []
 
         if strategy in ("auto", "png"):
-            png_paths = _render_via_png(
-                bin_path, deck_path, work_dir, timeout
-            )
+            png_paths = _render_via_png(bin_path, deck_path, work_dir, timeout)
             if strategy == "png" and len(png_paths) < expected_slide_count:
                 raise ThumbnailRendererError(
                     "soffice --convert-to png emitted %d PNG(s) for a "
@@ -220,9 +218,7 @@ def render_slide_thumbnails(
                 )
 
         # Auto-fallback: PNG path didn't produce one image per slide.
-        if strategy == "pdf" or (
-            strategy == "auto" and len(png_paths) < expected_slide_count
-        ):
+        if strategy == "pdf" or (strategy == "auto" and len(png_paths) < expected_slide_count):
             # Clean up partial PNG output from the auto-mode first attempt
             # so we don't confuse the slide-index lookup.
             for stale in png_paths:
@@ -230,9 +226,7 @@ def render_slide_thumbnails(
                     stale.unlink()
                 except OSError:
                     pass
-            png_paths = _render_via_pdf(
-                bin_path, deck_path, work_dir, timeout, dpi=dpi
-            )
+            png_paths = _render_via_pdf(bin_path, deck_path, work_dir, timeout, dpi=dpi)
 
         if not png_paths:
             raise ThumbnailRendererError(
@@ -255,9 +249,7 @@ def render_slide_thumbnails(
             shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def _render_via_png(
-    bin_path: str, deck_path: Path, work_dir: Path, timeout: int
-) -> List[Path]:
+def _render_via_png(bin_path: str, deck_path: Path, work_dir: Path, timeout: int) -> List[Path]:
     """Run the soffice PNG filter and return the produced PNG paths."""
     # Snapshot any PNGs already in `work_dir` so we can later subtract
     # them from the result set.  Otherwise, when a caller points
@@ -304,10 +296,7 @@ def _render_via_pdf(
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
 
-    pdfs = [
-        p for p in work_dir.glob("*.pdf")
-        if p.name not in preexisting_pdfs
-    ]
+    pdfs = [p for p in work_dir.glob("*.pdf") if p.name not in preexisting_pdfs]
     if not pdfs:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf produced no PDF output; "
@@ -366,15 +355,11 @@ def _pdf_to_pngs_via_pdftoppm(
             "pdftoppm exited with status %d: %s"
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
-    pages = sorted(
-        out_dir.glob(prefix + "-*.png"), key=_natural_sort_key
-    )
+    pages = sorted(out_dir.glob(prefix + "-*.png"), key=_natural_sort_key)
     return pages
 
 
-def _pdf_to_pngs_via_pypdfium2(
-    pdf_path: Path, out_dir: Path, *, dpi: int
-) -> List[Path]:
+def _pdf_to_pngs_via_pypdfium2(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
     import pypdfium2 as pdfium  # type: ignore[import-not-found]
 
     scale = float(dpi) / 72.0  # pypdfium2 uses 1.0 == 72 DPI
@@ -423,8 +408,7 @@ def _select_indexes(paths: Sequence[Path], indexes: Iterable[int]) -> List[Path]
     for i in indexes:
         if i < 0 or i >= len(paths):
             raise IndexError(
-                "slide index %d out of range for deck with %d slides"
-                % (i, len(paths))
+                "slide index %d out of range for deck with %d slides" % (i, len(paths))
             )
         selected.append(paths[i])
     return selected

@@ -54,8 +54,8 @@ power-pptx makes that visible rather than silent:
 ```python
 from power_pptx.text.fonts import font_is_installed, installed_font_families
 
-font_is_installed("Inter", bold=True)   # -> False in most containers
-installed_font_families()               # what this machine can actually measure
+font_is_installed("Inter", bold=True)  # -> False in most containers
+installed_font_families()  # what this machine can actually measure
 ```
 
 * Naming a family that isn't installed emits a `FontMetricsWarning`.
@@ -69,8 +69,7 @@ Three ways to keep the guarantee, best first:
 
 ```python
 # 1. Ship the metrics with the build — exact, works anywhere
-tf.fit_text("Instrument Serif", max_size=44,
-            font_file="fonts/InstrumentSerif-Regular.ttf")
+tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif-Regular.ttf")
 
 # 2. Fail the build rather than ship an estimate
 tf.fit_text("Inter", max_size=24, strict=True)
@@ -166,10 +165,12 @@ For decks built through `power_pptx.compose.from_spec(...)`, fold the linter
 into the spec itself:
 
 ```python
-prs = from_spec({
-    "slides": [...],
-    "lint": "raise",          # also "warn", "off"
-})
+prs = from_spec(
+    {
+        "slides": [...],
+        "lint": "raise",  # also "warn", "off"
+    }
+)
 ```
 
 ## Putting it together: a robust headline
@@ -179,10 +180,13 @@ from power_pptx import Presentation
 from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.util import Inches
 
+
 def add_headline(prs, slide, text):
     box = slide.shapes.add_textbox(
-        Inches(0.6), Inches(0.4),
-        Inches(prs.slide_width.inches - 1.2), Inches(1.2),
+        Inches(0.6),
+        Inches(0.4),
+        Inches(prs.slide_width.inches - 1.2),
+        Inches(1.2),
     )
     tf = box.text_frame
     tf.word_wrap = True
@@ -196,6 +200,7 @@ def add_headline(prs, slide, text):
     tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     return box
+
 
 # 3. Linter as the safety net at save time
 for slide in prs.slides:
@@ -220,10 +225,9 @@ grid.place(card1, col=0, row=0, col_span=6, row_span=4)
 grid.place(card2, col=6, row=0, col_span=6, row_span=4)
 
 # Vertical cursor with a known total width
-stack = Stack(direction="vertical", gap=Pt(8),
-              left=Pt(48), top=Pt(48), width=Pt(600))
+stack = Stack(direction="vertical", gap=Pt(8), left=Pt(48), top=Pt(48), width=Pt(600))
 stack.place(title, height=Pt(64))
-stack.place(body,  height=Pt(280))
+stack.place(body, height=Pt(280))
 ```
 
 Both compute geometry from the slide's actual dimensions, so you can't

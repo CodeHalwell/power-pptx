@@ -48,9 +48,7 @@ def skill_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def install_skill(
-    target: Optional[Path] = None, *, overwrite: bool = True
-) -> Path:
+def install_skill(target: Optional[Path] = None, *, overwrite: bool = True) -> Path:
     """Copy the bundled skill to *target* (default :data:`DEFAULT_INSTALL_DIR`).
 
     Returns the destination directory.  When *overwrite* is ``True``

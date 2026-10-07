@@ -26,30 +26,32 @@ palette, typography, radii, shadows, spacings.
 ```python
 from power_pptx.design.tokens import DesignTokens
 
-tokens = DesignTokens.from_dict({
-    "palette": {
-        "primary":    "#4F9DFF",
-        "neutral":    "#1F2937",
-        "background": "#FFFFFF",
-        "positive":   "#10B981",
-        "negative":   "#EF4444",
-        "on_primary": "#FFFFFF",
-    },
-    "typography": {
-        # Recipes look up the keys "heading" and "body". Other keys are
-        # available for your own use. Bare floats are treated as POINTS;
-        # bare ints are EMU. Use floats unless you know what you're doing.
-        "heading":  {"family": "Inter", "size": 44.0, "bold": True},
-        "body":     {"family": "Inter", "size": 18.0},
-        "caption":  {"family": "Inter", "size": 12.0, "italic": True},
-    },
-    "shadows": {
-        # 'blur' / 'distance' are bare-float points too.
-        "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
-    },
-    "radii":    {"card": 12.0, "button": 6.0},
-    "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
-})
+tokens = DesignTokens.from_dict(
+    {
+        "palette": {
+            "primary": "#4F9DFF",
+            "neutral": "#1F2937",
+            "background": "#FFFFFF",
+            "positive": "#10B981",
+            "negative": "#EF4444",
+            "on_primary": "#FFFFFF",
+        },
+        "typography": {
+            # Recipes look up the keys "heading" and "body". Other keys are
+            # available for your own use. Bare floats are treated as POINTS;
+            # bare ints are EMU. Use floats unless you know what you're doing.
+            "heading": {"family": "Inter", "size": 44.0, "bold": True},
+            "body": {"family": "Inter", "size": 18.0},
+            "caption": {"family": "Inter", "size": 12.0, "italic": True},
+        },
+        "shadows": {
+            # 'blur' / 'distance' are bare-float points too.
+            "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
+        },
+        "radii": {"card": 12.0, "button": 6.0},
+        "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
+    }
+)
 ```
 
 ### Other constructors
@@ -73,14 +75,14 @@ tokens = DesignTokens.from_pptx("template.pptx").merge(
 A slide can depart from its master without you editing the master:
 
 ```python
-slide.color_variant = "dark"            # swap bg/tx against the same theme
-slide.color_variant = "light"           # the master's default mapping
-slide.color_variant = None              # drop the override entirely
+slide.color_variant = "dark"  # swap bg/tx against the same theme
+slide.color_variant = "light"  # the master's default mapping
+slide.color_variant = None  # drop the override entirely
 
 # Backgrounds: give the slide its own and inheritance breaks itself.
 slide.background.fill.solid()
 slide.background.fill.fore_color.rgb = "#102030"
-slide.follow_master_background          # now False (read-only)
+slide.follow_master_background  # now False (read-only)
 ```
 
 `color_variant` takes `"light"` / `"dark"` / `None` — **not** an index.
@@ -96,7 +98,7 @@ deliberately-overlapping shapes is declared once rather than per shape:
 ```python
 with slide.design_group("kpi-card-1"):
     card = slide.shapes.add_shape(...)
-    label = slide.shapes.add_textbox(...)   # both tagged "kpi-card-1"
+    label = slide.shapes.add_textbox(...)  # both tagged "kpi-card-1"
 ```
 
 There are two adjacent spellings — `slide.shapes.lint_group_scope(name=...)`
@@ -111,11 +113,11 @@ Every shape exposes a `ShapeStyle` facade. Setters fan assignments out
 to the low-level proxies:
 
 ```python
-shape.style.fill        = tokens.palette["primary"]
-shape.style.line        = tokens.palette["primary"]
-shape.style.shadow      = tokens.shadows["card"]
-shape.style.text_color  = tokens.palette["on_primary"]
-shape.style.font        = tokens.typography["body"]
+shape.style.fill = tokens.palette["primary"]
+shape.style.line = tokens.palette["primary"]
+shape.style.shadow = tokens.shadows["card"]
+shape.style.text_color = tokens.palette["on_primary"]
+shape.style.font = tokens.typography["body"]
 ```
 
 Partial `ShadowToken` assignments leave unset fields untouched, so
@@ -167,14 +169,13 @@ gap=Pt(12))` / `panel.rows(2, ...)` from `BBox` are shorter — reach for
 ```python
 from power_pptx.design.layout import Stack
 
-stack = Stack(direction="vertical", gap=Pt(8),
-              left=Pt(48), top=Pt(48), width=Pt(600))
+stack = Stack(direction="vertical", gap=Pt(8), left=Pt(48), top=Pt(48), width=Pt(600))
 
-stack.place(title,    height=Pt(64))
+stack.place(title, height=Pt(64))
 stack.place(subtitle, height=Pt(28))
-stack.place(body,     height=Pt(280))
+stack.place(body, height=Pt(280))
 
-stack.reset()                              # rewind cursor
+stack.reset()  # rewind cursor
 ```
 
 `direction="horizontal"` walks left-to-right with `gap` between items.
@@ -187,8 +188,11 @@ and an optional `transition=` name:
 
 ```python
 from power_pptx.design.recipes import (
-    title_slide, bullet_slide, kpi_slide,
-    quote_slide, image_hero_slide,
+    title_slide,
+    bullet_slide,
+    kpi_slide,
+    quote_slide,
+    image_hero_slide,
 )
 
 title_slide(
@@ -214,9 +218,9 @@ kpi_slide(
     prs,
     title="Run-rate metrics",
     kpis=[
-        {"label": "ARR",         "value": "$182M", "delta": +0.27},
-        {"label": "NDR",         "value": "131%",  "delta": +0.03},
-        {"label": "CAC payback", "value": "8 mo",  "delta": -0.10},
+        {"label": "ARR", "value": "$182M", "delta": +0.27},
+        {"label": "NDR", "value": "131%", "delta": +0.03},
+        {"label": "CAC payback", "value": "8 mo", "delta": -0.10},
     ],
     tokens=tokens,
 )
@@ -231,7 +235,7 @@ quote_slide(
 image_hero_slide(
     prs,
     title="Q4 2026",
-    image="hero.jpg",                    # path or binary file-like
+    image="hero.jpg",  # path or binary file-like
     tokens=tokens,
 )
 ```
@@ -260,8 +264,10 @@ from power_pptx.util import Inches
 
 kpi = add_kpi_card(
     slide,
-    left=Inches(1), top=Inches(1),
-    width=Inches(2.5), height=Inches(1.9),
+    left=Inches(1),
+    top=Inches(1),
+    width=Inches(2.5),
+    height=Inches(1.9),
     label="ARR",
     value="$182M",
     delta={"delta": +0.27},
@@ -272,9 +278,11 @@ kpi = add_kpi_card(
 
 bar = add_progress_bar(
     slide,
-    left=Inches(1), top=Inches(3),
-    width=Inches(6), height=Inches(0.3),
-    fraction=0.42,         # 0..1 — clamped if you go over
+    left=Inches(1),
+    top=Inches(3),
+    width=Inches(6),
+    height=Inches(0.3),
+    fraction=0.42,  # 0..1 — clamped if you go over
     tokens=tokens,
     fill_color="#4F9DFF",  # optional override
 )
@@ -289,21 +297,36 @@ Other components in the same module:
 
 ```python
 from power_pptx import (
-    add_gauge,         # progress bar with optional target tick
-    add_status_pill,   # coloured pill + centred label, e.g. "LIVE"
-    add_stat_strip,    # n KPI tiles laid out across a strip with gutter
+    add_gauge,  # progress bar with optional target tick
+    add_status_pill,  # coloured pill + centred label, e.g. "LIVE"
+    add_stat_strip,  # n KPI tiles laid out across a strip with gutter
     add_article_card,  # title + blurb + optional CTA pill
 )
 
-add_gauge(slide, left=Inches(1), top=Inches(2), width=Inches(4),
-          height=Inches(0.3), fraction=0.62, target=0.80, tokens=tokens)
+add_gauge(
+    slide,
+    left=Inches(1),
+    top=Inches(2),
+    width=Inches(4),
+    height=Inches(0.3),
+    fraction=0.62,
+    target=0.80,
+    tokens=tokens,
+)
 
-add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
-               width=Inches(12), height=Inches(1.9),
-               items=[{"label": "ARR", "value": "$182M"},
-                      {"label": "NDR", "value": "131%", "delta": +0.03},
-                      {"label": "CAC payback", "value": "8 mo"}],
-               tokens=tokens)
+add_stat_strip(
+    slide,
+    left=Inches(0.5),
+    top=Inches(1.5),
+    width=Inches(12),
+    height=Inches(1.9),
+    items=[
+        {"label": "ARR", "value": "$182M"},
+        {"label": "NDR", "value": "131%", "delta": +0.03},
+        {"label": "CAC payback", "value": "8 mo"},
+    ],
+    tokens=tokens,
+)
 ```
 
 ## Starter pack
@@ -329,38 +352,56 @@ preview deck per set into `examples/starter_pack/_out/`.
 from power_pptx import Presentation
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.design.recipes import (
-    title_slide, bullet_slide, kpi_slide, quote_slide,
+    title_slide,
+    bullet_slide,
+    kpi_slide,
+    quote_slide,
 )
 
-tokens = DesignTokens.from_dict({
-    "palette": {
-        "primary":   "#4F9DFF",
-        "neutral":   "#1F2937",
-        "positive":  "#10B981",
-        "negative":  "#EF4444",
-        "on_primary": "#FFFFFF",
-    },
-    "typography": {
-        # Recipes look up "heading" and "body". Floats = points, ints = EMU.
-        "heading": {"family": "Inter", "size": 44.0, "bold": True},
-        "body":    {"family": "Inter", "size": 18.0},
-    },
-    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
-})
+tokens = DesignTokens.from_dict(
+    {
+        "palette": {
+            "primary": "#4F9DFF",
+            "neutral": "#1F2937",
+            "positive": "#10B981",
+            "negative": "#EF4444",
+            "on_primary": "#FFFFFF",
+        },
+        "typography": {
+            # Recipes look up "heading" and "body". Floats = points, ints = EMU.
+            "heading": {"family": "Inter", "size": 44.0, "bold": True},
+            "body": {"family": "Inter", "size": 18.0},
+        },
+        "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+    }
+)
 
 prs = Presentation()
-title_slide(prs, title="Q4 Review", subtitle="April 2026",
-            tokens=tokens, transition="morph")
-kpi_slide(prs, title="Run-rate metrics", kpis=[
-    {"label": "ARR", "value": "$182M", "delta": +0.27},
-    {"label": "NDR", "value": "131%",  "delta": +0.03},
-], tokens=tokens)
-bullet_slide(prs, title="Customer impact", bullets=[
-    "Two flagship customers shipped this week.",
-    "NPS improved 8 points QoQ.",
-], tokens=tokens)
-quote_slide(prs, quote="The new dashboards saved my team a week per sprint.",
-            attribution="Director of Eng", tokens=tokens)
+title_slide(prs, title="Q4 Review", subtitle="April 2026", tokens=tokens, transition="morph")
+kpi_slide(
+    prs,
+    title="Run-rate metrics",
+    kpis=[
+        {"label": "ARR", "value": "$182M", "delta": +0.27},
+        {"label": "NDR", "value": "131%", "delta": +0.03},
+    ],
+    tokens=tokens,
+)
+bullet_slide(
+    prs,
+    title="Customer impact",
+    bullets=[
+        "Two flagship customers shipped this week.",
+        "NPS improved 8 points QoQ.",
+    ],
+    tokens=tokens,
+)
+quote_slide(
+    prs,
+    quote="The new dashboards saved my team a week per sprint.",
+    attribution="Director of Eng",
+    tokens=tokens,
+)
 
 prs.save("q4-review.pptx")
 ```

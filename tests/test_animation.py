@@ -28,16 +28,12 @@ def slide_with_shape():
 
 def _ctn_node_types(slide):
     return [
-        c.get("nodeType")
-        for c in slide._element.iter(qn("p:cTn"))
-        if c.get("nodeType") is not None
+        c.get("nodeType") for c in slide._element.iter(qn("p:cTn")) if c.get("nodeType") is not None
     ]
 
 
 def _animMotion_paths(slide):
-    return [
-        m.get("path") for m in slide._element.iter(qn("p:animMotion"))
-    ]
+    return [m.get("path") for m in slide._element.iter(qn("p:animMotion"))]
 
 
 class DescribeSvgMotionPath:
@@ -46,18 +42,14 @@ class DescribeSvgMotionPath:
     def it_converts_an_absolute_line_path(self, slide_with_shape):
         from power_pptx.animation import _svg_to_ooxml_motion_path
 
-        out = _svg_to_ooxml_motion_path(
-            "M 0 0 L 100 0", viewbox=(0, 0, 100, 100)
-        )
+        out = _svg_to_ooxml_motion_path("M 0 0 L 100 0", viewbox=(0, 0, 100, 100))
         assert out == "M 0 0 L 1 0 E"
 
     def it_converts_relative_commands(self):
         from power_pptx.animation import _svg_to_ooxml_motion_path
 
         # m 5 5 → starts at (5,5); l 10 0 → moves to (15,5); l 0 10 → (15,15)
-        out = _svg_to_ooxml_motion_path(
-            "m 5 5 l 10 0 l 0 10", viewbox=(0, 0, 100, 100)
-        )
+        out = _svg_to_ooxml_motion_path("m 5 5 l 10 0 l 0 10", viewbox=(0, 0, 100, 100))
         assert out == "M 0 0 L 0.1 0 L 0.1 0.1 E"
 
     def it_supports_h_v_z_shortcuts(self):
@@ -71,9 +63,7 @@ class DescribeSvgMotionPath:
     def it_supports_cubic_curve(self):
         from power_pptx.animation import _svg_to_ooxml_motion_path
 
-        out = _svg_to_ooxml_motion_path(
-            "M 0 0 C 0 -10 80 -10 80 0", viewbox=(0, 0, 100, 100)
-        )
+        out = _svg_to_ooxml_motion_path("M 0 0 C 0 -10 80 -10 80 0", viewbox=(0, 0, 100, 100))
         assert "C" in out
         assert out.endswith(" E")
 
@@ -81,9 +71,7 @@ class DescribeSvgMotionPath:
         from power_pptx.animation import MotionPath
 
         slide, shape = slide_with_shape
-        MotionPath.svg(
-            slide, shape, "M 0 0 L 100 0", viewbox=(0, 0, 100, 100)
-        )
+        MotionPath.svg(slide, shape, "M 0 0 L 100 0", viewbox=(0, 0, 100, 100))
         assert _animMotion_paths(slide) == ["M 0 0 L 1 0 E"]
 
     def it_rejects_an_empty_path(self):
@@ -303,9 +291,11 @@ class DescribeMotionPath:
         # the perpendicular control point sits at non-zero x.
         assert cx != 0
         # cy is the chord midpoint.
-        assert cy == pytest.approx(float(Inches(3)) / 2 / float(
-            slide.part.package.presentation_part.presentation.slide_height
-        ))
+        assert cy == pytest.approx(
+            float(Inches(3))
+            / 2
+            / float(slide.part.package.presentation_part.presentation.slide_height)
+        )
 
 
 class DescribeAnimationSequence:
@@ -321,9 +311,7 @@ class DescribeAnimationSequence:
             Entrance.fade(slide, b)
             Emphasis.pulse(slide, c)
 
-        node_types = [
-            nt for nt in _ctn_node_types(slide) if nt != "tmRoot"
-        ]
+        node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
         assert node_types == ["clickEffect", "afterEffect", "afterEffect"]
 
     def it_honours_an_explicit_start_trigger(self):
@@ -407,7 +395,7 @@ class DescribeAnimationSequence:
         # only the first effect picks up an extra +300 ms from the sequence.
         cond_delays = [c.get("delay") for c in slide._element.iter(qn("p:cond"))]
         assert "400" in cond_delays  # first: 100 user + 300 seq
-        assert "50" in cond_delays   # second: 50 user, untouched
+        assert "50" in cond_delays  # second: 50 user, untouched
         assert "350" not in cond_delays  # second must not absorb sequence delay
 
 
@@ -426,9 +414,7 @@ class DescribeEntranceByParagraph:
         # Each paragraph emits a <p:set> + <p:animEffect> pair, both
         # targeting the same paragraph index.  Three paragraphs → three
         # distinct indices, two pRg occurrences per index.
-        indices = sorted({
-            rg.get("st") for rg in slide._element.iter(qn("p:pRg"))
-        })
+        indices = sorted({rg.get("st") for rg in slide._element.iter(qn("p:pRg"))})
         assert indices == ["0", "1", "2"]
 
     def it_chains_paragraphs_after_the_first(self):

@@ -163,9 +163,7 @@ class DescribeApplyQuickLayout:
         chart = _make_column_chart()
 
         with pytest.raises(ValueError, match="legend_position string must be one of"):
-            apply_quick_layout(
-                chart, {"has_legend": True, "legend_position": "diagonal"}
-            )
+            apply_quick_layout(chart, {"has_legend": True, "legend_position": "diagonal"})
 
     def it_accepts_legend_position_as_integer_value(self):
         # Regression for codex review on PR #27: ``legend.position``
@@ -185,9 +183,7 @@ class DescribeApplyQuickLayout:
         chart = _make_column_chart()
 
         with pytest.raises(ValueError, match="not a valid XL_LEGEND_POSITION"):
-            apply_quick_layout(
-                chart, {"has_legend": True, "legend_position": 99999}
-            )
+            apply_quick_layout(chart, {"has_legend": True, "legend_position": 99999})
 
 
 class DescribeLayoutNames:

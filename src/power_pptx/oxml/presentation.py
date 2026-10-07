@@ -31,17 +31,15 @@ class CT_Presentation(BaseOxmlElement):
     get_or_add_embeddedFontLst: Callable[[], BaseOxmlElement]
     get_or_add_extLst: Callable[[], BaseOxmlElement]
 
-    sldMasterIdLst: CT_SlideMasterIdList | None = (
-        ZeroOrOne(  # pyright: ignore[reportAssignmentType]
-            "p:sldMasterIdLst",
-            successors=(
-                "p:notesMasterIdLst",
-                "p:handoutMasterIdLst",
-                "p:sldIdLst",
-                "p:sldSz",
-                "p:notesSz",
-            ),
-        )
+    sldMasterIdLst: CT_SlideMasterIdList | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "p:sldMasterIdLst",
+        successors=(
+            "p:notesMasterIdLst",
+            "p:handoutMasterIdLst",
+            "p:sldIdLst",
+            "p:sldSz",
+            "p:notesSz",
+        ),
     )
     sldIdLst: CT_SlideIdList | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
         "p:sldIdLst", successors=("p:sldSz", "p:notesSz")
@@ -255,10 +253,8 @@ class CT_Section(BaseOxmlElement):
     name: str = RequiredAttribute("name", XsdString)  # pyright: ignore[reportAssignmentType]
     id: str = RequiredAttribute("id", XsdString)  # pyright: ignore[reportAssignmentType]
 
-    sldIdLst: CT_SectionSlideIdList | None = (
-        ZeroOrOne(  # pyright: ignore[reportAssignmentType]
-            "p14:sldIdLst"
-        )
+    sldIdLst: CT_SectionSlideIdList | None = ZeroOrOne(  # pyright: ignore[reportAssignmentType]
+        "p14:sldIdLst"
     )
 
     @property

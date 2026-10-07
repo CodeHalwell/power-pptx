@@ -200,8 +200,7 @@ class RELATIONSHIP_TYPE:
     A_F_CHUNK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"
     CALC_CHAIN = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain"
     CERTIFICATE = (
-        "http://schemas.openxmlformats.org/package/2006/relationships/digital-signatu"
-        "re/certificate"
+        "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/certificate"
     )
     CHART = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
     CHARTSHEET = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chartsheet"
@@ -271,8 +270,7 @@ class RELATIONSHIP_TYPE:
     ORIGIN = "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin"
     PACKAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
     PIVOT_CACHE_DEFINITION = (
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCac"
-        "heDefinition"
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
     )
     PIVOT_CACHE_RECORDS = (
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/spreadsh"
@@ -296,8 +294,7 @@ class RELATIONSHIP_TYPE:
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata"
     )
     SIGNATURE = (
-        "http://schemas.openxmlformats.org/package/2006/relationships/digital-signatu"
-        "re/signature"
+        "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature"
     )
     SLIDE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
     SLIDE_LAYOUT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
@@ -322,8 +319,7 @@ class RELATIONSHIP_TYPE:
     VIEW_PROPS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps"
     VML_DRAWING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing"
     VOLATILE_DEPENDENCIES = (
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/volatile"
-        "Dependencies"
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/volatileDependencies"
     )
     WEB_SETTINGS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
     WORKSHEET_SOURCE = (

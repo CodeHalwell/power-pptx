@@ -79,7 +79,9 @@ class DescribeResolveColor:
 
         # bind unbound classmethod-style lookup
         stub = _StubTheme()
-        stub.colors = type("C", (), {"__getitem__": lambda s, k: (_ for _ in ()).throw(KeyError(k))})()
+        stub.colors = type(
+            "C", (), {"__getitem__": lambda s, k: (_ for _ in ()).throw(KeyError(k))}
+        )()
         assert resolve_color(run.font.color, theme=stub) is None
 
 
@@ -102,9 +104,5 @@ class DescribeApplyBrightness:
 
     def it_clamps_out_of_range_values(self):
         # Values outside [-1, 1] saturate at the endpoints.
-        assert _apply_brightness(RGBColor(0x80, 0x80, 0x80), 5.0) == RGBColor(
-            0xFF, 0xFF, 0xFF
-        )
-        assert _apply_brightness(RGBColor(0x80, 0x80, 0x80), -3.0) == RGBColor(
-            0x00, 0x00, 0x00
-        )
+        assert _apply_brightness(RGBColor(0x80, 0x80, 0x80), 5.0) == RGBColor(0xFF, 0xFF, 0xFF)
+        assert _apply_brightness(RGBColor(0x80, 0x80, 0x80), -3.0) == RGBColor(0x00, 0x00, 0x00)

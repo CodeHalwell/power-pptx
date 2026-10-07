@@ -127,7 +127,9 @@ class DescribeMarker(object):
 
     @pytest.fixture
     def ChartFormat_(self, request, chart_format_):
-        return class_mock(request, "power_pptx.chart.marker.ChartFormat", return_value=chart_format_)
+        return class_mock(
+            request, "power_pptx.chart.marker.ChartFormat", return_value=chart_format_
+        )
 
     @pytest.fixture
     def chart_format_(self, request):

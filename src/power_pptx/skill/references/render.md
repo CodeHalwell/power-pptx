@@ -29,9 +29,9 @@ from power_pptx.render import (
 paths = render_slide_thumbnails(
     prs,
     out_dir="thumbs",
-    slide_indexes=[0, 3, 7],                              # only these slides
+    slide_indexes=[0, 3, 7],  # only these slides
     soffice_bin="/opt/libreoffice/program/soffice",
-    timeout=60,                                            # seconds
+    timeout=60,  # seconds
 )
 
 png = render_slide_thumbnail(slide, return_bytes=True)
@@ -51,6 +51,7 @@ Three ways to choose `soffice`, in priority order:
 
 ```python
 import os
+
 os.environ["POWER_PPTX_SOFFICE"] = "/opt/libreoffice/program/soffice"
 prs.render_thumbnails(out_dir="thumbs")
 ```
@@ -115,10 +116,7 @@ for i in range(len(prs.slides)):
     png = prs.slides[i].render_thumbnail(return_bytes=True)
     images.append(base64.b64encode(png).decode("ascii"))
 
-html = "\n".join(
-    f'<img src="data:image/png;base64,{b64}" width="640">'
-    for b64 in images
-)
+html = "\n".join(f'<img src="data:image/png;base64,{b64}" width="640">' for b64 in images)
 ```
 
 ### CI artefacts
@@ -126,6 +124,7 @@ html = "\n".join(
 ```python
 # In tests/conftest.py or similar
 from pathlib import Path
+
 
 def attach_deck_thumbs(prs, out: Path):
     out.mkdir(exist_ok=True)
@@ -142,6 +141,7 @@ requires_soffice = pytest.mark.skipif(
     shutil.which("soffice") is None and shutil.which("libreoffice") is None,
     reason="LibreOffice not installed",
 )
+
 
 @requires_soffice
 def test_renders_thumbnails(tmp_path):

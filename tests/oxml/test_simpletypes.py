@@ -65,9 +65,7 @@ class DescribeBaseSimpleType(object):
     # fixtures -------------------------------------------------------
 
     @pytest.fixture
-    def to_xml_fixture(
-        self, request, py_value_, str_value_, convert_to_xml_, validate_
-    ):
+    def to_xml_fixture(self, request, py_value_, str_value_, convert_to_xml_, validate_):
         return ST_SimpleType, py_value_, str_value_
 
     @pytest.fixture(
@@ -217,9 +215,7 @@ class DescribeST_HexColorRGB(object):
 
     # fixtures -------------------------------------------------------
 
-    @pytest.fixture(
-        params=[("deadbf", "DEADBF"), ("012345", "012345"), ("0a1b3c", "0A1B3C")]
-    )
+    @pytest.fixture(params=[("deadbf", "DEADBF"), ("012345", "012345"), ("0a1b3c", "0A1B3C")])
     def to_xml_fixture(self, request):
         value, expected_value = request.param
         return value, expected_value

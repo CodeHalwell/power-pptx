@@ -57,8 +57,9 @@ def _fake_soffice_run_with_names(work_dir: Path, names):
 
 class DescribeRenderSlideThumbnails:
     def it_returns_paths_for_every_slide_by_default(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
 
@@ -66,32 +67,29 @@ class DescribeRenderSlideThumbnails:
         assert all(p.suffix == ".png" for p in paths)
 
     def it_returns_only_requested_indexes(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
-            paths = render_slide_thumbnails(
-                two_slide_prs, out_dir=tmp_path, slide_indexes=[1]
-            )
+            paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, slide_indexes=[1])
 
         assert len(paths) == 1
         assert paths[0].name.endswith("1.png")
 
     def it_raises_when_index_is_out_of_range(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             with pytest.raises(IndexError, match="out of range"):
-                render_slide_thumbnails(
-                    two_slide_prs, out_dir=tmp_path, slide_indexes=[5]
-                )
+                render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, slide_indexes=[5])
 
     def it_returns_bytes_when_asked(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
-            data = render_slide_thumbnails(
-                two_slide_prs, out_dir=tmp_path, return_bytes=True
-            )
+            data = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, return_bytes=True)
 
         assert all(isinstance(d, bytes) for d in data)
         assert data[0].startswith(b"\x89PNG")
@@ -102,9 +100,12 @@ class DescribeRenderSlideThumbnails:
                 render_slide_thumbnails(two_slide_prs)
 
     def it_raises_when_soffice_exits_non_zero(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice",
-            side_effect=_fake_soffice_run(tmp_path, exit_code=1, stderr=b"boom"),
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, exit_code=1, stderr=b"boom"),
+            ),
         ):
             with pytest.raises(ThumbnailRendererError, match="status 1"):
                 render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
@@ -112,13 +113,15 @@ class DescribeRenderSlideThumbnails:
     def it_raises_when_soffice_produces_no_pngs(self, tmp_path, two_slide_prs):
         # ``strategy="png"`` skips the PDF-split fallback so callers can
         # still assert on the PNG-only failure mode.
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path, num_slides=0)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, num_slides=0),
+            ),
         ):
             with pytest.raises(ThumbnailRendererError, match="emitted 0 PNG"):
-                render_slide_thumbnails(
-                    two_slide_prs, out_dir=tmp_path, strategy="png"
-                )
+                render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="png")
 
     def it_passes_the_default_timeout_through(self, tmp_path, two_slide_prs):
         captured = {}
@@ -127,8 +130,9 @@ class DescribeRenderSlideThumbnails:
             captured["timeout"] = timeout
             return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_capture
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_capture),
         ):
             render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
 
@@ -141,8 +145,9 @@ class DescribeRenderSlideThumbnails:
             captured["bin"] = soffice_bin
             return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
 
-        with patch("power_pptx.render.shutil.which", return_value="/opt/libre/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_capture
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/opt/libre/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_capture),
         ):
             render_slide_thumbnails(
                 two_slide_prs, out_dir=tmp_path, soffice_bin="/opt/libre/soffice"
@@ -155,8 +160,9 @@ class DescribeRenderSlideThumbnail:
     def it_renders_the_specific_slide(self, tmp_path, two_slide_prs):
         slide = two_slide_prs.slides[1]
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             target = tmp_path / "out" / "slide.png"
             path = render_slide_thumbnail(slide, out_path=target)
@@ -167,8 +173,9 @@ class DescribeRenderSlideThumbnail:
     def it_returns_bytes_when_asked(self, tmp_path, two_slide_prs):
         slide = two_slide_prs.slides[0]
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             data = render_slide_thumbnail(slide, return_bytes=True)
 
@@ -178,8 +185,9 @@ class DescribeRenderSlideThumbnail:
 
 class DescribePresentationConvenienceMethods:
     def it_exposes_render_thumbnails_on_presentation(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             paths = two_slide_prs.render_thumbnails(out_dir=tmp_path)
 
@@ -188,8 +196,9 @@ class DescribePresentationConvenienceMethods:
     def it_exposes_render_thumbnail_on_slide(self, tmp_path, two_slide_prs):
         slide = two_slide_prs.slides[0]
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             path = slide.render_thumbnail(out_path=tmp_path / "s.png")
 
@@ -211,8 +220,9 @@ class DescribeNaturalSort:
         names = [f"deck-{i}.png" for i in range(1, 12)]
         runner = _fake_soffice_run_with_names(tmp_path, names)
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=runner
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=runner),
         ):
             paths = render_slide_thumbnails(prs, out_dir=tmp_path)
 
@@ -220,9 +230,7 @@ class DescribeNaturalSort:
         assert [p.name for p in paths] == names
 
         # Spot-check the key for completeness.
-        assert _natural_sort_key(Path("deck-2.png")) < _natural_sort_key(
-            Path("deck-10.png")
-        )
+        assert _natural_sort_key(Path("deck-2.png")) < _natural_sort_key(Path("deck-10.png"))
 
     def it_returns_the_correct_slide_for_high_indexes(self, tmp_path):
         """`slide_indexes=[9]` must hit `deck-10.png`, not `deck-2.png`."""
@@ -235,12 +243,11 @@ class DescribeNaturalSort:
         names = [f"deck-{i}.png" for i in range(1, 12)]
         runner = _fake_soffice_run_with_names(tmp_path, names)
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=runner
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=runner),
         ):
-            paths = render_slide_thumbnails(
-                prs, out_dir=tmp_path, slide_indexes=[9]
-            )
+            paths = render_slide_thumbnails(prs, out_dir=tmp_path, slide_indexes=[9])
 
         assert paths[0].name == "deck-10.png"
 
@@ -254,8 +261,9 @@ class DescribePngFiltering:
         # artifacts folder.
         (tmp_path / "stale.png").write_bytes(b"\x89PNG\r\n\x1a\nstale")
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
             paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
 
@@ -267,12 +275,11 @@ class DescribePngFiltering:
         # A stray that would lex-sort *between* the two genuine outputs.
         (tmp_path / "slide05.png").write_bytes(b"\x89PNG\r\n\x1a\nstale")
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
         ):
-            paths = render_slide_thumbnails(
-                two_slide_prs, out_dir=tmp_path, slide_indexes=[1]
-            )
+            paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, slide_indexes=[1])
 
         # Without the filter we'd risk returning slide05.png; with it,
         # index 1 maps to the genuine second render (slide1.png from the
@@ -309,15 +316,20 @@ class DescribePdfFallback:
         # Stock LibreOffice 7+ writes only the first slide via the PNG
         # filter — simulate that and verify we transparently switch to
         # the PDF-split path so the caller still gets one PNG per slide.
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice",
-            side_effect=_fake_soffice_run(tmp_path, num_slides=1),
-        ), patch(
-            "power_pptx.render._run_soffice_pdf",
-            side_effect=self._fake_pdf_run(tmp_path),
-        ), patch(
-            "power_pptx.render._pdf_to_pngs",
-            side_effect=self._fake_pdf_split(tmp_path, num_pages=2),
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, num_slides=1),
+            ),
+            patch(
+                "power_pptx.render._run_soffice_pdf",
+                side_effect=self._fake_pdf_run(tmp_path),
+            ),
+            patch(
+                "power_pptx.render._pdf_to_pngs",
+                side_effect=self._fake_pdf_split(tmp_path, num_pages=2),
+            ),
         ):
             paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
 
@@ -332,29 +344,34 @@ class DescribePdfFallback:
             png_called = True
             raise AssertionError("PNG path should be skipped when strategy='pdf'")
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_no_png
-        ), patch(
-            "power_pptx.render._run_soffice_pdf",
-            side_effect=self._fake_pdf_run(tmp_path),
-        ), patch(
-            "power_pptx.render._pdf_to_pngs",
-            side_effect=self._fake_pdf_split(tmp_path, num_pages=2),
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_no_png),
+            patch(
+                "power_pptx.render._run_soffice_pdf",
+                side_effect=self._fake_pdf_run(tmp_path),
+            ),
+            patch(
+                "power_pptx.render._pdf_to_pngs",
+                side_effect=self._fake_pdf_split(tmp_path, num_pages=2),
+            ),
         ):
-            paths = render_slide_thumbnails(
-                two_slide_prs, out_dir=tmp_path, strategy="pdf"
-            )
+            paths = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="pdf")
 
         assert len(paths) == 2
         assert not png_called
 
     def it_raises_when_neither_pipeline_produces_pngs(self, tmp_path, two_slide_prs):
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice",
-            side_effect=_fake_soffice_run(tmp_path, num_slides=0),
-        ), patch(
-            "power_pptx.render._run_soffice_pdf",
-            side_effect=self._fake_pdf_run(tmp_path, exit_code=1, stderr=b"boom"),
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, num_slides=0),
+            ),
+            patch(
+                "power_pptx.render._run_soffice_pdf",
+                side_effect=self._fake_pdf_run(tmp_path, exit_code=1, stderr=b"boom"),
+            ),
         ):
             with pytest.raises(ThumbnailRendererError, match="status 1"):
                 render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
@@ -374,9 +391,11 @@ class DescribeRenderSlideThumbnailCleanup:
             created_dirs.append(ctx.name)
             return ctx
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
-        ), patch("power_pptx.render.tempfile.TemporaryDirectory", side_effect=_spy_tmp):
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
+            patch("power_pptx.render.tempfile.TemporaryDirectory", side_effect=_spy_tmp),
+        ):
             path = render_slide_thumbnail(slide, out_path=tmp_path / "s.png")
 
         assert path.exists()
@@ -396,9 +415,11 @@ class DescribeRenderSlideThumbnailCleanup:
             created_dirs.append(ctx.name)
             return ctx
 
-        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
-            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
-        ), patch("power_pptx.render.tempfile.TemporaryDirectory", side_effect=_spy_tmp):
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch("power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)),
+            patch("power_pptx.render.tempfile.TemporaryDirectory", side_effect=_spy_tmp),
+        ):
             path = render_slide_thumbnail(slide)
 
         try:

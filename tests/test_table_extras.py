@@ -34,7 +34,12 @@ class DescribeRowBordersShorthand:
         _, _, table = _new_table()
         table.rows[0].borders.outer(width=Pt(1), color=RGBColor(255, 0, 0))
         for cell in table.rows[0].cells:
-            for edge in (cell.borders.left, cell.borders.right, cell.borders.top, cell.borders.bottom):
+            for edge in (
+                cell.borders.left,
+                cell.borders.right,
+                cell.borders.top,
+                cell.borders.bottom,
+            ):
                 assert edge.width == Pt(1)
 
     def it_clears_all_borders_in_the_row(self):
@@ -48,7 +53,12 @@ class DescribeRowBordersShorthand:
         # on which path the proxy takes — what matters is the explicit value
         # from before is gone.
         for cell in table.rows[0].cells:
-            for edge in (cell.borders.left, cell.borders.right, cell.borders.top, cell.borders.bottom):
+            for edge in (
+                cell.borders.left,
+                cell.borders.right,
+                cell.borders.top,
+                cell.borders.bottom,
+            ):
                 assert edge.width != Pt(2)
 
 
@@ -87,9 +97,7 @@ class DescribeFitToBox:
     def it_shrinks_when_a_cell_overflows(self):
         # Tiny cells (1in × 0.25in) with way too much text.
         _, _, table = _new_table(2, 2, w=Inches(2), h=Inches(0.5))
-        table.cell(0, 0).text = (
-            "lorem ipsum dolor sit amet consectetur adipiscing elit"
-        )
+        table.cell(0, 0).text = "lorem ipsum dolor sit amet consectetur adipiscing elit"
         table.cell(0, 1).text = "x"
         size = table.fit_to_box(max_font_pt=18, min_font_pt=6)
         assert 6 <= size < 18
@@ -138,9 +146,7 @@ class DescribeAddTableStyleClean:
         # overlay.
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        gf = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(4), Inches(2), style="clean"
-        )
+        gf = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2), style="clean")
         tbl = gf.table
         assert tbl.first_row is False
         assert tbl.first_col is False
@@ -154,9 +160,7 @@ class DescribeAddTableStyleClean:
         # silently change the inherited-style flags users may rely on.
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        gf_default = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(4), Inches(2)
-        )
+        gf_default = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
         # New python-pptx tables come with first_row=True by default;
         # make sure we don't change that without an opt-in.
         assert gf_default.table.first_row is True
@@ -165,9 +169,7 @@ class DescribeAddTableStyleClean:
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         with pytest.raises(ValueError, match="style must be"):
-            slide.shapes.add_table(
-                2, 2, Inches(1), Inches(1), Inches(4), Inches(2), style="bogus"
-            )
+            slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2), style="bogus")
 
 
 class DescribeCellFitText:

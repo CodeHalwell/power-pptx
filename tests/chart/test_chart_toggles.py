@@ -109,20 +109,14 @@ class DescribeChartToggleSchemaValidity(object):
         prs = _log_axis_deck()
         assert prs.slides[0].shapes[0].chart.value_axis.log_base == 10.0
 
-    @pytest.mark.skipif(
-        not schema_validation_available(), reason="schema unavailable"
-    )
+    @pytest.mark.skipif(not schema_validation_available(), reason="schema unavailable")
     def it_emits_schema_valid_xml_for_a_doughnut_hole_size(self):
         assert list(iter_schema_violations(_saved_bytes(_doughnut_deck()))) == []
 
-    @pytest.mark.skipif(
-        not schema_validation_available(), reason="schema unavailable"
-    )
+    @pytest.mark.skipif(not schema_validation_available(), reason="schema unavailable")
     def it_emits_schema_valid_xml_for_a_smoothed_line_chart(self):
         assert list(iter_schema_violations(_saved_bytes(_line_smooth_deck()))) == []
 
-    @pytest.mark.skipif(
-        not schema_validation_available(), reason="schema unavailable"
-    )
+    @pytest.mark.skipif(not schema_validation_available(), reason="schema unavailable")
     def it_emits_schema_valid_xml_for_a_log_value_axis(self):
         assert list(iter_schema_violations(_saved_bytes(_log_axis_deck()))) == []

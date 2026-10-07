@@ -89,9 +89,7 @@ class DescribeRoundTrip:
 class DescribeNonMutatingColorReadsRoundTrip:
     """Reading `Font.color` properties must not corrupt the round-trip."""
 
-    @pytest.mark.parametrize(
-        "prop", ["type", "rgb", "theme_color", "brightness"]
-    )
+    @pytest.mark.parametrize("prop", ["type", "rgb", "theme_color", "brightness"])
     def it_does_not_alter_a_decks_xml_after_a_color_read(self, prop):
         # -- compose a fresh deck and snapshot the post-save bytes --
         prs = Presentation()
@@ -107,9 +105,7 @@ class DescribeNonMutatingColorReadsRoundTrip:
 
         assert round_trip_diff(prs) == {}
 
-    @pytest.mark.parametrize(
-        "prop", ["type", "rgb", "theme_color", "brightness"]
-    )
+    @pytest.mark.parametrize("prop", ["type", "rgb", "theme_color", "brightness"])
     def it_does_not_alter_a_shapes_xml_after_a_line_color_read(self, prop):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -222,9 +218,7 @@ class DescribeErgonomicsRoundTrip:
     def it_round_trips_formatted_table_cells(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        table = slide.shapes.add_table(
-            3, 2, Inches(1), Inches(1), Inches(6), Inches(2)
-        ).table
+        table = slide.shapes.add_table(3, 2, Inches(1), Inches(1), Inches(6), Inches(2)).table
         for r in range(3):
             for c in range(2):
                 table.cell(r, c).text = "r%dc%d" % (r, c)
@@ -235,9 +229,7 @@ class DescribeErgonomicsRoundTrip:
     def it_round_trips_cells_styled_before_they_were_populated(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        table = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(6), Inches(1.5)
-        ).table
+        table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(6), Inches(1.5)).table
         table.format_cells(rows=0, color="#FFFFFF", bold=True, size_pt=12, align="center")
         for c in range(2):
             table.cell(0, c).text = "header %d" % c

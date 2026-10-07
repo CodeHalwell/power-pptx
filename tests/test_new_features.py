@@ -29,9 +29,7 @@ def _new_chart(chart_type=XL_CHART_TYPE.COLUMN_STACKED):
     data.categories = ["A", "B", "C"]
     data.add_series("S1", (1.0, 2.0, 3.0))
     data.add_series("S2", (4.0, 5.0, 6.0))
-    gf = slide.shapes.add_chart(
-        chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data
-    )
+    gf = slide.shapes.add_chart(chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data)
     return prs, slide, gf, gf.chart
 
 
@@ -65,6 +63,7 @@ class DescribeColorByCategory:
         # Each (series, category) cell now has a <c:dPt> child with a
         # solid fill — count dPt elements anywhere in the chart XML.
         import lxml.etree as etree
+
         xml = etree.tostring(chart._chartSpace).decode()
         # 2 series × 3 categories = 6 dPt elements minimum.
         assert xml.count("<c:dPt") >= 6 or xml.count(":dPt") >= 6
@@ -93,9 +92,7 @@ class DescribeTypewriter:
         s3 = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(1))
         slide.animations.typewriter([s1, s2, s3], delay_between_ms=200)
         # Three top-level animation pars (one per shape).
-        pars = slide._element.xpath(
-            "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"
-        )
+        pars = slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
         assert len(pars) == 3
 
     def it_is_a_no_op_on_empty_input(self):
@@ -103,9 +100,10 @@ class DescribeTypewriter:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         slide.animations.typewriter([])
         # No timing tree should have been created.
-        assert slide._element.xpath("p:timing") == [] or len(
-            slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
-        ) == 0
+        assert (
+            slide._element.xpath("p:timing") == []
+            or len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")) == 0
+        )
 
 
 class DescribeEasing:
@@ -149,17 +147,9 @@ class DescribeOrphanCleanup:
         s1 = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
         s2 = slide.shapes.add_shape(1, Inches(1), Inches(2.5), Inches(2), Inches(1))
         slide.animations.typewriter([s1, s2])
-        before = len(
-            slide._element.xpath(
-                "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"
-            )
-        )
+        before = len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"))
         s1.delete()
-        after = len(
-            slide._element.xpath(
-                "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"
-            )
-        )
+        after = len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par"))
         assert after == before - 1
 
     def it_can_be_invoked_explicitly_via_purge_orphans(self):
@@ -189,9 +179,7 @@ class DescribeThemeApplyRebind:
 
         new_prs = Presentation()
         new_prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x00, 0x00)
-        n = prs.theme.apply(
-            new_prs.theme, rebind_shape_colors=True, presentation=prs
-        )
+        n = prs.theme.apply(new_prs.theme, rebind_shape_colors=True, presentation=prs)
         assert n == 1
 
     def it_requires_presentation_when_rebind_is_set(self):
@@ -245,9 +233,8 @@ class DescribeColorVariant:
 class DescribeEmbedFont:
     def it_embeds_a_TTF_into_the_presentation(self):
         # Find any system TTF for the test.
-        candidates = (
-            glob.glob("/usr/share/fonts/**/*.ttf", recursive=True)
-            + glob.glob("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+        candidates = glob.glob("/usr/share/fonts/**/*.ttf", recursive=True) + glob.glob(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         )
         candidates = [p for p in candidates if os.path.isfile(p)]
         if not candidates:
@@ -265,6 +252,7 @@ class DescribeEmbedFont:
         buf.seek(0)
         prs2 = Presentation(buf)
         import lxml.etree as etree
+
         xml = etree.tostring(prs2._element).decode()
         assert "embeddedFontLst" in xml
         assert "EmbeddedTest" in xml
@@ -278,7 +266,7 @@ class DescribeEmbedFont:
         from power_pptx.theme import _add_embedded_font_entry
 
         pres = parse_xml(
-            b'<p:presentation '
+            b"<p:presentation "
             b'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
             b'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
         )
@@ -340,6 +328,8 @@ class DescribeEmbedFont:
         prs = Presentation()
         with pytest.raises(FileNotFoundError):
             prs.theme.embed_font(
-                prs, "/path/that/definitely/does/not/exist.ttf",
-                typeface="X", weight="regular",
+                prs,
+                "/path/that/definitely/does/not/exist.ttf",
+                typeface="X",
+                weight="regular",
             )

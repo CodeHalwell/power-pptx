@@ -18,7 +18,7 @@ from power_pptx.util import Inches, Pt
 Every preset accepts an optional `trigger` and `delay` (milliseconds):
 
 ```python
-Entrance.fade(slide, shape)                                    # default: ON_CLICK
+Entrance.fade(slide, shape)  # default: ON_CLICK
 Entrance.fly_in(slide, shape, trigger=Trigger.WITH_PREVIOUS)
 Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=500)
 ```
@@ -114,11 +114,19 @@ cluster chains. They can't be combined.
 `SlideAnimations` is now iterable and supports `len()`:
 
 ```python
-print(len(slide.animations))                  # how many entries?
+print(len(slide.animations))  # how many entries?
 for entry in slide.animations:
-    print(entry.kind, entry.preset, entry.trigger,
-          "shape=", entry.shape.name if entry.shape else None,
-          "duration=", entry.duration, "delay=", entry.delay)
+    print(
+        entry.kind,
+        entry.preset,
+        entry.trigger,
+        "shape=",
+        entry.shape.name if entry.shape else None,
+        "duration=",
+        entry.duration,
+        "delay=",
+        entry.delay,
+    )
 ```
 
 Each entry is a read-only `AnimationEntry`. To remove the entry from
@@ -135,10 +143,8 @@ MotionPath.line(slide, shape, dx=Inches(2), dy=Inches(1))
 MotionPath.diagonal(slide, shape, dx=Inches(3), dy=Inches(2))
 MotionPath.circle(slide, shape, radius=Inches(1), clockwise=True)
 MotionPath.arc(slide, shape, dx=Inches(3), dy=Inches(0), height=0.4)
-MotionPath.zigzag(slide, shape, dx=Inches(4), dy=Inches(0),
-                  segments=6, amplitude=0.2)
-MotionPath.spiral(slide, shape, radius=Inches(2),
-                  turns=2.5, clockwise=True)
+MotionPath.zigzag(slide, shape, dx=Inches(4), dy=Inches(0), segments=6, amplitude=0.2)
+MotionPath.spiral(slide, shape, radius=Inches(2), turns=2.5, clockwise=True)
 
 # Pass a raw OOXML motion-path expression
 MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0")
@@ -157,7 +163,7 @@ without touching pre-existing `<p:par>` nodes:
 ```python
 prs = Presentation("hand-authored.pptx")
 slide = prs.slides[0]
-Entrance.fade(slide, slide.shapes[0])           # adds, doesn't disturb
+Entrance.fade(slide, slide.shapes[0])  # adds, doesn't disturb
 prs.save("with-extra-fade.pptx")
 ```
 
@@ -182,8 +188,7 @@ with slide.animations.sequence():
     Emphasis.pulse(slide, box)
 
 # Extra effect after the sequence: a motion path on the box
-MotionPath.arc(slide, box, dx=Inches(2), dy=Inches(0), height=0.3,
-               trigger=Trigger.AFTER_PREVIOUS)
+MotionPath.arc(slide, box, dx=Inches(2), dy=Inches(0), height=0.3, trigger=Trigger.AFTER_PREVIOUS)
 
 prs.save("animated.pptx")
 ```

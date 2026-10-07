@@ -199,9 +199,7 @@ def add_kpi_card(
         except (AttributeError, NotImplementedError):
             pass
 
-    return KpiCard(
-        card=card, value_box=value_box, label_box=label_box, delta_box=delta_box
-    )
+    return KpiCard(card=card, value_box=value_box, label_box=label_box, delta_box=delta_box)
 
 
 def add_progress_bar(

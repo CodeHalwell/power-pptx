@@ -243,9 +243,7 @@ def from_yaml(
     try:
         import yaml  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - import guard
-        raise ImportError(
-            "from_yaml requires pyyaml; install with `pip install pyyaml`"
-        ) from exc
+        raise ImportError("from_yaml requires pyyaml; install with `pip install pyyaml`") from exc
     with open(path, "r", encoding="utf-8") as f:
         spec = yaml.safe_load(f) or {}
     if not isinstance(spec, dict):
@@ -257,27 +255,28 @@ def from_yaml(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_VALID_TOP_KEYS = frozenset(
-    {"slides", "lint", "template", "theme", "tokens", "vars", "slide_size"}
-)
+_VALID_TOP_KEYS = frozenset({"slides", "lint", "template", "theme", "tokens", "vars", "slide_size"})
 _VALID_LINT_VALUES = frozenset({"off", "warn", "raise"})
 
 # Recipe layout name → (recipe callable, mandatory spec keys).  Listed
 # inline rather than imported lazily so the dispatcher fails closed if
 # a recipe gets renamed.
 _RECIPE_LAYOUTS: dict[str, tuple[str, frozenset[str]]] = {
-    "title_recipe":     ("title_slide",      frozenset({"title"})),
-    "bullets_recipe":   ("bullet_slide",     frozenset({"title", "bullets"})),
-    "kpi":              ("kpi_slide",        frozenset({"title", "kpis"})),
-    "quote":            ("quote_slide",      frozenset({"quote"})),
-    "image_hero":       ("image_hero_slide", frozenset({"title", "image"})),
-    "section_divider":  ("section_divider",  frozenset({"title"})),
-    "chart":            ("chart_slide",      frozenset({"title", "categories", "series"})),
-    "table":            ("table_slide",      frozenset({"title", "columns", "rows"})),
-    "code":             ("code_slide",       frozenset({"title", "code"})),
-    "timeline":         ("timeline_slide",   frozenset({"title", "milestones"})),
-    "comparison":       ("comparison_slide", frozenset({"title", "left_heading", "right_heading", "rows"})),
-    "figure":           ("figure_slide",     frozenset({"title", "figure"})),
+    "title_recipe": ("title_slide", frozenset({"title"})),
+    "bullets_recipe": ("bullet_slide", frozenset({"title", "bullets"})),
+    "kpi": ("kpi_slide", frozenset({"title", "kpis"})),
+    "quote": ("quote_slide", frozenset({"quote"})),
+    "image_hero": ("image_hero_slide", frozenset({"title", "image"})),
+    "section_divider": ("section_divider", frozenset({"title"})),
+    "chart": ("chart_slide", frozenset({"title", "categories", "series"})),
+    "table": ("table_slide", frozenset({"title", "columns", "rows"})),
+    "code": ("code_slide", frozenset({"title", "code"})),
+    "timeline": ("timeline_slide", frozenset({"title", "milestones"})),
+    "comparison": (
+        "comparison_slide",
+        frozenset({"title", "left_heading", "right_heading", "rows"}),
+    ),
+    "figure": ("figure_slide", frozenset({"title", "figure"})),
 }
 
 
@@ -418,9 +417,7 @@ _LEGACY_TO_RECIPE: dict[str, str] = {
 _RECIPE_NEVER_KWARGS = frozenset({"layout", "shapes"})
 
 
-def _add_recipe_slide(
-    prs: Any, slide_spec: dict[str, Any], layout_name: str, tokens: Any
-) -> Any:
+def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, tokens: Any) -> Any:
     """Dispatch to the recipe matching *layout_name*.
 
     Validates required keys, then forwards *every other* spec key as a
@@ -443,14 +440,10 @@ def _add_recipe_slide(
     missing = [k for k in required if k not in slide_spec]
     if missing:
         raise ValueError(
-            f"layout {layout_name!r} requires keys "
-            f"{sorted(required)}; missing {sorted(missing)}"
+            f"layout {layout_name!r} requires keys {sorted(required)}; missing {sorted(missing)}"
         )
 
-    kwargs = {
-        k: v for k, v in slide_spec.items()
-        if k not in _RECIPE_NEVER_KWARGS
-    }
+    kwargs = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
     # Spec-level tokens flow through unless the slide opts out / overrides.
     kwargs.setdefault("tokens", tokens)
 
@@ -459,9 +452,7 @@ def _add_recipe_slide(
     # so this catches misspelled content keys (``subtitlz``, ``millestones``)
     # that previously silently no-op'd.
     sig = inspect.signature(recipe)
-    accepts_var_kw = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
+    accepts_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if not accepts_var_kw:
         accepted = set(sig.parameters)
         unknown = sorted(set(kwargs) - accepted)
@@ -695,8 +686,7 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
     """Create one shape from a ``shapes`` entry and return it."""
     if not isinstance(entry, Mapping):
         raise ValueError(
-            f"{where}: each 'shapes' entry must be a mapping; got "
-            f"{type(entry).__name__!r}"
+            f"{where}: each 'shapes' entry must be a mapping; got {type(entry).__name__!r}"
         )
 
     unknown = set(entry) - _VALID_SHAPE_KEYS
@@ -709,19 +699,14 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
 
     name = entry.get("name")
     if name is not None and (not isinstance(name, str) or not name.strip()):
-        raise ValueError(
-            f"{where}: shape 'name' must be a non-empty string; got {name!r}"
-        )
+        raise ValueError(f"{where}: shape 'name' must be a non-empty string; got {name!r}")
 
     missing = [k for k in _REQUIRED_SHAPE_KEYS if k not in entry]
     if missing:
         raise ValueError(
-            f"{where}: shape entries require keys "
-            f"{list(_REQUIRED_SHAPE_KEYS)}; missing {missing}"
+            f"{where}: shape entries require keys {list(_REQUIRED_SHAPE_KEYS)}; missing {missing}"
         )
-    box = tuple(
-        _coerce_length(entry[k], f"{where}: {k!r}") for k in _REQUIRED_SHAPE_KEYS
-    )
+    box = tuple(_coerce_length(entry[k], f"{where}: {k!r}") for k in _REQUIRED_SHAPE_KEYS)
 
     kind = entry.get("shape", _TEXTBOX_SHAPE_NAME)
     if not isinstance(kind, str):
@@ -815,8 +800,7 @@ def _apply_overlap_allowances(
     for ref in refs:
         if not isinstance(ref, str) or not ref.strip():
             raise ValueError(
-                f"{where}: 'allow_overlap_with' entries must be non-empty "
-                f"shape names; got {ref!r}"
+                f"{where}: 'allow_overlap_with' entries must be non-empty shape names; got {ref!r}"
             )
         if ref == own_name:
             raise ValueError(
@@ -934,8 +918,7 @@ def _resolve_tokens(spec: Any) -> Any:
         return spec
     if not isinstance(spec, Mapping):
         raise ValueError(
-            f"'tokens' must be a mapping or DesignTokens instance; got "
-            f"{type(spec).__name__!r}"
+            f"'tokens' must be a mapping or DesignTokens instance; got {type(spec).__name__!r}"
         )
     if "preset" in spec:
         tokens = DesignTokens.from_preset(spec["preset"])
@@ -955,13 +938,13 @@ def _resolve_tokens(spec: Any) -> Any:
 # Named aspect-ratio shorthands → (width_in, height_in) in inches.
 # Matches PowerPoint's built-in "Page Setup" presets.
 _SLIDE_SIZE_PRESETS: dict[str, tuple[float, float]] = {
-    "16:9":         (13.333, 7.5),
-    "widescreen":   (13.333, 7.5),
-    "4:3":          (10.0, 7.5),
-    "standard":     (10.0, 7.5),
-    "16:10":        (13.333, 8.333),
-    "a4":           (11.69, 8.27),
-    "letter":       (11.0, 8.5),
+    "16:9": (13.333, 7.5),
+    "widescreen": (13.333, 7.5),
+    "4:3": (10.0, 7.5),
+    "standard": (10.0, 7.5),
+    "16:10": (13.333, 8.333),
+    "a4": (11.69, 8.27),
+    "letter": (11.0, 8.5),
 }
 
 
@@ -982,14 +965,11 @@ def _coerce_length(value: Any, what: str) -> Any:
     # explicitly — matches the boolean-rejection rule that
     # ``power_pptx.util._coerce_emu`` applies for shape coordinates.
     if isinstance(value, bool):
-        raise ValueError(
-            f"{what} must be a number (inches) or Length; got bool: {value!r}"
-        )
+        raise ValueError(f"{what} must be a number (inches) or Length; got bool: {value!r}")
     if isinstance(value, (int, float)):
         return Inches(float(value))
     raise ValueError(
-        f"{what} must be a number (inches) or Length; "
-        f"got {type(value).__name__!r}: {value!r}"
+        f"{what} must be a number (inches) or Length; got {type(value).__name__!r}: {value!r}"
     )
 
 
@@ -1021,9 +1001,7 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
         return
     if isinstance(slide_size, Mapping):
         if "width" not in slide_size or "height" not in slide_size:
-            raise ValueError(
-                "slide_size mapping must have 'width' and 'height' keys"
-            )
+            raise ValueError("slide_size mapping must have 'width' and 'height' keys")
         prs.slide_width = _to_emu(slide_size["width"])
         prs.slide_height = _to_emu(slide_size["height"])
         return
@@ -1049,6 +1027,7 @@ def _interpolate(value: Any, vars_: Mapping[str, Any]) -> Any:
     silently render as the literal placeholder.
     """
     if isinstance(value, str):
+
         def _sub(match: "re.Match[str]") -> str:
             key = match.group(1)
             parts = key.split(".")
@@ -1058,10 +1037,10 @@ def _interpolate(value: Any, vars_: Mapping[str, Any]) -> Any:
                     cur = cur[p]
                 else:
                     raise KeyError(
-                        f"interpolation variable {key!r} not found "
-                        f"in vars={list(vars_)!r}"
+                        f"interpolation variable {key!r} not found in vars={list(vars_)!r}"
                     )
             return str(cur)
+
         return _INTERP_RE.sub(_sub, value)
     if isinstance(value, dict):
         return {k: _interpolate(v, vars_) for k, v in value.items()}

@@ -49,7 +49,7 @@ class DescribeActionSetting(object):
         _clear_click_action_.assert_called_once_with(action_setting)
         part_.relate_to.assert_called_once_with(slide_part_, RT.SLIDE)
         assert action_setting._element.xml == xml(
-            "p:cNvPr{a:b=c,r:s=t}/a:hlinkClick{action=ppaction://hlinksldjump,r:id=rI" "d42}",
+            "p:cNvPr{a:b=c,r:s=t}/a:hlinkClick{action=ppaction://hlinksldjump,r:id=rId42}",
         )
 
     def but_it_clears_the_target_slide_if_None_is_assigned(self, _clear_click_action_):

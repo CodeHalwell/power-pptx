@@ -14,12 +14,12 @@ three_d = card.three_d
 
 # Top bevel
 three_d.bevel_top.preset = BevelPreset.SOFT_ROUND
-three_d.bevel_top.width  = Pt(6)
+three_d.bevel_top.width = Pt(6)
 three_d.bevel_top.height = Pt(3)
 
 # Bottom bevel (less common)
 three_d.bevel_bottom.preset = BevelPreset.ANGLE
-three_d.bevel_bottom.width  = Pt(2)
+three_d.bevel_bottom.width = Pt(2)
 three_d.bevel_bottom.height = Pt(1)
 ```
 
@@ -38,7 +38,7 @@ element removal, so the deck stays schema-clean.
 from power_pptx.dml.color import RGBColor
 
 three_d.extrusion_height = Pt(20)
-three_d.extrusion_color  = RGBColor(0x12, 0x1E, 0x4D)
+three_d.extrusion_color = RGBColor(0x12, 0x1E, 0x4D)
 ```
 
 ## Contour
@@ -80,7 +80,10 @@ slide = prs.slides.add_slide(prs.slide_layouts[6])
 
 badge = slide.shapes.add_shape(
     MSO_SHAPE.OVAL,
-    Inches(5.5), Inches(3.0), Inches(2.0), Inches(2.0),
+    Inches(5.5),
+    Inches(3.0),
+    Inches(2.0),
+    Inches(2.0),
 )
 badge.fill.solid()
 badge.fill.fore_color.rgb = RGBColor(0xFF, 0xC1, 0x07)
@@ -88,14 +91,14 @@ badge.line.fill.background()
 
 td = badge.three_d
 td.bevel_top.preset = BevelPreset.SOFT_ROUND
-td.bevel_top.width  = Pt(8)
+td.bevel_top.width = Pt(8)
 td.bevel_top.height = Pt(4)
-td.preset_material  = PresetMaterial.METAL
+td.preset_material = PresetMaterial.METAL
 
 # Combine with a soft shadow for depth
 badge.shadow.blur_radius = Pt(12)
-badge.shadow.distance    = Pt(4)
-badge.shadow.direction   = 90.0
+badge.shadow.distance = Pt(4)
+badge.shadow.direction = 90.0
 badge.shadow.color.alpha = 0.3
 
 prs.save("badge.pptx")

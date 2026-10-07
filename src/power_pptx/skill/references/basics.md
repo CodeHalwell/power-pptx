@@ -8,8 +8,8 @@ It's here so you don't have to leave the skill for boring boilerplate.
 ```python
 from power_pptx import Presentation
 
-prs = Presentation()                     # blank deck, default 16:9
-prs = Presentation("template.pptx")      # open existing
+prs = Presentation()  # blank deck, default 16:9
+prs = Presentation("template.pptx")  # open existing
 prs.save("out.pptx")
 ```
 
@@ -18,6 +18,7 @@ HTTP responses or in-memory generation:
 
 ```python
 import io
+
 buf = io.BytesIO()
 prs.save(buf)
 buf.seek(0)
@@ -29,15 +30,15 @@ return buf.getvalue()
 ```python
 from power_pptx.util import Inches
 
-prs.slide_width  = Inches(13.333)        # 16:9 widescreen
+prs.slide_width = Inches(13.333)  # 16:9 widescreen
 prs.slide_height = Inches(7.5)
 ```
 
 ## Adding slides
 
 ```python
-title_layout = prs.slide_layouts[0]      # 0 = Title, 1 = Title+Content,
-blank_layout = prs.slide_layouts[6]      # 5 = Title only, 6 = Blank, ...
+title_layout = prs.slide_layouts[0]  # 0 = Title, 1 = Title+Content,
+blank_layout = prs.slide_layouts[6]  # 5 = Title only, 6 = Blank, ...
 
 slide = prs.slides.add_slide(title_layout)
 slide.shapes.title.text = "Q4 Review"
@@ -82,7 +83,10 @@ tf.text = "Headline"
 tf.add_paragraph().text = "Supporting line"
 
 tf.set_paragraph_defaults(
-    font_name="Inter", size=Pt(14), bold=True, color="#333333",
+    font_name="Inter",
+    size=Pt(14),
+    bold=True,
+    color="#333333",
 )
 ```
 
@@ -95,10 +99,10 @@ per-paragraph (below).
 
 ```python
 p.space_before = Pt(6)
-p.space_after  = Pt(6)
-p.line_spacing = 1.2               # multiple, or Pt(20) for exact
+p.space_after = Pt(6)
+p.line_spacing = 1.2  # multiple, or Pt(20) for exact
 
-tf.margin_left = Inches(0.2)       # also margin_right/top/bottom
+tf.margin_left = Inches(0.2)  # also margin_right/top/bottom
 ```
 
 Paragraphs can also be built run-by-run when you need mixed styling in
@@ -106,10 +110,11 @@ one line:
 
 ```python
 p = tf.add_paragraph()
-run = p.add_run(); run.text = "Bold lead-in. "
+run = p.add_run()
+run.text = "Bold lead-in. "
 run.font.bold = True
 run.font.underline = True
-p.add_line_break()                 # soft break, stays in the paragraph
+p.add_line_break()  # soft break, stays in the paragraph
 ```
 
 ### Run-level type styling
@@ -119,10 +124,10 @@ p.add_line_break()                 # soft break, stays in the paragraph
 `font`:
 
 ```python
-eyebrow.font.all_caps = True          # or .small_caps = True (mutually exclusive)
-eyebrow.font.letter_spacing = Pt(2)   # tracking; negative tightens
+eyebrow.font.all_caps = True  # or .small_caps = True (mutually exclusive)
+eyebrow.font.letter_spacing = Pt(2)  # tracking; negative tightens
 old.font.strikethrough = True
-units.font.superscript = True         # or .subscript (share one baseline)
+units.font.superscript = True  # or .subscript (share one baseline)
 ```
 
 All are tri-state: `None` (the default) inherits from the theme/master,
@@ -135,10 +140,12 @@ Per-run glyph effects live on `run.font`, mirroring shape
 `.line`/`.shadow`/`.glow`:
 
 ```python
-run.font.outline.color.rgb = "FF0000"   # coloured glyph outline...
-run.font.outline.width = Pt(1)          # ...of a given stroke width
-run.font.shadow.color.rgb = "808080"; run.font.shadow.blur_radius = Pt(3)
-run.font.glow.color.rgb = "00B0F0";   run.font.glow.radius = Pt(6)
+run.font.outline.color.rgb = "FF0000"  # coloured glyph outline...
+run.font.outline.width = Pt(1)  # ...of a given stroke width
+run.font.shadow.color.rgb = "808080"
+run.font.shadow.blur_radius = Pt(3)
+run.font.glow.color.rgb = "00B0F0"
+run.font.glow.radius = Pt(6)
 ```
 
 Reads are non-mutating — nothing is written until you assign, so theme
@@ -151,8 +158,10 @@ from power_pptx.enum.shapes import MSO_SHAPE
 
 card = slide.shapes.add_shape(
     MSO_SHAPE.ROUNDED_RECTANGLE,
-    left=Inches(1), top=Inches(2),
-    width=Inches(4), height=Inches(2.5),
+    left=Inches(1),
+    top=Inches(2),
+    width=Inches(4),
+    height=Inches(2.5),
 )
 card.fill.solid()
 card.fill.fore_color.rgb = RGBColor(0xF8, 0xFA, 0xFC)
@@ -167,14 +176,14 @@ useful for hairline dividers, glow shapes, and translucent overlays.
 Assign after a colour is set:
 
 ```python
-divider.line.color.rgb   = RGBColor(0x0D, 0x0D, 0x0D)
-divider.line.color.alpha = 0.08     # 8% opaque hairline
+divider.line.color.rgb = RGBColor(0x0D, 0x0D, 0x0D)
+divider.line.color.alpha = 0.08  # 8% opaque hairline
 ```
 
 ### Two-stop linear gradients
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)  # top→bottom
 ```
 
 `angle` follows the OOXML convention: `0` is left→right, `90` is
@@ -189,8 +198,10 @@ effects reference. Don't go looking in two places.
 ```python
 pic = slide.shapes.add_picture(
     "hero.jpg",
-    left=Inches(0), top=Inches(0),
-    width=prs.slide_width, height=prs.slide_height,
+    left=Inches(0),
+    top=Inches(0),
+    width=prs.slide_width,
+    height=prs.slide_height,
 )
 ```
 
@@ -201,11 +212,10 @@ trims 10% off that edge. They compose with the placement box, so crop
 first, then size:
 
 ```python
-pic = slide.shapes.add_picture("hero.png", Inches(1), Inches(1),
-                               width=Inches(4))
-pic.crop_left = 0.10               # also crop_right/top/bottom
-pic.crop_top  = 0.05
-pic.alt_text  = "Q4 revenue by segment"   # set this; screen readers need it
+pic = slide.shapes.add_picture("hero.png", Inches(1), Inches(1), width=Inches(4))
+pic.crop_left = 0.10  # also crop_right/top/bottom
+pic.crop_top = 0.05
+pic.alt_text = "Q4 revenue by segment"  # set this; screen readers need it
 ```
 
 ### Anchored placement
@@ -225,9 +235,13 @@ slide.shapes.add_picture(
 
 # Title centred in the top half of a parent card:
 slide.shapes.add_textbox(
-    Inches(0), Inches(0), Inches(2), Inches(0.5),
-    anchor="top-center", margin=Inches(0.25),
-    container=card,         # any shape with .width / .height
+    Inches(0),
+    Inches(0),
+    Inches(2),
+    Inches(0.5),
+    anchor="top-center",
+    margin=Inches(0.25),
+    container=card,  # any shape with .width / .height
 )
 ```
 
@@ -249,15 +263,15 @@ group = slide.shapes.add_group_shape()
 group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
 group.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(2), Inches(1), Inches(1))
 
-group.fill.solid()                 # tint the whole group (members paint on top)
+group.fill.solid()  # tint the whole group (members paint on top)
 group.fill.fore_color.rgb = "1F4E79"
-group.move(Inches(0.5), Inches(0)) # translate group + every member, O(1)
+group.move(Inches(0.5), Inches(0))  # translate group + every member, O(1)
 
-for shape in group.walk():         # depth-first, recurses into nested groups
-    ...                            # filter shape.shape_type for leaves only
+for shape in group.walk():  # depth-first, recurses into nested groups
+    ...  # filter shape.shape_type for leaves only
 
-group.fit_to_children()            # re-tighten bbox after editing members directly
-promoted = group.ungroup()         # dissolve; members keep their on-screen geometry
+group.fit_to_children()  # re-tighten bbox after editing members directly
+promoted = group.ungroup()  # dissolve; members keep their on-screen geometry
 ```
 
 - A group admits a **fill** but not a **line** — the OOXML schema has
@@ -271,10 +285,13 @@ promoted = group.ungroup()         # dissolve; members keep their on-screen geom
 
 ```python
 table_shape = slide.shapes.add_table(
-    rows=4, cols=3,
-    left=Inches(1), top=Inches(2),
-    width=Inches(8), height=Inches(3),
-    style="clean",   # disable inherited style flags for hand-styled tables
+    rows=4,
+    cols=3,
+    left=Inches(1),
+    top=Inches(2),
+    width=Inches(8),
+    height=Inches(3),
+    style="clean",  # disable inherited style flags for hand-styled tables
 )
 table = table_shape.table
 
@@ -285,9 +302,9 @@ for i, label in enumerate(("Metric", "Value", "Δ QoQ")):
     cell.text_frame.paragraphs[0].font.bold = True
 
 # Body
-for row, (k, v, d) in enumerate([("ARR", "$182M", "+27%"),
-                                  ("NDR", "131%",  "+3%"),
-                                  ("CAC payback", "8 mo", "−1 mo")], start=1):
+for row, (k, v, d) in enumerate(
+    [("ARR", "$182M", "+27%"), ("NDR", "131%", "+3%"), ("CAC payback", "8 mo", "−1 mo")], start=1
+):
     table.cell(row, 0).text = k
     table.cell(row, 1).text = v
     table.cell(row, 2).text = d
@@ -311,7 +328,10 @@ data.add_series("ARR", (100, 130, 155, 182))
 
 chart_shape = slide.shapes.add_chart(
     XL_CHART_TYPE.COLUMN_CLUSTERED,
-    Inches(1), Inches(2), Inches(8), Inches(4.5),
+    Inches(1),
+    Inches(2),
+    Inches(8),
+    Inches(4.5),
     data,
 )
 chart = chart_shape.chart
@@ -336,9 +356,10 @@ for shape in slide.shapes:
     if shape.has_chart:
         print(shape.chart.chart_type)
     if shape.is_placeholder:
-        print("placeholder idx", shape.placeholder_format.idx,
-              "type", shape.placeholder_format.type)
-    print(shape.shape_id, shape.name)   # shape_id is unique per slide
+        print(
+            "placeholder idx", shape.placeholder_format.idx, "type", shape.placeholder_format.type
+        )
+    print(shape.shape_id, shape.name)  # shape_id is unique per slide
 ```
 
 `shape.delete()` removes a shape *and* purges any animation timing
@@ -363,9 +384,9 @@ for slide in prs.slides:
 ```python
 from power_pptx.util import Inches, Pt, Cm, Emu, Mm
 
-Inches(1)   # 914400 EMU
-Pt(12)      # 152400 EMU
-Cm(2.54)    # ≈ Inches(1)
+Inches(1)  # 914400 EMU
+Pt(12)  # 152400 EMU
+Cm(2.54)  # ≈ Inches(1)
 ```
 
 Use these everywhere — never write the EMU integers directly.
@@ -374,10 +395,10 @@ Arithmetic on lengths is fine — power-pptx coerces float coordinates
 to integer EMU at the API boundary, so this works:
 
 ```python
-card_w = (Inches(12.33) - Inches(0.25)) / 2   # produces a float
+card_w = (Inches(12.33) - Inches(0.25)) / 2  # produces a float
 slide.shapes.add_chart(chart_type, x, y, card_w, height, data)
 slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, card_w, h)
-shape.width = card_w   # setter coerces too
+shape.width = card_w  # setter coerces too
 ```
 
 Both ``/`` (true division → float) and ``//`` (floor division → int)
@@ -388,14 +409,14 @@ to-even, so it's unbiased over long expression chains.
 
 ```python
 p = tf.paragraphs[0]
-p.rtl = True                       # right-to-left (Hebrew / Arabic / Farsi)
-p.start_at = 5                     # numbered list starting at 5 (arabicPeriod)
-p.set_numbered("romanLcPeriod", 3) # i. ii. iii. starting at 3
+p.rtl = True  # right-to-left (Hebrew / Arabic / Farsi)
+p.start_at = 5  # numbered list starting at 5 (arabicPeriod)
+p.set_numbered("romanLcPeriod", 3)  # i. ii. iii. starting at 3
 
-tf.column_count = 2                # two-column text body
-tf.column_spacing = Pt(18)         # gutter between columns
+tf.column_count = 2  # two-column text body
+tf.column_spacing = Pt(18)  # gutter between columns
 
-p.tab_stops.add_tab_stop(Inches(1), "center")   # left | center | right | decimal
+p.tab_stops.add_tab_stop(Inches(1), "center")  # left | center | right | decimal
 ```
 
 ### Sections, slide order, and speaker notes
@@ -403,17 +424,17 @@ p.tab_stops.add_tab_stop(Inches(1), "center")   # left | center | right | decima
 ```python
 # Named sections (PowerPoint outline / slide-sorter groupings)
 prs.sections.add("Intro", start_slide_index=0)
-prs.sections.add("Body",  start_slide_index=2)
+prs.sections.add("Body", start_slide_index=2)
 for section in prs.sections:
-    print(section.name, section.slide_ids)   # section.name is read/write
+    print(section.name, section.slide_ids)  # section.name is read/write
 
 # Reorder slides without touching XML
-prs.slides.move(0, 2)              # send slide 0 to position 2
-prs.slides.reorder([2, 0, 1])     # full permutation (indices or Slide objects)
+prs.slides.move(0, 2)  # send slide 0 to position 2
+prs.slides.reorder([2, 0, 1])  # full permutation (indices or Slide objects)
 
 # First-class speaker notes
-slide.notes = "Remember to thank the sponsors."   # creates the notes slide
-print(slide.notes)                # "" when the slide has no notes
+slide.notes = "Remember to thank the sponsors."  # creates the notes slide
+print(slide.notes)  # "" when the slide has no notes
 ```
 
 `start_slide_index` claims every slide from that position to the deck

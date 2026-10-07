@@ -55,7 +55,9 @@ def _deck_effects_and_3d() -> bytes:
 
     prs = Presentation()
     s = _blank_slide(prs)
-    sh = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5))
+    sh = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5)
+    )
     sh.fill.solid()
     sh.fill.fore_color.rgb = RGBColor(0x33, 0xA7, 0xFF)
     # geometry-only shadow + glow (must still carry a colour child)
@@ -163,9 +165,14 @@ def _deck_chart_types() -> bytes:
     cat.add_series("S1", (1, 2, 3))
     cat.add_series("S2", (3, 2, 1))
     for ct in (
-        XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.COLUMN_STACKED,
-        XL_CHART_TYPE.BAR_CLUSTERED, XL_CHART_TYPE.LINE, XL_CHART_TYPE.LINE_MARKERS,
-        XL_CHART_TYPE.AREA, XL_CHART_TYPE.AREA_STACKED, XL_CHART_TYPE.RADAR,
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        XL_CHART_TYPE.COLUMN_STACKED,
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        XL_CHART_TYPE.LINE,
+        XL_CHART_TYPE.LINE_MARKERS,
+        XL_CHART_TYPE.AREA,
+        XL_CHART_TYPE.AREA_STACKED,
+        XL_CHART_TYPE.RADAR,
         XL_CHART_TYPE.RADAR_MARKERS,
     ):
         s.shapes.add_chart(ct, Inches(0.5), Inches(0.5), Inches(3), Inches(2), cat)
@@ -261,9 +268,7 @@ def _deck_embedded_font() -> bytes:
 
     from power_pptx.theme import embed_font
 
-    ttf = os.path.join(
-        os.path.dirname(__file__), "..", "test_files", "calibriz.ttf"
-    )
+    ttf = os.path.join(os.path.dirname(__file__), "..", "test_files", "calibriz.ttf")
     if not os.path.isfile(ttf):
         pytest.skip("calibriz.ttf fixture is unavailable")
 
@@ -664,11 +669,7 @@ class DescribeGeneratedDeckSchemaValidity:
         data = _deck_ole_objects()
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             doc = etree.fromstring(zf.read("ppt/slides/slide1.xml"))
-        ids = [
-            el.get("id")
-            for el in doc.iter()
-            if etree.QName(el).localname == "cNvPr"
-        ]
+        ids = [el.get("id") for el in doc.iter() if etree.QName(el).localname == "cNvPr"]
         assert "0" not in ids, ids
         assert len(ids) == len(set(ids)), "duplicate shape ids: %s" % ids
 
@@ -736,8 +737,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "_rels/.rels" and "docProps/core.xml" in msg
-            for part, msg in violations
+            part == "_rels/.rels" and "docProps/core.xml" in msg for part, msg in violations
         ), violations
 
     def it_detects_a_duplicate_zip_member_name(self):
@@ -761,8 +761,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "ppt/slides/slide1.xml" and "more than once" in msg
-            for part, msg in violations
+            part == "ppt/slides/slide1.xml" and "more than once" in msg for part, msg in violations
         ), violations
 
     def it_detects_an_orphan_slide_part(self):

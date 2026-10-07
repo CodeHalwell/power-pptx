@@ -73,8 +73,16 @@ class _TemplateApplier:
         tpl_partname_to_dst_layout: dict[str, SlideLayoutPart] = {}
         for tpl_master_part, dst_master_part in tpl_master_to_dst_master.items():
             for tpl_rel, dst_rel in zip(
-                [r for r in tpl_master_part.rels.values() if not r.is_external and r.reltype == RT.SLIDE_LAYOUT],
-                [r for r in dst_master_part.rels.values() if not r.is_external and r.reltype == RT.SLIDE_LAYOUT],
+                [
+                    r
+                    for r in tpl_master_part.rels.values()
+                    if not r.is_external and r.reltype == RT.SLIDE_LAYOUT
+                ],
+                [
+                    r
+                    for r in dst_master_part.rels.values()
+                    if not r.is_external and r.reltype == RT.SLIDE_LAYOUT
+                ],
             ):
                 tpl_partname_to_dst_layout[tpl_rel.target_part.partname] = dst_rel.target_part  # type: ignore[assignment]
 
@@ -186,7 +194,7 @@ class _TemplateApplier:
                 current_lo_name = old_lo_part._element.cSld.name  # pyright: ignore[reportPrivateUsage]
             except AttributeError:
                 pass
-            current_lo_type = (old_lo_part._element.get("type") or "")  # pyright: ignore[reportPrivateUsage]
+            current_lo_type = old_lo_part._element.get("type") or ""  # pyright: ignore[reportPrivateUsage]
 
         # Match: name, then type, then first
         matched_dst_lo: SlideLayoutPart | None = None
@@ -261,8 +269,7 @@ class _TemplateApplier:
         """Return the next non-colliding partname, accounting for locally reserved names."""
         prefix = tmpl[: (tmpl % 42).find("42")]
         existing = {
-            p.partname for p in self._dst_package.iter_parts()
-            if p.partname.startswith(prefix)
+            p.partname for p in self._dst_package.iter_parts() if p.partname.startswith(prefix)
         }
         taken = existing | {pn for pn in self._reserved if pn.startswith(prefix)}
         n = 1

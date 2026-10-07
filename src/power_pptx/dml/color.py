@@ -44,8 +44,7 @@ class ColorFormat(object):
     def alpha(self, value):
         if isinstance(self._color, _NoneColor):
             raise ValueError(
-                "can't set alpha when color.type is None."
-                " Set color.rgb or .theme_color first."
+                "can't set alpha when color.type is None. Set color.rgb or .theme_color first."
             )
         if value is not None:
             self._validate_alpha_value(value)
@@ -139,8 +138,7 @@ class ColorFormat(object):
             raise ValueError("brightness must be number in range -1.0 to 1.0")
         if isinstance(self._color, _NoneColor):
             msg = (
-                "can't set brightness when color.type is None. Set color.rgb"
-                " or .theme_color first."
+                "can't set brightness when color.type is None. Set color.rgb or .theme_color first."
             )
             raise ValueError(msg)
 
@@ -188,8 +186,7 @@ class _LazyColorFormat(ColorFormat):
         cf = self._color_or_none()
         if cf is None:
             raise ValueError(
-                "can't set alpha when color.type is None."
-                " Set color.rgb or .theme_color first."
+                "can't set alpha when color.type is None. Set color.rgb or .theme_color first."
             )
         cf.alpha = value
 
@@ -203,8 +200,7 @@ class _LazyColorFormat(ColorFormat):
         cf = self._color_or_none()
         if cf is None:
             raise ValueError(
-                "can't set brightness when color.type is None."
-                " Set color.rgb or .theme_color first."
+                "can't set brightness when color.type is None. Set color.rgb or .theme_color first."
             )
         cf.brightness = value
 
@@ -353,9 +349,7 @@ class _NoneColor(_Color):
 
     @alpha.setter
     def alpha(self, value):
-        raise AttributeError(
-            "no .alpha property on color type '%s'" % self.__class__.__name__
-        )
+        raise AttributeError("no .alpha property on color type '%s'" % self.__class__.__name__)
 
     @property
     def color_type(self):

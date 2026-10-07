@@ -128,8 +128,7 @@ class _SlideImporter:
         not yet in the package graph that have already been reserved in this run."""
         prefix = tmpl[: (tmpl % 42).find("42")]
         existing = {
-            p.partname for p in self._dst_package.iter_parts()
-            if p.partname.startswith(prefix)
+            p.partname for p in self._dst_package.iter_parts() if p.partname.startswith(prefix)
         }
         taken = existing | {pn for pn in self._reserved_partnames if pn.startswith(prefix)}
         n = 1
@@ -391,9 +390,7 @@ class _SlideImporter:
         id_map: dict[str, str] = {}
         for rel in src_part.rels.values():
             if rel.is_external:
-                id_map[rel.rId] = dst_part.relate_to(
-                    rel.target_ref, rel.reltype, is_external=True
-                )
+                id_map[rel.rId] = dst_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
                 continue
             if rel.reltype in _MASTER_HIERARCHY_RELTYPES:
                 continue

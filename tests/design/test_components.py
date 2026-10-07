@@ -243,9 +243,7 @@ class DescribeAddStatusPill:
         assert isinstance(pill, StatusPill)
         assert pill.pill is not None
         assert pill.label is not None
-        assert (
-            pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
-        )
+        assert pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
 
     def it_honours_explicit_accent(self, slide):
         pill = add_status_pill(

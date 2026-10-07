@@ -411,7 +411,9 @@ class DescribeBaseShape(object):
 
     @pytest.fixture
     def ActionSetting_(self, request, action_setting_):
-        return class_mock(request, "power_pptx.shapes.base.ActionSetting", return_value=action_setting_)
+        return class_mock(
+            request, "power_pptx.shapes.base.ActionSetting", return_value=action_setting_
+        )
 
     @pytest.fixture
     def action_setting_(self, request):

@@ -861,9 +861,7 @@ class _LineChartXmlWriter(_BaseChartXmlWriter):
         no_marker_types = (XL.LINE, XL.LINE_STACKED, XL.LINE_STACKED_100)
         if self._chart_type in no_marker_types:
             return (
-                "          <c:marker>\n"
-                '            <c:symbol val="none"/>\n'
-                "          </c:marker>\n"
+                '          <c:marker>\n            <c:symbol val="none"/>\n          </c:marker>\n'
             )
         return ""
 
@@ -1053,9 +1051,7 @@ class _RadarChartXmlWriter(_BaseChartXmlWriter):
     def _marker_xml(self):
         if self._chart_type == XL_CHART_TYPE.RADAR:
             return (
-                "          <c:marker>\n"
-                '            <c:symbol val="none"/>\n'
-                "          </c:marker>\n"
+                '          <c:marker>\n            <c:symbol val="none"/>\n          </c:marker>\n'
             )
         return ""
 
@@ -1180,9 +1176,7 @@ class _XyChartXmlWriter(_BaseChartXmlWriter):
         )
         if self._chart_type in no_marker_types:
             return (
-                "          <c:marker>\n"
-                '            <c:symbol val="none"/>\n'
-                "          </c:marker>\n"
+                '          <c:marker>\n            <c:symbol val="none"/>\n          </c:marker>\n'
             )
         return ""
 
@@ -1557,7 +1551,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
 
         xml = ""
         for level in categories.levels:
-            xml += ("                <c:lvl>\n" "{lvl_pt_xml}" "                </c:lvl>\n").format(
+            xml += ("                <c:lvl>\n{lvl_pt_xml}                </c:lvl>\n").format(
                 **{"lvl_pt_xml": lvl_pt_xml(level)}
             )
         return xml
@@ -1717,7 +1711,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
         The template for the ``<c:xVal>`` element for this series, containing
         the X values and their spreadsheet range reference.
         """
-        return "          <c:xVal{nsdecls}>\n" "{numRef_xml}" "          </c:xVal>\n"
+        return "          <c:xVal{nsdecls}>\n{numRef_xml}          </c:xVal>\n"
 
     @property
     def _yVal_tmpl(self):
@@ -1725,7 +1719,7 @@ class _XySeriesXmlWriter(_BaseSeriesXmlWriter):
         The template for the ``<c:yVal>`` element for this series, containing
         the Y values and their spreadsheet range reference.
         """
-        return "          <c:yVal{nsdecls}>\n" "{numRef_xml}" "          </c:yVal>\n"
+        return "          <c:yVal{nsdecls}>\n{numRef_xml}          </c:yVal>\n"
 
 
 class _BubbleSeriesXmlWriter(_XySeriesXmlWriter):
@@ -1777,7 +1771,7 @@ class _BubbleSeriesXmlWriter(_XySeriesXmlWriter):
         containing the bubble size values and their spreadsheet range
         reference.
         """
-        return "          <c:bubbleSize{nsdecls}>\n" "{numRef_xml}" "          </c:bubbleSize>\n"
+        return "          <c:bubbleSize{nsdecls}>\n{numRef_xml}          </c:bubbleSize>\n"
 
 
 class _BubbleSeriesXmlRewriter(_BaseSeriesXmlRewriter):

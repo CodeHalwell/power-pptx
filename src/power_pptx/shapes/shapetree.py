@@ -100,8 +100,7 @@ def _resolve_anchor(anchor: str) -> tuple[str, str]:
         return ("middle", "center")
     if "-" not in raw:
         raise ValueError(
-            f"anchor must be 'center' or 'vertical-horizontal' "
-            f"(e.g. 'top-right'); got {anchor!r}"
+            f"anchor must be 'center' or 'vertical-horizontal' (e.g. 'top-right'); got {anchor!r}"
         )
     parts = [p.strip() for p in raw.split("-", 1)]
     v, h = parts[0], parts[1]
@@ -110,8 +109,7 @@ def _resolve_anchor(anchor: str) -> tuple[str, str]:
         v = "middle"
     if v not in _VERTICAL_ANCHORS or h not in _HORIZONTAL_ANCHORS:
         raise ValueError(
-            f"anchor must be one of top|middle|bottom dash "
-            f"left|center|right; got {anchor!r}"
+            f"anchor must be one of top|middle|bottom dash left|center|right; got {anchor!r}"
         )
     # Normalise "centre" → "center" on the horizontal half.
     if h == "centre":
@@ -195,9 +193,7 @@ def _container_box(shapetree, container) -> tuple[int, int, int, int]:
             return (0, 0, int(prs.slide_width), int(prs.slide_height))
         except AttributeError:
             pass
-    raise ValueError(
-        "container must be None, a slide, or a shape with .width/.height"
-    )
+    raise ValueError("container must be None, a slide, or a shape with .width/.height")
 
 
 def _container_extents(shapetree, container) -> tuple[int, int]:
@@ -343,10 +339,7 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
 
     box = _endpoint_box(target)
     if box is None:
-        raise TypeError(
-            "arrow endpoint must be (x, y), a Shape, or a BBox; got %r"
-            % (target,)
-        )
+        raise TypeError("arrow endpoint must be (x, y), a Shape, or a BBox; got %r" % (target,))
     left, top, width, height = box
 
     if side in (None, "auto"):
@@ -377,9 +370,7 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
         return (left + width // 2, top + inset_emu)
     if side == "bottom":
         return (left + width // 2, top + height - inset_emu)
-    raise ValueError(
-        f"side must be 'top'/'right'/'bottom'/'left'/'auto'; got {side!r}"
-    )
+    raise ValueError(f"side must be 'top'/'right'/'bottom'/'left'/'auto'; got {side!r}")
 
 
 class _BaseShapes(ParentedElementProxy):
@@ -626,7 +617,8 @@ class _BaseGroupShapes(_BaseShapes):
         grpSp = self._element.add_grpSp()
         for shape in shapes:
             grpSp.insert_element_before(
-                shape._element, "p:extLst"  # pyright: ignore[reportPrivateUsage]
+                shape._element,
+                "p:extLst",  # pyright: ignore[reportPrivateUsage]
             )
         if shapes:
             grpSp.recalculate_extents()
@@ -950,9 +942,7 @@ class _BaseGroupShapes(_BaseShapes):
 
         if margin_pt is not None:
             if isinstance(margin_pt, (tuple, list)) and len(margin_pt) != 4:
-                raise ValueError(
-                    "margin_pt tuple must have 4 elements (top, right, bottom, left)"
-                )
+                raise ValueError("margin_pt tuple must have 4 elements (top, right, bottom, left)")
             apply_margins(tf, margin_pt)
 
         if anchor is not None:
@@ -1031,9 +1021,7 @@ class _BaseGroupShapes(_BaseShapes):
             "curved": MSO_CONNECTOR_TYPE.CURVE,
         }
         if route not in _CONNECTOR:
-            raise ValueError(
-                f"route must be one of {sorted(_CONNECTOR)}; got {route!r}"
-            )
+            raise ValueError(f"route must be one of {sorted(_CONNECTOR)}; got {route!r}")
 
         _DASH = {
             "solid": MSO_LINE_DASH_STYLE.SOLID,
@@ -1041,9 +1029,7 @@ class _BaseGroupShapes(_BaseShapes):
             "dotted": MSO_LINE_DASH_STYLE.ROUND_DOT,
         }
         if style not in _DASH:
-            raise ValueError(
-                f"style must be one of {sorted(_DASH)}; got {style!r}"
-            )
+            raise ValueError(f"style must be one of {sorted(_DASH)}; got {style!r}")
 
         _END_TYPE = {
             None: MSO_LINE_END_TYPE.NONE,
@@ -1085,15 +1071,13 @@ class _BaseGroupShapes(_BaseShapes):
         head_size_key = _norm(head_size)
         tail_size_key = _norm(tail_size)
         if head_size_key not in _END_SIZE:
-            raise ValueError(
-                f"head_size must be one of {sorted(_END_SIZE)}; got {head_size!r}"
-            )
+            raise ValueError(f"head_size must be one of {sorted(_END_SIZE)}; got {head_size!r}")
         if tail_size_key not in _END_SIZE:
-            raise ValueError(
-                f"tail_size must be one of {sorted(_END_SIZE)}; got {tail_size!r}"
-            )
+            raise ValueError(f"tail_size must be one of {sorted(_END_SIZE)}; got {tail_size!r}")
 
-        bx, by = _resolve_endpoint(start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt)))
+        bx, by = _resolve_endpoint(
+            start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt))
+        )
         ex, ey = _resolve_endpoint(end, opposite=start, side=end_side, inset_emu=int(Pt(inset_pt)))
 
         conn = self.add_connector(_CONNECTOR[route], bx, by, ex, ey)

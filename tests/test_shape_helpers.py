@@ -23,24 +23,32 @@ def slide():
 
 class DescribeFillHex:
     def it_sets_a_solid_fill_from_hex(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
         rect.fill_hex("#0B5CFF")
         assert str(rect.fill.fore_color.rgb) == "0B5CFF"
 
     def it_returns_self_for_chaining(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
         result = rect.fill_hex("#0B5CFF")
         assert result is rect
 
     def it_accepts_hex_without_hash(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
         rect.fill_hex("0B5CFF")
         assert str(rect.fill.fore_color.rgb) == "0B5CFF"
 
 
 class DescribeLineHex:
     def it_sets_line_color_and_width(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
         rect.line_hex("#0D0D0D", weight_pt=2.0)
         assert str(rect.line.color.rgb) == "0D0D0D"
         assert int(rect.line.width) == int(Pt(2.0))
@@ -71,7 +79,10 @@ class DescribeAddText:
 
     def it_accepts_positional_lengths(self, slide):
         tx = slide.shapes.add_text(
-            Inches(1), Inches(2), Inches(3), Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(3),
+            Inches(1),
             text="positional",
         )
         assert tx.text_frame.text == "positional"
@@ -107,7 +118,11 @@ class DescribeSetTextPreservingFormat:
 
     def it_preserves_format_across_multiple_lines(self, slide):
         tx = slide.shapes.add_text(
-            BBox.from_inches(0, 0, 4, 2), text="<x>", font="Inter", size_pt=14, bold=True,
+            BBox.from_inches(0, 0, 4, 2),
+            text="<x>",
+            font="Inter",
+            size_pt=14,
+            bold=True,
         )
         tx.set_text_preserving_format("a\nb\nc")
         assert len(tx.text_frame.paragraphs) == 3
@@ -156,28 +171,32 @@ class DescribeAddArrow:
     def it_rejects_unknown_head(self, slide):
         with pytest.raises(ValueError):
             slide.shapes.add_arrow(
-                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                (Inches(0), Inches(0)),
+                (Inches(5), Inches(0)),
                 head="curly",
             )
 
     def it_rejects_unknown_tail(self, slide):
         with pytest.raises(ValueError):
             slide.shapes.add_arrow(
-                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                (Inches(0), Inches(0)),
+                (Inches(5), Inches(0)),
                 tail="splash",
             )
 
     def it_rejects_unknown_head_size(self, slide):
         with pytest.raises(ValueError):
             slide.shapes.add_arrow(
-                (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+                (Inches(0), Inches(0)),
+                (Inches(5), Inches(0)),
                 head_size="huge",
             )
 
     def it_normalises_case_for_head(self, slide):
         # "TRIANGLE" should be accepted equivalently to "triangle".
         arrow = slide.shapes.add_arrow(
-            (Inches(0), Inches(0)), (Inches(5), Inches(0)),
+            (Inches(0), Inches(0)),
+            (Inches(5), Inches(0)),
             head="TRIANGLE",
         )
         assert arrow.line.tail_end.type == MSO_LINE_END_TYPE.TRIANGLE
@@ -226,14 +245,21 @@ class DescribePictureEnclosingContainer:
         # picture, not push the bottom edge up onto the title strip.
         slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(1), Inches(1), Inches(6), Inches(5),   # outer card
+            Inches(1),
+            Inches(1),
+            Inches(6),
+            Inches(5),  # outer card
         )
         slide.shapes.add_text(
-            BBox.from_inches(1.2, 1.2, 5.6, 0.6),         # title strip
+            BBox.from_inches(1.2, 1.2, 5.6, 0.6),  # title strip
             text="Architecture",
         )
         picture = self._make_picture(
-            slide, Inches(1.5), Inches(2), Inches(5), Inches(3.5),
+            slide,
+            Inches(1.5),
+            Inches(2),
+            Inches(5),
+            Inches(3.5),
         )
         container = picture.enclosing_container()
         assert container is not None

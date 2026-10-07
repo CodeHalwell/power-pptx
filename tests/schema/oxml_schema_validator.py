@@ -217,13 +217,9 @@ def _iter_content_type_violations(zf, names) -> "Iterator[tuple[str, str]]":
         yield ("[Content_Types].xml", "not well-formed XML: %s" % exc)
         return
     defaults = {
-        e.get("Extension").lower()
-        for e in ct.iter("{%s}Default" % _CT_NS)
-        if e.get("Extension")
+        e.get("Extension").lower() for e in ct.iter("{%s}Default" % _CT_NS) if e.get("Extension")
     }
-    overrides = {
-        e.get("PartName") for e in ct.iter("{%s}Override" % _CT_NS) if e.get("PartName")
-    }
+    overrides = {e.get("PartName") for e in ct.iter("{%s}Override" % _CT_NS) if e.get("PartName")}
     for part in names:
         if part.endswith("/") or part == "[Content_Types].xml":
             continue
@@ -351,9 +347,9 @@ def _iter_orphan_slide_violations(zf, names) -> "Iterator[tuple[str, str]]":
     except (KeyError, etree.XMLSyntaxError):
         return  # reported by the content/rels passes
     rel_targets = {
-        rel.get("Id"): posixpath.normpath(
-            posixpath.join("ppt", rel.get("Target") or "")
-        ).lstrip("/")
+        rel.get("Id"): posixpath.normpath(posixpath.join("ppt", rel.get("Target") or "")).lstrip(
+            "/"
+        )
         for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)
         if rel.get("TargetMode") != "External"
     }
@@ -447,6 +443,4 @@ def assert_schema_valid(pptx: Union[str, Path, bytes, "io.BytesIO"]) -> None:
     violations = list(iter_schema_violations(pptx))
     if violations:
         detail = "\n".join("  [%s] %s" % (part, msg) for part, msg in violations)
-        raise AssertionError(
-            "%d OOXML schema violation(s):\n%s" % (len(violations), detail)
-        )
+        raise AssertionError("%d OOXML schema violation(s):\n%s" % (len(violations), detail))

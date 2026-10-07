@@ -80,16 +80,12 @@ class BBox:
         return cls(shape.left, shape.top, shape.width, shape.height)
 
     @classmethod
-    def from_inches(
-        cls, left: float, top: float, width: float, height: float
-    ) -> "BBox":
+    def from_inches(cls, left: float, top: float, width: float, height: float) -> "BBox":
         """Construct a BBox with positions in inches."""
         return cls(Inches(left), Inches(top), Inches(width), Inches(height))
 
     @classmethod
-    def from_emu(
-        cls, left: int, top: int, width: int, height: int
-    ) -> "BBox":
+    def from_emu(cls, left: int, top: int, width: int, height: int) -> "BBox":
         """Construct a BBox with positions in raw EMU."""
         return cls(Emu(left), Emu(top), Emu(width), Emu(height))
 
@@ -214,9 +210,7 @@ class BBox:
 
     # -------------------------------------------------------------- splits
 
-    def split_h(
-        self, ratios: Sequence[float], gap: int = 0
-    ) -> list["BBox"]:
+    def split_h(self, ratios: Sequence[float], gap: int = 0) -> list["BBox"]:
         """Split horizontally into N columns with the given ratios.
 
         ``ratios=[1, 1]`` produces two equal columns; ``[2, 1]`` makes
@@ -225,9 +219,7 @@ class BBox:
         """
         return _split(self, ratios, gap, axis="h")
 
-    def split_v(
-        self, ratios: Sequence[float], gap: int = 0
-    ) -> list["BBox"]:
+    def split_v(self, ratios: Sequence[float], gap: int = 0) -> list["BBox"]:
         """Split vertically into N rows with the given ratios."""
         return _split(self, ratios, gap, axis="v")
 
@@ -265,9 +257,7 @@ class BBox:
     ) -> list["BBox"]:
         """Return a flat list of ``cols * rows`` equal cells (row-major)."""
         if cols < 1 or rows < 1:
-            raise ValueError(
-                f"cols and rows must be >= 1; got cols={cols}, rows={rows}"
-            )
+            raise ValueError(f"cols and rows must be >= 1; got cols={cols}, rows={rows}")
         col_boxes = _split(self, [1] * cols, gap_x, axis="h")
         # Pre-split each column into rows once; flatten in row-major order.
         col_rows = [_split(cb, [1] * rows, gap_y, axis="v") for cb in col_boxes]
@@ -351,9 +341,7 @@ def _resolve_inset(
     return default
 
 
-def _split(
-    box: BBox, ratios: Sequence[float], gap: int, *, axis: str
-) -> list[BBox]:
+def _split(box: BBox, ratios: Sequence[float], gap: int, *, axis: str) -> list[BBox]:
     if not ratios:
         raise ValueError("ratios must not be empty")
     if any(r < 0 for r in ratios):

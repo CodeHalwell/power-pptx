@@ -18,9 +18,7 @@ class DescribeTypographyToken:
         assert t.bold is None
 
     def it_builds_from_a_dict(self):
-        t = TypographyToken.from_value(
-            {"family": "Inter", "size": Pt(14), "bold": True}
-        )
+        t = TypographyToken.from_value({"family": "Inter", "size": Pt(14), "bold": True})
         assert t.family == "Inter"
         assert t.size == Pt(14)
         assert t.bold is True
@@ -62,9 +60,7 @@ class DescribeShadowToken:
 
 class DescribeDesignTokensFromDict:
     def it_coerces_palette_entries_from_hex_strings(self):
-        tokens = DesignTokens.from_dict(
-            {"palette": {"primary": "#3C2F80", "secondary": "FF6600"}}
-        )
+        tokens = DesignTokens.from_dict({"palette": {"primary": "#3C2F80", "secondary": "FF6600"}})
         assert tokens.palette["primary"] == RGBColor(0x3C, 0x2F, 0x80)
         assert tokens.palette["secondary"] == RGBColor(0xFF, 0x66, 0x00)
 
@@ -98,9 +94,7 @@ class DescribeDesignTokensFromDict:
 
 class DescribeDesignTokensMerge:
     def it_overlays_other_on_self(self):
-        base = DesignTokens.from_dict(
-            {"palette": {"primary": "#000000", "secondary": "#FFFFFF"}}
-        )
+        base = DesignTokens.from_dict({"palette": {"primary": "#000000", "secondary": "#FFFFFF"}})
         override = DesignTokens.from_dict({"palette": {"primary": "#FF0000"}})
         merged = base.merge(override)
         assert merged.palette["primary"] == RGBColor(0xFF, 0, 0)
@@ -183,14 +177,18 @@ class DescribeNestedDictOverrides:
         from power_pptx.design.tokens import DesignTokens
         from power_pptx.util import Pt
 
-        tokens = DesignTokens.from_dict({
-            "palette": {"primary": "#000000"},
-            "typography": {"heading": {"family": "Inter", "size": 24}},
-        })
-        result = tokens.with_overrides({
-            "palette": {"primary": "#FF6600"},
-            "typography": {"heading": {"size": Pt(40)}},
-        })
+        tokens = DesignTokens.from_dict(
+            {
+                "palette": {"primary": "#000000"},
+                "typography": {"heading": {"family": "Inter", "size": 24}},
+            }
+        )
+        result = tokens.with_overrides(
+            {
+                "palette": {"primary": "#FF6600"},
+                "typography": {"heading": {"size": Pt(40)}},
+            }
+        )
         assert str(result.palette["primary"]) == "FF6600"
         assert result.typography["heading"].size == Pt(40)
 
@@ -199,10 +197,12 @@ class DescribeNestedDictOverrides:
         from power_pptx.util import Pt
 
         tokens = DesignTokens.from_dict({"palette": {"primary": "#000000"}})
-        result = tokens.with_overrides({
-            "palette.primary": "#11AA22",
-            "typography.heading.size": Pt(20),
-        })
+        result = tokens.with_overrides(
+            {
+                "palette.primary": "#11AA22",
+                "typography.heading.size": Pt(20),
+            }
+        )
         assert str(result.palette["primary"]) == "11AA22"
         assert result.typography["heading"].size == Pt(20)
 
@@ -211,10 +211,12 @@ class DescribeNestedDictOverrides:
         from power_pptx.util import Pt
 
         tokens = DesignTokens.from_dict({"palette": {"primary": "#000000"}})
-        result = tokens.with_overrides({
-            "palette.primary": "#AA00BB",
-            "typography": {"heading": {"size": Pt(28)}},
-        })
+        result = tokens.with_overrides(
+            {
+                "palette.primary": "#AA00BB",
+                "typography": {"heading": {"size": Pt(28)}},
+            }
+        )
         assert str(result.palette["primary"]) == "AA00BB"
         assert result.typography["heading"].size == Pt(28)
 
@@ -224,9 +226,21 @@ class DescribeNestedDictOverrides:
 # ---------------------------------------------------------------------------
 
 _FROM_SEED_KEYS = {
-    "primary", "secondary", "accent", "neutral", "muted", "surface",
-    "background", "text", "on_primary", "lt1", "lt2",
-    "positive", "negative", "success", "danger",
+    "primary",
+    "secondary",
+    "accent",
+    "neutral",
+    "muted",
+    "surface",
+    "background",
+    "text",
+    "on_primary",
+    "lt1",
+    "lt2",
+    "positive",
+    "negative",
+    "success",
+    "danger",
 }
 
 
@@ -270,9 +284,7 @@ class DescribeDesignTokensFromSeed:
 
 
 class DescribeValidateColorBlindness:
-    @pytest.mark.parametrize(
-        "kind", ["deuteranopia", "protanopia", "tritanopia"]
-    )
+    @pytest.mark.parametrize("kind", ["deuteranopia", "protanopia", "tritanopia"])
     def it_returns_a_list_of_pairs(self, kind):
         tokens = DesignTokens.from_seed("#3B5BDB")
         result = tokens.validate_color_blindness(kind)
@@ -285,9 +297,7 @@ class DescribeValidateColorBlindness:
     def it_flags_a_known_red_green_confusion(self):
         # A saturated red and a saturated green — distinct to typical
         # vision, classically confusable under deuteranopia.
-        tokens = DesignTokens.from_dict(
-            {"palette": {"go": "#22AA22", "stop": "#CC2222"}}
-        )
+        tokens = DesignTokens.from_dict({"palette": {"go": "#22AA22", "stop": "#CC2222"}})
         pairs = tokens.validate_color_blindness("deuteranopia")
         assert ("go", "stop") in pairs
 

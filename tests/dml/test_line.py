@@ -316,9 +316,7 @@ class DescribeLineFormat(object):
         line.head_end.width = MSO_LINE_END_SIZE.LARGE
         line.head_end.length = MSO_LINE_END_SIZE.MEDIUM
 
-        assert spPr.xml == xml(
-            "p:spPr{a:b=c}/a:ln/a:headEnd{type=arrow,w=lg,len=med}"
-        )
+        assert spPr.xml == xml("p:spPr{a:b=c}/a:ln/a:headEnd{type=arrow,w=lg,len=med}")
         assert line.head_end.type == MSO_LINE_END_TYPE.ARROW
         assert line.head_end.width == MSO_LINE_END_SIZE.LARGE
         assert line.head_end.length == MSO_LINE_END_SIZE.MEDIUM

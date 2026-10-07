@@ -49,7 +49,10 @@ class DescribeBBox:
         bb = BBox.from_inches(0, 0, 10, 10)
         inner = bb.inset(all=Inches(1))
         assert (inner.left, inner.top, inner.width, inner.height) == (
-            Inches(1), Inches(1), Inches(8), Inches(8),
+            Inches(1),
+            Inches(1),
+            Inches(8),
+            Inches(8),
         )
 
     def it_insets_per_edge(self):
@@ -115,14 +118,18 @@ class DescribeBBox:
             BBox.from_inches(0, 0, -1, 1)
 
     def it_applies_to_shape(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(1))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(1)
+        )
         bb = BBox.from_inches(2, 3, 4, 5)
         bb.apply_to(rect)
         assert rect.left == Inches(2)
         assert rect.width == Inches(4)
 
     def it_constructs_from_shape(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(3), Inches(4))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(3), Inches(4)
+        )
         bb = BBox.from_shape(rect)
         assert bb.left == Inches(1)
         assert bb.right == Inches(4)
@@ -137,7 +144,9 @@ class DescribeBBox:
 
 class DescribeShapeBboxProperty:
     def it_returns_a_bbox(self, slide):
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(3), Inches(4))
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(3), Inches(4)
+        )
         assert isinstance(rect.bbox, BBox)
         assert rect.bbox.left == Inches(1)
 
@@ -160,7 +169,7 @@ class DescribeSplitPreservesSpan:
 
     def it_splits_with_gap_preserving_total_layout_span(self):
         bb = BBox.from_inches(0, 0, 10, 1)
-        gap = int(Pt(7))   # awkward odd number to stress rounding
+        gap = int(Pt(7))  # awkward odd number to stress rounding
         cols = bb.split_h([1, 1, 1], gap=gap)
         total = sum(int(c.width) for c in cols) + gap * (len(cols) - 1)
         assert total == int(bb.width)
@@ -170,11 +179,11 @@ class DescribeIntersectsTouching:
     def it_does_not_treat_edge_touching_as_intersection(self):
         # The docstring promises touching edges do NOT intersect.
         a = BBox.from_inches(0, 0, 2, 2)
-        b = BBox.from_inches(2, 0, 2, 2)   # shares right/left edge
+        b = BBox.from_inches(2, 0, 2, 2)  # shares right/left edge
         assert not a.intersects(b)
-        c = BBox.from_inches(0, 2, 2, 2)   # shares top/bottom edge
+        c = BBox.from_inches(0, 2, 2, 2)  # shares top/bottom edge
         assert not a.intersects(c)
-        d = BBox.from_inches(2, 2, 2, 2)   # corner touch
+        d = BBox.from_inches(2, 2, 2, 2)  # corner touch
         assert not a.intersects(d)
 
 

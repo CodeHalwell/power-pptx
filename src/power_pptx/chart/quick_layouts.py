@@ -199,12 +199,8 @@ def _resolve_layout(layout) -> dict[str, Any]:
         try:
             return dict(QUICK_LAYOUTS[layout])
         except KeyError:
-            raise ValueError(
-                "unknown quick layout %r; choose from %r" % (layout, layout_names())
-            )
-    raise TypeError(
-        "layout must be a name or spec mapping, got %s" % type(layout).__name__
-    )
+            raise ValueError("unknown quick layout %r; choose from %r" % (layout, layout_names()))
+    raise TypeError("layout must be a name or spec mapping, got %s" % type(layout).__name__)
 
 
 def _apply_title(chart, spec: Mapping[str, Any]) -> None:
@@ -254,13 +250,11 @@ def _coerce_legend_position(value: Any) -> XL_LEGEND_POSITION:
             return XL_LEGEND_POSITION(value)
         except ValueError:
             raise ValueError(
-                "legend_position int %r is not a valid XL_LEGEND_POSITION "
-                "value" % value
+                "legend_position int %r is not a valid XL_LEGEND_POSITION value" % value
             ) from None
     raise TypeError(
         "legend_position must be an XL_LEGEND_POSITION member, int value, "
-        "or string name (one of %s); got %r"
-        % (sorted(_LEGEND_POSITION_NAMES), value)
+        "or string name (one of %s); got %r" % (sorted(_LEGEND_POSITION_NAMES), value)
     )
 
 

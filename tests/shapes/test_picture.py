@@ -204,7 +204,9 @@ class DescribeMovie(object):
 
     @pytest.fixture
     def _MediaFormat_(self, request, media_format_):
-        return class_mock(request, "power_pptx.shapes.picture._MediaFormat", return_value=media_format_)
+        return class_mock(
+            request, "power_pptx.shapes.picture._MediaFormat", return_value=media_format_
+        )
 
     @pytest.fixture
     def media_format_(self, request):

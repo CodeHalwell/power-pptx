@@ -50,7 +50,7 @@ class CT_Background(BaseOxmlElement):
 
     def add_noFill_bgPr(self):
         """Return a new `p:bgPr` element with noFill properties."""
-        xml = "<p:bgPr %s>\n" "  <a:noFill/>\n" "  <a:effectLst/>\n" "</p:bgPr>" % nsdecls("a", "p")
+        xml = "<p:bgPr %s>\n  <a:noFill/>\n  <a:effectLst/>\n</p:bgPr>" % nsdecls("a", "p")
         bgPr = cast(CT_BackgroundProperties, parse_xml(xml))
         self._insert_bgPr(bgPr)
         return bgPr

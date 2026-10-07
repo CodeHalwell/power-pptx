@@ -67,8 +67,7 @@ class DescribeDataLabel(object):
             ),
             (
                 "c:ser{a:b=c}/c:dLbls/c:dLbl/(c:idx{val=9},c:txPr/(a:bodyPr,a:p))",
-                "c:ser{a:b=c}/c:dLbls/c:dLbl/(c:idx{val=9},c:txPr/(a:bodyPr,a:p/a:p"
-                "Pr/a:defRPr))",
+                "c:ser{a:b=c}/c:dLbls/c:dLbl/(c:idx{val=9},c:txPr/(a:bodyPr,a:p/a:pPr/a:defRPr))",
             ),
         ]
     )

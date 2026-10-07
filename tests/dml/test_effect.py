@@ -518,16 +518,12 @@ class DescribeShadowFormatClear(object):
         # EG_EffectProperties choice, so a sibling list would be schema-invalid
         # and would leave the DAG's own shadow rendering.
         shadow = ShadowFormat(
-            element(
-                "p:spPr/a:effectDag/(a:cont/(a:outerShdw,a:glow{rad=50800}),a:innerShdw)"
-            )
+            element("p:spPr/a:effectDag/(a:cont/(a:outerShdw,a:glow{rad=50800}),a:innerShdw)")
         )
 
         shadow.clear()
 
-        assert shadow._element.xml == xml(
-            "p:spPr/a:effectDag/a:cont/a:glow{rad=50800}"
-        )
+        assert shadow._element.xml == xml("p:spPr/a:effectDag/a:cont/a:glow{rad=50800}")
         assert shadow._element.effectLst is None
 
     def it_leaves_a_shape_without_a_style_element_alone(self):

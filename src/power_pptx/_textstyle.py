@@ -39,9 +39,7 @@ def coerce_align(value: str) -> PP_PARAGRAPH_ALIGNMENT:
     try:
         return ALIGN_MAP[str(value).lower()]
     except KeyError:
-        raise ValueError(
-            f"align must be one of {sorted(set(ALIGN_MAP))}; got {value!r}"
-        ) from None
+        raise ValueError(f"align must be one of {sorted(set(ALIGN_MAP))}; got {value!r}") from None
 
 
 def coerce_anchor(value: str) -> MSO_VERTICAL_ANCHOR:
@@ -59,10 +57,7 @@ def coerce_length(value: Any) -> Length:
     return value if isinstance(value, Length) else Pt(float(value))
 
 
-
-def apply_margins(
-    tf: Any, margin: float | Length | Sequence[float | Length] | None
-) -> None:
+def apply_margins(tf: Any, margin: float | Length | Sequence[float | Length] | None) -> None:
     """Set text-frame insets from a scalar or a ``(top, right, bottom, left)`` sequence.
 
     Scalars in points (or any :class:`~power_pptx.util.Length`) — ``0`` means
@@ -73,8 +68,7 @@ def apply_margins(
     if isinstance(margin, (tuple, list)):
         if len(margin) != 4:
             raise ValueError(
-                "margin tuple must have 4 elements (top, right, bottom, left); "
-                f"got {len(margin)}"
+                f"margin tuple must have 4 elements (top, right, bottom, left); got {len(margin)}"
             )
         top, right, bottom, left = (coerce_length(v) for v in margin)
     else:

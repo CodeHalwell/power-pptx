@@ -14,14 +14,17 @@ prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
 
 pic = slide.shapes.add_picture(
-    "hero.jpg", Inches(0), Inches(0),
-    width=prs.slide_width, height=prs.slide_height,
+    "hero.jpg",
+    Inches(0),
+    Inches(0),
+    width=prs.slide_width,
+    height=prs.slide_height,
 )
 
 # Continuous adjustments — all in [-1.0, 1.0] (or [0.0, 1.0] for transparency)
-pic.effects.transparency = 0.3        # 30% see-through
-pic.effects.brightness   = 0.10
-pic.effects.contrast     = 0.05
+pic.effects.transparency = 0.3  # 30% see-through
+pic.effects.brightness = 0.10
+pic.effects.contrast = 0.05
 ```
 
 ## Recolor presets
@@ -32,12 +35,12 @@ effect is left intact because the value is validated before it mutates.
 
 ```python
 pic.effects.recolor = "grayscale"
-pic.effects.recolor = "sepia"         # a preset duotone under the hood
-pic.effects.recolor = "washout"       # PowerPoint's "Washout"
-pic.effects.recolor = "duotone"       # neutral grey duotone; see below
-                                      # to pick your own two colours
+pic.effects.recolor = "sepia"  # a preset duotone under the hood
+pic.effects.recolor = "washout"  # PowerPoint's "Washout"
+pic.effects.recolor = "duotone"  # neutral grey duotone; see below
+# to pick your own two colours
 
-pic.effects.recolor                   # read it back: the mode, or None
+pic.effects.recolor  # read it back: the mode, or None
 ```
 
 There is no `"black_and_white"` mode. `"washout"` is the closest
@@ -47,8 +50,8 @@ equivalent.
 
 ```python
 pic.effects.set_duotone(
-    RGBColor(0x12, 0x1E, 0x4D),       # shadow color
-    "#A8C0FF",                         # highlight color (hex with or without '#')
+    RGBColor(0x12, 0x1E, 0x4D),  # shadow color
+    "#A8C0FF",  # highlight color (hex with or without '#')
 )
 
 # Plain RGB tuples are also accepted
@@ -58,7 +61,7 @@ pic.effects.set_duotone((18, 30, 77), (168, 192, 255))
 To clear, assign `None` — there is no `clear_recolor()` method:
 
 ```python
-pic.effects.recolor = None            # drops any duotone / grayscale / etc.
+pic.effects.recolor = None  # drops any duotone / grayscale / etc.
 ```
 
 ## Native SVG with PNG fallback
@@ -74,8 +77,10 @@ slide.shapes.add_svg_picture("logo.svg", Inches(0.5), Inches(0.5))
 # Bring your own fallback PNG
 slide.shapes.add_svg_picture(
     "logo.svg",
-    Inches(0.5), Inches(0.5),
-    width=Inches(1.5), height=Inches(1.5),
+    Inches(0.5),
+    Inches(0.5),
+    width=Inches(1.5),
+    height=Inches(1.5),
     png_fallback="logo.png",
 )
 ```
@@ -99,25 +104,32 @@ slide = prs.slides.add_slide(prs.slide_layouts[6])
 
 # Full-bleed hero image, duotoned to brand colors
 pic = slide.shapes.add_picture(
-    "hero.jpg", 0, 0,
-    width=prs.slide_width, height=prs.slide_height,
+    "hero.jpg",
+    0,
+    0,
+    width=prs.slide_width,
+    height=prs.slide_height,
 )
 pic.effects.set_duotone(RGBColor(0x12, 0x1E, 0x4D), "#A8C0FF")
 
 # Bottom band with overlay text
 band = slide.shapes.add_shape(
     MSO_SHAPE.RECTANGLE,
-    0, prs.slide_height - Inches(1.5),
-    prs.slide_width, Inches(1.5),
+    0,
+    prs.slide_height - Inches(1.5),
+    prs.slide_width,
+    Inches(1.5),
 )
 band.fill.solid()
-band.fill.fore_color.rgb   = RGBColor(0x12, 0x1E, 0x4D)
+band.fill.fore_color.rgb = RGBColor(0x12, 0x1E, 0x4D)
 band.fill.fore_color.alpha = 0.55
 band.line.fill.background()
 
 box = slide.shapes.add_textbox(
-    Inches(0.6), prs.slide_height - Inches(1.2),
-    prs.slide_width - Inches(1.2), Inches(0.9),
+    Inches(0.6),
+    prs.slide_height - Inches(1.2),
+    prs.slide_width - Inches(1.2),
+    Inches(0.9),
 )
 p = box.text_frame.paragraphs[0]
 p.text = "Q4 2026"

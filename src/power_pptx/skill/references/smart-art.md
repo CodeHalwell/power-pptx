@@ -62,12 +62,12 @@ prs = Presentation("org-chart-template.pptx")
 slide = prs.slides[0]
 
 names = [
-    "Alex Halwell",       # CEO
-    "Priya Shah",         # COO
-    "Sam Tucker",         # CFO
-    "Lin Chen",           # CTO
-    "Jordan Reyes",       # CRO
-    "Morgan Patel",       # CMO
+    "Alex Halwell",  # CEO
+    "Priya Shah",  # COO
+    "Sam Tucker",  # CFO
+    "Lin Chen",  # CTO
+    "Jordan Reyes",  # CRO
+    "Morgan Patel",  # CMO
 ]
 slide.smart_art[0].set_text(names)
 

@@ -1107,9 +1107,7 @@ class DescribeCellTextDirectionIntegration(object):
 
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        table = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(6), Inches(3)
-        ).table
+        table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(6), Inches(3)).table
         table.cell(0, 0).text = "Header A"
         table.cell(0, 1).text = "Header B"
         table.cell(0, 0).text_direction = "rotate90"

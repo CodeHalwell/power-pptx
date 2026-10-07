@@ -12,41 +12,43 @@ construction (no JSON Schema is involved):
 ```python
 from power_pptx.compose import from_spec
 
-prs = from_spec({
-    # 16:9 widescreen — the modern default. Other shorthands:
-    # "4:3", "16:10", "a4", "letter". Or pass an (w, h) pair / dict
-    # in inches.
-    "slide_size": "16:9",
-    # Brand tokens. Inline dict / preset / yaml / DesignTokens — all
-    # supported. ``"theme"`` is a friendly alias when ``"tokens"`` is
-    # absent.
-    "tokens": {"preset": "modern_light"},
-    "slides": [
-        {
-            "layout": "title",
-            "title": "Q4 Review",
-            "subtitle": "April 2026",
-            "transition": "morph",
-        },
-        {
-            "layout": "kpi",
-            "title": "Run-rate metrics",
-            "kpis": [
-                {"label": "ARR", "value": "$182M", "delta": +0.27},
-                {"label": "NDR", "value": "131%",  "delta": +0.03},
-            ],
-        },
-        {
-            "layout": "bullets",
-            "title": "Customer impact",
-            "bullets": [
-                "Two flagship customers shipped this week.",
-                "NPS improved 8 points QoQ.",
-            ],
-        },
-    ],
-    "lint": "raise",                       # fail loudly on bad output
-})
+prs = from_spec(
+    {
+        # 16:9 widescreen — the modern default. Other shorthands:
+        # "4:3", "16:10", "a4", "letter". Or pass an (w, h) pair / dict
+        # in inches.
+        "slide_size": "16:9",
+        # Brand tokens. Inline dict / preset / yaml / DesignTokens — all
+        # supported. ``"theme"`` is a friendly alias when ``"tokens"`` is
+        # absent.
+        "tokens": {"preset": "modern_light"},
+        "slides": [
+            {
+                "layout": "title",
+                "title": "Q4 Review",
+                "subtitle": "April 2026",
+                "transition": "morph",
+            },
+            {
+                "layout": "kpi",
+                "title": "Run-rate metrics",
+                "kpis": [
+                    {"label": "ARR", "value": "$182M", "delta": +0.27},
+                    {"label": "NDR", "value": "131%", "delta": +0.03},
+                ],
+            },
+            {
+                "layout": "bullets",
+                "title": "Customer impact",
+                "bullets": [
+                    "Two flagship customers shipped this week.",
+                    "NPS improved 8 points QoQ.",
+                ],
+            },
+        ],
+        "lint": "raise",  # fail loudly on bad output
+    }
+)
 
 prs.save("q4-review.pptx")
 ```
@@ -105,12 +107,25 @@ layout doesn't provide, a slide entry may carry a `shapes` list, applied
 {
     "layout": "blank",
     "shapes": [
-        {"name": "card", "shape": "rounded_rectangle",
-         "left": 1, "top": 1, "width": 4, "height": 2,
-         "layer": "card"},
-        {"name": "badge", "shape": "oval", "text": "NEW",
-         "left": 4.4, "top": 0.7, "width": 1.2, "height": 0.8,
-         "layer_above": "card"},
+        {
+            "name": "card",
+            "shape": "rounded_rectangle",
+            "left": 1,
+            "top": 1,
+            "width": 4,
+            "height": 2,
+            "layer": "card",
+        },
+        {
+            "name": "badge",
+            "shape": "oval",
+            "text": "NEW",
+            "left": 4.4,
+            "top": 0.7,
+            "width": 1.2,
+            "height": 0.8,
+            "layer_above": "card",
+        },
     ],
 }
 ```
@@ -195,12 +210,13 @@ from power_pptx import Presentation
 from power_pptx.compose import import_slide, apply_template, from_spec
 
 # 1. Generate the body slides from data
-body = from_spec({
-    "slides": [
-        {"layout": "kpi_grid", "title": team["name"], "kpis": team["kpis"]}
-        for team in teams
-    ],
-})
+body = from_spec(
+    {
+        "slides": [
+            {"layout": "kpi_grid", "title": team["name"], "kpis": team["kpis"]} for team in teams
+        ],
+    }
+)
 
 # 2. Open the cover deck and append the body slides
 deck = Presentation("cover.pptx")
@@ -216,9 +232,7 @@ from power_pptx.exc import LintError
 errors = []
 for slide in deck.slides:
     slide.lint().auto_fix()
-    errors.extend(
-        i for i in slide.lint().issues if i.severity.value == "error"
-    )
+    errors.extend(i for i in slide.lint().issues if i.severity.value == "error")
 if errors:
     raise LintError("; ".join(str(e) for e in errors))
 

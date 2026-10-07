@@ -188,7 +188,7 @@ class Describe_BaseShapes(object):
             "chart,idx=42,orient=vert,sz=half}),p:spPr)"
         )
         placeholder_.element = element(
-            "p:sp/p:nvSpPr/p:nvPr/p:ph{type=chart,idx=42,orient=vert,sz=half" "}"
+            "p:sp/p:nvSpPr/p:nvPr/p:ph{type=chart,idx=42,orient=vert,sz=half}"
         )
         return shapes, placeholder_, expected_xml
 
@@ -239,7 +239,7 @@ class Describe_BaseShapes(object):
             ("p:spTree/p:nvSpPr/(p:cNvPr{id=foo},p:cNvPr{id=2})", 3),
             ("p:spTree/p:nvSpPr/(p:cNvPr{id=1fo},p:cNvPr{id=2})", 3),
             (
-                "p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=1},p:" "cNvPr{id=1},p:cNvPr{id=4})",
+                "p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=1},p:cNvPr{id=1},p:cNvPr{id=4})",
                 5,
             ),
         ]
@@ -264,7 +264,7 @@ class Describe_BaseShapes(object):
     )
     def ph_name_fixture(self, request):
         ph_type, sp_id, orient, expected_name = request.param
-        spTree = element("p:spTree/(p:cNvPr{name=Title 1},p:cNvPr{name=Table Placeholder " "3})")
+        spTree = element("p:spTree/(p:cNvPr{name=Title 1},p:cNvPr{name=Table Placeholder 3})")
         shapes = SlideShapes(spTree, None)
         return shapes, ph_type, sp_id, orient, expected_name
 
@@ -1395,7 +1395,9 @@ class DescribeSlideShapes(object):
 
     @pytest.fixture
     def _MoviePicElementCreator_(self, request):
-        return class_mock(request, "power_pptx.shapes.shapetree._MoviePicElementCreator", autospec=True)
+        return class_mock(
+            request, "power_pptx.shapes.shapetree._MoviePicElementCreator", autospec=True
+        )
 
     @pytest.fixture
     def _next_shape_id_prop_(self, request, shape_id_):
@@ -1824,7 +1826,15 @@ class Describe_MoviePicElementCreator(object):
     ):
         BytesIO_ = class_mock(request, "power_pptx.shapes.shapetree.io.BytesIO")
         movie_pic_element_creator = _MoviePicElementCreator(
-            None, None, None, None, None, None, None, "image.png", None  # type: ignore
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "image.png",
+            None,  # type: ignore
         )
 
         image_file = movie_pic_element_creator._poster_frame_image_file
@@ -1836,9 +1846,19 @@ class Describe_MoviePicElementCreator(object):
         self, request: pytest.FixtureRequest
     ):
         stream_ = instance_mock(request, io.BytesIO)
-        BytesIO_ = class_mock(request, "power_pptx.shapes.shapetree.io.BytesIO", return_value=stream_)
+        BytesIO_ = class_mock(
+            request, "power_pptx.shapes.shapetree.io.BytesIO", return_value=stream_
+        )
         movie_pic_element_creator = _MoviePicElementCreator(
-            None, None, None, None, None, None, None, None, None  # type: ignore
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,  # type: ignore
         )
 
         image_file = movie_pic_element_creator._poster_frame_image_file
