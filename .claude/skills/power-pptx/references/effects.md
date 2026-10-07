@@ -19,10 +19,10 @@ from power_pptx.dml.color import RGBColor
 
 shadow = card.shadow
 shadow.blur_radius = Pt(8)
-shadow.distance    = Pt(4)
-shadow.direction   = 90.0          # degrees, 90 = down
-shadow.color.rgb   = RGBColor(0, 0, 0)
-shadow.color.alpha = 0.35          # 35% opacity
+shadow.distance = Pt(4)
+shadow.direction = 90.0  # degrees, 90 = down
+shadow.color.rgb = RGBColor(0, 0, 0)
+shadow.color.alpha = 0.35  # 35% opacity
 ```
 
 To restore inheritance, assign `None` to each property — the
@@ -39,7 +39,7 @@ properties and that inherited shadow is what you're left with: the
 
 ```python
 card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
-card.shadow.clear()          # flat card, guaranteed
+card.shadow.clear()  # flat card, guaranteed
 ```
 
 `clear()` drops every explicit shadow element (outer, inner, preset),
@@ -66,7 +66,7 @@ would produce a deck PowerPoint offers to repair.
 ## Glow
 
 ```python
-card.glow.radius   = Pt(6)
+card.glow.radius = Pt(6)
 card.glow.color.rgb = RGBColor(0x4F, 0x9D, 0xFF)
 ```
 
@@ -80,16 +80,16 @@ card.soft_edges.radius = Pt(3)
 
 ```python
 card.blur.radius = Pt(4)
-card.blur.grow   = True            # grow with the shape
+card.blur.grow = True  # grow with the shape
 ```
 
 ## Reflection
 
 ```python
 card.reflection.blur_radius = Pt(2)
-card.reflection.distance    = Pt(1)
+card.reflection.distance = Pt(1)
 card.reflection.start_alpha = 0.5
-card.reflection.end_alpha   = 0.0
+card.reflection.end_alpha = 0.0
 ```
 
 ## Combining for a "card" look
@@ -101,21 +101,24 @@ from power_pptx.dml.color import RGBColor
 
 card = slide.shapes.add_shape(
     MSO_SHAPE.ROUNDED_RECTANGLE,
-    Inches(1), Inches(1.5), Inches(4), Inches(2.5),
+    Inches(1),
+    Inches(1.5),
+    Inches(4),
+    Inches(2.5),
 )
 card.fill.solid()
 card.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-card.line.fill.background()                       # no border
+card.line.fill.background()  # no border
 
-card.corner_radius      = Pt(6)                   # not adjustments[0]
+card.corner_radius = Pt(6)  # not adjustments[0]
 
 card.shadow.blur_radius = Pt(18)
-card.shadow.distance    = Pt(4)
-card.shadow.direction   = 90.0
-card.shadow.color.rgb   = RGBColor(0, 0, 0)
+card.shadow.distance = Pt(4)
+card.shadow.direction = 90.0
+card.shadow.color.rgb = RGBColor(0, 0, 0)
 card.shadow.color.alpha = 0.18
 
-card.soft_edges.radius  = Pt(1)
+card.soft_edges.radius = Pt(1)
 ```
 
 For a **flat** card, swap the four shadow lines for `card.shadow.clear()`
@@ -129,7 +132,7 @@ OOXML stores in `adjustments[0]`:
 
 ```python
 card.corner_radius = Pt(6)
-card.corner_radius.pt        # -> 6.0
+card.corner_radius.pt  # -> 6.0
 ```
 
 Defined for `ROUNDED_RECTANGLE`, `ROUND_1_RECTANGLE`,
@@ -142,15 +145,15 @@ side.
 
 ```python
 card.fill.solid()
-card.fill.fore_color.rgb   = RGBColor(0x4F, 0x9D, 0xFF)
-card.fill.fore_color.alpha = 0.55                 # glassy
+card.fill.fore_color.rgb = RGBColor(0x4F, 0x9D, 0xFF)
+card.fill.fore_color.alpha = 0.55  # glassy
 ```
 
 `alpha` is also available on the lazy proxy returned by `Font.color`
 and `LineFormat.color`:
 
 ```python
-title_run.font.color.rgb   = RGBColor(0x1F, 0x29, 0x37)
+title_run.font.color.rgb = RGBColor(0x1F, 0x29, 0x37)
 title_run.font.color.alpha = 0.9
 ```
 
@@ -160,29 +163,37 @@ The two-liner most decks want — a multi-stop linear gradient at an
 angle:
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 bar.fill.linear_gradient(
     [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
     angle=45,
 )
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is measured **counter-clockwise** from the left→right direction
+(the python-pptx convention — the opposite sense to the clockwise
+`a:lin/@ang` stored in the XML): `0` is left→right, `90` is
+bottom→top, `180` is right→left, `270` is top→bottom. So a
+**top→bottom gradient is `angle=270`**; `angle=90` runs the other way,
+and `45` runs from the bottom-left corner towards the top-right. The same
+convention applies to `fill.gradient("linear", angle=...)` and
+`fill.gradient_angle`.
 
 ### Other kinds, and mutable stops
 
 ```python
 fill = card.fill
-fill.gradient(kind="radial")          # also "linear", "rectangular", "shape"
-fill.gradient_kind                    # → "radial"
+fill.gradient(kind="radial")  # also "linear", "rectangular", "shape"
+fill.gradient_kind  # → "radial"
 
 stops = fill.gradient_stops
-stops.replace([
-    (0.0,  "#0F2D6B"),                # hex with or without leading '#'
-    (0.55, RGBColor(0x4F, 0x9D, 0xFF)),
-    (1.0,  (255, 255, 255)),          # plain RGB tuple also accepted
-])
+stops.replace(
+    [
+        (0.0, "#0F2D6B"),  # hex with or without leading '#'
+        (0.55, RGBColor(0x4F, 0x9D, 0xFF)),
+        (1.0, (255, 255, 255)),  # plain RGB tuple also accepted
+    ]
+)
 
 # Add or remove individual stops
 stops.append(0.85, "#A8C0FF")
@@ -204,13 +215,13 @@ from power_pptx.enum.dml import (
 )
 
 line = arrow.line
-line.head_end.type   = MSO_LINE_END_TYPE.TRIANGLE
-line.head_end.width  = MSO_LINE_END_SIZE.MEDIUM
+line.head_end.type = MSO_LINE_END_TYPE.TRIANGLE
+line.head_end.width = MSO_LINE_END_SIZE.MEDIUM
 line.head_end.length = MSO_LINE_END_SIZE.LARGE
-line.tail_end.type   = MSO_LINE_END_TYPE.OVAL
-line.cap             = MSO_LINE_CAP_STYLE.ROUND
-line.compound        = MSO_LINE_COMPOUND_STYLE.DOUBLE
-line.join            = MSO_LINE_JOIN_STYLE.BEVEL
+line.tail_end.type = MSO_LINE_END_TYPE.OVAL
+line.cap = MSO_LINE_CAP_STYLE.ROUND
+line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE
+line.join = MSO_LINE_JOIN_STYLE.BEVEL
 ```
 
 Reads on an unset attribute return `None` — assigning `None` clears
@@ -236,12 +247,12 @@ No `<a:effectLst>` is written by the read.
 Besides `shape.shadow` (outer), shapes expose two sibling shadow effects:
 
 ```python
-shape.inner_shadow.blur_radius = Pt(4)    # shadow cast INTO the shape
+shape.inner_shadow.blur_radius = Pt(4)  # shadow cast INTO the shape
 shape.inner_shadow.distance = Pt(3)
 shape.inner_shadow.direction = 45.0
 shape.inner_shadow.color.rgb = "112233"
 
-shape.preset_shadow.preset = "shdw5"      # or MSO_PRESET_SHADOW.SHADOW_5
+shape.preset_shadow.preset = "shdw5"  # or MSO_PRESET_SHADOW.SHADOW_5
 shape.preset_shadow.color.rgb = "aabbcc"  # one of shdw1..shdw20
 ```
 

@@ -21,10 +21,10 @@ Every rectangular region on a slide can be expressed as a
 from power_pptx import BBox
 from power_pptx.util import Inches
 
-bb = BBox.from_inches(1, 2, 8, 4)        # left, top, width, height
-bb.right                                  # Emu(9 inches)
-bb.cx, bb.cy                              # centre
-bb.area                                   # int (EMU²)
+bb = BBox.from_inches(1, 2, 8, 4)  # left, top, width, height
+bb.right  # Emu(9 inches)
+bb.cx, bb.cy  # centre
+bb.area  # int (EMU²)
 ```
 
 `BBox` is immutable, frozen-dataclass, and unpacks to `(left, top,
@@ -40,8 +40,8 @@ slide.shapes.add_textbox(*bb.inset(all=Inches(0.2)))
 ```python
 BBox.from_inches(1, 2, 4, 3)
 BBox.from_emu(914400, 1828800, 3657600, 2743200)
-BBox.from_shape(some_shape)              # snapshot
-BBox.from_slide(slide)                   # full slide
+BBox.from_shape(some_shape)  # snapshot
+BBox.from_slide(slide)  # full slide
 ```
 
 `shape.bbox` is the same as `BBox.from_shape(shape)` — a snapshot of
@@ -51,12 +51,12 @@ update the box. `bb.apply_to(shape)` pushes a box back onto a shape.
 ### Transforms
 
 ```python
-bb.shifted(dx=Inches(1))                 # translate
-bb.resized(width=Inches(6))              # change one dimension
-bb.inset(all=Inches(0.2))                # shrink uniformly
-bb.inset(x=Inches(0.5), y=Inches(0.2))   # per-axis
+bb.shifted(dx=Inches(1))  # translate
+bb.resized(width=Inches(6))  # change one dimension
+bb.inset(all=Inches(0.2))  # shrink uniformly
+bb.inset(x=Inches(0.5), y=Inches(0.2))  # per-axis
 bb.inset(left=Inches(0.1), right=Inches(0.5), top=Inches(0.2))
-bb.sub(0.25, 0, 0.5, 1.0)                # normalised sub-box
+bb.sub(0.25, 0, 0.5, 1.0)  # normalised sub-box
 ```
 
 `inset()` with no args is a no-op; negative values expand outward.
@@ -64,13 +64,13 @@ bb.sub(0.25, 0, 0.5, 1.0)                # normalised sub-box
 ### Splits
 
 ```python
-bb.columns(3, gap=Pt(16))                # n equal columns  ← the n-up case
-bb.rows(2, gap=Pt(12))                   # n equal rows
-bb.split_h([1, 1])                       # two equal columns
-bb.split_h([2, 1])                       # 66%/33% — unequal, so ratios
+bb.columns(3, gap=Pt(16))  # n equal columns  ← the n-up case
+bb.rows(2, gap=Pt(12))  # n equal rows
+bb.split_h([1, 1])  # two equal columns
+bb.split_h([2, 1])  # 66%/33% — unequal, so ratios
 bb.split_h([1, 1, 1], gap=Inches(0.1))
-bb.split_v([1, 2])                       # vertical
-bb.grid(3, 2, gap_x=Inches(0.1))         # row-major 3x2 cells
+bb.split_v([1, 2])  # vertical
+bb.grid(3, 2, gap_x=Inches(0.1))  # row-major 3x2 cells
 ```
 
 **Never hand-compute `col_w = (avail - (n - 1) * gap) / n`.** That
@@ -94,10 +94,10 @@ span-aware placement (see `design.md`).
 ### Predicates
 
 ```python
-a.contains(b)                            # b fully inside a
+a.contains(b)  # b fully inside a
 a.intersects(b)
-a.intersection(b)                        # overlap region (BBox)
-a.union(b)                               # smallest enclosing
+a.intersection(b)  # overlap region (BBox)
+a.union(b)  # smallest enclosing
 ```
 
 ---
@@ -114,9 +114,9 @@ slide.shapes.add_text(
     font="Inter",
     size_pt=24,
     bold=True,
-    color="#0B5CFF",                     # hex, RGBColor, or (r,g,b) all OK
-    align="center",                      # str shortcut; no enum import
-    anchor="middle",                     # vertical anchor
+    color="#0B5CFF",  # hex, RGBColor, or (r,g,b) all OK
+    align="center",  # str shortcut; no enum import
+    anchor="middle",  # vertical anchor
     margin_pt=4,
     word_wrap=True,
 )
@@ -136,9 +136,9 @@ three-line `fill.solid(); fore_color.rgb = RGBColor(...)` ritual. Both
 return `self` for chaining:
 
 ```python
-slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
-    .fill_hex("#0B5CFF") \
-    .line_hex("#0D0D0D", weight_pt=1.25)
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb).fill_hex("#0B5CFF").line_hex(
+    "#0D0D0D", weight_pt=1.25
+)
 ```
 
 `hex_color=None` clears the fill (transparent background).
@@ -169,16 +169,16 @@ with no arrowhead. **Use `add_arrow` instead**:
 
 ```python
 slide.shapes.add_arrow(
-    start=box_a,                         # Shape, BBox, or (x, y)
+    start=box_a,  # Shape, BBox, or (x, y)
     end=box_b,
-    head="triangle",                     # "triangle"|"arrow"|"stealth"|"diamond"|"oval"|"none"
+    head="triangle",  # "triangle"|"arrow"|"stealth"|"diamond"|"oval"|"none"
     tail=None,
     color="#0B5CFF",
     weight_pt=1.5,
-    style="solid",                       # "solid"|"dashed"|"dotted"
-    inset_pt=6.0,                        # pull endpoints back from shape edges
-    end_side="auto",                     # "top"|"right"|"bottom"|"left"|"auto"
-    route="straight",                    # "straight"|"elbow"|"curved"
+    style="solid",  # "solid"|"dashed"|"dotted"
+    inset_pt=6.0,  # pull endpoints back from shape edges
+    end_side="auto",  # "top"|"right"|"bottom"|"left"|"auto"
+    route="straight",  # "straight"|"elbow"|"curved"
 )
 ```
 
@@ -197,6 +197,7 @@ def diagram(slide, bbox):
     left, right = bbox.split_h([1, 1], gap=Inches(0.1))
     slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left).fill_hex("#0B5CFF")
     slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right).fill_hex("#FFFFFF")
+
 
 picture.replace_with(diagram, padding=Inches(0.1))
 ```
@@ -220,10 +221,10 @@ picture.replace_with(builder, padding=Inches(0.05))
 ## Slide-level helpers
 
 ```python
-slide.slide_bbox()                       # BBox of the full slide
-slide.content_bbox()                     # BBox of all non-decorative shapes
+slide.slide_bbox()  # BBox of the full slide
+slide.content_bbox()  # BBox of all non-decorative shapes
 slide.find_empty_region(min_width=Inches(2), min_height=Inches(1))
-slide.tidy()                             # lint + auto_fix(safe subset)
+slide.tidy()  # lint + auto_fix(safe subset)
 ```
 
 `tidy()` is the one-call cleanup before save: it lints, runs the safe
@@ -239,34 +240,41 @@ content. Each takes a slide, a `BBox`, and a small content spec:
 
 ```python
 from power_pptx.diagrams import (
-    horizontal_pipeline, vertical_pipeline,
-    hub_and_spoke, cycle, decision_tree,
+    horizontal_pipeline,
+    vertical_pipeline,
+    hub_and_spoke,
+    cycle,
+    decision_tree,
     comparison_columns,
 )
 
 # Pipeline
 horizontal_pipeline(
-    slide, bbox,
+    slide,
+    bbox,
     steps=["Extract", "Classify", "Enrich", "Output"],
     accent="#0B5CFF",
 )
 
 # Hub-and-spoke
 hub_and_spoke(
-    slide, bbox,
+    slide,
+    bbox,
     centre="Agent",
     spokes=["Memory", "Tools", "Planning", "Perception"],
 )
 
 # Cyclic loop
 cycle(
-    slide, bbox,
+    slide,
+    bbox,
     steps=["Observe", "Orient", "Decide", "Act"],
 )
 
 # Decision tree (one level of children optional)
 decision_tree(
-    slide, bbox,
+    slide,
+    bbox,
     root="Is the deck dynamic?",
     branches=[
         {"label": "Yes", "children": ["Use lint()", "Use fit_text"]},
@@ -276,7 +284,8 @@ decision_tree(
 
 # N-column comparison
 comparison_columns(
-    slide, bbox,
+    slide,
+    bbox,
     columns=[
         {"title": "Pros", "body": ["Fast", "Cheap", "Composable"]},
         {"title": "Cons", "body": ["New API"]},
@@ -291,10 +300,11 @@ Step / column dicts accept per-item `fill` and `text_color` overrides:
 
 ```python
 horizontal_pipeline(
-    slide, bbox,
+    slide,
+    bbox,
     steps=[
-        {"label": "Cleaned",   "fill": "#E8F0FF", "text_color": "#0B3D9C"},
-        {"label": "Features",  "fill": "#FFFFFF"},
+        {"label": "Cleaned", "fill": "#E8F0FF", "text_color": "#0B3D9C"},
+        {"label": "Features", "fill": "#FFFFFF"},
     ],
 )
 ```
@@ -313,12 +323,12 @@ report = audit(prs)
 print(report.markdown())
 
 # Or programmatically:
-report.has_errors                        # bool
-report.lint_issues                       # [(slide_idx, LintIssue), ...]
-report.broken_pictures                   # [(idx, picture), ...]
-report.empty_slides                      # [idx, ...]
-report.font_warnings                     # [(idx, font), ...]
-report.size_warnings                     # [(idx, name, bytes), ...]
+report.has_errors  # bool
+report.lint_issues  # [(slide_idx, LintIssue), ...]
+report.broken_pictures  # [(idx, picture), ...]
+report.empty_slides  # [idx, ...]
+report.font_warnings  # [(idx, font), ...]
+report.size_warnings  # [(idx, name, bytes), ...]
 ```
 
 The audit is read-only — it never mutates the deck. The markdown

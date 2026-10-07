@@ -12,9 +12,12 @@ from power_pptx.util import Inches, Pt
 from power_pptx.dml.color import RGBColor
 
 shape = slide.shapes.add_table(
-    rows=4, cols=3,
-    left=Inches(1), top=Inches(2),
-    width=Inches(8), height=Inches(3),
+    rows=4,
+    cols=3,
+    left=Inches(1),
+    top=Inches(2),
+    width=Inches(8),
+    height=Inches(3),
 )
 table = shape.table
 ```
@@ -27,9 +30,9 @@ for col, label in enumerate(HEADERS):
     table.cell(0, col).text = label
 
 ROWS = [
-    ("ARR",         "$182M", "+27%"),
-    ("NDR",         "131%",  "+3%"),
-    ("CAC payback", "8 mo",  "−1 mo"),
+    ("ARR", "$182M", "+27%"),
+    ("NDR", "131%", "+3%"),
+    ("CAC payback", "8 mo", "−1 mo"),
 ]
 for r, row in enumerate(ROWS, start=1):
     for c, value in enumerate(row):
@@ -56,15 +59,15 @@ is optional and `None` means "leave alone", so calls layer:
 
 ```python
 table.cell(0, 0).format(
-    fill="#1F2937",        # hex / (r, g, b) / RGBColor — or "none"
-    color="#FFFFFF",       # text colour
+    fill="#1F2937",  # hex / (r, g, b) / RGBColor — or "none"
+    color="#FFFFFF",  # text colour
     font="Inter",
     size_pt=12,
     bold=True,
     italic=False,
-    align="center",        # left / center / right / justify
-    anchor="middle",       # top / middle / bottom
-    margin=(2, 8, 2, 8),   # points: scalar, or (top, right, bottom, left)
+    align="center",  # left / center / right / justify
+    anchor="middle",  # top / middle / bottom
+    margin=(2, 8, 2, 8),  # points: scalar, or (top, right, bottom, left)
     word_wrap=True,
 )
 ```
@@ -78,7 +81,7 @@ so a whole table's look is a handful of calls:
 table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
 table.format_cells(rows=slice(1, None), size_pt=11, anchor="middle")
 table.format_cells(rows=range(2, len(table.rows), 2), fill="#F6F7F9")  # banding
-table.format_cells(cols=-1, align="right")                            # numbers
+table.format_cells(cols=-1, align="right")  # numbers
 ```
 
 Both return the cell / table, so they chain. Spanned (merged-away)
@@ -105,11 +108,11 @@ does it. These six booleans drive the banding and emphasis that the
 applied table style defines, so one flag replaces a loop:
 
 ```python
-tbl.first_row   = True    # emphasise the header row
-tbl.last_row    = False   # emphasise a totals row
-tbl.first_col   = True    # emphasise the label column
-tbl.last_col    = False
-tbl.horz_banding = True   # alternating row shading
+tbl.first_row = True  # emphasise the header row
+tbl.last_row = False  # emphasise a totals row
+tbl.first_col = True  # emphasise the label column
+tbl.last_col = False
+tbl.horz_banding = True  # alternating row shading
 tbl.vert_banding = False  # alternating column shading
 ```
 
@@ -124,7 +127,7 @@ skips nothing:
 
 ```python
 for cell in tbl.iter_cells():
-    cell.margin_left = Inches(0.08)   # also margin_right/top/bottom
+    cell.margin_left = Inches(0.08)  # also margin_right/top/bottom
 ```
 
 Merged regions need care when reading: a merged block reports one
@@ -132,10 +135,10 @@ Merged regions need care when reading: a merged block reports one
 
 ```python
 cell = tbl.cell(0, 0)
-cell.is_merge_origin   # True on the top-left cell of a merged block
-cell.is_spanned        # True on the cells the merge absorbed
-cell.span_height       # rows covered (1 when unmerged)
-cell.span_width        # columns covered
+cell.is_merge_origin  # True on the top-left cell of a merged block
+cell.is_spanned  # True on the cells the merge absorbed
+cell.span_height  # rows covered (1 when unmerged)
+cell.span_width  # columns covered
 ```
 
 Write text to the *origin* cell; a spanned cell's text is not rendered.
@@ -154,8 +157,8 @@ When you want full control of every cell's appearance, detach the
 default style outright:
 
 ```python
-table.clear_style()                       # drops <a:tableStyleId>
-table.format_cells(fill="#FFFFFF")        # now every cell is yours
+table.clear_style()  # drops <a:tableStyleId>
+table.format_cells(fill="#FFFFFF")  # now every cell is yours
 ```
 
 ## Cell borders (Phase 4 — post-fork addition)
@@ -167,10 +170,10 @@ children of `a:tcPr`.
 ### Per-edge
 
 ```python
-cell.borders.left.color.rgb       = RGBColor(0xE5, 0xE7, 0xEB)
-cell.borders.left.width           = Pt(0.5)
-cell.borders.bottom.color.rgb     = RGBColor(0x1F, 0x29, 0x37)
-cell.borders.bottom.width         = Pt(1.5)
+cell.borders.left.color.rgb = RGBColor(0xE5, 0xE7, 0xEB)
+cell.borders.left.width = Pt(0.5)
+cell.borders.bottom.color.rgb = RGBColor(0x1F, 0x29, 0x37)
+cell.borders.bottom.width = Pt(1.5)
 cell.borders.diagonal_down.color.rgb = RGBColor(0xEF, 0x44, 0x44)
 ```
 
@@ -179,26 +182,26 @@ cell.borders.diagonal_down.color.rgb = RGBColor(0xEF, 0x44, 0x44)
 ```python
 cell.borders.all(width=Pt(0.5), color=RGBColor(0xE5, 0xE7, 0xEB))
 cell.borders.outer(width=Pt(1.0), color=RGBColor(0x1F, 0x29, 0x37))
-cell.borders.none()                # clears every edge
+cell.borders.none()  # clears every edge
 ```
 
 ### Zebra-striped borders pattern
 
 ```python
 LIGHT = RGBColor(0xE5, 0xE7, 0xEB)
-DARK  = RGBColor(0x1F, 0x29, 0x37)
+DARK = RGBColor(0x1F, 0x29, 0x37)
 
 # Header row — bottom edge dark
 for col in range(len(HEADERS)):
     table.cell(0, col).borders.bottom.color.rgb = DARK
-    table.cell(0, col).borders.bottom.width     = Pt(1.5)
+    table.cell(0, col).borders.bottom.width = Pt(1.5)
 
 # Body rows — light row separator
 for r in range(1, len(table.rows)):
     for c in range(len(HEADERS)):
         cell = table.cell(r, c)
         cell.borders.bottom.color.rgb = LIGHT
-        cell.borders.bottom.width     = Pt(0.5)
+        cell.borders.bottom.width = Pt(0.5)
 ```
 
 ## Reading borders
@@ -208,7 +211,7 @@ Be careful with the falsy check: an unset `width` reads back as `Emu(0)`,
 **not** `None`, so `is None` never fires:
 
 ```python
-if not cell.borders.bottom.width:      # unset reads Emu(0), never None
+if not cell.borders.bottom.width:  # unset reads Emu(0), never None
     print("inherits border from style")
 ```
 
@@ -217,9 +220,9 @@ if not cell.borders.bottom.width:      # unset reads Emu(0), never None
 Use `cell.text_direction` for matrix-style or rotated column headers:
 
 ```python
-cell.text_direction = "rotate90"    # "horizontal" (default), "rotate90",
-cell.text_direction = "stacked"     # "rotate270", "stacked"
-cell.vertical_anchor = MSO_ANCHOR.MIDDLE   # t / ctr / b within the cell
+cell.text_direction = "rotate90"  # "horizontal" (default), "rotate90",
+cell.text_direction = "stacked"  # "rotate270", "stacked"
+cell.vertical_anchor = MSO_ANCHOR.MIDDLE  # t / ctr / b within the cell
 ```
 
 Reading returns the friendly string (`"horizontal"` when unset); assigning
@@ -231,11 +234,11 @@ Reading returns the friendly string (`"horizontal"` when unset); assigning
 Apply any of PowerPoint's ~70 built-in table styles by name or GUID:
 
 ```python
-table.style = "Medium Style 2 - Accent 1"      # friendly name
+table.style = "Medium Style 2 - Accent 1"  # friendly name
 table.style = "Table Grid"
 table.style = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"  # raw GUID also OK
-print(table.style)        # -> friendly name (or raw GUID / None)
-table.style = None        # detach (same as table.clear_style())
+print(table.style)  # -> friendly name (or raw GUID / None)
+table.style = None  # detach (same as table.clear_style())
 ```
 
 Discover valid names via `from power_pptx.table_styles import TABLE_STYLES`.

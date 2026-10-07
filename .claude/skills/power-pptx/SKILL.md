@@ -46,13 +46,13 @@ from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches, Pt
 
 # --- open / save ---
-prs = Presentation()                       # new blank deck
-prs = Presentation("file.pptx")            # open existing
+prs = Presentation()  # new blank deck
+prs = Presentation("file.pptx")  # open existing
 prs.save("out.pptx")
 
 # --- slides ---
-slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
-slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
+slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank
 
 # --- geometry (BBox is splattable into add_*) ---
 bb = BBox.from_inches(1, 2, 8, 4)
@@ -60,28 +60,28 @@ left, right = bb.split_h([1, 1], gap=Inches(0.2))
 inner = bb.inset(all=Inches(0.2))
 
 # --- n-up rows/grids: never hand-compute (avail - (n-1)*gap) / n ---
-for cell in bb.columns(3, gap=Pt(16)):     # equal columns; .rows(n) too
+for cell in bb.columns(3, gap=Pt(16)):  # equal columns; .rows(n) too
     slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *cell)
 
 # --- text (one call) ---
-slide.shapes.add_text(bb, text="Hello",
-                      size_pt=24, bold=True,
-                      color="#0B5CFF", align="center")
+slide.shapes.add_text(bb, text="Hello", size_pt=24, bold=True, color="#0B5CFF", align="center")
 
 # --- shape with chainable colour ---
-slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
-    .fill_hex("#FFFFFF").line_hex("#0D0D0D", weight_pt=1.25)
+slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb).fill_hex("#FFFFFF").line_hex(
+    "#0D0D0D", weight_pt=1.25
+)
 
 # --- flat card: no theme drop-shadow, radius in points ---
 card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *inner)
-card.shadow.clear()                        # kills the inherited effectRef too
-card.corner_radius = Pt(6)                 # not adjustments[0]
+card.shadow.clear()  # kills the inherited effectRef too
+card.corner_radius = Pt(6)  # not adjustments[0]
 
 # --- arrow with proper triangular head + auto edge routing ---
 start_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *left)
-end_shape   = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
-slide.shapes.add_arrow(start=start_shape, end=end_shape,
-                       head="triangle", color="#0B5CFF", weight_pt=1.5)
+end_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *right)
+slide.shapes.add_arrow(
+    start=start_shape, end=end_shape, head="triangle", color="#0B5CFF", weight_pt=1.5
+)
 
 # --- format-preserving text replacement (templated placeholders) ---
 title_shape.set_text_preserving_format("New title")
@@ -91,8 +91,7 @@ picture.replace_with(lambda slide, bbox: ..., padding=Inches(0.1))
 
 # --- diagram recipes ---
 horizontal_pipeline(slide, bb, steps=["Extract", "Classify", "Enrich"])
-hub_and_spoke(slide, bb, centre="Agent",
-              spokes=["Memory", "Tools", "Planning"])
+hub_and_spoke(slide, bb, centre="Agent", spokes=["Memory", "Tools", "Planning"])
 
 # --- table styling without dropping to raw fill/font loops ---
 table.format_cells(rows=0, fill="#1F2937", color="#FFFFFF", bold=True)
@@ -102,23 +101,23 @@ table.format_cells(rows=slice(1, None), size_pt=11, align="right")
 size = tf.fit_text(font_family="Inter", max_size=24)
 
 # --- single-call cleanup before save ---
-slide.tidy()                               # lints + safe auto-fixes
+slide.tidy()  # lints + safe auto-fixes
 
 # --- tell the linter an overlap is deliberate (widest -> narrowest) ---
-slide.lint_group_overlaps(card, accent, label)   # one visual cluster
-badge.allow_overlap_with(card)                   # exactly this one pair
-card.layer, badge.layer_above = "card", "card"   # also asserts z-order
+slide.lint_group_overlaps(card, accent, label)  # one visual cluster
+badge.allow_overlap_with(card)  # exactly this one pair
+card.layer, badge.layer_above = "card", "card"  # also asserts z-order
 
 # --- validate at save time (off by default) ---
-prs.lint_on_save = "raise"                 # or "warn"; raises before writing
+prs.lint_on_save = "raise"  # or "warn"; raises before writing
 
 # --- whole-deck audit (markdown summary) ---
 print(audit(prs).markdown())
 
 # --- render thumbnails ---
 from power_pptx.render import render_slides
-render_slides(prs, slides=[0, 1, 2], out_dir="thumbs",
-              name_template="slide-{:02d}.png")
+
+render_slides(prs, slides=[0, 1, 2], out_dir="thumbs", name_template="slide-{:02d}.png")
 ```
 
 That whole sheet fits on one screen — it's the working set.
@@ -170,7 +169,7 @@ collections. Read just the file you need — they're self-contained.
 | `references/transitions.md` | Per-slide and deck-wide transitions including Morph and other `p14:` extensions. **Phase 4.** |
 | `references/compose.md` | `from_spec` (JSON authoring with built-in lint), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
 | `references/theme.md` | Reading + writing the theme palette and fonts; `theme.apply(...)`; theme-aware color resolution via `power_pptx.inherit.resolve_color`. **Phase 6 + Phase 7.** |
-| `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / duotone) and SVG embedding. **Phase 6.** |
+| `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / black_and_white / duotone) and SVG embedding. **Phase 6.** |
 | `references/charts.md` | Chart palettes, quick layouts, per-series gradient/pattern fills, plus the inherited chart API. **Phase 10.** |
 | `references/render.md` | Slide thumbnails via LibreOffice. **Phase 10.** |
 | `references/three-d.md` | Bevels and extrusion via `shape.three_d`. **Phase 8.** |
@@ -189,17 +188,22 @@ from power_pptx import (
     # Immutable rectangular region; splats into add_* APIs.
     BBox,
     # One-call deck audit (lint + picture + empty-slide + font checks).
-    audit, AuditReport,
+    audit,
+    AuditReport,
     # Figure adapters — Plotly / Matplotlib / SVG / HTML → slide picture.
     # Third-party deps are imported lazily; missing deps surface a clear
     # FigureBackendUnavailable with the right pip install command.
-    add_plotly_figure, add_matplotlib_figure,
-    add_svg_figure,    add_html_figure,
+    add_plotly_figure,
+    add_matplotlib_figure,
+    add_svg_figure,
+    add_html_figure,
     FigureBackendUnavailable,
     # Shape-level building blocks (token-driven; return small
     # dataclasses exposing constituent shapes for further tweaks).
-    add_kpi_card, add_progress_bar,
-    KpiCard,      ProgressBar,
+    add_kpi_card,
+    add_progress_bar,
+    KpiCard,
+    ProgressBar,
 )
 ```
 
@@ -244,8 +248,7 @@ slide = prs.slides.add_slide(prs.slide_layouts[5])
 slide.shapes.title.text = "Q4 Review"
 
 # Body box that has to swallow runtime-supplied text
-box = slide.shapes.add_textbox(Inches(0.6), Inches(1.6),
-                                Inches(12), Inches(5))
+box = slide.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(12), Inches(5))
 tf = box.text_frame
 tf.word_wrap = True
 tf.text = USER_SUPPLIED_BODY

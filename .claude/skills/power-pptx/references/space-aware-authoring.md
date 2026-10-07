@@ -36,7 +36,12 @@ tf.fit_text(font_family="Inter", max_size=44, bold=True)
 
 `fit_text` also sets `auto_size = MSO_AUTO_SIZE.NONE`, so PowerPoint
 won't second-guess the size at render time, and returns the point size
-it applied.
+it applied. Every paragraph and every soft line break starts a new line,
+so a bullet list is sized for the lines it will really occupy, and a
+table cell is measured against its own box less its cell margins (the
+whole merged range, for a merged cell). A frame holding no text, or only
+whitespace, is left alone and `fit_text` returns `None`; a `max_size`
+below 1 raises `ValueError`.
 
 ### The guarantee is only as good as the font metrics
 
@@ -44,18 +49,19 @@ it applied.
 computed from the metrics of the font *on the machine running the
 build*. If the requested family isn't installed — the usual case for a
 display face like Instrument Serif or Inter inside a container or CI
-runner — measurement silently falls back to Pillow's bundled default
-font. You still get a number, and it's usually in the right
-neighbourhood, but it is an **estimate**: a wider real face can still
-overflow the box.
+runner — measurement falls back to another installed face of the same
+family (the regular face standing in for a missing italic, say) and,
+failing that, to Pillow's bundled default font. You still get a number,
+and it's usually in the right neighbourhood, but it is an **estimate**:
+a wider real face can still overflow the box.
 
 power-pptx makes that visible rather than silent:
 
 ```python
 from power_pptx.text.fonts import font_is_installed, installed_font_families
 
-font_is_installed("Inter", bold=True)   # -> False in most containers
-installed_font_families()               # what this machine can actually measure
+font_is_installed("Inter", bold=True)  # -> False in most containers
+installed_font_families()  # what this machine can actually measure
 ```
 
 * Naming a family that isn't installed emits a `FontMetricsWarning`.
@@ -69,8 +75,7 @@ Three ways to keep the guarantee, best first:
 
 ```python
 # 1. Ship the metrics with the build — exact, works anywhere
-tf.fit_text("Instrument Serif", max_size=44,
-            font_file="fonts/InstrumentSerif-Regular.ttf")
+tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif-Regular.ttf")
 
 # 2. Fail the build rather than ship an estimate
 tf.fit_text("Inter", max_size=24, strict=True)
@@ -101,8 +106,10 @@ best_pt = TextFitter.best_fit_font_size(
 )
 ```
 
-`best_fit_font_size` returns an int point size; the caller decides what
-to do with it.
+`best_fit_font_size` returns an int point size, or `None` when even 1pt
+overflows the extents; the caller decides what to do with it. It raises
+`ValueError` for a `max_size` below 1 and for a `font_file` that can't
+be loaded.
 
 ## 2. Auto-fit: let PowerPoint shrink at render time
 
@@ -166,10 +173,12 @@ For decks built through `power_pptx.compose.from_spec(...)`, fold the linter
 into the spec itself:
 
 ```python
-prs = from_spec({
-    "slides": [...],
-    "lint": "raise",          # also "warn", "off"
-})
+prs = from_spec(
+    {
+        "slides": [...],
+        "lint": "raise",  # also "warn", "off"
+    }
+)
 ```
 
 ## Putting it together: a robust headline
@@ -179,10 +188,13 @@ from power_pptx import Presentation
 from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.util import Inches
 
+
 def add_headline(prs, slide, text):
     box = slide.shapes.add_textbox(
-        Inches(0.6), Inches(0.4),
-        Inches(prs.slide_width.inches - 1.2), Inches(1.2),
+        Inches(0.6),
+        Inches(0.4),
+        Inches(prs.slide_width.inches - 1.2),
+        Inches(1.2),
     )
     tf = box.text_frame
     tf.word_wrap = True
@@ -196,6 +208,7 @@ def add_headline(prs, slide, text):
     tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     return box
+
 
 # 3. Linter as the safety net at save time
 for slide in prs.slides:
@@ -220,10 +233,9 @@ grid.place(card1, col=0, row=0, col_span=6, row_span=4)
 grid.place(card2, col=6, row=0, col_span=6, row_span=4)
 
 # Vertical cursor with a known total width
-stack = Stack(direction="vertical", gap=Pt(8),
-              left=Pt(48), top=Pt(48), width=Pt(600))
+stack = Stack(direction="vertical", gap=Pt(8), left=Pt(48), top=Pt(48), width=Pt(600))
 stack.place(title, height=Pt(64))
-stack.place(body,  height=Pt(280))
+stack.place(body, height=Pt(280))
 ```
 
 Both compute geometry from the slide's actual dimensions, so you can't

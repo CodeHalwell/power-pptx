@@ -12,6 +12,7 @@ Build a branded Q4 review deck.
 Demonstrates: DesignTokens, recipes, deck-wide transitions,
 sequenced animations, chart palette, lint-on-save, thumbnails.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,23 +39,23 @@ from power_pptx.util import Inches, Pt
 TOKENS = DesignTokens.from_dict(
     {
         "palette": {
-            "primary":    "#4F9DFF",
-            "neutral":    "#1F2937",
+            "primary": "#4F9DFF",
+            "neutral": "#1F2937",
             "background": "#FFFFFF",
-            "positive":   "#10B981",
-            "negative":   "#EF4444",
+            "positive": "#10B981",
+            "negative": "#EF4444",
             "on_primary": "#FFFFFF",
         },
         "typography": {
             # NB: recipes look up the keys "heading" and "body". Bare
             # floats are treated as POINTS; bare ints are EMU.
             "heading": {"family": "Inter", "size": 44.0, "bold": True},
-            "body":    {"family": "Inter", "size": 18.0},
+            "body": {"family": "Inter", "size": 18.0},
         },
         "shadows": {
             "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
         },
-        "radii":    {"card": 12.0},
+        "radii": {"card": 12.0},
         "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
     }
 )
@@ -62,9 +63,10 @@ TOKENS = DesignTokens.from_dict(
 
 # ---- Build the deck ----------------------------------------------------------
 
+
 def build(out_path: str | Path) -> Presentation:
     prs = Presentation()
-    prs.slide_width  = Inches(13.333)
+    prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
     # Cover
@@ -80,9 +82,9 @@ def build(out_path: str | Path) -> Presentation:
         prs,
         title="Run-rate metrics",
         kpis=[
-            {"label": "ARR",         "value": "$182M", "delta": +0.27},
-            {"label": "NDR",         "value": "131%",  "delta": +0.03},
-            {"label": "CAC payback", "value": "8 mo",  "delta": -0.10},
+            {"label": "ARR", "value": "$182M", "delta": +0.27},
+            {"label": "NDR", "value": "131%", "delta": +0.03},
+            {"label": "CAC payback", "value": "8 mo", "delta": -0.10},
         ],
         tokens=TOKENS,
     )
@@ -108,11 +110,14 @@ def build(out_path: str | Path) -> Presentation:
     cs.shapes.title.text = "ARR by segment ($M)"
     data = CategoryChartData()
     data.categories = ["Enterprise", "Mid-market", "SMB", "Self-serve"]
-    data.add_series("FY25", (62, 41, 18,  9))
+    data.add_series("FY25", (62, 41, 18, 9))
     data.add_series("FY26", (94, 55, 23, 10))
     chart_shape = cs.shapes.add_chart(
         XL_CHART_TYPE.BAR_CLUSTERED,
-        Inches(1), Inches(1.8), Inches(11), Inches(5.0),
+        Inches(1),
+        Inches(1.8),
+        Inches(11),
+        Inches(5.0),
         data,
     )
     chart = chart_shape.chart
@@ -141,7 +146,7 @@ def build(out_path: str | Path) -> Presentation:
 
     # Deck-wide fade transition, then upgrade the cover to Morph
     prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)
-    prs.slides[0].transition.kind     = MSO_TRANSITION_TYPE.MORPH
+    prs.slides[0].transition.kind = MSO_TRANSITION_TYPE.MORPH
     prs.slides[0].transition.duration = 1500
 
     # Space-aware safety net: lint every slide, auto-fix off-slide
@@ -171,6 +176,7 @@ def _lint_or_die(prs: Presentation) -> None:
 
 
 # ---- Optional: rasterise thumbnails ------------------------------------------
+
 
 def render_thumbnails(prs: Presentation, out_dir: str | Path) -> list[Path]:
     """Best-effort thumbnail render. Skips gracefully if soffice is missing."""
