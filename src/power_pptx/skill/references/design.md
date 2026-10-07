@@ -309,10 +309,11 @@ tints the bottom band with `palette["primary"]` at 55% alpha.
 
 ### Recipes that size themselves or refuse
 
-`table_slide`, `code_slide`, `timeline_slide` and `figure_slide` take
-content of unpredictable size, so they measure it before placing it and
-either fit it on the slide (4:3 or 16:9) or raise a `ValueError` saying
-what to change. A rejected call adds no slide to the deck.
+`table_slide`, `code_slide`, `timeline_slide`, `comparison_slide` and
+`figure_slide` take content of unpredictable size, so they measure it
+before placing it and either fit it on the slide (4:3 or 16:9) or raise a
+`ValueError` saying what to change. A rejected call adds no slide to the
+deck.
 
 ```python
 from power_pptx.design.recipes import (
@@ -364,6 +365,9 @@ figure_slide(prs, title="Architecture", figure="<svg ...>...</svg>")  # inline S
   clear of the rail for any milestone count; the rail is inset by half a
   label so the end labels line up with the margins. The deck's body size
   is shrunk (floor 9 pt) until every date and label fits its box.
+- **`comparison_slide`** — the two column headings sit in bands a fixed
+  0.6 in tall, so they share one size: the deck's heading size, reduced
+  (floor 9 pt) until both fit their band.
 - **`figure_slide`** — an inline SVG string (or bytes) is embedded;
   rasterising its PNG companion needs `cairosvg`, otherwise
   `CairoSvgUnavailable` is raised. `chart_slide` plots categories against

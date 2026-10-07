@@ -14,6 +14,7 @@ Design tokens
 for brand tokens — palette, typography, radii, shadows, and spacings::
 
     from power_pptx.design.tokens import DesignTokens
+    from power_pptx.util import Pt
 
     tokens = DesignTokens.from_dict({
         "palette": {
@@ -24,13 +25,17 @@ for brand tokens — palette, typography, radii, shadows, and spacings::
             "on_primary": "#FFFFFF",
         },
         "typography": {
-            "title": {"family": "Inter", "size": 44, "bold": True},
-            "body":  {"family": "Inter", "size": 18},
+            "title": {"family": "Inter", "size": Pt(44), "bold": True},
+            "body":  {"family": "Inter", "size": Pt(18)},
         },
         "shadows": {
-            "card": {"blur": 18, "distance": 4, "alpha": 0.18},
+            "card": {"blur_radius": Pt(18), "distance": Pt(4), "alpha": 0.18},
         },
     })
+
+Lengths are |Length| values such as ``Pt(44)``.  A bare ``float`` is read as
+points, but a bare ``int`` is read as EMU, so ``"size": 44`` would be a 44 EMU
+font.
 
 Other constructors:
 
@@ -120,10 +125,11 @@ rendered geometry doesn't depend on the host template's master.
 Recipes that size themselves or refuse
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``table_slide``, ``code_slide``, ``timeline_slide`` and ``figure_slide`` take
-content of unpredictable size, so they measure it before placing it and either
-fit it on the slide (4:3 or 16:9) or raise :class:`ValueError` saying what to
-change; a rejected call adds no slide to the deck.
+``table_slide``, ``code_slide``, ``timeline_slide``, ``comparison_slide`` and
+``figure_slide`` take content of unpredictable size, so they measure it before
+placing it and either fit it on the slide (4:3 or 16:9) or raise
+:class:`ValueError` saying what to change; a rejected call adds no slide to the
+deck.
 
 * ``table_slide`` — ``widths`` may name fewer columns than the table has: the
   named columns keep exactly the width asked for and the rest share what
@@ -140,6 +146,9 @@ change; a rejected call adds no slide to the deck.
 * ``timeline_slide`` — every box stays inside the slide margins and clear of
   the rail for any number of milestones, and the deck's body size is shrunk (to
   9 pt at most) until each date and label fits its box.
+* ``comparison_slide`` — the two column headings sit in bands a fixed 0.6 in
+  tall, so they share one size: the deck's heading size, reduced (to 9 pt at
+  most) until both fit their band.
 * ``figure_slide`` — takes an inline SVG string or bytes as well as a path;
   the PNG companion PowerPoint requires is drawn with ``cairosvg``, and
   :class:`~power_pptx._svg.CairoSvgUnavailable` is raised without it.
