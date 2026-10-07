@@ -36,7 +36,12 @@ tf.fit_text(font_family="Inter", max_size=44, bold=True)
 
 `fit_text` also sets `auto_size = MSO_AUTO_SIZE.NONE`, so PowerPoint
 won't second-guess the size at render time, and returns the point size
-it applied.
+it applied. Every paragraph and every soft line break starts a new line,
+so a bullet list is sized for the lines it will really occupy, and a
+table cell is measured against its own box less its cell margins (the
+whole merged range, for a merged cell). A frame holding no text, or only
+whitespace, is left alone and `fit_text` returns `None`; a `max_size`
+below 1 raises `ValueError`.
 
 ### The guarantee is only as good as the font metrics
 
@@ -44,10 +49,11 @@ it applied.
 computed from the metrics of the font *on the machine running the
 build*. If the requested family isn't installed — the usual case for a
 display face like Instrument Serif or Inter inside a container or CI
-runner — measurement silently falls back to Pillow's bundled default
-font. You still get a number, and it's usually in the right
-neighbourhood, but it is an **estimate**: a wider real face can still
-overflow the box.
+runner — measurement falls back to another installed face of the same
+family (the regular face standing in for a missing italic, say) and,
+failing that, to Pillow's bundled default font. You still get a number,
+and it's usually in the right neighbourhood, but it is an **estimate**:
+a wider real face can still overflow the box.
 
 power-pptx makes that visible rather than silent:
 
@@ -100,8 +106,10 @@ best_pt = TextFitter.best_fit_font_size(
 )
 ```
 
-`best_fit_font_size` returns an int point size; the caller decides what
-to do with it.
+`best_fit_font_size` returns an int point size, or `None` when even 1pt
+overflows the extents; the caller decides what to do with it. It raises
+`ValueError` for a `max_size` below 1 and for a `font_file` that can't
+be loaded.
 
 ## 2. Auto-fit: let PowerPoint shrink at render time
 

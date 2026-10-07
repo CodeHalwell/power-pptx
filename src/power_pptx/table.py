@@ -260,12 +260,16 @@ class Table(object):
         to every cell — so the table reads as a single coherent grid
         rather than each cell at its own size.
 
+        A merged cell is measured against the whole range it spans, and the
+        cells it covers, which are never drawn, are skipped.
+
         Returns the chosen size in points (clamped to ``min_font_pt``).
 
         Useful for runtime-driven tables where row counts and string
         lengths aren't known up front.
 
-        Parameters mirror :meth:`TextFrame.fit_text`.
+        Parameters mirror :meth:`TextFrame.fit_text`. A `font_file` that cannot be
+        loaded raises |ValueError|.
         """
         from power_pptx.text.fonts import find_font_file
         from power_pptx.text.layout import TextFitter
@@ -277,43 +281,39 @@ class Table(object):
         if font_file is None:
             font_file = find_font_file(font_family, bold, italic)
 
-        # Default cell margins per OOXML: 0.1" left/right, 0.05" top/bottom.
-        DEFAULT_MARG_LR = 91440
-        DEFAULT_MARG_TB = 45720
-
-        cols = list(self.columns)
-        rows = list(self.rows)
-
         per_cell_sizes: list[int] = []
-        for r_idx, row in enumerate(rows):
-            for c_idx, col in enumerate(cols):
-                cell = self.cell(r_idx, c_idx)
-                if not cell.text.strip():
-                    continue
-                marL = cell.margin_left if cell.margin_left is not None else DEFAULT_MARG_LR
-                marR = cell.margin_right if cell.margin_right is not None else DEFAULT_MARG_LR
-                marT = cell.margin_top if cell.margin_top is not None else DEFAULT_MARG_TB
-                marB = cell.margin_bottom if cell.margin_bottom is not None else DEFAULT_MARG_TB
-                cx = max(1, int(col.width) - int(marL) - int(marR))
-                cy = max(1, int(row.height) - int(marT) - int(marB))
-                try:
-                    size = TextFitter.best_fit_font_size(
-                        cell.text, (Emu(cx), Emu(cy)), max_font_pt, font_file
-                    )
-                except Exception:
-                    # If measurement fails for a populated cell, treat it as
-                    # the worst case so the final uniform size remains safe
-                    # for every populated cell. Skipping the cell would let
-                    # ``target = min(...)`` stay artificially high and other
-                    # cells could end up still overflowing.
-                    per_cell_sizes.append(int(min_font_pt))
-                    continue
-                if size is None:
-                    # Text genuinely does not fit at any size in this cell;
-                    # treat as ``min_font_pt``.
-                    per_cell_sizes.append(int(min_font_pt))
-                else:
-                    per_cell_sizes.append(int(size))
+        for cell in self.iter_cells():
+            # A spanned cell sits under its merge origin and is never drawn, so whatever
+            # text it holds must not drag the size of the whole table down.
+            text = cell.text
+            if cell.is_spanned or not text.strip():
+                continue
+            # The origin of a merge reports the width and height of the whole merged range.
+            # Cell margins are kept on `a:tcPr` and are always defined (they default).
+            cx = max(1, int(cell.width) - int(cell.margin_left) - int(cell.margin_right))
+            cy = max(1, int(cell.height) - int(cell.margin_top) - int(cell.margin_bottom))
+            try:
+                size = TextFitter.best_fit_font_size(
+                    text, (Emu(cx), Emu(cy)), max_font_pt, font_file
+                )
+            except ValueError:
+                # An unusable `font_file` is the caller's mistake and names itself; quietly
+                # shrinking every cell to the minimum would hide it.
+                raise
+            except Exception:
+                # If measurement fails for a populated cell, treat it as
+                # the worst case so the final uniform size remains safe
+                # for every populated cell. Skipping the cell would let
+                # ``target = min(...)`` stay artificially high and other
+                # cells could end up still overflowing.
+                per_cell_sizes.append(int(min_font_pt))
+                continue
+            if size is None:
+                # Text genuinely does not fit at any size in this cell;
+                # treat as ``min_font_pt``.
+                per_cell_sizes.append(int(min_font_pt))
+            else:
+                per_cell_sizes.append(int(size))
 
         target = min(per_cell_sizes) if per_cell_sizes else max_font_pt
         target = max(target, min_font_pt)
@@ -717,7 +717,10 @@ class _Cell(Subshape):
 
     @property
     def width(self) -> Length:
-        """Width of this cell in EMU (the parent column's width).
+        """Width of this cell in EMU.
+
+        The width of the parent column or, for the origin of a merged cell, of all the columns
+        that cell spans. A cell covered by a merge keeps the width of its own grid column.
 
         Exposed so that :meth:`TextFrame.fit_text` can measure against the
         cell's bounds rather than the whole table when called on
@@ -733,15 +736,18 @@ class _Cell(Subshape):
         tbl = tr.getparent()
         if tbl is None:
             return Emu(0)
-        try:
-            gridCol = tbl.tblGrid.gridCol_lst[col_idx]
-        except IndexError:
+        gridCols = tbl.tblGrid.gridCol_lst
+        if col_idx >= len(gridCols):
             return Emu(0)
-        return Emu(int(gridCol.w))
+        span = 1 if self._tc.is_spanned else max(1, self._tc.gridSpan)
+        return Emu(sum(int(gridCol.w) for gridCol in gridCols[col_idx : col_idx + span]))
 
     @property
     def height(self) -> Length:
-        """Height of this cell in EMU (the parent row's height).
+        """Height of this cell in EMU.
+
+        The height of the parent row or, for the origin of a merged cell, of all the rows that
+        cell spans. A cell covered by a merge keeps the height of its own row.
 
         Exposed so that :meth:`TextFrame.fit_text` can measure against the
         cell's bounds rather than the whole table when called on
@@ -750,7 +756,22 @@ class _Cell(Subshape):
         tr = self._tc.getparent()
         if tr is None:
             return Emu(0)
-        return Emu(int(tr.h or 0))
+        span = 1 if self._tc.is_spanned else max(1, self._tc.rowSpan)
+        tbl = tr.getparent()
+        if span == 1 or tbl is None:
+            return Emu(int(tr.h or 0))
+        rows = tbl.tr_lst
+        row_idx = rows.index(tr)
+        return Emu(sum(int(row.h or 0) for row in rows[row_idx : row_idx + span]))
+
+    @property
+    def _text_insets(self) -> tuple[Length, Length, Length, Length]:
+        """(left, top, right, bottom) distance of the text in this cell from the cell border.
+
+        A cell keeps its margins on `a:tcPr`, and `TextFrame` asks for them here, rather than
+        reading the `a:bodyPr` margins of the cell's text body, which PowerPoint ignores.
+        """
+        return (self.margin_left, self.margin_top, self.margin_right, self.margin_bottom)
 
     # Friendly short-string ↔ ST_TextVerticalType (`a:tcPr@vert`) mapping.
     # The XSD default is ``horz`` (attribute may also be absent), so reading a

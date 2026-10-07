@@ -47,6 +47,29 @@ if TYPE_CHECKING:
 _DEFAULT_FIT_FAMILY = "Calibri"
 
 
+def _find_stand_in_font_file(family: str, bold: bool, italic: bool) -> tuple[str, str] | None:
+    """Return `(path, style)` of the installed face of `family` nearest the one asked for.
+
+    Used when the exact face (`bold`, `italic`) is not installed: another face of the same family
+    measures far closer to the real thing than Pillow's default font does. Weight changes the
+    widths of the glyphs much more than slant does, so the slant is given up first, then the
+    weight, then both. `style` names the face found, e.g. ``"bold italic"``. |None| when no face
+    of `family` is installed at all.
+    """
+    for stand_in_bold, stand_in_italic in (
+        (bold, not italic),
+        (not bold, italic),
+        (not bold, not italic),
+    ):
+        path = find_font_file(family, stand_in_bold, stand_in_italic)
+        if path is not None:
+            style = " ".join(
+                (["bold"] if stand_in_bold else []) + (["italic"] if stand_in_italic else [])
+            )
+            return path, style or "regular"
+    return None
+
+
 class TextFrame(Subshape):
     """The part of a shape that contains its text.
 
@@ -102,25 +125,33 @@ class TextFrame(Subshape):
 
         Make the text in this text frame fit entirely within the bounds of its shape by setting
         word wrap on and applying the "best-fit" font size to all the text it contains.  Returns
-        the point size applied (|None| when the frame is empty and nothing was done).
+        the point size applied (|None| when the frame is empty, or holds nothing but whitespace,
+        and nothing was done).
 
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
-        be set larger than `max_size` points. If the path to a matching TrueType font is provided
-        as `font_file`, that font file will be used for the font metrics. If `font_file` is |None|,
-        best efforts are made to locate a font file with matching `font_family`, `bold`, and
-        `italic` installed on the current system (usually succeeds if the font is installed).
+        be set larger than `max_size` points, which must be at least 1. If the path to a matching
+        TrueType font is provided as `font_file`, that font file will be used for the font
+        metrics. If `font_file` is |None|, best efforts are made to locate a font file with
+        matching `font_family`, `bold`, and `italic` installed on the current system (usually
+        succeeds if the font is installed).
+
+        Every paragraph and every soft line break in the text starts a new line, so a list of
+        short paragraphs is sized for the lines it will really take up, not for the same words
+        run together. A text frame in a table cell is measured against the cell's own box, less
+        the cell margins.
 
         `font_family` defaults to ``"Calibri"`` when omitted.
 
         **The fit is only as good as the metrics it measures against.**  When neither `font_file`
-        nor an installed `font_family` can be found, measurement falls back to Pillow's bundled
-        default font: the result is a plausible estimate, not the guarantee this method usually
-        provides, and a display face can still overflow.  *Naming* a family that isn't installed —
-        the brand-font-in-a-container case — emits a
-        :class:`~power_pptx.exc.FontMetricsWarning`.  Omitting the argument does not, since no
-        particular face was asked for; passing ``"Calibri"`` explicitly does, because that is a
-        request like any other.  ``strict=True`` turns *any* fallback into a |ValueError|, which
-        is what a build that must be exact should do::
+        nor an installed `font_family` can be found, measurement falls back to another installed
+        face of the same family if there is one, and otherwise to Pillow's bundled default font:
+        the result is a plausible estimate, not the guarantee this method usually provides, and a
+        display face can still overflow.  *Naming* a family that isn't installed — the
+        brand-font-in-a-container case — emits a :class:`~power_pptx.exc.FontMetricsWarning`.
+        Omitting the argument does not, since no particular face was asked for; passing
+        ``"Calibri"`` explicitly does, because that is a request like any other.  ``strict=True``
+        turns *any* fallback into a |ValueError|, which is what a build that must be exact should
+        do::
 
             # bundle the real metrics with the deck build
             tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif.ttf")
@@ -130,10 +161,17 @@ class TextFrame(Subshape):
 
         :func:`power_pptx.text.fonts.font_is_installed` answers the same question up front,
         without measuring anything.
+
+        Raises |ValueError| when `max_size` is less than 1, when `font_file` cannot be loaded,
+        when `strict` is |True| and the requested face is not installed, and when the text does
+        not fit at any size from 1pt to `max_size`.
         """
-        # ---no-op when empty as fit behavior not defined for that case---
-        if self.text == "":
-            return None  # pragma: no cover
+        if max_size < 1:
+            raise ValueError(f"fit_text: max_size must be at least 1 point, got {max_size!r}")
+
+        # ---no-op when there is no text, as fit behavior is not defined for that case---
+        if self.text.strip() == "":
+            return None
 
         family = _DEFAULT_FIT_FAMILY if font_family is None else font_family
         font_size = self._best_fit_font_size(
@@ -399,8 +437,9 @@ class TextFrame(Subshape):
         allows all the text in this text frame to fit inside its extents when rendered using the
         font described by `family`, `bold`, and `italic`. If `font_file` is specified, it is used
         to calculate the fit, whether or not it matches `family`, `bold`, and `italic`. When no
-        font file is provided and no matching system font can be located, Pillow's bundled
-        default font is used so `fit_text` produces a usable estimate rather than raising.
+        font file is provided and no matching system font can be located, the nearest installed
+        face of the same family is used, or failing that Pillow's bundled default font, so
+        `fit_text` produces a usable estimate rather than raising.
 
         Raises :class:`ValueError` when even 1pt overflows the text frame — typically the
         frame is too small to render the wrapped text at any usable size.  Pre-IMPROVEMENTS
@@ -411,10 +450,16 @@ class TextFrame(Subshape):
             font_file = find_font_file(family, bold, italic)
             if font_file is None:
                 style = "".join((" bold" if bold else "", " italic" if italic else ""))
+                stand_in = _find_stand_in_font_file(family, bold, italic)
+                if stand_in is None:
+                    measured_with = "Pillow's default font"
+                else:
+                    font_file, stand_in_style = stand_in
+                    measured_with = f"the {stand_in_style} face of that family ({font_file})"
                 detail = (
-                    f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
-                    "default font instead of real metrics — the chosen size is an estimate and "
-                    "the text may still overflow when rendered with the intended face"
+                    f"{family!r}{style} is not installed, so fit_text measured with "
+                    f"{measured_with} instead of real metrics — the chosen size is an estimate "
+                    "and the text may still overflow when rendered with the intended face"
                 )
                 if strict:
                     raise ValueError(
@@ -446,12 +491,18 @@ class TextFrame(Subshape):
     def _extents(self) -> tuple[Length, Length]:
         """(cx, cy) 2-tuple representing the effective rendering area of this text-frame.
 
-        Margins are taken into account.
+        Margins are taken into account. A parent that keeps the insets of its text itself, as a
+        table cell does on `a:tcPr`, supplies them as a `_text_insets` (left, top, right, bottom)
+        4-tuple; otherwise they are the margins in this text frame's `a:bodyPr`.
         """
         parent = cast("ProvidesExtents", self._parent)
+        insets = getattr(parent, "_text_insets", None)
+        if insets is None:
+            insets = (self.margin_left, self.margin_top, self.margin_right, self.margin_bottom)
+        left, top, right, bottom = insets
         return (
-            Length(parent.width - self.margin_left - self.margin_right),
-            Length(parent.height - self.margin_top - self.margin_bottom),
+            Length(parent.width - left - right),
+            Length(parent.height - top - bottom),
         )
 
     def _set_font(self, family: str, size: int, bold: bool, italic: bool):

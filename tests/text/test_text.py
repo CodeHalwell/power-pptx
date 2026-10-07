@@ -26,6 +26,7 @@ from power_pptx.util import Inches, Pt
 
 from ..oxml.unitdata.text import a_p, a_t, an_hlinkClick, an_r, an_rPr
 from ..unitutil.cxml import element, xml
+from ..unitutil.file import testfile
 from ..unitutil.mock import (
     class_mock,
     function_mock,
@@ -270,6 +271,19 @@ class DescribeTextFrame(object):
         )
         text_frame = Shape(element(sp_cxml), None).text_frame
         assert text_frame._extents == (731520, 822960)
+
+    def but_it_takes_the_insets_from_its_parent_when_the_parent_has_them(self):
+        # ---a table cell keeps its margins on `a:tcPr`; the `a:bodyPr` of its text body is
+        # ---empty (or stale) and must not be consulted
+        class Parent:
+            width = Inches(4)
+            height = Inches(1)
+            _text_insets = (Inches(0.5), Inches(0.25), Inches(0.75), Inches(0.125))
+
+        txBody = element("p:txBody/(a:bodyPr{lIns=1,tIns=2,rIns=3,bIns=4},a:p)")
+        text_frame = TextFrame(txBody, Parent())  # pyright: ignore[reportArgumentType]
+
+        assert text_frame._extents == (Inches(4) - Inches(1.25), Inches(1) - Inches(0.375))
 
     def it_applies_fit_to_help_fit_text(self, request):
         family, font_size, bold, italic = "Family", 42, True, False
@@ -1769,6 +1783,106 @@ class DescribeFitTextFontMetrics(object):
         with pytest.raises(ValueError, match="not installed"):
             text_frame_.fit_text(max_size=40, strict=True)
 
+    def it_measures_with_another_face_of_the_family_before_the_default_font(
+        self, text_frame_, request
+    ):
+        # ---only the regular face is installed, but the caller asked for italic---
+        installed = {("Some Serif", False, False): "/fonts/SomeSerif.ttf"}
+        self._install(request, installed)
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning) as warned:
+            text_frame_.fit_text("Some Serif", italic=True, max_size=40)
+
+        assert best_fit_.call_args.args[3] == "/fonts/SomeSerif.ttf"
+        message = str(warned[0].message)
+        assert "'Some Serif' italic is not installed" in message
+        assert "regular face of that family" in message
+        assert "/fonts/SomeSerif.ttf" in message
+        assert "Pillow's default font" not in message
+
+    @pytest.mark.parametrize(
+        ("bold", "italic", "installed", "expected_file"),
+        [
+            # ---italic is dropped before bold: weight changes the widths far more---
+            (True, True, [(False, False), (True, False)], "bold.ttf"),
+            (True, True, [(False, False), (False, True)], "italic.ttf"),
+            (True, True, [(False, False)], "regular.ttf"),
+            (True, False, [(False, False), (False, True)], "regular.ttf"),
+            (False, True, [(True, False), (True, True)], "bold-italic.ttf"),
+            # ---a family with no regular face still beats the default font---
+            (False, False, [(True, False)], "bold.ttf"),
+            (False, False, [(True, True)], "bold-italic.ttf"),
+        ],
+    )
+    def and_it_prefers_the_face_closest_to_the_style_asked_for(
+        self, text_frame_, request, bold, italic, installed, expected_file
+    ):
+        names = {
+            (False, False): "regular.ttf",
+            (True, False): "bold.ttf",
+            (False, True): "italic.ttf",
+            (True, True): "bold-italic.ttf",
+        }
+        self._install(request, {("Some Serif", b, i): names[(b, i)] for b, i in installed})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning):
+            text_frame_.fit_text("Some Serif", bold=bold, italic=italic, max_size=40)
+
+        assert best_fit_.call_args.args[3] == expected_file
+
+    def but_it_still_falls_back_to_the_default_font_when_no_face_of_the_family_exists(
+        self, text_frame_, request
+    ):
+        self._install(request, {("Another Family", False, False): "/fonts/Another.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning, match="Pillow's default font"):
+            text_frame_.fit_text("Some Serif", max_size=40)
+
+        assert best_fit_.call_args.args[3] is None
+
+    def and_strict_refuses_a_stand_in_face_too(self, text_frame_, request):
+        self._install(request, {("Some Serif", False, False): "/fonts/SomeSerif.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.raises(ValueError, match="fit_text.strict=True."):
+            text_frame_.fit_text("Some Serif", italic=True, max_size=40, strict=True)
+
+        best_fit_.assert_not_called()
+
+    def and_it_stays_quiet_about_a_stand_in_when_no_family_was_asked_for(
+        self, text_frame_, request
+    ):
+        self._install(request, {("Calibri", True, False): "/fonts/Calibri-Bold.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            text_frame_.fit_text(max_size=40)
+
+        assert best_fit_.call_args.args[3] == "/fonts/Calibri-Bold.ttf"
+
+    # fixture components -----------------------------------
+
+    @staticmethod
+    def _install(request, installed):
+        """Make `find_font_file` see only the `{(family, bold, italic): path}` faces given."""
+
+        def find_font_file(family, bold=False, italic=False):
+            return installed.get((family, bold, italic))
+
+        return function_mock(
+            request, "power_pptx.text.text.find_font_file", side_effect=find_font_file
+        )
+
+    @staticmethod
+    def _stub_fitter(request):
+        return function_mock(
+            request, "power_pptx.text.text.TextFitter.best_fit_font_size", return_value=12
+        )
+
     @pytest.fixture
     def text_frame_(self):
         prs = Presentation()
@@ -1776,3 +1890,141 @@ class DescribeFitTextFontMetrics(object):
         shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
         shape.text_frame.text = "Space-aware authoring, measured"
         return shape.text_frame
+
+
+_CALIBRIZ = testfile("calibriz.ttf")
+
+
+def _textbox_frame(text: str, width=Inches(4), height=Inches(1.5)) -> TextFrame:
+    """Return the text frame of a new text box on a blank slide, holding `text`."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    shape = slide.shapes.add_textbox(Inches(1), Inches(1), width, height)
+    shape.text_frame.text = text
+    return shape.text_frame
+
+
+class DescribeFitTextEdgeCases(object):
+    """`TextFrame.fit_text` copes with text it cannot measure and sizes it cannot apply."""
+
+    @pytest.mark.parametrize("text", ["   ", "\n", "\t", "\xa0", "\n\n", " \n ", "\v"])
+    def it_does_nothing_when_the_text_is_only_whitespace(self, text):
+        text_frame = _textbox_frame(text)
+        xml_before = text_frame._txBody.xml
+
+        size = text_frame.fit_text("Calibri", font_file=_CALIBRIZ)
+
+        assert size is None
+        assert text_frame._txBody.xml == xml_before
+
+    def and_it_does_nothing_when_the_text_frame_is_empty(self):
+        text_frame = _textbox_frame("")
+        xml_before = text_frame._txBody.xml
+
+        assert text_frame.fit_text("Calibri", font_file=_CALIBRIZ) is None
+        assert text_frame._txBody.xml == xml_before
+
+    @pytest.mark.parametrize("max_size", [0, -3, 0.9])
+    def it_rejects_a_max_size_below_one_point(self, max_size):
+        text_frame = _textbox_frame("Hello")
+        xml_before = text_frame._txBody.xml
+
+        with pytest.raises(ValueError, match="max_size"):
+            text_frame.fit_text("Calibri", max_size=max_size, font_file=_CALIBRIZ)
+
+        assert text_frame._txBody.xml == xml_before
+
+    def it_names_a_font_file_it_cannot_load(self):
+        text_frame = _textbox_frame("Hello")
+
+        with pytest.raises(ValueError, match="no-such-font.ttf"):
+            text_frame.fit_text("Calibri", font_file="/nonexistent/dir/no-such-font.ttf")
+
+
+class DescribeFitTextParagraphs(object):
+    """`TextFrame.fit_text` sizes a stack of paragraphs for the lines it will really occupy."""
+
+    BULLETS = (
+        "Revenue up 12%",
+        "Churn down 3%",
+        "NPS at 61",
+        "Hiring on track",
+        "Runway 28 months",
+        "Series B in Q3",
+    )
+
+    def it_sizes_a_bullet_list_so_that_all_its_lines_fit(self):
+        text_frame = _textbox_frame("\n".join(self.BULLETS), Inches(4), Inches(1.5))
+        inner_height = Inches(1.5) - Inches(0.1)
+
+        size = text_frame.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        # ---six lines at 1.2 x the point size is the least a renderer needs---
+        assert size is not None
+        assert len(self.BULLETS) * 1.2 * size * 12700 <= inner_height
+        for paragraph in text_frame.paragraphs:
+            assert paragraph.runs[0].font.size == Pt(size)
+
+    def and_it_picks_a_smaller_size_than_for_the_same_words_in_one_paragraph(self):
+        stacked = _textbox_frame("\n".join(self.BULLETS))
+        flowing = _textbox_frame(" ".join(self.BULLETS))
+
+        stacked_size = stacked.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        flowing_size = flowing.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        assert stacked_size is not None
+        assert flowing_size is not None
+        assert stacked_size < flowing_size
+
+    def it_counts_a_soft_line_break_as_a_line(self):
+        by_paragraph = _textbox_frame("\n".join(self.BULLETS))
+        by_line_break = _textbox_frame("\v".join(self.BULLETS))
+        flowing = _textbox_frame(" ".join(self.BULLETS))
+
+        paragraph_size = by_paragraph.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        line_break_size = by_line_break.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+        flowing_size = flowing.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        assert line_break_size == paragraph_size
+        assert flowing_size is not None
+        assert line_break_size is not None
+        assert line_break_size < flowing_size
+
+
+def _build_fitted_deck():
+    """Return a `Presentation` with fitted paragraphs, line breaks, and a fitted merged cell."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1.5))
+    textbox.text_frame.text = "Revenue up 12%\nChurn down 3%\vNPS at 61\n\nSeries B in Q3"
+    textbox.text_frame.fit_text("Calibri", max_size=40, font_file=_CALIBRIZ)
+    table = slide.shapes.add_table(3, 3, Inches(1), Inches(3), Inches(6), Inches(3)).table
+    table.cell(1, 0).merge(table.cell(2, 2))
+    table.cell(1, 0).text = "Merged\ncell\vwith a line break"
+    table.fit_to_box(max_font_pt=18, font_file=_CALIBRIZ)
+    return prs
+
+
+class DescribeFitTextIntegration(object):
+    """Round-trip and schema-validity checks for text sized by `fit_text` and `fit_to_box`."""
+
+    def it_round_trips_a_deck_with_fitted_text(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_build_fitted_deck())
+
+    def it_emits_schema_valid_fitted_text(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        prs = _build_fitted_deck()
+        buf = io.BytesIO()
+        prs.save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []
