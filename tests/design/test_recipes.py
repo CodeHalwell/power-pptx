@@ -792,6 +792,20 @@ class DescribeTimelineSlideLayout:
         )
         assert len(prs.slides) == 1
 
+    @pytest.mark.parametrize("aspect", ["4:3", "16:9"])
+    def it_fits_exactly_as_many_milestones_as_it_says_it_can(self, aspect):
+        many = [{"date": f"D{i}", "label": f"M{i}"} for i in range(80)]
+        prs = _presentation(aspect)
+        with pytest.raises(ValueError, match=r"at most (\d+) fit") as excinfo:
+            timeline_slide(prs, title="Roadmap", milestones=many)
+        assert len(prs.slides) == 0  # a refused call leaves no stray slide behind
+        capacity = int(re.search(r"at most (\d+) fit", str(excinfo.value)).group(1))
+        assert capacity >= 12  # a dozen milestones is a realistic roadmap
+        slide = timeline_slide(prs, title="Roadmap", milestones=many[:capacity])
+        assert _lint_problems(slide) == []
+        with pytest.raises(ValueError, match="at most"):
+            timeline_slide(prs, title="Roadmap", milestones=many[: capacity + 1])
+
 
 class DescribeComparisonSlide:
     def it_renders_left_and_right_columns_with_matched_rows(self, prs):

@@ -1057,6 +1057,9 @@ def code_slide(
 # timeline_slide
 # ---------------------------------------------------------------------------
 
+#: Narrowest date / label box a timeline may shrink to; more milestones than that allows raise.
+_TIMELINE_MIN_LABEL_W = Inches(0.7)
+
 
 def timeline_slide(
     prs: "Presentation",
@@ -1072,6 +1075,11 @@ def timeline_slide(
     ``done`` flag (default ``False``).  Completed milestones get the
     ``positive`` palette tint; pending ones use ``muted``.
 
+    The date and label boxes share the rail's width, so a slide can label only
+    so many milestones: past about 21 on a 4:3 slide (29 on 16:9) each box would
+    be under 0.7 in wide, and the call raises :class:`ValueError` without adding
+    a slide.
+
     Tokens consumed:
 
     * **palette** — title from ``primary`` (fallback ``neutral``);
@@ -1084,11 +1092,28 @@ def timeline_slide(
     if not milestones:
         raise ValueError("timeline_slide requires at least one milestone")
 
-    slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    margin = Inches(0.6)
+    side_gap = Inches(0.1)  # clear space between two text boxes on the same side
+    content_w = int(slide_w) - 2 * int(margin)
+
+    # Text boxes on one side sit two milestones apart, so each may be up to two steps
+    # wide: the more milestones, the narrower the boxes, until a date no longer reads.
+    n = len(milestones)
+    label_w = Length(min(int(Inches(2.4)), (2 * content_w - int(side_gap) * (n - 1)) // (n + 1)))
+    if label_w < _TIMELINE_MIN_LABEL_W:
+        capacity = (2 * content_w + int(side_gap) - int(_TIMELINE_MIN_LABEL_W)) // (
+            int(_TIMELINE_MIN_LABEL_W) + int(side_gap)
+        )
+        raise ValueError(
+            f"timeline_slide: {n} milestones leave each label only "
+            f"{Emu(label_w).inches:.2f} in on this slide; at most {capacity} fit, "
+            "so split the roadmap across slides"
+        )
+
+    slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
@@ -1104,29 +1129,20 @@ def timeline_slide(
 
     # Geometry.  A rail runs through the middle of the slide and milestone text
     # alternates above / below it, so neighbours don't fight for the same space.
-    n = len(milestones)
     rail_y = Length(slide_h // 2)
     rail_h = Pt(2)
     dot_d = Inches(0.28)
     date_h = Inches(0.3)
     label_h = Inches(0.7)
     text_gap = Inches(0.1)  # clear space between a dot and the text above / below it
-    side_gap = Inches(0.1)  # clear space between two text boxes on the same side
-    content_w = int(slide_w) - 2 * int(margin)
 
     if n == 1:
-        label_w = Length(min(int(Inches(2.4)), content_w))
         rail_left = Length(margin + Inches(0.5))
         rail_right = Length(slide_w - margin - Inches(0.5))
         positions = [Length(rail_left + (rail_right - rail_left) // 2)]
     else:
-        # Text boxes on one side sit two milestones apart, so each may be up to two
-        # steps wide.  The rail is inset by half a box at either end, which keeps the
-        # first and last box inside the slide margins while every box stays centred
-        # on its dot.
-        label_w = Length(
-            min(int(Inches(2.4)), (2 * content_w - int(side_gap) * (n - 1)) // (n + 1))
-        )
+        # The rail is inset by half a box at either end, which keeps the first and last
+        # box inside the slide margins while every box stays centred on its dot.
         rail_left = Length(margin + label_w // 2)
         rail_right = Length(slide_w - margin - label_w // 2)
         span = int(rail_right) - int(rail_left)

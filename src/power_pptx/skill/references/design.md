@@ -362,9 +362,11 @@ figure_slide(prs, title="Architecture", figure="<svg ...>...</svg>")  # inline S
   chosen to read on the panel, including the dark default used without
   tokens.
 - **`timeline_slide`** — every box stays inside the slide margins and
-  clear of the rail for any milestone count; the rail is inset by half a
-  label so the end labels line up with the margins. The deck's body size
-  is shrunk (floor 9 pt) until every date and label fits its box.
+  clear of the rail; the rail is inset by half a label so the end labels
+  line up with the margins. The deck's body size is shrunk (floor 9 pt)
+  until every date and label fits its box. Past about 21 milestones on a
+  4:3 slide (29 on 16:9) the boxes would be under 0.7 in wide, so it
+  raises and tells you how many fit: split the roadmap.
 - **`comparison_slide`** — the two column headings sit in bands a fixed
   0.6 in tall, so they share one size: the deck's heading size, reduced
   (floor 9 pt) until both fit their band.

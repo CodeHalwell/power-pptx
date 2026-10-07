@@ -144,8 +144,10 @@ deck.
   panel (floor 9 pt, about 32 lines), otherwise it raises.  Tabs become four
   spaces, and the text colour is chosen to read on the panel.
 * ``timeline_slide`` — every box stays inside the slide margins and clear of
-  the rail for any number of milestones, and the deck's body size is shrunk (to
-  9 pt at most) until each date and label fits its box.
+  the rail, and the deck's body size is shrunk (to 9 pt at most) until each
+  date and label fits its box.  Past about 21 milestones on a 4:3 slide (29 on
+  16:9) the boxes would be under 0.7 in wide, so it raises and says how many
+  fit: split the roadmap.
 * ``comparison_slide`` — the two column headings sit in bands a fixed 0.6 in
   tall, so they share one size: the deck's heading size, reduced (to 9 pt at
   most) until both fit their band.
