@@ -611,6 +611,47 @@ def _deck_names_with_markup_characters() -> bytes:
     return _saved(prs)
 
 
+def _deck_shape_trees_with_extlst() -> bytes:
+    # Regression: chart, OLE-object and movie frames were appended with a bare
+    # `spTree.append()` while every other `add_*` inserts before `p:extLst`, so on a
+    # shape tree (or group) that carries an extLst they landed after it. The schema
+    # wants shapes first and `p:extLst` last; PowerPoint offers to repair the file.
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+    from power_pptx.enum.shapes import MSO_SHAPE, PROG_ID
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    def ext_lst():
+        return parse_xml(
+            '<p:extLst %s><p:ext uri="{00000000-0000-0000-0000-000000000001}"/></p:extLst>'
+            % nsdecls("p")
+        )
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    group = s.shapes.add_group_shape()
+    for shapes in (s.shapes, group.shapes):
+        shapes._spTree.append(ext_lst())
+        shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(1), Inches(1))
+        data = CategoryChartData()
+        data.categories = ["A", "B"]
+        data.add_series("S1", (1, 2))
+        shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), data
+        )
+        shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(5), Inches(1))
+        shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(5),
+            Inches(3),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -637,6 +678,7 @@ _DECK_BUILDERS = {
     "ergonomics": _deck_ergonomics,
     "lint_relationship_model": _deck_lint_relationship_model,
     "names_with_markup_characters": _deck_names_with_markup_characters,
+    "shape_trees_with_extlst": _deck_shape_trees_with_extlst,
 }
 
 

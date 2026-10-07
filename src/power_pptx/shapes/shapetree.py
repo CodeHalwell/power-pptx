@@ -713,7 +713,7 @@ class _BaseGroupShapes(_BaseShapes):
             icon_width,
             icon_height,
         )
-        self._spTree.append(graphicFrame)
+        self._spTree.insert_element_before(graphicFrame, "p:extLst")
         self._recalculate_extents()
         return cast(GraphicFrame, self._shape_factory(graphicFrame))
 
@@ -1160,7 +1160,7 @@ class _BaseGroupShapes(_BaseShapes):
         graphicFrame = CT_GraphicalObjectFrame.new_chart_graphicFrame(
             shape_id, name, rId, x, y, cx, cy
         )
-        self._spTree.append(graphicFrame)
+        self._spTree.insert_element_before(graphicFrame, "p:extLst")
         return graphicFrame
 
     def _add_cxnSp(
@@ -1321,7 +1321,7 @@ class _BaseGroupShapes(_BaseShapes):
             poster_frame_image,
             mime_type,
         )
-        self._spTree.append(movie_pic)
+        self._spTree.insert_element_before(movie_pic, "p:extLst")
         self._add_video_timing(movie_pic)
         self._recalculate_extents()
         return cast(GraphicFrame, self._shape_factory(movie_pic))

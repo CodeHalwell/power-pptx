@@ -2558,3 +2558,58 @@ class DescribeAddGroupShapeWithShapes(object):
         assert doc is not None
         assert "`shapes`" in doc
         assert "ValueError" in doc
+
+
+class DescribeGraphicFramesAreAddedBeforeAnExtLst(object):
+    """`p:extLst` must stay the last child of a shape tree, whichever `add_*` method is used."""
+
+    EXT_LST = (
+        '<p:extLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+        '<p:ext uri="{00000000-0000-0000-0000-000000000001}"/></p:extLst>'
+    )
+
+    @pytest.fixture(params=["slide", "group"])
+    def shapes(self, request):
+        """The shape collection under test: a slide's, or a group's, each carrying an extLst."""
+        _, slide = _blank_slide()
+        shapes = slide.shapes if request.param == "slide" else slide.shapes.add_group_shape().shapes
+        shapes._spTree.append(parse_xml(self.EXT_LST))
+        return shapes
+
+    @staticmethod
+    def _child_tags(shapes):
+        return [child.tag.split("}")[1] for child in shapes._spTree]
+
+    def it_adds_a_chart_before_the_extLst(self, shapes):
+        chart_data = CategoryChartData()
+        chart_data.categories = ["A", "B"]
+        chart_data.add_series("S1", (1, 2))
+
+        graphic_frame = shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), chart_data
+        )
+
+        assert self._child_tags(shapes)[-2:] == ["graphicFrame", "extLst"]
+        assert shapes._spTree.xpath("p:graphicFrame")[0] is graphic_frame.element
+
+    def and_it_adds_an_ole_object_before_the_extLst(self, shapes):
+        shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(1), Inches(1))
+
+        assert self._child_tags(shapes)[-2:] == ["graphicFrame", "extLst"]
+
+    def and_it_adds_a_movie_before_the_extLst(self, shapes):
+        shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+
+        assert self._child_tags(shapes)[-2:] == ["pic", "extLst"]
+
+    def but_it_still_appends_when_there_is_no_extLst(self):
+        _, slide = _blank_slide()
+        slide.shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(1), Inches(1))
+        assert self._child_tags(slide.shapes)[-1] == "graphicFrame"
