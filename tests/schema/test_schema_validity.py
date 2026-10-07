@@ -305,7 +305,8 @@ def _deck_ole_objects() -> bytes:
 
 
 def _deck_picture_washout() -> bytes:
-    # Regression: recolor "washout" must write the required <a:biLevel thresh="…">.
+    # "washout" is the <a:lum> brightness/contrast pair; "black_and_white" is the <a:biLevel>
+    # that "washout" used to write, and which must keep its required thresh="…" (regression).
     png = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
         "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
@@ -315,6 +316,8 @@ def _deck_picture_washout() -> bytes:
     s = _blank_slide(prs)
     pic = s.shapes.add_picture(io.BytesIO(png), Inches(1), Inches(1), Inches(2), Inches(2))
     pic.effects.recolor = "washout"
+    pic2 = s.shapes.add_picture(io.BytesIO(png), Inches(4), Inches(1), Inches(2), Inches(2))
+    pic2.effects.recolor = "black_and_white"
     return _saved(prs)
 
 
