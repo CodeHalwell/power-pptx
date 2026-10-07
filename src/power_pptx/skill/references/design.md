@@ -29,6 +29,7 @@ from power_pptx.design.tokens import DesignTokens
 tokens = DesignTokens.from_dict(
     {
         "palette": {
+            # RGBColor, a hex string, or an [r, g, b] list / tuple.
             "primary": "#4F9DFF",
             "neutral": "#1F2937",
             "background": "#FFFFFF",
@@ -39,20 +40,56 @@ tokens = DesignTokens.from_dict(
         "typography": {
             # Recipes look up the keys "heading" and "body". Other keys are
             # available for your own use. Bare floats are treated as POINTS;
-            # bare ints are EMU. Use floats unless you know what you're doing.
+            # bare ints are EMU, so write 44.0 (or Pt(44)), never 44.
             "heading": {"family": "Inter", "size": 44.0, "bold": True},
             "body": {"family": "Inter", "size": 18.0},
             "caption": {"family": "Inter", "size": 12.0, "italic": True},
         },
         "shadows": {
-            # 'blur' / 'distance' are bare-float points too.
-            "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
+            # 'blur_radius' / 'distance' are bare-float points too; 'alpha'
+            # is 0-1.
+            "card": {"blur_radius": 18.0, "distance": 4.0, "alpha": 0.18},
         },
         "radii": {"card": 12.0, "button": 6.0},
         "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
     }
 )
 ```
+
+### Units and validation
+
+Every length in a token dict — a font `size`, a radius, a spacing, a
+shadow `blur_radius` / `distance` — follows one rule:
+
+| You write | It means |
+| --- | --- |
+| `36.0` (a float) | 36 **points** |
+| `Pt(36)`, `Emu(457200)` (a `Length`) | exactly that |
+| `36` (a bare int) | 36 **EMU**, about 0.003 pt |
+
+The bare-int-is-EMU rule is kept for backwards compatibility. It is also
+the trap a JSON or YAML file falls into: `"size": 36` is a 36-EMU font
+that used to fail much later, inside a recipe, with no location. So
+coercion now rejects the values that can only be a mistake, with a
+`ValueError` that names the token (the unit errors end in "use a float
+for points, or Pt(...)"):
+
+- a typography `size` outside 1–4000 pt
+  (`tokens.typography.heading.size`);
+- a radius, spacing or shadow `blur_radius` / `distance` given as a bare
+  int of 1–99 EMU (`tokens.radii.md`). `0` is accepted — it has no unit
+  to get wrong — and so is any `Length`, however small;
+- a shadow `alpha` outside 0–1, including one set through
+  `with_overrides({"shadows.card.alpha": 2.0})`
+  (`tokens.shadows.card.alpha`).
+
+`tokens.with_overrides(...)` validates exactly as `from_dict` does and
+leaves the base untouched when it raises; a key with more than three
+segments (`typography.heading.size.x`) is rejected. Each category
+(`palette`, `typography`, `radii`, `shadows`, `spacings`) must be a
+mapping — `{"palette": "modern_blue"}` raises rather than being read as
+a named palette; start from a built-in with
+`DesignTokens.from_preset("modern_light")`.
 
 ### Other constructors
 

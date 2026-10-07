@@ -77,11 +77,17 @@ class TypographyToken:
     color: Optional[RGBColor] = None
 
     @classmethod
-    def from_value(cls, value: Any) -> "TypographyToken":
+    def from_value(cls, value: Any, _path: str = "typography") -> "TypographyToken":
         """Coerce a dict / string / existing token into a :class:`TypographyToken`.
 
         A bare string is interpreted as a font family with no other
         attributes set; a mapping is unpacked through :meth:`__init__`.
+
+        ``size`` follows the token unit rule — a ``float`` is points, a
+        :class:`~power_pptx.util.Length` (``Pt(...)``) is taken as is, a
+        bare ``int`` is EMU — and must land between 1 pt and 4000 pt.
+        A bare ``36`` is therefore rejected (it is 36 EMU) rather than
+        stored and failing later inside a recipe.
         """
         if isinstance(value, cls):
             return value
@@ -93,7 +99,7 @@ class TypographyToken:
                 raise ValueError("typography token requires a non-empty 'family' string")
             size = value.get("size")
             if size is not None:
-                size = _coerce_length(size)
+                size = _coerce_font_size(size, f"{_path}.size")
             color = value.get("color")
             if color is not None:
                 color = _coerce_color(color)
@@ -118,25 +124,23 @@ class ShadowToken:
     alpha: Optional[float] = None
 
     @classmethod
-    def from_value(cls, value: Any) -> "ShadowToken":
+    def from_value(cls, value: Any, _path: str = "shadow") -> "ShadowToken":
         if isinstance(value, cls):
             return value
         if not isinstance(value, Mapping):
             raise TypeError(f"cannot build ShadowToken from {type(value).__name__}")
         blur = value.get("blur_radius")
         if blur is not None:
-            blur = _coerce_length(blur)
+            blur = _coerce_extent(blur, f"{_path}.blur_radius")
         distance = value.get("distance")
         if distance is not None:
-            distance = _coerce_length(distance)
+            distance = _coerce_extent(distance, f"{_path}.distance")
         direction = value.get("direction")
         if direction is not None:
             direction = float(direction)
         alpha = value.get("alpha")
         if alpha is not None:
-            alpha = float(alpha)
-            if not 0.0 <= alpha <= 1.0:
-                raise ValueError("shadow alpha must be in [0.0, 1.0]")
+            alpha = _coerce_alpha(alpha, f"{_path}.alpha")
         color = value.get("color")
         if color is not None:
             color = _coerce_color(color)
@@ -181,22 +185,37 @@ class DesignTokens:
 
         Unknown top-level keys are ignored so a single brand-spec file
         can carry extra application-specific data alongside the design
-        tokens.
+        tokens.  Each of ``palette`` / ``typography`` / ``radii`` /
+        ``spacings`` / ``shadows`` must be a mapping (``None`` means
+        empty).
+
+        Colours may be an :class:`RGBColor`, a hex string, or a 3-item
+        list or tuple of ints (JSON and YAML have no tuples).  Lengths
+        follow one unit rule: a ``float`` is **points**, a
+        :class:`~power_pptx.util.Length` (``Pt(8)``) is taken as is, and a
+        bare ``int`` is **EMU**.  So that ``{"size": 36}`` does not silently
+        become 36 EMU, a font size outside 1-4000 pt and a radius, spacing
+        or shadow extent given as a bare int of 1-99 EMU raise
+        :class:`ValueError` naming the token (``tokens.typography.heading.size``).
         """
-        palette = {
-            name: _coerce_color(value) for name, value in (spec.get("palette") or {}).items()
-        }
+        if not isinstance(spec, Mapping):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError(f"tokens must be a mapping; got {type(spec).__name__!r}")
+        palette = {name: _coerce_color(value) for name, value in _section(spec, "palette").items()}
         typography = {
-            name: TypographyToken.from_value(value)
-            for name, value in (spec.get("typography") or {}).items()
+            name: TypographyToken.from_value(value, _path=f"tokens.typography.{name}")
+            for name, value in _section(spec, "typography").items()
         }
-        radii = {name: _coerce_length(value) for name, value in (spec.get("radii") or {}).items()}
+        radii = {
+            name: _coerce_extent(value, f"tokens.radii.{name}")
+            for name, value in _section(spec, "radii").items()
+        }
         spacings = {
-            name: _coerce_length(value) for name, value in (spec.get("spacings") or {}).items()
+            name: _coerce_extent(value, f"tokens.spacings.{name}")
+            for name, value in _section(spec, "spacings").items()
         }
         shadows = {
-            name: ShadowToken.from_value(value)
-            for name, value in (spec.get("shadows") or {}).items()
+            name: ShadowToken.from_value(value, _path=f"tokens.shadows.{name}")
+            for name, value in _section(spec, "shadows").items()
         }
         return cls(
             palette=palette,
@@ -228,7 +247,11 @@ class DesignTokens:
         or simply mutate the returned instance — the dataclass fields
         are mutable.
         """
-        spec = _PRESETS.get(name)
+        spec = (
+            _PRESETS.get(name)
+            if isinstance(name, str)  # pyright: ignore[reportUnnecessaryIsInstance]
+            else None
+        )
         if spec is None:
             raise ValueError(f"Unknown preset {name!r}; choose from {sorted(_PRESETS)}")
         return cls.from_dict(spec)
@@ -480,10 +503,15 @@ class DesignTokens:
 
         The leading segment is the token category (``palette`` /
         ``typography`` / ``radii`` / ``shadows`` / ``spacings``), the
-        next segment is the slot name, and any further segments
-        navigate into a typography or shadow token (e.g.
+        next segment is the slot name, and a third segment navigates
+        into a typography or shadow token (e.g.
         ``typography.heading.size`` updates only the ``size`` field of
-        the existing heading token).
+        the existing heading token).  Deeper keys are rejected.
+
+        Values are validated exactly as :meth:`from_dict` validates them
+        (the unit rule for lengths, the ``[0, 1]`` range for shadow
+        ``alpha``), and a rejected value raises :class:`ValueError`
+        naming the token path — ``self`` is never modified.
 
         Useful for per-call recipe overrides::
 
@@ -523,16 +551,22 @@ class DesignTokens:
                 raise ValueError(
                     f"unknown override category {category!r}; choose from {sorted(bins)}"
                 )
+            if len(parts) > 3:
+                raise ValueError(
+                    f"override key {key!r} has too many segments; the deepest form is "
+                    "'typography.<slot>.<field>' / 'shadows.<slot>.<field>'"
+                )
+            slot_path = f"tokens.{category}.{parts[1]}"
             if len(parts) == 2:
                 slot = parts[1]
                 if category == "palette":
                     target[slot] = _coerce_color(value)
                 elif category in ("radii", "spacings"):
-                    target[slot] = _coerce_length(value)
+                    target[slot] = _coerce_extent(value, slot_path)
                 elif category == "typography":
-                    target[slot] = TypographyToken.from_value(value)
+                    target[slot] = TypographyToken.from_value(value, _path=slot_path)
                 elif category == "shadows":
-                    target[slot] = ShadowToken.from_value(value)
+                    target[slot] = ShadowToken.from_value(value, _path=slot_path)
             else:
                 # Sub-field override — merge into an existing token.
                 slot = parts[1]
@@ -544,10 +578,10 @@ class DesignTokens:
                         if isinstance(existing, TypographyToken)
                         else TypographyToken(family="Calibri")
                     )
-                    target[slot] = _typography_with_field(base, field_name, value)
+                    target[slot] = _typography_with_field(base, field_name, value, slot_path)
                 elif category == "shadows":
                     base = existing if isinstance(existing, ShadowToken) else ShadowToken()
-                    target[slot] = _shadow_with_field(base, field_name, value)
+                    target[slot] = _shadow_with_field(base, field_name, value, slot_path)
                 else:
                     raise ValueError(
                         f"sub-field override {key!r} only supported on typography and shadows"
@@ -674,17 +708,27 @@ def _coerce_color(value: Any) -> RGBColor:
         if len(s) != 6:
             raise ValueError(f"hex color string must be 6 hex digits, got {value!r}")
         return RGBColor(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
-    if isinstance(value, tuple) and len(value) == 3:
+    # JSON and YAML have no tuples, so a decoded ``[r, g, b]`` arrives as a list.
+    if isinstance(value, (tuple, list)) and len(value) == 3:
         return RGBColor(int(value[0]), int(value[1]), int(value[2]))
     raise TypeError(
-        f"cannot coerce {value!r} to RGBColor; expected RGBColor, hex string, or 3-tuple"
+        f"cannot coerce {value!r} to RGBColor; "
+        "expected RGBColor, hex string, or a 3-item list/tuple of ints"
     )
 
 
 def _coerce_length(value: Any) -> Length:
+    """Turn *value* into a :class:`Length`: a ``float`` is points, an ``int`` is EMU.
+
+    A :class:`Length` (``Pt(8)``, ``Emu(100)``) passes through untouched.  The
+    bare-int-is-EMU rule is kept for backwards compatibility; use
+    :func:`_coerce_font_size` / :func:`_coerce_extent` where a unit slip
+    (``36`` for ``36.0``) should be caught rather than stored.
+    """
     if isinstance(value, Length):
         return value
-    if isinstance(value, int):
+    # ``bool`` is an ``int`` subclass; ``True`` is not a one-EMU length.
+    if isinstance(value, int) and not isinstance(value, bool):
         return Emu(value)
     if isinstance(value, float):
         # Treat bare floats as points — the most common authoring unit.
@@ -694,7 +738,93 @@ def _coerce_length(value: Any) -> Length:
     )
 
 
-def _typography_with_field(base: TypographyToken, field_name: str, value: Any) -> TypographyToken:
+# The OOXML ``sz`` attribute stores hundredths of a point and only allows 100..400000.
+_MIN_FONT_SIZE = Pt(1)
+_MAX_FONT_SIZE = Pt(4000)
+
+# A bare int below this many EMU (0 excepted) is taken for a unit slip: ``8`` meant
+# as 8 pt is 8 EMU, a corner radius of 0.0006 pt.
+_MIN_BARE_EMU = 100
+
+_UNIT_HINT = "use a float for points, or Pt(...)"
+
+
+def _is_bare_int(value: Any) -> bool:
+    """True for a plain ``int`` — neither a :class:`Length` nor a ``bool``."""
+    return isinstance(value, int) and not isinstance(value, (Length, bool))
+
+
+def _describe_length(length: Length) -> str:
+    return f"{int(length)} EMU ({length.pt:.3g} pt)"
+
+
+def _coerce_length_at(value: Any, path: str) -> Length:
+    """:func:`_coerce_length`, with *path* prefixed to the :class:`TypeError` it raises."""
+    try:
+        return _coerce_length(value)
+    except TypeError as exc:
+        raise TypeError(f"{path}: {exc}") from None
+
+
+def _coerce_font_size(value: Any, path: str) -> Length:
+    """Coerce a typography size, requiring 1 pt <= size <= 4000 pt.
+
+    The unit rule is :func:`_coerce_length`'s, so ``36`` is 36 EMU — which is
+    why it is rejected here, naming *path*, instead of surfacing later as
+    "value must be in range 100 to 400000" from deep inside a recipe.
+    """
+    size = _coerce_length_at(value, path)
+    if not _MIN_FONT_SIZE <= size <= _MAX_FONT_SIZE:
+        hint = f"a bare int is read as EMU, so {_UNIT_HINT}" if _is_bare_int(value) else _UNIT_HINT
+        raise ValueError(
+            f"{path}: font size {_describe_length(size)} is outside the 1-4000 pt range; {hint}"
+        )
+    return size
+
+
+def _coerce_extent(value: Any, path: str) -> Length:
+    """Coerce a radius, spacing or shadow extent, rejecting a bare int that is a unit slip.
+
+    A bare ``int`` of 1-99 EMU (``{"radii": {"md": 8}}``) is stored as a
+    sub-hundredth-of-a-point length that renders as nothing; it raises, naming
+    *path*.  ``0`` has no unit to get wrong and is accepted, as is any
+    :class:`Length` or ``float``.
+    """
+    length = _coerce_length_at(value, path)
+    if _is_bare_int(value) and value != 0 and abs(value) < _MIN_BARE_EMU:
+        raise ValueError(
+            f"{path}: a bare int is read as EMU, and {_describe_length(length)} is almost "
+            f"certainly not what you meant; {_UNIT_HINT}"
+        )
+    return length
+
+
+def _coerce_alpha(value: Any, path: str) -> float:
+    try:
+        alpha: Optional[float] = float(value)
+    except (TypeError, ValueError):
+        alpha = None
+    if alpha is None or not 0.0 <= alpha <= 1.0:
+        raise ValueError(f"{path}: shadow alpha must be a number in [0.0, 1.0]; got {value!r}")
+    return alpha
+
+
+def _section(spec: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    """Return the *name* category of a token spec: a mapping, empty when absent or ``None``."""
+    value = spec.get(name)
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(
+            f"tokens.{name} must be a mapping of slot name -> value; "
+            f"got {type(value).__name__!r}: {value!r}"
+        )
+    return value
+
+
+def _typography_with_field(
+    base: TypographyToken, field_name: str, value: Any, path: str = "typography"
+) -> TypographyToken:
     """Return a copy of *base* with ``field_name`` set to *value*."""
     fields = {
         "family": base.family,
@@ -706,14 +836,16 @@ def _typography_with_field(base: TypographyToken, field_name: str, value: Any) -
     if field_name not in fields:
         raise ValueError(f"unknown typography field {field_name!r}; choose from {sorted(fields)}")
     if field_name == "size" and value is not None:
-        value = _coerce_length(value)
+        value = _coerce_font_size(value, f"{path}.size")
     elif field_name == "color" and value is not None:
         value = _coerce_color(value)
     fields[field_name] = value
     return TypographyToken(**fields)
 
 
-def _shadow_with_field(base: ShadowToken, field_name: str, value: Any) -> ShadowToken:
+def _shadow_with_field(
+    base: ShadowToken, field_name: str, value: Any, path: str = "shadow"
+) -> ShadowToken:
     """Return a copy of *base* with ``field_name`` set to *value*."""
     fields = {
         "blur_radius": base.blur_radius,
@@ -725,10 +857,12 @@ def _shadow_with_field(base: ShadowToken, field_name: str, value: Any) -> Shadow
     if field_name not in fields:
         raise ValueError(f"unknown shadow field {field_name!r}; choose from {sorted(fields)}")
     if field_name in ("blur_radius", "distance") and value is not None:
-        value = _coerce_length(value)
+        value = _coerce_extent(value, f"{path}.{field_name}")
     elif field_name == "color" and value is not None:
         value = _coerce_color(value)
-    elif field_name in ("direction", "alpha") and value is not None:
+    elif field_name == "alpha" and value is not None:
+        value = _coerce_alpha(value, f"{path}.alpha")
+    elif field_name == "direction" and value is not None:
         value = float(value)
     fields[field_name] = value
     return ShadowToken(**fields)

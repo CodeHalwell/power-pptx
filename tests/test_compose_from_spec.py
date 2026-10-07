@@ -7,7 +7,9 @@ import textwrap
 import pytest
 
 from power_pptx.compose import from_spec, from_yaml
+from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
+from power_pptx.lint import OffSlide
 
 
 class DescribeRecipeDispatch:
@@ -1089,3 +1091,898 @@ class DescribeSpecDeclaredOverlapSuppression:
         )
         issues = prs.slides[0].lint().issues
         assert any(isinstance(i, LayerOrderViolation) for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Spec validation: tokens, unknown keys, wrong-shaped content, kpi_grid,
+# interpolation.  Helpers first.
+# ---------------------------------------------------------------------------
+
+_VIBRANT_PRIMARY = RGBColor(0xFF, 0x33, 0x66)
+_MODERN_LIGHT_PRIMARY = RGBColor(0x3B, 0x5B, 0xDB)
+
+
+def _slide_texts(slide):
+    """Text of every text-bearing shape on *slide*, in z-order."""
+    return [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+
+
+def _first_run_rgb(slide):
+    """Colour of the first non-empty run on *slide* (the title, for recipes)."""
+    for sh in slide.shapes:
+        if not sh.has_text_frame:
+            continue
+        for p in sh.text_frame.paragraphs:
+            for r in p.runs:
+                if r.text:
+                    return r.font.color.rgb
+    return None
+
+
+class DescribeSlideLevelTokens:
+    """A slide's own ``tokens`` replace the deck-level set for that slide."""
+
+    _KPI = {"layout": "kpi", "title": "T", "kpis": [{"label": "A", "value": "1"}]}
+
+    def it_resolves_a_slide_level_tokens_mapping(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}],
+            }
+        )
+        # ``vibrant``'s primary, not ``modern_light``'s.
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_keeps_the_deck_level_tokens_on_slides_without_their_own(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}, dict(self._KPI)],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+        assert _first_run_rgb(prs.slides[1]) == _MODERN_LIGHT_PRIMARY
+
+    def it_applies_slide_level_tokens_when_the_deck_has_none(self):
+        prs = from_spec({"slides": [{**self._KPI, "tokens": {"preset": "vibrant"}}]})
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_accepts_a_prebuilt_DesignTokens_instance_on_a_slide(self):
+        from power_pptx.design.tokens import DesignTokens
+
+        tokens = DesignTokens.from_preset("vibrant")
+        prs = from_spec({"slides": [{**self._KPI, "tokens": tokens}]})
+        assert _first_run_rgb(prs.slides[0]) == _VIBRANT_PRIMARY
+
+    def it_lets_a_slide_opt_out_of_the_deck_tokens_with_null(self):
+        prs = from_spec(
+            {
+                "tokens": {"preset": "modern_light"},
+                "slides": [{**self._KPI, "tokens": None}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) is None
+
+    def it_upgrades_a_legacy_title_when_only_the_slide_has_tokens(self):
+        prs = from_spec(
+            {"slides": [{"layout": "title", "title": "Hello", "tokens": {"preset": "vibrant"}}]}
+        )
+        slide = prs.slides[0]
+        # Recipe path (no template placeholders), styled by the slide's tokens.
+        assert len(slide.placeholders) == 0
+        assert _first_run_rgb(slide) == _VIBRANT_PRIMARY
+
+    def it_locates_a_bad_slide_level_tokens_value(self):
+        with pytest.raises(ValueError, match=r"slides\[1\].*Unknown preset 'nope'"):
+            from_spec(
+                {
+                    "slides": [
+                        {"layout": "blank"},
+                        {**self._KPI, "tokens": {"preset": "nope"}},
+                    ]
+                }
+            )
+
+
+class DescribeTokenSpecValidation:
+    """A tokens spec must say what it means; nothing in it is silently dropped."""
+
+    def it_rejects_extra_keys_beside_a_preset(self):
+        spec = {
+            "tokens": {"preset": "modern_light", "palette": {"primary": "#FF0000"}},
+            "slides": [],
+        }
+        with pytest.raises(
+            ValueError, match=r"unexpected keys 'palette' beside 'preset'.*overrides"
+        ):
+            from_spec(spec)
+
+    def it_rejects_extra_keys_beside_a_yaml_path(self, tmp_path):
+        brand = tmp_path / "brand.yml"
+        brand.write_text("palette:\n  primary: '#112233'\n")
+        spec = {"tokens": {"yaml": str(brand), "typography": {}}, "slides": []}
+        with pytest.raises(ValueError, match=r"unexpected keys 'typography' beside 'yaml'"):
+            from_spec(spec)
+
+    def it_layers_overrides_on_a_yaml_base(self, tmp_path):
+        brand = tmp_path / "brand.yml"
+        brand.write_text("palette:\n  primary: '#112233'\n  neutral: '#445566'\n")
+        prs = from_spec(
+            {
+                "tokens": {"yaml": str(brand), "overrides": {"palette.primary": "#FF0000"}},
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == RGBColor(0xFF, 0x00, 0x00)
+
+    def it_rejects_a_preset_together_with_a_yaml_path(self):
+        spec = {"tokens": {"preset": "vibrant", "yaml": "brand.yml"}, "slides": []}
+        with pytest.raises(ValueError, match=r"either 'preset' or 'yaml', not both"):
+            from_spec(spec)
+
+    def it_rejects_overrides_without_a_base(self):
+        spec = {"tokens": {"overrides": {"palette.primary": "#FF0000"}}, "slides": []}
+        with pytest.raises(ValueError, match=r"'overrides'.*'preset'.*'yaml'"):
+            from_spec(spec)
+
+    def it_rejects_non_mapping_overrides(self):
+        spec = {"tokens": {"preset": "vibrant", "overrides": "palette.primary=red"}, "slides": []}
+        with pytest.raises(ValueError, match=r"'overrides' must be a mapping"):
+            from_spec(spec)
+
+    def it_rejects_a_non_mapping_palette_with_a_value_error(self):
+        # The shape the docs used to show for ``theme``.
+        spec = {"theme": {"palette": "modern_blue", "fonts": "inter"}, "slides": []}
+        with pytest.raises(ValueError, match=r"tokens\.palette must be a mapping"):
+            from_spec(spec)
+
+    def it_names_the_token_when_a_font_size_has_no_unit(self):
+        spec = {
+            "tokens": {"typography": {"heading": {"family": "Inter", "size": 36}}},
+            "slides": [],
+        }
+        with pytest.raises(ValueError, match=r"tokens\.typography\.heading\.size"):
+            from_spec(spec)
+
+    def it_names_the_token_when_a_radius_has_no_unit(self):
+        spec = {"tokens": {"radii": {"md": 8}}, "slides": []}
+        with pytest.raises(ValueError, match=r"tokens\.radii\.md.*use a float for points"):
+            from_spec(spec)
+
+    def it_accepts_json_style_list_colours(self):
+        prs = from_spec(
+            {
+                "tokens": {"palette": {"primary": [51, 51, 51]}},
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        assert _first_run_rgb(prs.slides[0]) == RGBColor(51, 51, 51)
+
+    def it_accepts_float_sizes_as_points(self):
+        prs = from_spec(
+            {
+                "tokens": {
+                    "typography": {"heading": {"family": "Inter", "size": 36.0}},
+                    "radii": {"md": 8.0},
+                },
+                "slides": [{"layout": "title_recipe", "title": "x"}],
+            }
+        )
+        run = prs.slides[0].shapes[0].text_frame.paragraphs[0].runs[0]
+        assert run.font.size.pt == 36.0
+
+
+class DescribeLegacyLayoutKeyValidation:
+    """Placeholder-based layouts reject the keys they never read."""
+
+    def it_rejects_unknown_keys_on_the_title_layout(self):
+        spec = {
+            "slides": [{"layout": "title", "title": "Hello", "subtitlz": "typo", "bogus_key": 1}]
+        }
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"slides\[0\]: layout 'title': unknown spec keys "
+                r"'bogus_key'; 'subtitlz' \(did you mean 'subtitle'\?\)"
+            ),
+        ):
+            from_spec(spec)
+
+    def it_names_the_slide_holding_the_bad_key(self):
+        spec = {
+            "slides": [
+                {"layout": "title", "title": "A"},
+                {"layout": "bullets", "title": "B", "bulets": ["x"]},
+            ]
+        }
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"slides\[1\]: layout 'bullets': unknown spec keys "
+                r"'bulets' \(did you mean 'bullets'"
+            ),
+        ):
+            from_spec(spec)
+
+    def it_lists_the_accepted_keys(self):
+        with pytest.raises(
+            ValueError, match=r"Accepted: \['layout', 'shapes', 'subtitle', 'title'"
+        ):
+            from_spec({"slides": [{"layout": "title", "title": "T", "nope": 1}]})
+
+    @pytest.mark.parametrize(
+        ("layout", "content"),
+        [
+            ("title", {"title": "T", "subtitle": "S"}),
+            ("bullets", {"title": "T", "bullets": ["a", "b"]}),
+            ("section", {"title": "T", "subtitle": "S"}),
+            ("section", {"title": "T", "text": "S"}),
+            ("two_column", {"title": "T", "left": "L", "right": "R"}),
+            ("two_column", {"title": "T", "content_left": "L", "content_right": "R"}),
+            ("comparison_layout", {"title": "T", "left": "L", "right": "R"}),
+            ("kpi_grid", {"title": "T", "kpis": [{"label": "A", "value": "1"}]}),
+            ("title_only", {"title": "T"}),
+            ("blank", {}),
+            ("caption", {"title": "T"}),
+            ("picture", {"title": "T"}),
+        ],
+    )
+    def it_accepts_every_key_the_layout_reads(self, layout, content):
+        slide = {
+            "layout": layout,
+            **content,
+            "transition": "fade",
+            "shapes": [{"left": 1, "top": 1, "width": 1, "height": 1}],
+        }
+        assert len(from_spec({"slides": [slide]}).slides) == 1
+
+    @pytest.mark.parametrize(
+        ("layout", "key"),
+        [
+            ("title", "bullets"),
+            ("bullets", "subtitle"),
+            ("section", "bullets"),
+            ("two_column", "subtitle"),
+            ("comparison_layout", "text"),
+            ("kpi_grid", "bullets"),
+            ("title_only", "text"),
+            ("blank", "bullets"),
+            ("caption", "caption"),
+            ("picture", "subtitle"),
+        ],
+    )
+    def it_rejects_a_key_the_layout_never_reads(self, layout, key):
+        with pytest.raises(
+            ValueError,
+            match=rf"slides\[0\]: layout '{layout}': unknown spec keys '{key}'",
+        ):
+            from_spec({"slides": [{"layout": layout, key: "x"}]})
+
+    def it_rejects_slide_level_tokens_on_a_layout_that_ignores_tokens(self):
+        spec = {"slides": [{"layout": "section", "title": "S", "tokens": {"preset": "vibrant"}}]}
+        with pytest.raises(ValueError, match=r"layout 'section': unknown spec keys 'tokens'"):
+            from_spec(spec)
+
+    def it_treats_a_null_slide_level_tokens_value_as_nothing_to_apply(self):
+        spec = {"slides": [{"layout": "section", "title": "S", "tokens": None}]}
+        assert len(from_spec(spec).slides) == 1
+
+    def it_points_a_template_layout_name_at_the_alias_that_reads_more(self):
+        # "Title Slide" is the template's own name for what the "title" alias
+        # fills; the name reaches only the title placeholder.
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"layout 'title slide': unknown spec keys 'subtitle'.*"
+                r"alias 'title' also reads \['subtitle'\]"
+            ),
+        ):
+            from_spec({"slides": [{"layout": "Title Slide", "title": "T", "subtitle": "S"}]})
+
+    def it_still_builds_a_slide_from_a_template_layout_name(self):
+        prs = from_spec({"slides": [{"layout": "Title Slide", "title": "T"}]})
+        assert prs.slides[0].slide_layout.name == "Title Slide"
+
+    def it_locates_recipe_layout_errors_too(self):
+        with pytest.raises(ValueError, match=r"slides\[1\]: layout 'kpi': unknown spec keys"):
+            from_spec(
+                {
+                    "slides": [
+                        {"layout": "blank"},
+                        {"layout": "kpi", "title": "T", "kpis": [], "subtitlz": "x"},
+                    ]
+                }
+            )
+        with pytest.raises(ValueError, match=r"slides\[1\]: layout 'kpi' requires keys"):
+            from_spec({"slides": [{"layout": "blank"}, {"layout": "kpi", "title": "T"}]})
+
+    def it_locates_an_unknown_layout(self):
+        with pytest.raises(ValueError, match=r"slides\[1\]: Unknown layout 'titel'"):
+            from_spec({"slides": [{"layout": "blank"}, {"layout": "titel"}]})
+
+
+class DescribePictureLayout:
+    """The ``picture`` layout fills its picture and caption placeholders."""
+
+    @staticmethod
+    def _png(tmp_path):
+        from PIL import Image
+
+        path = tmp_path / "pic.png"
+        Image.new("RGB", (8, 6), "red").save(path)
+        return str(path)
+
+    @staticmethod
+    def _pictures(slide):
+        return [ph for ph in slide.placeholders if hasattr(ph, "image")]
+
+    def it_inserts_the_image_into_the_picture_placeholder(self, tmp_path):
+        prs = from_spec(
+            {"slides": [{"layout": "picture", "title": "P", "image": self._png(tmp_path)}]}
+        )
+        pictures = self._pictures(prs.slides[0])
+        assert len(pictures) == 1
+        assert pictures[0].image.size == (8, 6)
+
+    def it_puts_the_caption_in_the_caption_placeholder(self, tmp_path):
+        prs = from_spec(
+            {
+                "slides": [
+                    {
+                        "layout": "picture",
+                        "title": "P",
+                        "image": self._png(tmp_path),
+                        "caption": "A caption",
+                    }
+                ]
+            }
+        )
+        captions = [ph for ph in prs.slides[0].placeholders if ph.placeholder_format.idx == 2]
+        assert [ph.text for ph in captions] == ["A caption"]
+
+    def it_leaves_the_picture_placeholder_empty_without_an_image(self):
+        prs = from_spec({"slides": [{"layout": "picture", "title": "P"}]})
+        assert self._pictures(prs.slides[0]) == []
+
+    def it_names_the_slide_when_the_image_file_is_missing(self, tmp_path):
+        missing = str(tmp_path / "nope.png")
+        spec = {"slides": [{"layout": "blank"}, {"layout": "picture", "image": missing}]}
+        with pytest.raises(FileNotFoundError, match=r"slides\[1\]: 'image' not found.*nope\.png"):
+            from_spec(spec)
+
+
+class DescribeWrongShapedSlides:
+    """Content of the wrong type fails up front, naming ``slides[i].<key>``."""
+
+    @pytest.mark.parametrize(
+        ("slide", "pattern"),
+        [
+            pytest.param(
+                "title",
+                r"slides\[0\]: each slide must be a mapping.*'str'",
+                id="slide-is-a-string",
+            ),
+            pytest.param(
+                None,
+                r"slides\[0\]: each slide must be a mapping.*'NoneType'",
+                id="slide-is-none",
+            ),
+            pytest.param(
+                {"layout": 5},
+                r"slides\[0\]\.layout: must be a string.*'int'",
+                id="layout-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "kpi", "title": "T", "kpis": {"label": "A", "value": "1"}},
+                r"slides\[0\]\.kpis: must be a list of mappings.*'dict'",
+                id="kpis-is-a-dict",
+            ),
+            pytest.param(
+                {"layout": "kpi", "title": "T", "kpis": "ARR"},
+                r"slides\[0\]\.kpis: must be a list of mappings.*'str'",
+                id="kpis-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "kpi", "title": "T", "kpis": [{"label": "A"}, "B"]},
+                r"slides\[0\]\.kpis\[1\]: each entry must be a mapping.*'str'",
+                id="a-kpi-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "kpi_grid", "title": "T", "kpis": ["A"]},
+                r"slides\[0\]\.kpis\[0\]: each entry must be a mapping",
+                id="kpi-grid-entry-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "kpi_grid", "title": "T", "kpis": "A"},
+                r"slides\[0\]\.kpis: must be a list of mappings",
+                id="kpi-grid-kpis-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "timeline", "title": "T", "milestones": "Q1"},
+                r"slides\[0\]\.milestones: must be a list of mappings.*'str'",
+                id="milestones-is-a-string",
+            ),
+            pytest.param(
+                {
+                    "layout": "chart",
+                    "title": "T",
+                    "categories": ["a"],
+                    "series": {"name": "s", "values": [1]},
+                },
+                r"slides\[0\]\.series: must be a list of mappings.*'dict'",
+                id="series-is-a-dict",
+            ),
+            pytest.param(
+                {
+                    "layout": "chart",
+                    "title": "T",
+                    "categories": "Q1Q2",
+                    "series": [{"name": "s", "values": [1]}],
+                },
+                r"slides\[0\]\.categories: must be a list.*'str'",
+                id="categories-is-a-string",
+            ),
+            pytest.param(
+                {
+                    "layout": "chart",
+                    "title": "T",
+                    "categories": ["a", "b"],
+                    "series": [{"name": "s", "values": "12"}],
+                },
+                r"slides\[0\]\.series\[0\]\.values: must be a list.*'str'",
+                id="series-values-is-a-string",
+            ),
+            pytest.param(
+                {
+                    "layout": "comparison",
+                    "title": "T",
+                    "left_heading": "L",
+                    "right_heading": "R",
+                    "rows": ["a", "b"],
+                },
+                r"slides\[0\]\.rows\[0\]: each entry must be a mapping.*'str'",
+                id="comparison-rows-are-strings",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a", "b"], "rows": ["ab"]},
+                r"slides\[0\]\.rows\[0\]: must be a list.*'str'",
+                id="table-row-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": "ab", "rows": [["a", "b"]]},
+                r"slides\[0\]\.columns: must be a list.*'str'",
+                id="table-columns-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "bullets_recipe", "title": "T", "bullets": "one bullet"},
+                r"slides\[0\]\.bullets: must be a list.*'str'",
+                id="recipe-bullets-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "bullets", "title": "T", "bullets": "one bullet"},
+                r"slides\[0\]\.bullets: must be a list.*'str'",
+                id="legacy-bullets-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "bullets", "title": "T", "bullets": {"a": 1}},
+                r"slides\[0\]\.bullets: must be a list.*'dict'",
+                id="legacy-bullets-is-a-dict",
+            ),
+            pytest.param(
+                {"layout": "title", "title": 2026},
+                r"slides\[0\]\.title: must be a string.*'int'",
+                id="title-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "title", "title": "T", "subtitle": 2026},
+                r"slides\[0\]\.subtitle: must be a string.*'int'",
+                id="subtitle-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "title", "title": "T", "transition": 5},
+                r"slides\[0\]\.transition: must be a string.*'int'",
+                id="transition-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "code", "title": "T", "code": ["a", "b"]},
+                r"slides\[0\]\.code: must be a string.*'list'",
+                id="code-is-a-list",
+            ),
+        ],
+    )
+    def it_rejects_content_of_the_wrong_shape_with_its_location(self, slide, pattern):
+        with pytest.raises(ValueError, match=pattern):
+            from_spec({"slides": [slide]})
+
+    @pytest.mark.parametrize(
+        ("slide", "pattern"),
+        [
+            pytest.param(
+                {
+                    "layout": "chart",
+                    "title": "T",
+                    "chart_type": ["line"],
+                    "categories": ["a"],
+                    "series": [],
+                },
+                r"slides\[0\]\.chart_type: must be a string.*'list'",
+                id="chart-type-is-a-list",
+            ),
+            pytest.param(
+                {"layout": "picture", "title": "T", "image": 5},
+                r"slides\[0\]\.image: must be a file path or a binary file.*'int'",
+                id="picture-image-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "image_hero", "title": "T", "image": ["a.png"]},
+                r"slides\[0\]\.image: must be a file path or a binary file.*'list'",
+                id="image-hero-image-is-a-list",
+            ),
+            pytest.param(
+                {"layout": "section_divider", "title": "T", "progress": 5},
+                r"slides\[0\]\.progress: must be a \[current, total\] pair",
+                id="progress-is-an-int",
+            ),
+            pytest.param(
+                {"layout": "section_divider", "title": "T", "progress": "37"},
+                r"slides\[0\]\.progress: must be a \[current, total\] pair",
+                id="progress-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "aligns": "right"},
+                r"slides\[0\]\.aligns: must be a list.*'str'",
+                id="aligns-is-a-string",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "widths": 0.5},
+                r"slides\[0\]\.widths: must be a list.*'float'",
+                id="widths-is-a-number",
+            ),
+            pytest.param(
+                {"layout": "table", "title": "T", "columns": ["a"], "rows": [], "totals": [1]},
+                r"slides\[0\]\.totals: must be a mapping.*'list'",
+                id="totals-is-a-list",
+            ),
+        ],
+    )
+    def it_rejects_recipe_options_of_the_wrong_type_with_their_location(self, slide, pattern):
+        with pytest.raises(ValueError, match=pattern):
+            from_spec({"slides": [slide]})
+
+    @pytest.mark.parametrize(
+        ("slide", "missing"),
+        [
+            ({"layout": "kpi", "title": None, "kpis": []}, "title"),
+            ({"layout": "code", "title": "T", "code": None}, "code"),
+            ({"layout": "image_hero", "title": "T", "image": None}, "image"),
+            (
+                {
+                    "layout": "comparison",
+                    "title": "T",
+                    "left_heading": None,
+                    "right_heading": "R",
+                    "rows": [],
+                },
+                "left_heading",
+            ),
+        ],
+    )
+    def it_reports_a_required_key_given_as_null_as_missing(self, slide, missing):
+        # YAML's ``title:`` with nothing after it is ``None``.
+        pattern = (
+            rf"slides\[0\]: layout '\w+' requires keys.*"
+            rf"missing \['{missing}'\] \({missing} given as null\)"
+        )
+        with pytest.raises(ValueError, match=pattern):
+            from_spec({"slides": [slide]})
+
+    @pytest.mark.parametrize(
+        "slide",
+        [
+            {"layout": "bullets", "title": "T", "bullets": None},
+            {"layout": "kpi_grid", "title": "T", "kpis": None},
+            {"layout": "picture", "title": "T", "image": None, "caption": None},
+            {"layout": "title", "title": "T", "subtitle": None, "transition": None},
+            {
+                "layout": "table",
+                "title": "T",
+                "columns": ["a"],
+                "rows": [],
+                "widths": None,
+                "aligns": None,
+                "totals": None,
+            },
+            {"layout": "section_divider", "title": "T", "eyebrow": None, "progress": None},
+        ],
+    )
+    def it_treats_a_null_optional_field_as_not_given(self, slide):
+        assert len(from_spec({"slides": [slide]}).slides) == 1
+
+    def it_reports_the_index_of_the_offending_slide(self):
+        spec = {
+            "slides": [
+                {"layout": "blank"},
+                {"layout": "blank"},
+                {"layout": "kpi", "title": "T", "kpis": "oops"},
+            ]
+        }
+        with pytest.raises(ValueError, match=r"slides\[2\]\.kpis"):
+            from_spec(spec)
+
+    def it_does_not_wrap_a_bare_string_into_a_one_item_list(self):
+        # Decision: raise rather than silently wrap, so the author learns the
+        # field is a list (the old behaviour was one bullet per character).
+        with pytest.raises(ValueError, match="must be a list"):
+            from_spec(
+                {
+                    "tokens": {"preset": "modern_light"},
+                    "slides": [{"layout": "bullets", "title": "T", "bullets": "a single string"}],
+                }
+            )
+
+    def it_still_accepts_tuples_for_list_fields(self):
+        prs = from_spec(
+            {
+                "slides": [
+                    {"layout": "bullets", "title": "T", "bullets": ("a", "b")},
+                    {"layout": "kpi", "title": "T", "kpis": ({"label": "A", "value": "1"},)},
+                ]
+            }
+        )
+        assert len(prs.slides) == 2
+
+    @pytest.mark.parametrize("layout", [None, ""])
+    def it_still_treats_a_missing_layout_as_blank(self, layout):
+        prs = from_spec({"slides": [{"layout": layout}, {}]})
+        assert [s.slide_layout.name for s in prs.slides] == ["Blank", "Blank"]
+
+    @pytest.mark.parametrize("transition", [None, False, ""])
+    def it_still_treats_a_falsy_transition_as_none(self, transition):
+        prs = from_spec({"slides": [{"layout": "title", "title": "T", "transition": transition}]})
+        assert len(prs.slides) == 1
+
+
+class DescribeKpiGridLayout:
+    """``kpi_grid`` fits its cards on the slide and formats deltas like ``kpi``."""
+
+    @staticmethod
+    def _build(n, delta=0.1, **extra):
+        kpis = [{"label": f"L{i}", "value": "$1,234,567", "delta": delta} for i in range(n)]
+        return from_spec({**extra, "slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 8])
+    @pytest.mark.parametrize("size", [None, "16:9"])
+    def it_keeps_every_card_on_the_slide(self, n, size):
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        slide = prs.slides[0]
+        for shape in slide.shapes:
+            assert shape.left >= 0
+            assert shape.left + shape.width <= prs.slide_width
+        assert not [i for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 8])
+    @pytest.mark.parametrize("size", [None, "16:9"])
+    def it_lints_clean_at_every_count(self, n, size):
+        # Neither OffSlide errors nor a drift warning against the title.
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        assert prs.slides[0].lint().issues == []
+
+    @pytest.mark.parametrize(
+        ("n", "size", "first_left"),
+        [(1, None, 3.9), (3, None, 1.5), (4, None, 0.3), (4, "16:9", 1.9665), (5, "16:9", 0.7665)],
+    )
+    def it_lays_out_a_row_that_already_fitted_exactly_as_before(self, n, size, first_left):
+        from power_pptx.util import Inches
+
+        prs = self._build(n, **({"slide_size": size} if size else {}))
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert {sh.width for sh in value_boxes} == {Inches(2.2)}
+        assert value_boxes[0].left == pytest.approx(Inches(first_left), abs=Inches(0.001))
+
+    def it_does_not_let_neighbouring_cards_overlap(self):
+        prs = self._build(6)
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert len(value_boxes) == 6
+        for left_box, right_box in zip(value_boxes, value_boxes[1:]):
+            assert left_box.left + left_box.width <= right_box.left
+
+    def it_does_not_stretch_cards_past_their_natural_width(self):
+        from power_pptx.util import Inches
+
+        prs = self._build(2)
+        value_boxes = [
+            sh
+            for sh in prs.slides[0].shapes
+            if sh.has_text_frame and sh.text_frame.text == "$1,234,567"
+        ]
+        assert {sh.width for sh in value_boxes} == {Inches(2.2)}
+
+    def it_renders_a_string_delta_verbatim(self):
+        prs = self._build(1, delta="+14 pts")
+        assert "+14 pts" in _slide_texts(prs.slides[0])
+
+    def it_formats_numeric_deltas_like_the_kpi_recipe(self):
+        kpis = [
+            {"label": "A", "value": "1", "delta": 0.27},
+            {"label": "B", "value": "2", "delta": -0.05},
+            {"label": "C", "value": "3", "delta": 14},
+        ]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        texts = _slide_texts(prs.slides[0])
+        assert {"+27%", "−5%", "+14.0"} <= set(texts)
+
+    def it_honours_delta_text(self):
+        kpis = [{"label": "A", "value": "1", "delta_text": "vs. plan"}]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        assert "vs. plan" in _slide_texts(prs.slides[0])
+
+    def it_tints_positive_and_negative_deltas(self):
+        kpis = [
+            {"label": "A", "value": "1", "delta": "+3 pts"},
+            {"label": "B", "value": "2", "delta": "-3 pts"},
+        ]
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "K", "kpis": kpis}]})
+        colours = {}
+        for sh in prs.slides[0].shapes:
+            if sh.has_text_frame and sh.text_frame.text.endswith("pts"):
+                colours[sh.text_frame.text] = sh.text_frame.paragraphs[0].runs[0].font.color.rgb
+        assert colours["+3 pts"] == RGBColor(0x00, 0x8A, 0x00)
+        assert colours["-3 pts"] == RGBColor(0xCC, 0x00, 0x00)
+
+
+class DescribeCodeFieldInterpolation:
+    """``{{...}}`` inside a ``code`` field is code, not a variable reference."""
+
+    def it_leaves_template_syntax_in_a_code_field_untouched(self):
+        code = "Hello {{ user.name }}!\n{{#each items}}{{this}}{{/each}}"
+        prs = from_spec({"slides": [{"layout": "code", "title": "Templates", "code": code}]})
+        shown = "\n".join(_slide_texts(prs.slides[0]))
+        assert "{{ user.name }}" in shown
+        assert "{{#each items}}{{this}}{{/each}}" in shown
+
+    def it_still_interpolates_the_other_fields_of_the_same_slide(self):
+        prs = from_spec(
+            {
+                "vars": {"company": "ACME"},
+                "slides": [
+                    {
+                        "layout": "code",
+                        "title": "{{company}} templates",
+                        "code": "Hello {{ user.name }}",
+                    }
+                ],
+            }
+        )
+        texts = _slide_texts(prs.slides[0])
+        assert "ACME templates" in texts
+        assert any("{{ user.name }}" in t for t in texts)
+
+    def it_still_raises_on_an_unknown_variable_outside_code(self):
+        with pytest.raises(KeyError, match="not found"):
+            from_spec(
+                {
+                    "slides": [
+                        {"layout": "code", "title": "{{missing}}", "code": "{{ also_missing }}"}
+                    ]
+                }
+            )
+
+    def it_does_not_exempt_other_fields_that_merely_mention_code(self):
+        # Only a slide's ``code`` field is verbatim; a shape's text still interpolates.
+        prs = from_spec(
+            {
+                "vars": {"label": "DRAFT"},
+                "slides": [
+                    {
+                        "layout": "code",
+                        "title": "T",
+                        "code": "{{ verbatim }}",
+                        "shapes": [
+                            {"left": 1, "top": 1, "width": 2, "height": 1, "text": "{{label}}"}
+                        ],
+                    }
+                ],
+            }
+        )
+        texts = _slide_texts(prs.slides[0])
+        assert "DRAFT" in texts
+        assert "{{ verbatim }}" in texts
+
+
+def _documented_layouts(image_path):
+    """One slide per layout using every key the layout documents."""
+    return {
+        "title_recipe": {"title": "T", "subtitle": "S", "transition": "fade"},
+        "bullets_recipe": {"title": "T", "bullets": ["a", "b", 3]},
+        "kpi": {
+            "title": "T",
+            "kpis": [
+                {"label": "A", "value": 1, "delta": 0.2},
+                {"label": "B", "value": "2", "delta_text": "vs plan"},
+            ],
+        },
+        "quote": {"quote": "Q", "attribution": "- Someone"},
+        "image_hero": {"title": "T", "image": image_path, "caption": "cap"},
+        "section_divider": {"title": "T", "eyebrow": "PART", "progress": [3, 7]},
+        "chart": {
+            "title": "T",
+            "chart_type": "column",
+            "categories": ["a", "b"],
+            "series": [{"name": "s", "values": [1, 2.5]}],
+            "chart_palette": "modern",
+            "legend": False,
+            "smooth": True,
+            "data_labels": True,
+        },
+        "table": {
+            "title": "T",
+            "columns": ["a", "b"],
+            "rows": [[1, 2], ("x", "y")],
+            "banded": False,
+            "widths": [0.5, 0.5],
+            "aligns": ["left", "right"],
+            "totals": {"label": "Total", "values": [3, 4]},
+        },
+        "code": {"title": "T", "code": "print('hi')  # {{ not_a_var }}", "language": "python"},
+        "timeline": {
+            "title": "T",
+            "milestones": [{"date": "Q1", "label": "L", "done": True}, {"date": "Q2"}],
+        },
+        "comparison": {
+            "title": "T",
+            "left_heading": "L",
+            "right_heading": "R",
+            "rows": [{"left": "a", "right": "b"}, {"left": 1, "right": 2}],
+        },
+        "figure": {"title": "T", "figure": image_path, "caption": "c"},
+        "title": {"title": "T", "subtitle": "S", "transition": "fade"},
+        "bullets": {"title": "T", "bullets": ["a", "b"]},
+        "section": {"title": "T", "text": "S"},
+        "two_column": {"title": "T", "left": "L", "right": "R"},
+        "comparison_layout": {"title": "T", "content_left": "L", "content_right": "R"},
+        "title_only": {"title": "T"},
+        "blank": {},
+        "caption": {"title": "T"},
+        "picture": {"title": "T", "image": image_path, "caption": "cap"},
+        "kpi_grid": {"title": "T", "kpis": [{"label": "A", "value": "1", "delta": -0.1}]},
+    }
+
+
+class DescribeEveryDocumentedLayout:
+    """The validation must not reject what a layout documents it accepts."""
+
+    @pytest.fixture
+    def image_path(self, tmp_path):
+        from PIL import Image
+
+        path = tmp_path / "pic.png"
+        Image.new("RGB", (40, 30), "blue").save(path)
+        return str(path)
+
+    @pytest.mark.parametrize("with_tokens", [False, True])
+    @pytest.mark.parametrize("layout", sorted(_documented_layouts("x.png")))
+    def it_builds_with_and_without_tokens(self, layout, with_tokens, image_path):
+        slide = {"layout": layout, **_documented_layouts(image_path)[layout]}
+        spec = {"slides": [slide]}
+        if with_tokens:
+            spec["tokens"] = {"preset": "modern_light"}
+        assert len(from_spec(spec).slides) == 1
+
+    def it_builds_them_all_in_one_deck_from_yaml(self, tmp_path, image_path):
+        import yaml
+
+        deck = {"tokens": {"preset": "vibrant"}, "slides": []}
+        for layout, content in _documented_layouts(image_path).items():
+            deck["slides"].append({"layout": layout, **content})
+        path = tmp_path / "deck.yml"
+        path.write_text(yaml.safe_dump(deck))
+        assert len(from_yaml(str(path)).slides) == len(deck["slides"])

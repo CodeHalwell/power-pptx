@@ -53,8 +53,9 @@ YAML usage::
 from __future__ import annotations
 
 import contextlib
+import os
 import re
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 # ---------------------------------------------------------------------------
 # Built-in layout aliases — map friendly names to the PowerPoint blank
@@ -120,13 +121,31 @@ def from_spec(
     *spec* keys:
 
     ``slides`` *(required)*
-        A list of slide-spec dicts.  Each slide dict must have a
-        ``layout`` key.  Recipe layouts (``title_recipe``, ``bullets_recipe``,
-        ``kpi``, ``chart``, ``table``, ``code``, ``timeline``,
-        ``comparison``, ``quote``, ``image_hero``, ``section_divider``)
-        run the matching :mod:`power_pptx.design.recipes` function;
-        legacy layouts (``title``, ``bullets``, ``two_column``, …)
-        populate the standard placeholder layouts.
+        A list of slide-spec dicts.  Each slide dict should have a
+        ``layout`` key (a slide without one is blank).  Recipe layouts
+        (``title_recipe``, ``bullets_recipe``, ``kpi``, ``chart``,
+        ``table``, ``code``, ``timeline``, ``comparison``, ``quote``,
+        ``image_hero``, ``section_divider``, ``figure``) run the matching
+        :mod:`power_pptx.design.recipes` function; legacy layouts
+        (``title``, ``bullets``, ``section``, ``two_column``,
+        ``comparison_layout``, ``kpi_grid``, ``picture``, …) populate the
+        standard placeholder layouts.
+
+        Each slide is validated before it is built, and every error is a
+        :class:`ValueError` naming the slide (``slides[3]``) or field
+        (``slides[3].kpis``).  A key the layout does not read is rejected
+        with a did-you-mean hint on *every* layout, the placeholder ones
+        included.  Those read ``title``, ``transition`` and ``shapes``
+        plus: ``subtitle`` (``title``); ``bullets`` (``bullets``);
+        ``subtitle`` / ``text`` (``section``); ``left`` / ``right`` or
+        ``content_left`` / ``content_right`` (``two_column``,
+        ``comparison_layout``); ``kpis`` (``kpi_grid``); ``image`` /
+        ``caption`` (``picture``).  Text fields must be strings and list
+        fields (``bullets``, ``kpis``, ``milestones``, ``categories``,
+        ``series``, ``columns``, ``rows``, ``widths``, ``aligns``) lists of
+        the right shape — a bare string is not a one-item list.  A
+        ``null`` optional field counts as not given, and a required key
+        given as ``null`` as missing.
 
         A slide dict may also carry a ``shapes`` list of extra shapes
         drawn on top of whatever the layout produced — see
@@ -136,11 +155,18 @@ def from_spec(
         intentional at generation time.
 
     ``tokens`` *(optional)*
-        Either a preset name (``{"preset": "modern_light"}``), a path
-        to a YAML file (``{"yaml": "brand.yml"}``), an inline token
-        dict, a mix of preset + ``overrides`` for per-deck tweaks, or
-        an already-built :class:`~power_pptx.design.tokens.DesignTokens`
-        instance.
+        Either a preset name (``{"preset": "modern_light"}``) or a path
+        to a YAML file (``{"yaml": "brand.yml"}``) — each with an
+        optional ``"overrides": {...}`` for per-deck tweaks, and nothing
+        else beside it — an inline token dict, or an already-built
+        :class:`~power_pptx.design.tokens.DesignTokens` instance.
+        Inline lengths follow the token unit rule (a float is points, a
+        bare int is EMU; a size that small is rejected) — see
+        :meth:`~power_pptx.design.tokens.DesignTokens.from_dict`.
+        A slide dict may carry its own ``tokens`` (same shapes), which
+        replace the deck-level ones for that slide; ``null`` opts the
+        slide out.  ``theme`` is accepted as an alias when ``tokens`` is
+        absent.
 
     ``slide_size`` *(optional)*
         Resize the slides to the given dimensions.  Accepts shorthand
@@ -153,7 +179,9 @@ def from_spec(
 
     ``vars`` *(optional)*
         Variable bag for ``{{name}}`` interpolation in any string field
-        of the spec.  Spec-level ``vars`` are layered under any *vars*
+        of the spec — except a slide's ``code``, which is shown exactly
+        as written so a ``code`` slide can display Jinja, Handlebars or
+        Go templates.  Spec-level ``vars`` are layered under any *vars*
         argument passed to :func:`from_spec` (the kwarg wins).
 
     ``lint`` *(optional)*
@@ -186,7 +214,7 @@ def from_spec(
     # Always interpolate — even with no vars, a stray ``{{name}}`` in
     # the spec should raise rather than silently rendering as the
     # literal placeholder.
-    spec = _interpolate(spec, merged_vars)
+    spec = _interpolate_spec(spec, merged_vars)
 
     from power_pptx import Presentation
 
@@ -294,10 +322,14 @@ def _did_you_mean(word: str, candidates: Iterable[str]) -> str:
     return f" (did you mean {matches[0]!r}?)" if matches else ""
 
 
-def _format_unknown(unknown: Iterable[str], candidates: Iterable[str]) -> str:
-    """Render unknown keys/values, each annotated with its closest candidate."""
+def _format_unknown(unknown: Iterable[Any], candidates: Iterable[str]) -> str:
+    """Render unknown keys/values, each annotated with its closest candidate.
+
+    Keys decoded from YAML need not be strings (``1: x``), so sorting and the
+    closest-match lookup go through ``str()``.
+    """
     candidates = list(candidates)
-    return "; ".join(f"{u!r}{_did_you_mean(u, candidates)}" for u in sorted(unknown))
+    return "; ".join(f"{u!r}{_did_you_mean(str(u), candidates)}" for u in sorted(unknown, key=str))
 
 
 def _validate_spec_keys(spec: dict[str, Any]) -> None:
@@ -314,7 +346,7 @@ def _validate_spec_keys(spec: dict[str, Any]) -> None:
         raise ValueError("'slides' must be a list")
 
 
-def _resolve_layout(prs: Any, layout_name: str) -> Any:
+def _resolve_layout(prs: Any, layout_name: str, *, where: str = "") -> Any:
     """Return the SlideLayout for *layout_name*.
 
     First tries the built-in alias table, then an exact case-insensitive
@@ -323,7 +355,8 @@ def _resolve_layout(prs: Any, layout_name: str) -> Any:
     rather than silently substituting the Blank layout — a silent
     fallback reads as "my styled layout just didn't apply" and is the
     same fail-closed-on-typos contract the spec-key validation uses. Use
-    ``"blank"`` explicitly for a deliberately blank slide.
+    ``"blank"`` explicitly for a deliberately blank slide.  *where*
+    (``"slides[2]"``) prefixes the error so the slide can be found.
     """
     canonical = _LAYOUT_ALIASES.get(layout_name.lower())
     if canonical:
@@ -342,15 +375,16 @@ def _resolve_layout(prs: Any, layout_name: str) -> Any:
         | set(_LEGACY_TO_RECIPE)
         | {sl.name.lower() for sl in prs.slide_layouts}
     )
+    prefix = f"{where}: " if where else ""
     raise ValueError(
-        f"Unknown layout {layout_name!r}{_did_you_mean(layout_name.lower(), candidates)}. "
-        f"Valid layouts: {candidates}"
+        f"{prefix}Unknown layout {layout_name!r}"
+        f"{_did_you_mean(layout_name.lower(), candidates)}. Valid layouts: {candidates}"
     )
 
 
 def _add_slide(
     prs: Any,
-    slide_spec: dict[str, Any],
+    slide_spec: Any,
     tokens: Any = None,
     *,
     slide_index: int = 0,
@@ -363,7 +397,12 @@ def _add_slide(
     fall back to the placeholder-based legacy path so existing decks
     keep working.
 
-    When *tokens* is provided, legacy alias names (``"title"`` /
+    *tokens* are the deck-level tokens.  A slide's own ``tokens`` field
+    (same shapes as the spec-level one, resolved through
+    :func:`_resolve_tokens`) replaces them for that slide; ``null``
+    opts the slide out of them.
+
+    When tokens apply, legacy alias names (``"title"`` /
     ``"bullets"``) are silently upgraded to their token-aware recipe
     counterparts (``"title_recipe"`` / ``"bullets_recipe"``).  Before
     this change the placeholder-based legacy path was taken and the
@@ -371,26 +410,50 @@ def _add_slide(
     slide while ``lint`` and ``save`` succeeded.  See IMPROVEMENTS
     item 9.
 
+    Every layout validates its slide before building it: the entry must
+    be a mapping, ``layout`` a string, keys the layout never reads are
+    rejected (:func:`_check_unknown_keys`), and content must have the
+    right type (:func:`_check_slide_fields`).  All of it raises
+    :class:`ValueError` naming ``slides[i]``.
+
     A ``shapes`` list on the slide spec is applied last, on top of
     whatever the layout produced — see :func:`_add_spec_shapes`.
     *slide_index* and *deck_shape_names* only feed error messages and
     cross-slide reference detection there.
     """
-    layout_name = (slide_spec.get("layout") or "blank").lower()
+    where = f"slides[{slide_index}]"
+    if not isinstance(slide_spec, Mapping):
+        raise ValueError(
+            f"{where}: each slide must be a mapping with a 'layout' key; "
+            f"got {type(slide_spec).__name__!r}"
+        )
+    layout_value: Any = slide_spec.get("layout")
+    if layout_value is not None and not isinstance(layout_value, str):
+        raise ValueError(f"{where}.layout: must be a string; got {type(layout_value).__name__!r}")
+    layout_name = (layout_value or "blank").lower()
 
-    if tokens is not None:
+    slide_tokens = tokens
+    if "tokens" in slide_spec:
+        try:
+            slide_tokens = _resolve_tokens(slide_spec["tokens"])
+        except ValueError as exc:
+            raise ValueError(f"{where}: {exc}") from exc
+
+    if tokens is not None or slide_tokens is not None:
         upgrade = _LEGACY_TO_RECIPE.get(layout_name)
         if upgrade is not None:
             layout_name = upgrade
 
     if layout_name in _RECIPE_LAYOUTS:
-        slide = _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+        slide = _add_recipe_slide(prs, slide_spec, layout_name, slide_tokens, where=where)
     else:
-        layout = _resolve_layout(prs, layout_name)
+        layout = _resolve_layout(prs, layout_name, where=where)
+        _check_legacy_keys(slide_spec, layout_name, where)
+        _check_slide_fields(slide_spec, layout_name, where)
         slide = prs.slides.add_slide(layout)
 
         _set_title(slide, slide_spec.get("title"))
-        _set_subtitle_or_body(slide, slide_spec, layout_name)
+        _set_subtitle_or_body(slide, slide_spec, layout_name, where=where)
         _set_transition(slide, slide_spec.get("transition"))
 
     if "shapes" in slide_spec:
@@ -418,13 +481,17 @@ _LEGACY_TO_RECIPE: dict[str, str] = {
 _RECIPE_NEVER_KWARGS = frozenset({"layout", "shapes"})
 
 
-def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, tokens: Any) -> Any:
+def _add_recipe_slide(
+    prs: Any, slide_spec: Mapping[str, Any], layout_name: str, tokens: Any, *, where: str
+) -> Any:
     """Dispatch to the recipe matching *layout_name*.
 
     Validates required keys, then forwards *every other* spec key as a
-    keyword argument to the recipe.  The ``tokens`` and ``transition``
-    arguments are threaded through automatically: spec-level tokens
-    win when a slide-level ``tokens`` field isn't set.
+    keyword argument to the recipe.  *tokens* are the slide's effective
+    tokens — its own ``tokens`` field if it has one, else the deck's,
+    already resolved by :func:`_add_slide` — and always replace any raw
+    ``tokens`` value in the spec, so the recipe never sees a bare dict.
+    *where* (``"slides[2]"``) locates the slide in every error.
 
     Unknown kwargs (keys the recipe's signature doesn't accept) raise
     :class:`ValueError` rather than being silently dropped.  This
@@ -438,15 +505,19 @@ def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, to
     recipe_name, required = _RECIPE_LAYOUTS[layout_name]
     recipe = getattr(_recipes, recipe_name)
 
-    missing = [k for k in required if k not in slide_spec]
+    # A required key given as null (YAML's ``title:`` with nothing after it) is
+    # as good as absent: the recipes cannot do anything with ``None`` there.
+    missing = [k for k in required if slide_spec.get(k) is None]
     if missing:
+        nulls = [k for k in sorted(missing) if k in slide_spec]
+        note = f" ({', '.join(nulls)} given as null)" if nulls else ""
         raise ValueError(
-            f"layout {layout_name!r} requires keys {sorted(required)}; missing {sorted(missing)}"
+            f"{where}: layout {layout_name!r} requires keys {sorted(required)}; "
+            f"missing {sorted(missing)}{note}"
         )
 
     kwargs = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
-    # Spec-level tokens flow through unless the slide opts out / overrides.
-    kwargs.setdefault("tokens", tokens)
+    kwargs["tokens"] = tokens
 
     # Fail closed on typos: any kwarg the recipe doesn't accept is an
     # error.  Recipes accept ``tokens`` and ``transition`` consistently,
@@ -455,17 +526,208 @@ def _add_recipe_slide(prs: Any, slide_spec: dict[str, Any], layout_name: str, to
     sig = inspect.signature(recipe)
     accepts_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if not accepts_var_kw:
-        accepted = set(sig.parameters)
-        unknown = sorted(set(kwargs) - accepted)
-        if unknown:
-            accepted_public = sorted(accepted - {"prs"})
-            raise ValueError(
-                f"layout {layout_name!r}: unknown spec keys "
-                f"{_format_unknown(unknown, accepted_public)}. "
-                f"Accepted: {accepted_public}."
-            )
+        accepted = (set(sig.parameters) - {"prs"}) | _RECIPE_NEVER_KWARGS
+        _check_unknown_keys(where, layout_name, slide_spec, accepted)
+    _check_slide_fields(slide_spec, layout_name, where)
 
     return recipe(prs, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Slide validation — fail closed, and say where
+# ---------------------------------------------------------------------------
+
+# Keys every placeholder-based (legacy) layout reads: ``title`` (filled in when
+# the layout has a title placeholder, a no-op when it has none), ``transition``
+# and ``shapes``.  ``layout`` is the dispatcher's own.
+_LEGACY_COMMON_KEYS = frozenset({"layout", "title", "transition", "shapes"})
+
+_TWO_COLUMN_KEYS = frozenset({"left", "right", "content_left", "content_right"})
+
+# Lower-cased template layout name → the first alias that points at it
+# (iterating in reverse lets the earliest alias win a shared target).
+_ALIAS_BY_LAYOUT_NAME: dict[str, str] = {
+    canonical.lower(): alias for alias, canonical in reversed(list(_LAYOUT_ALIASES.items()))
+}
+
+# What ``_set_subtitle_or_body`` reads beyond the common keys, per legacy
+# layout.  A layout missing here (``title_only``, ``blank``, ``caption``, a
+# template's own layout name) reads nothing more — its extra keys used to be
+# dropped silently.  Keep this table and ``_set_subtitle_or_body`` in step.
+_LEGACY_LAYOUT_KEYS: dict[str, frozenset[str]] = {
+    "title": frozenset({"subtitle"}),
+    "bullets": frozenset({"bullets"}),
+    "section": frozenset({"subtitle", "text"}),
+    "kpi_grid": frozenset({"kpis"}),
+    "two_column": _TWO_COLUMN_KEYS,
+    "comparison_layout": _TWO_COLUMN_KEYS,
+    "picture": frozenset({"image", "caption"}),
+}
+
+# Slide-spec fields that hold text, on any layout.  A number (YAML turns
+# ``subtitle: 2026`` into an int) or a list here used to die deep inside
+# python-pptx, or — for ``title`` on a legacy layout — vanish.
+_TEXT_FIELDS = (
+    "title",
+    "subtitle",
+    "text",
+    "left",
+    "right",
+    "content_left",
+    "content_right",
+    "caption",
+    "quote",
+    "attribution",
+    "eyebrow",
+    "left_heading",
+    "right_heading",
+    "code",
+    "chart_type",
+    "figure_format",
+)
+
+# Slide-spec fields that must be lists, per layout, and what the list holds:
+# ``"list"`` anything, ``"mappings"`` one mapping per entry, ``"rows"`` one
+# list per table row.
+_LIST_FIELDS: dict[str, dict[str, str]] = {
+    "bullets": {"bullets": "list"},
+    "bullets_recipe": {"bullets": "list"},
+    "kpi": {"kpis": "mappings"},
+    "kpi_grid": {"kpis": "mappings"},
+    "chart": {"categories": "list", "series": "mappings"},
+    "table": {"columns": "list", "rows": "rows", "widths": "list", "aligns": "list"},
+    "timeline": {"milestones": "mappings"},
+    "comparison": {"rows": "mappings"},
+}
+
+_LIST_FIELD_EXPECTED = {
+    "list": "a list",
+    "mappings": "a list of mappings",
+    "rows": "a list of rows",
+}
+
+
+def _check_unknown_keys(
+    where: str, layout_name: str, keys: Iterable[Any], accepted: Iterable[str], hint: str = ""
+) -> None:
+    """Raise :class:`ValueError` for any of *keys* not in *accepted*.
+
+    The message locates the slide (*where*), names the layout and offers the
+    closest accepted key for each stray one, so a typo is fixable from the
+    message alone.
+    """
+    accepted = sorted(accepted)
+    unknown = [k for k in keys if k not in accepted]
+    if unknown:
+        raise ValueError(
+            f"{where}: layout {layout_name!r}: unknown spec keys "
+            f"{_format_unknown(unknown, accepted)}. Accepted: {accepted}.{hint}"
+        )
+
+
+def _check_legacy_keys(slide_spec: Mapping[str, Any], layout_name: str, where: str) -> None:
+    """Reject the keys a placeholder-based layout would silently ignore.
+
+    A slide-level ``tokens: null`` is an explicit "no tokens" and so has
+    nothing to ignore; any other ``tokens`` value reaches here only on a
+    layout that cannot use it.
+    """
+    accepted = _LEGACY_COMMON_KEYS | _LEGACY_LAYOUT_KEYS.get(layout_name, frozenset())
+    keys = [k for k in slide_spec if not (k == "tokens" and slide_spec[k] is None)]
+    hint = ""
+    if "tokens" in keys:
+        hint = (
+            " Tokens style the recipe layouts (e.g. 'title_recipe', 'kpi'); "
+            "placeholder layouts take their look from the template."
+        )
+    # A template's own layout name ("Title Slide") fills only the title; the
+    # alias for the same layout ("title") also reads the other placeholders.
+    alias = _ALIAS_BY_LAYOUT_NAME.get(layout_name)
+    if alias is not None and alias in _LEGACY_LAYOUT_KEYS:
+        hint += (
+            f" The layout name {layout_name!r} fills only the title; the alias {alias!r} "
+            f"also reads {sorted(_LEGACY_LAYOUT_KEYS[alias])}."
+        )
+    _check_unknown_keys(where, layout_name, keys, accepted, hint)
+
+
+def _check_list_field(value: Any, kind: str, where: str) -> None:
+    """Raise :class:`ValueError` unless *value* is a list of the *kind* of thing wanted.
+
+    A bare string is rejected, not wrapped: iterated, it would become one
+    entry per character (``bullets: "abc"`` is three bullets).  Other
+    iterables (a NumPy array of table rows, say) pass for ``"list"`` and
+    ``"rows"``; only a real sequence can have its entries checked.
+    """
+    expected = _LIST_FIELD_EXPECTED[kind]
+    if isinstance(value, (str, bytes, bytearray, Mapping)) or not isinstance(value, Iterable):
+        raise ValueError(f"{where}: must be {expected}; got {type(value).__name__!r}")
+    if kind == "list":
+        return
+    if not isinstance(value, Sequence):
+        # Entries can only be checked on a real sequence, not a generator or an array.
+        if kind == "mappings":
+            raise ValueError(f"{where}: must be {expected}; got {type(value).__name__!r}")
+        return
+    for pos, entry in enumerate(value):
+        if kind == "mappings" and not isinstance(entry, Mapping):
+            raise ValueError(
+                f"{where}[{pos}]: each entry must be a mapping; got {type(entry).__name__!r}"
+            )
+        if kind == "rows" and (
+            isinstance(entry, (str, bytes, bytearray, Mapping)) or not isinstance(entry, Iterable)
+        ):
+            raise ValueError(
+                f"{where}[{pos}]: must be a list (one value per column); "
+                f"got {type(entry).__name__!r}"
+            )
+
+
+def _check_slide_fields(slide_spec: Mapping[str, Any], layout_name: str, where: str) -> None:
+    """Raise :class:`ValueError`, naming ``slides[i].<key>``, for content of the wrong type.
+
+    Runs before the slide is built.  Wrong-shaped content otherwise fails deep
+    inside a recipe (``AttributeError: 'str' object has no attribute 'get'``)
+    with no hint which slide or key was at fault, or — worse — is accepted
+    and iterated per character.
+    """
+    for field in _TEXT_FIELDS:
+        value = slide_spec.get(field)
+        if value is not None and not isinstance(value, str):
+            number = isinstance(value, (int, float)) and not isinstance(value, bool)
+            hint = "; in YAML, quote a number to make it text" if number else ""
+            raise ValueError(
+                f"{where}.{field}: must be a string; got {type(value).__name__!r}{hint}"
+            )
+    transition = slide_spec.get("transition")
+    if transition and not isinstance(transition, str):
+        raise ValueError(f"{where}.transition: must be a string; got {type(transition).__name__!r}")
+    # ``null`` means "not given" for every optional field below (YAML's ``bullets:``
+    # with nothing after it); a required key given as null is reported as missing
+    # by the recipe dispatcher.
+    for field, kind in _LIST_FIELDS.get(layout_name, {}).items():
+        value = slide_spec.get(field)
+        if value is not None:
+            _check_list_field(value, kind, f"{where}.{field}")
+    image = slide_spec.get("image")
+    if image is not None and not (isinstance(image, (str, os.PathLike)) or hasattr(image, "read")):
+        raise ValueError(
+            f"{where}.image: must be a file path or a binary file; got {type(image).__name__!r}"
+        )
+    progress = slide_spec.get("progress")
+    if progress is not None and not (isinstance(progress, (list, tuple)) and len(progress) == 2):
+        raise ValueError(f"{where}.progress: must be a [current, total] pair; got {progress!r}")
+    totals = slide_spec.get("totals")
+    if totals is not None and not isinstance(totals, Mapping):
+        raise ValueError(
+            f"{where}.totals: must be a mapping with 'label' and 'values' (or a whole 'row'); "
+            f"got {type(totals).__name__!r}"
+        )
+    if layout_name == "chart":
+        # ``series`` entries are known to be mappings by now.
+        for pos, entry in enumerate(slide_spec.get("series") or ()):
+            if "values" in entry:
+                _check_list_field(entry["values"], "list", f"{where}.series[{pos}].values")
 
 
 def _set_title(slide: Any, title: str | None) -> None:
@@ -476,8 +738,14 @@ def _set_title(slide: Any, title: str | None) -> None:
         slide.shapes.title.text = title
 
 
-def _set_subtitle_or_body(slide: Any, spec: dict[str, Any], layout_name: str) -> None:
-    """Populate the secondary placeholder or add shapes based on layout type."""
+def _set_subtitle_or_body(
+    slide: Any, spec: Mapping[str, Any], layout_name: str, *, where: str = ""
+) -> None:
+    """Populate the secondary placeholder or add shapes based on layout type.
+
+    What each branch reads must match ``_LEGACY_LAYOUT_KEYS`` — keys read
+    nowhere are rejected up front by :func:`_check_legacy_keys`.
+    """
     if layout_name == "title":
         subtitle = spec.get("subtitle")
         if subtitle:
@@ -509,6 +777,14 @@ def _set_subtitle_or_body(slide: Any, spec: dict[str, Any], layout_name: str) ->
         if right:
             _set_placeholder_idx(slide, 2, right)
 
+    elif layout_name == "picture":
+        image = spec.get("image")
+        if image is not None:
+            _insert_picture(slide, image, where=where)
+        caption = spec.get("caption")
+        if caption:
+            _set_placeholder_idx(slide, 2, caption)
+
 
 def _set_placeholder_idx(slide: Any, idx: int, text: str) -> None:
     """Set text on the placeholder with the given idx, if it exists."""
@@ -516,6 +792,28 @@ def _set_placeholder_idx(slide: Any, idx: int, text: str) -> None:
         if ph.placeholder_format.idx == idx:
             ph.text = text
             return
+
+
+def _insert_picture(slide: Any, image: Any, *, where: str) -> None:
+    """Put *image* (a path or a binary file) into the slide's picture placeholder.
+
+    The picture is cropped to fill the placeholder, as PowerPoint does.  A
+    layout without a picture placeholder cannot take an image, which is an
+    error rather than a silently dropped picture.
+    """
+    from power_pptx.enum.shapes import PP_PLACEHOLDER
+
+    for ph in slide.placeholders:
+        if ph.placeholder_format.type == PP_PLACEHOLDER.PICTURE:
+            try:
+                ph.insert_picture(image)
+            except FileNotFoundError as exc:
+                # Same exception type as a bare add_picture, but findable in a long spec.
+                raise FileNotFoundError(
+                    exc.errno, f"{where}: 'image' not found", exc.filename
+                ) from exc
+            return
+    raise ValueError(f"{where}: this layout has no picture placeholder to put 'image' in")
 
 
 def _set_transition(slide: Any, transition: str | None) -> None:
@@ -829,11 +1127,22 @@ def _apply_overlap_allowances(
         shape.allow_overlap_with(*targets)
 
 
-def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
-    """Add KPI card shapes to *slide* — label, value, and optional delta."""
+def _add_kpi_shapes(slide: Any, kpis: Sequence[Mapping[str, Any]]) -> None:
+    """Add KPI card shapes to *slide* — label, value, and optional delta.
+
+    Cards are 2.2" wide at most, centred as a row.  When more KPIs are given
+    than fit between 0.3" side margins they share the width instead, as the
+    ``kpi`` recipe's cards do (5 cards on a 10" slide used to run 0.9" off
+    each edge).  A row that already fitted is laid out exactly as before.
+    Deltas are formatted by the ``kpi`` recipe's own rules: a number within
+    +/-1 is a percentage (``0.27`` -> ``+27%``), a larger one keeps its
+    value (``14`` -> ``+14.0``), a string such as ``"+14 pts"`` is used
+    verbatim, and ``delta_text`` wins over ``delta``.
+    """
+    from power_pptx.design.recipes import _resolve_delta  # pyright: ignore[reportPrivateUsage]
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import PP_ALIGN
-    from power_pptx.util import Inches, Pt
+    from power_pptx.util import Inches, Length, Pt
 
     prs_part = slide.part.package.presentation_part
     slide_w = prs_part.presentation.slide_width or Inches(10)
@@ -842,8 +1151,10 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
     if n == 0:
         return
 
-    card_w = Inches(2.2)
+    margin = Inches(0.3)
     gap = Inches(0.2)
+    fit_w = (slide_w - 2 * margin - (n - 1) * gap) // n
+    card_w = Length(min(Inches(2.2), fit_w))
     total_w = n * card_w + (n - 1) * gap
     start_x = (slide_w - total_w) // 2
     top = Inches(2.5)
@@ -852,7 +1163,6 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         left = start_x + i * (card_w + gap)
         label = str(kpi.get("label", ""))
         value = str(kpi.get("value", ""))
-        delta = kpi.get("delta")
 
         # Value textbox (large, centered)
         tf_value = slide.shapes.add_textbox(left, top, card_w, Inches(1.0))
@@ -877,10 +1187,9 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         p2.alignment = PP_ALIGN.CENTER
 
         # Delta textbox (optional)
-        if delta is not None:
+        delta_str, delta_sign = _resolve_delta(kpi)
+        if delta_str is not None:
             delta_top = label_top + Inches(0.4)
-            sign = "+" if float(delta) >= 0 else ""
-            delta_str = f"{sign}{float(delta):.0%}"
             tf_delta = slide.shapes.add_textbox(left, delta_top, card_w, Inches(0.3))
             tf3 = tf_delta.text_frame
             p3 = tf3.paragraphs[0]
@@ -888,9 +1197,13 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
             run3.text = delta_str
             run3.font.size = Pt(11)
             run3.font.color.rgb = (
-                RGBColor(0x00, 0x8A, 0x00) if float(delta) >= 0 else RGBColor(0xCC, 0x00, 0x00)
+                RGBColor(0x00, 0x8A, 0x00) if delta_sign >= 0 else RGBColor(0xCC, 0x00, 0x00)
             )
             p3.alignment = PP_ALIGN.CENTER
+
+
+# The only keys a ``{"preset": ...}`` / ``{"yaml": ...}`` tokens spec may carry.
+_TOKEN_SPEC_KEYS = frozenset({"preset", "yaml", "overrides"})
 
 
 def _resolve_tokens(spec: Any) -> Any:
@@ -903,9 +1216,11 @@ def _resolve_tokens(spec: Any) -> Any:
       callers can reuse a built token bag between imperative recipes and
       :func:`from_spec` without round-tripping through ``.to_dict()`` (no such
       method exists today).  See IMPROVEMENTS item 8.
-    * ``{"preset": "modern_light", "overrides": {...}}`` — load preset
-      and optionally layer overrides.
-    * ``{"yaml": "brand.yml"}`` — load from a YAML file.
+    * ``{"preset": "modern_light"}`` or ``{"yaml": "brand.yml"}`` — load a
+      built-in preset or a YAML brand file, each with an optional
+      ``"overrides": {...}`` layered on top.  Nothing else may sit next to
+      them (a ``"palette"`` beside ``"preset"`` used to be dropped silently),
+      and ``"preset"`` / ``"yaml"`` are alternatives, not a pair.
     * Any other mapping — treated as an inline ``DesignTokens.from_dict``
       payload.
     """
@@ -919,15 +1234,39 @@ def _resolve_tokens(spec: Any) -> Any:
         raise ValueError(
             f"'tokens' must be a mapping or DesignTokens instance; got {type(spec).__name__!r}"
         )
-    if "preset" in spec:
+
+    bases = [key for key in ("preset", "yaml") if key in spec]
+    if len(bases) > 1:
+        raise ValueError("tokens: give either 'preset' or 'yaml', not both")
+    if not bases:
+        if "overrides" in spec:
+            raise ValueError(
+                "tokens: 'overrides' layers onto a base, so it needs a 'preset' or a 'yaml' "
+                "beside it (an inline token dict takes palette / typography / ... directly)"
+            )
+        return DesignTokens.from_dict(spec)
+
+    base = bases[0]
+    extra = set(spec) - _TOKEN_SPEC_KEYS
+    if extra:
+        raise ValueError(
+            f"tokens: unexpected keys {_format_unknown(extra, _TOKEN_SPEC_KEYS)} beside {base!r}. "
+            f"A {base!r} base takes only 'overrides' next to it, so put per-deck tweaks there, "
+            "e.g. {'preset': 'modern_light', 'overrides': {'palette.primary': '#FF6600'}}."
+        )
+    if base == "preset":
         tokens = DesignTokens.from_preset(spec["preset"])
-        overrides = spec.get("overrides")
-        if overrides:
-            tokens = tokens.with_overrides(overrides)
-        return tokens
-    if "yaml" in spec:
-        return DesignTokens.from_yaml(spec["yaml"])
-    return DesignTokens.from_dict(spec)
+    else:
+        tokens = DesignTokens.from_yaml(spec["yaml"])
+    overrides = spec.get("overrides")
+    if overrides is not None:
+        if not isinstance(overrides, Mapping):
+            raise ValueError(
+                "tokens: 'overrides' must be a mapping of dotted paths (or nested dicts) to "
+                f"values; got {type(overrides).__name__!r}"
+            )
+        tokens = tokens.with_overrides(overrides)
+    return tokens
 
 
 # ---------------------------------------------------------------------------
@@ -1015,6 +1354,33 @@ def _apply_slide_size(prs: Any, slide_size: Any) -> None:
 
 
 _INTERP_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
+
+# Slide-spec fields shown exactly as written.  ``{{ user.name }}`` in a
+# ``code`` slide is template syntax to display, not a variable to look up;
+# interpolating it raised KeyError, and there is no escape for the other
+# fields, so the one field that holds source code opts out wholesale.
+_VERBATIM_SLIDE_KEYS = frozenset({"code"})
+
+
+def _interpolate_spec(spec: dict[str, Any], vars_: Mapping[str, Any]) -> dict[str, Any]:
+    """Interpolate every string in *spec* except each slide's verbatim fields.
+
+    Same as ``_interpolate(spec, vars_)`` apart from ``slides[*].code``
+    (see ``_VERBATIM_SLIDE_KEYS``), which is passed through untouched.
+    """
+    out = _interpolate({k: v for k, v in spec.items() if k != "slides"}, vars_)
+    if "slides" in spec:
+        out["slides"] = [_interpolate_slide(slide, vars_) for slide in spec["slides"]]
+    return out
+
+
+def _interpolate_slide(slide: Any, vars_: Mapping[str, Any]) -> Any:
+    if not isinstance(slide, dict):
+        return _interpolate(slide, vars_)
+    return {
+        key: value if key in _VERBATIM_SLIDE_KEYS else _interpolate(value, vars_)
+        for key, value in slide.items()
+    }
 
 
 def _interpolate(value: Any, vars_: Mapping[str, Any]) -> Any:

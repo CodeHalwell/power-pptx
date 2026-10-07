@@ -16,11 +16,11 @@ shapes before construction (no JSON Schema is involved)::
     from power_pptx.compose import from_spec
 
     prs = from_spec({
-        "theme": {"palette": "modern_blue", "fonts": "inter"},
+        "tokens": {"preset": "modern_light"},
         "slides": [
             {"layout": "title", "title": "Q4 Review",
              "subtitle": "April 2026", "transition": "morph"},
-            {"layout": "kpi_grid", "title": "Run-rate metrics",
+            {"layout": "kpi", "title": "Run-rate metrics",
              "kpis": [
                 {"label": "ARR", "value": "$182M", "delta": +0.27},
                 {"label": "NDR", "value": "131%",  "delta": +0.03},
@@ -37,10 +37,89 @@ shapes before construction (no JSON Schema is involved)::
 Layout names map either to Phase-9 design recipes (where supplied) or to
 a small built-in set of layouts using the host presentation's master.
 
+``"tokens"`` takes a built-in preset (``{"preset": "modern_light"}``; the
+others are ``corporate_navy``, ``modern_dark`` and ``vibrant``), a YAML brand
+file (``{"yaml": "brand.yml"}``), an inline token dict, or a
+:class:`~power_pptx.design.tokens.DesignTokens` instance.  A preset or YAML
+base takes an ``"overrides"`` mapping for per-deck tweaks and nothing else
+beside it (a ``"palette"`` next to a ``"preset"`` raises instead of being
+dropped), and ``"theme"`` is an alias for ``"tokens"`` with the same shapes.
+Lengths in an inline dict follow the token unit rule: a float is points, a
+``Pt(...)`` is taken as is, and a bare int is EMU — so a bare ``36`` for a
+font size, or ``8`` for a radius, is rejected as far too small, with an error
+naming the token (``tokens.typography.heading.size``).  A slide may carry its
+own ``"tokens"``, which replace the deck-level ones for that slide
+(``"tokens": null`` opts the slide out).
+
 The ``"lint"`` field accepts ``"off"`` (the default), ``"warn"``, or
 ``"raise"``, and acts only on error-severity issues.  Decks that were not
 built from a spec get the same gate from ``prs.lint_on_save`` — see
 :ref:`lint-on-save`.
+
+What ``from_spec`` validates
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each slide is checked before it is built, and every failure is a
+:class:`ValueError` that names the slide (``slides[3]``) or the field
+(``slides[3].kpis``):
+
+* **Unknown keys are rejected on every layout**, with a did-you-mean hint
+  (``subtitlz`` suggests ``subtitle``).  That includes the placeholder
+  layouts, which used to drop whatever they did not read.  Besides
+  ``title``, ``transition`` and ``shapes`` they read:
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 35 65
+
+     * - Layout
+       - Also reads
+     * - ``title``
+       - ``subtitle``
+     * - ``bullets``
+       - ``bullets``
+     * - ``section``
+       - ``subtitle`` or ``text``
+     * - ``two_column``, ``comparison_layout``
+       - ``left`` / ``right`` (or ``content_left`` / ``content_right``)
+     * - ``kpi_grid``
+       - ``kpis``; the cards are at most 2.2 in wide and share the slide's
+         width when there are too many for one row
+     * - ``picture``
+       - ``image`` (inserted into the picture placeholder) and ``caption``
+     * - ``title_only``, ``blank``, ``caption``, a template's own layout name
+       - nothing more
+
+  A template's own layout name (``"Title Slide"``) fills only the title;
+  the alias (``"title"``) also fills the subtitle.
+
+* **Values must have the right shape.**  Each slide is a mapping and
+  ``layout`` a string.  Text fields (``title``, ``subtitle``, ``text``,
+  ``left``, ``right``, ``caption``, ``quote``, ``attribution``, ``code``,
+  ``chart_type``, …) are strings; YAML reads ``subtitle: 2026`` as a number,
+  so quote it.  List fields are lists of the right thing: ``kpis``,
+  ``milestones``, ``series`` and the rows of a ``comparison`` are lists of
+  mappings, the ``rows`` of a ``table`` are lists of lists, and ``bullets``,
+  ``categories``, ``columns``, ``widths``, ``aligns`` and each series'
+  ``values`` are lists.  ``image`` is a file path or a binary file,
+  ``progress`` a ``[current, total]`` pair and ``totals`` a mapping.
+
+* **null is not a value.**  An optional field given as null (YAML's
+  ``bullets:`` with nothing after it) is treated as not given; a required key
+  given as null (``title:``) is reported as missing.
+
+* **A bare string is not a one-item list.**  ``bullets: "one line"`` raises
+  instead of being iterated per character, as it once was.
+
+Variables
+~~~~~~~~~
+
+``"vars"`` (and the ``vars=`` argument) fill ``{{name}}`` — or ``{{a.b}}``
+into nested mappings — in every string of the spec, and an unknown name
+raises :class:`KeyError`.  A slide's ``"code"`` field is the one exception:
+it is shown exactly as written, so a ``code`` slide can display a Jinja,
+Handlebars or Go template (``Hello {{ user.name }}!``) without it being read
+as a variable.  Other fields have no escape syntax.
 
 .. _spec-shapes:
 
