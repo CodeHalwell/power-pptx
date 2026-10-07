@@ -6,6 +6,7 @@ handling, and selection of slide indexes — not the actual rendering.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,6 +24,7 @@ from power_pptx.render import (
     render_slide_thumbnails,
     render_slides,
 )
+from power_pptx.util import Inches
 
 
 @pytest.fixture
@@ -40,6 +42,14 @@ def _deck(slide_count, hidden=()):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         if idx in hidden:
             slide._element.set("show", "0")
+    return prs
+
+
+def _prs_with_off_slide_shape():
+    """A deck whose slide has an ERROR-severity lint issue (a textbox off the right edge)."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_textbox(Inches(20), Inches(1), Inches(2), Inches(1)).text_frame.text = "off"
     return prs
 
 
@@ -443,6 +453,52 @@ class DescribeRenderSlideThumbnailCleanup:
         finally:
             # Caller owns this NamedTemporaryFile; clean up after the test.
             path.unlink(missing_ok=True)
+
+
+class DescribeRenderingAndLintOnSave:
+    """Rendering is for looking at a deck, broken or not; it must not run the save-time lint."""
+
+    @pytest.mark.parametrize("mode", ["raise", "warn"])
+    def it_does_not_run_the_lint_on_save_hook(self, tmp_path, caplog, mode):
+        prs = _prs_with_off_slide_shape()
+        prs.lint_on_save = mode
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, num_slides=1),
+            ),
+            caplog.at_level(logging.WARNING, logger="power_pptx.presentation"),
+        ):
+            paths = render_slide_thumbnails(prs, out_dir=tmp_path)
+
+        assert len(paths) == 1
+        assert caplog.records == []
+
+    def it_renders_a_single_slide_of_a_deck_that_would_fail_the_lint(self, tmp_path):
+        prs = _prs_with_off_slide_shape()
+        prs.lint_on_save = "raise"
+
+        with (
+            patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"),
+            patch(
+                "power_pptx.render._run_soffice",
+                side_effect=_fake_soffice_run(tmp_path, num_slides=1),
+            ),
+        ):
+            path = prs.slides[0].render_thumbnail(out_path=tmp_path / "broken.png")
+
+        assert path.exists()
+
+    def it_does_not_change_what_an_explicit_save_does(self, tmp_path):
+        from power_pptx.exc import LintError
+
+        prs = _prs_with_off_slide_shape()
+        prs.lint_on_save = "raise"
+
+        with pytest.raises(LintError):
+            prs.save(str(tmp_path / "broken.pptx"))
 
 
 class DescribeSofficeTimeout:

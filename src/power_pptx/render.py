@@ -91,7 +91,11 @@ def _resolve_binary(binary: Optional[str]) -> str:
 
 
 def _save_to_path(prs, path: Path) -> None:
-    prs.save(str(path))
+    # -- the package is written directly rather than through `prs.save()`: rendering is for
+    # -- looking at a deck, broken or not, so it must not run the `lint_on_save` hook (which
+    # -- would raise in "raise" mode exactly when the broken slide most needs a look, and
+    # -- log on every render in "warn" mode) --
+    prs.part.save(str(path))
 
 
 def _soffice_convert(
