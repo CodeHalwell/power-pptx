@@ -148,6 +148,16 @@ def _tag_group(slide, prefix: str, shapes: list[Any]) -> None:
                 s.lint_group = prefix
 
 
+def _boxes_overlap(a: Any, b: Any) -> bool:
+    """Return True when the bounding boxes of shapes *a* and *b* share any area."""
+    return (
+        int(a.left) < int(b.left) + int(b.width)
+        and int(b.left) < int(a.left) + int(a.width)
+        and int(a.top) < int(b.top) + int(b.height)
+        and int(b.top) < int(a.top) + int(a.height)
+    )
+
+
 #: Nodes shrink no further than this fraction of their requested size when a ring is crowded.
 _MIN_RING_SCALE = 0.05
 
@@ -225,6 +235,13 @@ def _fit_ring(
     return scale, half - node_d * scale / 2
 
 
+#: Text insets of a circular node, as fractions of its diameter.  They come off the
+#: ellipse's inscribed text rectangle, which already keeps text off the curve, so
+#: they only stop the text touching the rectangle's edge.
+_LABEL_INSET_X = 0.03
+_LABEL_INSET_Y = 0.02
+
+
 def _fit_circular_label(
     shape: Any,
     *,
@@ -238,9 +255,9 @@ def _fit_circular_label(
 
     The headline reason this fork exists is space-awareness, so the diagram
     recipes use the same ``fit_text`` pre-flight as everything else.  A circle's
-    usable text area is narrower than its bounding box, so we inset the text
-    frame by a fraction of the diameter — that keeps long words such as
-    "Retrieval" inside the circle instead of wrapping to "Retriev al".
+    usable text area is narrower than its bounding box, so the text frame is
+    inset — that keeps long words such as "Retrieval" inside the circle instead
+    of wrapping to "Retriev al".
 
     The text area of an ellipse is its *inscribed* rectangle, 0.7071 of the box
     a side, and the insets come off that.  ``fit_text`` only knows the bounding
@@ -249,8 +266,8 @@ def _fit_circular_label(
     """
     tf = shape.text_frame
     tf.word_wrap = True
-    h_inset = Emu(int(diameter * 0.14))
-    v_inset = Emu(int(diameter * 0.08))
+    h_inset = Emu(int(diameter * _LABEL_INSET_X))
+    v_inset = Emu(int(diameter * _LABEL_INSET_Y))
     rim = int(diameter * (1 - math.cos(math.pi / 4)) / 2)
     tf.margin_left = tf.margin_right = Emu(int(h_inset) + rim)
     tf.margin_top = tf.margin_bottom = Emu(int(v_inset) + rim)
@@ -478,8 +495,9 @@ def hub_and_spoke(
     that side; when that many spokes would overlap the hub or each other
     the hub and every spoke shrink together, keeping their proportions,
     until they do not.  The only overlaps the diagram declares are each
-    arrow's with the hub and with its own spoke, so the linter still sees
-    any other.
+    arrow's with the hub and with its own spoke, and between arrows whose
+    boxes overlap near the hub although the lines never meet, so the
+    linter still sees any other.
     """
     coerced = _coerce_steps(spokes)
     n = len(coerced)
@@ -563,6 +581,11 @@ def hub_and_spoke(
         # diagram intends, so allow it pair by pair rather than as one big group.
         arrow.allow_overlap_with(hub, spoke)
         arrows.append(arrow)
+    # The arrows fan out of one hub, so the boxes of neighbouring ones can overlap
+    # although the lines never meet; allow exactly those pairs too.
+    for first, second in itertools.combinations(arrows, 2):
+        if _boxes_overlap(first, second):
+            first.allow_overlap_with(second)
     return HubAndSpokeResult(hub=hub, spokes=spokes_built, arrows=arrows)
 
 

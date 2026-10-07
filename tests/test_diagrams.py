@@ -265,6 +265,39 @@ class DescribeHubAndSpokeGeometry:
         hub_and_spoke(slide, bbox, centre="Platform", spokes=[f"Spoke {i}" for i in range(n)])
         assert _lint_problems(slide) == []
 
+    @pytest.mark.parametrize("bbox", _ROOMY_BBOXES)
+    @pytest.mark.parametrize("n", [4, 6, 8])
+    def it_keeps_one_word_labels_legible(self, slide, bbox, n):
+        # A label has to fit the circle's inscribed text rectangle, not its bounding box;
+        # the insets inside that rectangle must not eat what little room it leaves.
+        words = ["Support", "Finance", "Product", "Legal", "Sales", "Ops", "People", "Design"]
+        hub_and_spoke(slide, bbox, centre="Platform", spokes=words[:n])
+        assert _lint_problems(slide) == []
+
+    @pytest.mark.parametrize("bbox", _ROOMY_BBOXES)
+    @pytest.mark.parametrize("n", [11, 12])
+    def it_reports_no_collision_for_a_crowded_ring(self, slide, bbox, n):
+        hub_and_spoke(slide, bbox, centre="Platform", spokes=[f"S{i}" for i in range(n)])
+        assert [p for p in _lint_problems(slide) if "ShapeCollision" in p] == []
+
+    def it_declares_an_overlap_between_two_arrows_only_where_their_boxes_overlap(self, slide):
+        # Arrows fan out of one hub, so neighbouring boxes overlap although the lines
+        # never meet.  Those pairs are declared; no other pair is.
+        bbox = BBox.from_inches(0.5, 1.5, 9.0, 5.5)
+        result = hub_and_spoke(slide, bbox, centre="Core", spokes=[f"S{i}" for i in range(12)])
+        declared_any = False
+        for a, b in itertools.combinations(result.arrows, 2):
+            overlap = (
+                int(a.left) < int(b.left) + int(b.width)
+                and int(b.left) < int(a.left) + int(a.width)
+                and int(a.top) < int(b.top) + int(b.height)
+                and int(b.top) < int(a.top) + int(a.height)
+            )
+            declared = b.shape_id in a.overlap_allowances or a.shape_id in b.overlap_allowances
+            assert declared == overlap, (a.name, b.name)
+            declared_any = declared_any or declared
+        assert declared_any
+
     def it_leaves_the_arrows_room_to_show(self, slide):
         bbox = BBox.from_inches(0.5, 1.5, 9.0, 5.5)
         result = hub_and_spoke(slide, bbox, centre="Platform", spokes=list("ABCDEF"))
@@ -332,6 +365,13 @@ class DescribeCycleGeometry:
     @pytest.mark.parametrize("n", range(2, 13))
     def it_lints_clean_for_up_to_twelve_steps(self, slide, bbox, n):
         cycle(slide, bbox, steps=[f"Step {i}" for i in range(n)])
+        assert _lint_problems(slide) == []
+
+    @pytest.mark.parametrize("bbox", _ROOMY_BBOXES)
+    @pytest.mark.parametrize("n", [4, 6, 8])
+    def it_keeps_one_word_labels_legible(self, slide, bbox, n):
+        words = ["Support", "Finance", "Product", "Legal", "Sales", "Ops", "People", "Design"]
+        cycle(slide, bbox, steps=words[:n])
         assert _lint_problems(slide) == []
 
     def it_keeps_the_default_card_size_for_a_handful_of_steps(self, slide):
@@ -412,8 +452,8 @@ class DescribeCircularLabelFit:
         # An ellipse's text rectangle is 0.7071 of its box a side (the "il/it/ir/ib"
         # guides of the preset), and the text frame's own insets come off that.
         inscribed = diameter * math.cos(math.pi / 4)
-        text_w = inscribed - 2 * (diameter * 0.14)
-        text_h = inscribed - 2 * (diameter * 0.08)
+        text_w = inscribed - 2 * (diameter * 0.03)
+        text_h = inscribed - 2 * (diameter * 0.02)
         slack = 2000  # EMU: the recipe works in whole EMU, this in floats
         return TextFitter.best_fit_font_size(
             label,
@@ -446,7 +486,7 @@ class DescribeCircularLabelFit:
         result = cycle(slide, bbox, steps=["Observe", "Orient", "Decide", "Act"])
         card = result.cards[0]
         diameter = int(card.width)
-        assert int(card.text_frame.margin_left) == int(diameter * 0.14)
-        assert int(card.text_frame.margin_right) == int(diameter * 0.14)
-        assert int(card.text_frame.margin_top) == int(diameter * 0.08)
-        assert int(card.text_frame.margin_bottom) == int(diameter * 0.08)
+        assert int(card.text_frame.margin_left) == int(diameter * 0.03)
+        assert int(card.text_frame.margin_right) == int(diameter * 0.03)
+        assert int(card.text_frame.margin_top) == int(diameter * 0.02)
+        assert int(card.text_frame.margin_bottom) == int(diameter * 0.02)

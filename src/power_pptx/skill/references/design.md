@@ -487,10 +487,13 @@ area an ellipse really has, so a small node gets a small font rather than
 a word broken in the middle.
 
 These diagrams declare only the overlaps they mean — each arrow with the
-shapes it joins, via `allow_overlap_with` — instead of tagging everything
-as one `lint_group`, so `slide.lint()` reports two spokes or cards that
-really collide. Keep a ring to roughly 12 nodes at most: by then the
-labels are down to 8–10 pt and short words work best.
+shapes it joins (and, in `hub_and_spoke`, neighbouring arrows whose boxes
+overlap near the hub although the lines never meet), via
+`allow_overlap_with` — instead of tagging everything as one `lint_group`,
+so `slide.lint()` reports two spokes or cards that really collide. Keep a
+ring to roughly 12 nodes at most and its labels to short words: a long
+word in a small node shrinks until it fits, and `MinFontSize` reports it
+once it is under 9 pt.
 
 ## Starter pack
 

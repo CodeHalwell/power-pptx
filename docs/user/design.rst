@@ -173,8 +173,12 @@ a long title and places the blurb beneath it.
 touching the edge of the box's shorter side.  The nodes keep their default size
 for up to about eight of them and beyond that shrink together until no two
 overlap and the arrows have room to show.  Only the overlaps they mean — each
-arrow with the shapes it joins — are declared, so ``slide.lint()`` reports
-nodes that really collide.
+arrow with the shapes it joins, and in ``hub_and_spoke`` neighbouring arrows
+whose boxes overlap near the hub although the lines never meet — are declared,
+so ``slide.lint()`` reports nodes that really collide.  Labels are fitted to
+the text area an ellipse really has, so keep them to short words: a long word
+in a small node shrinks until it fits, and ``MinFontSize`` reports it once it
+is under 9 pt.
 
 Starter pack
 ------------
