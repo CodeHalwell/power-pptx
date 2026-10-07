@@ -653,7 +653,10 @@ def _check_list_field(value: Any, kind: str, where: str) -> None:
     expected = _LIST_FIELD_EXPECTED[kind]
     if isinstance(value, (str, bytes, bytearray, Mapping)) or not isinstance(value, Iterable):
         raise ValueError(f"{where}: must be {expected}; got {type(value).__name__!r}")
+    if kind == "list":
+        return
     if not isinstance(value, Sequence):
+        # Entries can only be checked on a real sequence, not a generator or an array.
         if kind == "mappings":
             raise ValueError(f"{where}: must be {expected}; got {type(value).__name__!r}")
         return
