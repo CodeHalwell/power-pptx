@@ -85,6 +85,22 @@ jobs:
       - name: Build all real-world decks
         run: python examples/real_world/build_all.py
 
+  docs:
+    # The Sphinx guide is built with warnings as errors, the way
+    # .readthedocs.yaml asks (``fail_on_warning: true``).  It had drifted to
+    # 45 docstring errors and 3 warnings with nothing to notice, so keep it
+    # at zero.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install documentation dependencies
+        run: pip install -r requirements-docs.txt
+      - name: Build the docs (warnings are errors)
+        run: python -m sphinx -b html -W --keep-going docs docs/.build/html
+
   schema-validation:
     # Validate decks generated through the public API against the bundled
     # ISO/IEC 29500 XSD schemas.  This is the gate for the "generates fine but

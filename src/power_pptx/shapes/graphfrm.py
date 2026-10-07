@@ -222,7 +222,7 @@ class GraphicFrame(BaseShape):
         ``timeout``) to :meth:`Slide.render_thumbnail`.  ``return_bytes``
         is also supported and returns the cropped PNG bytes directly.
 
-        Requires :pypi:`Pillow` for cropping (already a power-pptx
+        Requires ``Pillow`` for cropping (already a power-pptx
         dependency) and ``soffice`` on PATH.
         """
         from io import BytesIO

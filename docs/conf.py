@@ -72,6 +72,7 @@ rst_epilog = """
 .. |datetime| replace:: :class:`datetime.datetime`
 
 .. |AttributeError| replace:: :exc:`AttributeError`
+.. |IndexError| replace:: :exc:`IndexError`
 .. |KeyError| replace:: :exc:`KeyError`
 .. |TypeError| replace:: :exc:`TypeError`
 .. |ValueError| replace:: :exc:`ValueError`
@@ -126,6 +127,7 @@ rst_epilog = """
 .. |DateAxis| replace:: :class:`.DateAxis`
 .. |DesignTokens| replace:: :class:`.DesignTokens`
 .. |Emu| replace:: :class:`.Emu`
+.. |ErrorBars| replace:: :class:`.ErrorBars`
 .. |FillFormat| replace:: :class:`.FillFormat`
 .. |Font| replace:: :class:`.Font`
 .. |FreeformBuilder| replace:: :class:`.FreeformBuilder`
@@ -139,6 +141,7 @@ rst_epilog = """
 .. |Image| replace:: :class:`.Image`
 .. |ImagePart| replace:: :class:`.ImagePart`
 .. |Inches| replace:: :class:`.Inches`
+.. |InnerShadowFormat| replace:: :class:`.InnerShadowFormat`
 .. |LayoutPlaceholder| replace:: :class:`.LayoutPlaceholder`
 .. |LayoutPlaceholders| replace:: :class:`.LayoutPlaceholders`
 .. |LayoutShapes| replace:: :class:`.LayoutShapes`
@@ -173,6 +176,7 @@ rst_epilog = """
 .. |Plots| replace:: :class:`.Plots`
 .. |Point| replace:: :class:`.Point`
 .. |Presentation| replace:: :class:`~power_pptx.presentation.Presentation`
+.. |PresetShadowFormat| replace:: :class:`.PresetShadowFormat`
 .. |Pt| replace:: :class:`.Pt`
 .. |RadarSeries| replace:: :class:`.RadarSeries`
 .. |ReflectionFormat| replace:: :class:`.ReflectionFormat`
@@ -182,6 +186,7 @@ rst_epilog = """
 .. |_Row| replace:: :class:`_Row`
 .. |_RowCollection| replace:: :class:`_RowCollection`
 .. |_Run| replace:: :class:`_Run`
+.. |Sections| replace:: :class:`.Sections`
 .. |Series| replace:: :class:`.Series`
 .. |SeriesCollection| replace:: :class:`.SeriesCollection`
 .. |ShadowFormat| replace:: :class:`.ShadowFormat`
@@ -205,10 +210,12 @@ rst_epilog = """
 .. |SlideTransition| replace:: :class:`.SlideTransition`
 .. |SmartArtCollection| replace:: :class:`.SmartArtCollection`
 .. |Table| replace:: :class:`Table`
+.. |TabStops| replace:: :class:`.TabStops`
 .. |TextFrame| replace:: :class:`.TextFrame`
 .. |Theme| replace:: :class:`.Theme`
 .. |ThreeDFormat| replace:: :class:`.ThreeDFormat`
 .. |TickLabels| replace:: :class:`.TickLabels`
+.. |Trendlines| replace:: :class:`.Trendlines`
 .. |ValueAxis| replace:: :class:`.ValueAxis`
 .. |XyChartData| replace:: :class:`.XyChartData`
 .. |XyPoints| replace:: :class:`.XyPoints`
