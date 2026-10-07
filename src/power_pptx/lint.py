@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
 from enum import Enum
@@ -1105,8 +1106,11 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     # there's only one line.  For short single-line strings (≤ 20
     # chars), use a tighter 0.45× multiplier — see IMPROVEMENT_PLAN
     # item 11 for the failure case ("MOST POPULAR" pill at 9pt).
-    has_newline = "\n" in text
-    short_single_line = (not has_newline) and len(text) <= 20
+    #
+    # An explicit line break (``<a:br/>``) reads back as "\v" and starts a
+    # new line just as a paragraph break ("\n") does, so both separate lines.
+    lines = re.split(r"[\n\v]", text)
+    short_single_line = len(lines) == 1 and len(text) <= 20
     char_w_pt_mult = 0.45 if short_single_line else 0.55
     char_w_emu = font_pt * char_w_pt_mult * _PT_TO_EMU
     # Line height ~ 1.2 × font size
@@ -1121,9 +1125,7 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     # a raw float), so a real two-line render slips past the check.
     # ``ceil`` matches what the renderer does: each wrapped line is one
     # full line of vertical space.  See IMPROVEMENTS item 7.
-    estimated_lines = sum(
-        max(1, math.ceil(len(line) / chars_per_line)) for line in text.split("\n")
-    )
+    estimated_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
 
     if estimated_lines > lines_available:
         ratio = estimated_lines / lines_available

@@ -22,6 +22,7 @@ from power_pptx.lint import (
     ShapeCollision,
     ShapeCollisionShadow,
     SlideLintReport,
+    TextOverflow,
     ZOrderAnomaly,
     _contrast_ratio,
     _find_lint_ext,
@@ -525,6 +526,53 @@ class DescribeSetParagraphDefaults:
         # And the font name was filled in everywhere.
         assert tf.paragraphs[0].runs[0].font.name == "Inter"
         assert tf.paragraphs[1].runs[0].font.name == "Inter"
+
+
+class DescribeTextOverflow:
+    """The line-count heuristic behind ``TextOverflow``."""
+
+    @staticmethod
+    def _overflow_ratio(text, *, width=Inches(3), height=Inches(0.4)):
+        """Return the ``TextOverflow`` ratio for *text* in a rectangle, or ``None``.
+
+        A rectangle rather than a textbox: autoshapes default to ``auto_size = NONE``,
+        whereas ``add_textbox`` frames shrink-wrap and are never checked.
+        """
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), width, height)
+        box.text_frame.text = text
+        found = [i for i in slide.lint().issues if isinstance(i, TextOverflow)]
+        return found[0].ratio if found else None
+
+    def it_counts_each_paragraph_as_a_line(self):
+        # 18pt text in a frame one line tall (0.4" less 0.1" of margin = 21.6pt).
+        assert self._overflow_ratio("one\ntwo\nthree\nfour\nfive") == pytest.approx(5.0)
+
+    def it_counts_each_explicit_line_break_as_a_line(self):
+        # Regression: ``<a:br/>`` reads back as "\v", and only "\n" used to split the text,
+        # so five lines made of line breaks were counted as one and never reported.
+        assert self._overflow_ratio("one\vtwo\vthree\vfour\vfive") == pytest.approx(5.0)
+
+    def it_does_not_flag_text_that_fits_once_the_breaks_are_counted(self):
+        assert self._overflow_ratio("one", height=Inches(0.4)) is None
+        assert self._overflow_ratio("one\vtwo", height=Inches(0.7)) is None
+
+    @pytest.mark.parametrize(
+        "paragraphs",
+        [
+            "a\nb\nc",
+            "a much longer line that wraps\nand another that is just as long",
+            # 16 characters in all: short enough for the tighter single-line width estimate if
+            # it were still taken to be a single line, but it is two lines.
+            "abcdefghijklmn\no",
+        ],
+    )
+    def it_treats_a_line_break_like_a_paragraph_break(self, paragraphs):
+        frame = {"width": Inches(2), "height": Inches(0.7)}
+        with_paragraphs = self._overflow_ratio(paragraphs, **frame)
+        with_breaks = self._overflow_ratio(paragraphs.replace("\n", "\v"), **frame)
+        assert with_paragraphs is not None  # the frame is too small for all three texts
+        assert with_breaks == with_paragraphs
 
 
 class DescribeAutoFixTextOverflow:
