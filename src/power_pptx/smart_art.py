@@ -24,11 +24,15 @@ from typing import TYPE_CHECKING, Iterator, Sequence
 from lxml import etree
 from lxml.etree import _Element as LxmlElement  # pyright: ignore[reportPrivateUsage]
 
+from power_pptx.opc.constants import CONTENT_TYPE as CT
+from power_pptx.opc.oxml import serialize_part_xml
+from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import _nsmap as _GLOBAL_NSMAP  # pyright: ignore[reportPrivateUsage]
 from power_pptx.oxml.ns import qn
 from power_pptx.spec import GRAPHIC_DATA_URI_DIAGRAM
 
 if TYPE_CHECKING:
+    from power_pptx.opc.package import Part
     from power_pptx.oxml.xmlchemy import BaseOxmlElement
     from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import Slide
@@ -40,6 +44,10 @@ if TYPE_CHECKING:
 
 # <dgm:pt> types that carry visible text content (all others are structural)
 _NODE_TYPES = frozenset({"node", "asst"})
+
+# Namespace of the `dsp:` elements in a diagram's cached drawing (`ppt/diagrams/drawing#.xml`),
+# which is not part of the shared namespace map.
+_DSP_NS = "http://schemas.microsoft.com/office/drawing/2008/diagram"
 
 
 def _xpath(element: LxmlElement, expr: str) -> list[LxmlElement]:
@@ -119,6 +127,118 @@ def _write_node_text(pt: LxmlElement, text: str) -> None:
             prSet.attrib.pop("phldr", None)
 
 
+def _node_text(pt: LxmlElement) -> str:
+    """The text of the content node `pt`: its runs, concatenated."""
+    return "".join(t.text or "" for t in _text_runs(pt))
+
+
+# -- cached drawing -------------------------------------------------------------------------
+#
+# PowerPoint stores the laid-out diagram next to the data model, as a `dsp:drawing` part
+# (`ppt/diagrams/drawing#.xml`), and names it from the data part's `dsp:dataModelExt/@relId`.
+# PowerPoint re-lays a diagram out from the data model, but LibreOffice, Keynote and Google
+# Slides draw the cache, so editing only the data model leaves them showing the old text.
+#
+# A cached `dsp:sp/@modelId` is the id of a *presentation* point, tied to the content node(s)
+# whose text it displays by `presOf` connections (`srcId` node -> `destId` presentation point,
+# `destOrd` ordering the nodes that share one shape, one paragraph each).  A shape keyed by
+# the node's own id is accepted as well.
+
+
+def _drawing_cache_part(slide_part: SlidePart, data_element: LxmlElement) -> Part | None:
+    """The cached-drawing part that `data_element` points at, or |None| when there is none."""
+    for ext in data_element.iter(f"{{{_DSP_NS}}}dataModelExt"):
+        rId = ext.get("relId")
+        if rId is None:
+            continue
+        try:
+            part = slide_part.related_part(rId)
+        except (KeyError, ValueError):
+            continue
+        if part.content_type == CT.DML_DIAGRAM_DRAWING:
+            return part
+    return None
+
+
+def _paragraph_text(p: LxmlElement) -> str:
+    """The text of paragraph `p`: its runs, concatenated."""
+    return "".join(t.text or "" for t in p.findall(f"{qn('a:r')}/{qn('a:t')}"))
+
+
+def _set_paragraph_text(p: LxmlElement, text: str) -> None:
+    """Replace the text of paragraph `p`, keeping the formatting of its first run."""
+    ts = p.findall(f"{qn('a:r')}/{qn('a:t')}")
+    if not ts:
+        _add_run(p, text)
+        return
+    ts[0].text = text
+    for extra_t in ts[1:]:
+        extra_t.text = ""
+
+
+def _refresh_drawing_cache(
+    part: Part,
+    data_element: LxmlElement,
+    nodes: Sequence[LxmlElement],
+    old_texts: Sequence[str],
+    new_texts: Sequence[str],
+) -> None:
+    """Carry the text edits of `nodes` (`old_texts` -> `new_texts`) over to the cached drawing.
+
+    A shape is rewritten only when it unambiguously shows the nodes that changed: it must
+    have one paragraph per content node that feeds it, and each paragraph must still hold
+    that node's previous text.  Anything else (text in a shape shared with structural
+    points, edited since the cache was written, split over several paragraphs) is left as it
+    is rather than guessed at; PowerPoint regenerates it on open.
+    """
+    texts = {
+        pt.get("modelId"): (old, new)
+        for pt, old, new in zip(nodes, old_texts, new_texts)
+        if pt.get("modelId") is not None
+    }
+    changed = {model_id for model_id, (old, new) in texts.items() if old != new}
+    if not changed:
+        return
+
+    sources: dict[str, list[tuple[int, str]]] = {}
+    for cxn in _xpath(data_element, "dgm:cxnLst/dgm:cxn[@type='presOf']"):
+        dest, src = cxn.get("destId"), cxn.get("srcId")
+        if dest is None or src is None:
+            continue
+        try:
+            dest_ord = int(cxn.get("destOrd", "0"))
+        except ValueError:
+            dest_ord = 0
+        sources.setdefault(dest, []).append((dest_ord, src))
+
+    # -- a cache part is a plain `Part` today, but would be an `XmlPart` once typed --
+    element = getattr(part, "_element", None)
+    root = element if element is not None else parse_xml(part.blob)
+
+    edited = False
+    for sp in root.iter(f"{{{_DSP_NS}}}sp"):
+        model_id = sp.get("modelId")
+        if model_id is None:
+            continue
+        feeding = [src for _, src in sorted(sources.get(model_id, [(0, model_id)]))]
+        feeding = [src for src in feeding if src in texts]
+        if not changed.intersection(feeding):
+            continue
+        paragraphs = sp.findall(f"{{{_DSP_NS}}}txBody/{qn('a:p')}")
+        if len(paragraphs) != len(feeding):
+            continue
+        if any(_paragraph_text(p) != texts[src][0] for p, src in zip(paragraphs, feeding)):
+            continue
+        for p, src in zip(paragraphs, feeding):
+            old, new = texts[src]
+            if new != old:
+                _set_paragraph_text(p, new)
+                edited = True
+
+    if edited and element is None:
+        part.blob = serialize_part_xml(root)
+
+
 # ---------------------------------------------------------------------------
 # Public classes
 # ---------------------------------------------------------------------------
@@ -155,15 +275,16 @@ class SmartArtShape:
         corresponding ``<dgm:pt>`` element.  The order matches the visual
         sequence in most layouts (document order in ``<dgm:ptLst>``).
         """
-        data_el = self._data_element
-        result: list[str] = []
-        for pt in _node_pts(data_el):
-            runs = _text_runs(pt)
-            result.append("".join(r.text or "" for r in runs))
-        return result
+        return [_node_text(pt) for pt in _node_pts(self._data_element)]
 
     def set_text(self, values: Sequence[str], *, strict: bool = True) -> None:
         """Replace the text of each content node with the corresponding entry in *values*.
+
+        PowerPoint re-lays a diagram out from its data model, but other renderers
+        (LibreOffice, Keynote, Google Slides) draw the cached ``drawing#.xml`` that
+        PowerPoint saves beside it; the cached text is updated too, so they show the new
+        strings.  Only the text is refreshed: the cached shapes keep their size and
+        position, so a much longer string is not re-fitted outside PowerPoint.
 
         Parameters
         ----------
@@ -190,10 +311,16 @@ class SmartArtShape:
                 f"{len(nodes)} content node(s).  Pass strict=False to suppress this check."
             )
 
+        old_texts = [_node_text(pt) for pt in nodes]
         for i, pt in enumerate(nodes):
             if i >= len(values):
                 break
             _write_node_text(pt, str(values[i]))
+
+        cache_part = _drawing_cache_part(self._slide_part, data_el)
+        if cache_part is not None:
+            new_texts = [_node_text(pt) for pt in nodes]
+            _refresh_drawing_cache(cache_part, data_el, nodes, old_texts, new_texts)
 
     # ------------------------------------------------------------------
     # Internals
