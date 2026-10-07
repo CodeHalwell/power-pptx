@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from power_pptx import Presentation
 from power_pptx.action import ActionSetting
 from power_pptx.dml.effect import ShadowFormat
-from power_pptx.enum.shapes import PP_PLACEHOLDER
+from power_pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE, PP_PLACEHOLDER
 from power_pptx.oxml.shapes.shared import BaseShapeElement
 from power_pptx.oxml.text import CT_TextBody
 from power_pptx.shapes import Subshape
@@ -19,6 +20,7 @@ from power_pptx.shapes.base import BaseShape, _PlaceholderFormat
 from power_pptx.shapes.graphfrm import GraphicFrame
 from power_pptx.shapes.picture import Picture
 from power_pptx.shapes.shapetree import BaseShapeFactory, SlideShapes
+from power_pptx.util import Inches
 
 from ..oxml.unitdata.shape import (
     a_cNvPr,
@@ -643,3 +645,147 @@ class Describe_PlaceholderFormat(object):
         ph_cxml, expected_value = request.param
         placeholder_format = _PlaceholderFormat(element(ph_cxml))
         return placeholder_format, expected_value
+
+
+class DescribeBaseShapeDelete(object):
+    """`shape.delete()` removes the shape and what the slide still holds of it.
+
+    These build real shape trees through the public API: what is checked is the state of the
+    surrounding groups and connectors, which a mocked element cannot show.
+    """
+
+    @staticmethod
+    def _frame(shape):
+        return (int(shape.left), int(shape.top), int(shape.width), int(shape.height))
+
+    @staticmethod
+    def _child_space(group):
+        grpSp = group._element
+        return (int(grpSp.chOff.x), int(grpSp.chOff.y), int(grpSp.chExt.cx), int(grpSp.chExt.cy))
+
+    @staticmethod
+    def _rect(shapes, left, top, size=1):
+        return shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(left), Inches(top), Inches(size), Inches(size)
+        )
+
+    @staticmethod
+    def _cxn(shapes, x1=1, y1=4, x2=6, y2=4):
+        return shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2)
+        )
+
+    @staticmethod
+    def _connections(connector):
+        """(begin_id, end_id) of the shapes *connector* is glued to; None where it is loose."""
+        cNvCxnSpPr = connector._element.nvCxnSpPr.cNvCxnSpPr
+        begin, end = cNvCxnSpPr.stCxn, cNvCxnSpPr.endCxn
+        return (None if begin is None else begin.id, None if end is None else end.id)
+
+    # -- the extents of the group a member is deleted from -----------------------------
+
+    def it_refits_the_group_a_member_is_deleted_from(self, slide):
+        group = slide.shapes.add_group_shape()
+        self._rect(group.shapes, 1, 1)
+        far = self._rect(group.shapes, 5, 5)
+        assert self._frame(group) == (Inches(1), Inches(1), Inches(5), Inches(5))
+
+        far.delete()
+
+        one_inch = (Inches(1), Inches(1), Inches(1), Inches(1))
+        assert self._frame(group) == one_inch
+        assert self._child_space(group) == one_inch
+
+    def and_it_refits_the_enclosing_groups_too(self, slide):
+        outer = slide.shapes.add_group_shape()
+        inner = outer.shapes.add_group_shape()
+        self._rect(inner.shapes, 1, 1)
+        far = self._rect(inner.shapes, 5, 5)
+        self._rect(outer.shapes, 3, 1)
+        assert self._frame(outer) == (Inches(1), Inches(1), Inches(5), Inches(5))
+
+        far.delete()
+
+        assert self._frame(inner) == (Inches(1), Inches(1), Inches(1), Inches(1))
+        assert self._frame(outer) == (Inches(1), Inches(1), Inches(3), Inches(1))
+
+    @pytest.mark.parametrize(
+        "disturb",
+        [
+            pytest.param(lambda group: setattr(group, "left", Inches(3)), id="moved"),
+            pytest.param(lambda group: setattr(group, "width", Inches(8)), id="resized"),
+            pytest.param(lambda group: setattr(group, "rotation", 30.0), id="rotated"),
+        ],
+    )
+    def but_it_leaves_a_group_alone_that_maps_its_members_through_a_transform(self, slide, disturb):
+        # A group moved, resized or rotated since it was built (as PowerPoint does) places its
+        # members through a transform. Rebuilding its frame from their child-space boxes would
+        # drag them across the slide or rescale them, so the frame is left as it was.
+        group = slide.shapes.add_group_shape()
+        keep = self._rect(group.shapes, 1, 1)
+        far = self._rect(group.shapes, 5, 5)
+        disturb(group)
+        group_xml, keep_frame = group._element.grpSpPr.xml, self._frame(keep)
+
+        far.delete()
+
+        assert group._element.grpSpPr.xml == group_xml
+        assert self._frame(keep) == keep_frame
+        assert len(group.shapes) == 1
+
+    # -- connectors glued to the deleted shape -----------------------------------------
+
+    def it_unglues_connectors_attached_to_the_deleted_shape(self, slide):
+        a, b = self._rect(slide.shapes, 1, 1), self._rect(slide.shapes, 6, 1)
+        connector = self._cxn(slide.shapes)
+        connector.begin_connect(a, 3)
+        connector.end_connect(b, 1)
+        assert self._connections(connector) == (a.shape_id, b.shape_id)
+
+        a.delete()
+
+        assert self._connections(connector) == (None, b.shape_id)
+
+        b.delete()
+
+        assert self._connections(connector) == (None, None)
+
+    def and_it_unglues_connectors_attached_to_members_of_a_deleted_group(self, slide):
+        other = self._rect(slide.shapes, 1, 1)
+        group = slide.shapes.add_group_shape()
+        member = self._rect(group.shapes, 6, 1)
+        connector = self._cxn(slide.shapes)
+        connector.begin_connect(other, 3)
+        connector.end_connect(member, 1)
+
+        group.delete()
+
+        assert self._connections(connector) == (other.shape_id, None)
+
+    def and_it_unglues_connectors_that_live_inside_a_group(self, slide):
+        target = self._rect(slide.shapes, 1, 1)
+        group = slide.shapes.add_group_shape()
+        connector = self._cxn(group.shapes)
+        connector.begin_connect(target, 3)
+        assert self._connections(connector) == (target.shape_id, None)
+
+        target.delete()
+
+        assert self._connections(connector) == (None, None)
+
+    def but_it_leaves_connectors_attached_to_other_shapes_alone(self, slide):
+        a, b, c = (self._rect(slide.shapes, left, 1) for left in (1, 4, 7))
+        connector = self._cxn(slide.shapes)
+        connector.begin_connect(b, 3)
+        connector.end_connect(c, 1)
+
+        a.delete()
+
+        assert self._connections(connector) == (b.shape_id, c.shape_id)
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        prs = Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])

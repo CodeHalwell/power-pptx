@@ -16,6 +16,7 @@ from power_pptx.dml.effect import (
     SoftEdgeFormat,
 )
 from power_pptx.dml.three_d import ThreeDFormat
+from power_pptx.oxml.ns import qn
 from power_pptx.shared import ElementProxy
 from power_pptx.util import _coerce_emu, lazyproperty
 
@@ -756,8 +757,11 @@ class BaseShape(object):
         In addition to removing the shape's XML element, this purges the
         references other parts of the slide still hold to it:
 
-        * animation entries in the timing tree that targeted this shape.
-          PowerPoint silently "repairs" decks with orphan timing
+        * animation entries in the timing tree that targeted this shape,
+          the build-list entries that describe them, and the play controls
+          of a deleted movie or sound. Only the deleted shape's own
+          effects go; effects sharing a click group with them keep
+          playing. PowerPoint silently "repairs" decks with orphan timing
           references on open, but a clean tree avoids the prompt.
         * overlap allowances naming this shape's id. Ids are recycled --
           the allocator hands out ``max(existing) + 1``, so deleting the
@@ -765,6 +769,17 @@ class BaseShape(object):
           save/reopen. A leftover allowance would then match that
           unrelated newcomer and silently suppress a real
           :class:`~power_pptx.lint.ShapeCollision`.
+        * connections of connectors glued to this shape. The connector
+          stays where it is, with that end loose, instead of pointing at an
+          id the next shape added may be given.
+
+        A shape deleted from a group also leaves the group's frame (and
+        that of any group around it) stale, so the frame is recomputed to
+        fit the members that remain. This is skipped for a group that is
+        rotated, flipped, or has been moved or resized (in PowerPoint, or by
+        assigning its ``left`` / ``top`` / ``width`` / ``height``) so that its
+        members' coordinates no longer match the slide's: rebuilding the
+        frame from their boxes would shift or rescale them.
 
         Equivalent in spirit to::
 
@@ -787,12 +802,85 @@ class BaseShape(object):
         parent = self._element.getparent()
         if parent is not None:
             parent.remove(self._element)
+            if parent.tag == qn("p:grpSp"):
+                # The group's frame is cosmetic; a member it cannot be measured from
+                # must not stop the cleanup below.
+                with contextlib.suppress(Exception):
+                    self._refit_group(parent)
 
         if slide is not None:
-            with contextlib.suppress(Exception):
-                slide.animations.purge_orphans()
-            if deleted_ids:
-                self._purge_overlap_allowances(slide, deleted_ids)
+            self._purge_dead_references(slide, deleted_ids)
+
+    @classmethod
+    def _purge_dead_references(cls, slide, dead_ids: "frozenset[int]") -> None:
+        """Drop what *slide* still holds that names a shape id in *dead_ids*.
+
+        Shared by every path that takes a shape element out of the tree
+        (:meth:`delete`, ``GroupShape.ungroup()``): timing entries, overlap
+        allowances and connector glue all key on the id, and ids are
+        recycled, so each would otherwise end up bound to the next shape
+        that is given the id. Best-effort and never fatal.
+        """
+        with contextlib.suppress(Exception):
+            slide.animations.purge_orphans()
+        if dead_ids:
+            cls._purge_overlap_allowances(slide, dead_ids)
+            cls._purge_connector_connections(slide, dead_ids)
+
+    @staticmethod
+    def _purge_connector_connections(slide, dead_ids: "frozenset[int]") -> None:
+        """Unglue every connector end that is connected to a shape in *dead_ids*.
+
+        Removes the ``a:stCxn`` / ``a:endCxn`` that names the dead id; the connector keeps its
+        geometry and the other end keeps its connection. Walks the connectors only, wherever
+        they sit on the slide, including inside groups.
+        """
+        try:
+            connections = slide._element.xpath(
+                "p:cSld/p:spTree//p:cxnSp/p:nvCxnSpPr/p:cNvCxnSpPr"
+                "/*[self::a:stCxn or self::a:endCxn]"
+            )
+        except Exception:
+            return
+        for connection in connections:
+            try:
+                connected_id = int(connection.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if connected_id in dead_ids:
+                connection.getparent().remove(connection)
+
+    @staticmethod
+    def _refit_group(grpSp) -> None:
+        """Shrink *grpSp*, and the groups around it, to fit the members left in it.
+
+        ``recalculate_extents()`` rebuilds a group's ``a:off`` / ``a:ext`` and its child space
+        ``a:chOff`` / ``a:chExt`` from the members' boxes, reading those as slide coordinates.
+        That is only faithful for a plain group, one whose child space is its own frame and
+        which is neither rotated nor flipped: that is what this library builds. A group moved,
+        resized or rotated since (in PowerPoint, or by assigning its ``left`` / ``width`` ...)
+        maps its members through a transform, so rebuilding it would move or rescale what is
+        left. Those are left as they are, as are the groups around them.
+        """
+        node = grpSp
+        while node is not None and node.tag == qn("p:grpSp"):
+            if not BaseShape._is_plain_group(node):
+                return
+            node = node.getparent()
+        grpSp.recalculate_extents()
+
+    @staticmethod
+    def _is_plain_group(grpSp) -> bool:
+        """True when *grpSp* places its members exactly where their own coordinates say."""
+        xfrm = grpSp.xfrm
+        if xfrm is None:
+            return True
+        if xfrm.rot or xfrm.flipH or xfrm.flipV:
+            return False
+        off, chOff, ext, chExt = xfrm.off, xfrm.chOff, xfrm.ext, xfrm.chExt
+        if off is not None and chOff is not None and (off.x, off.y) != (chOff.x, chOff.y):
+            return False
+        return ext is None or chExt is None or (ext.cx, ext.cy) == (chExt.cx, chExt.cy)
 
     def _descendant_shape_ids(self) -> "frozenset[int]":
         """Return this shape's id plus every id nested beneath it.

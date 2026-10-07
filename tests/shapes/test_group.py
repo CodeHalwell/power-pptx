@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import io
+
 import pytest
 
 from power_pptx import Presentation
+from power_pptx.animation import Entrance
 from power_pptx.dml.color import RGBColor
 from power_pptx.dml.effect import ShadowFormat
 from power_pptx.enum.dml import MSO_FILL
-from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from power_pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE, MSO_SHAPE_TYPE
+from power_pptx.oxml.ns import qn
 from power_pptx.shapes.group import GroupShape
 from power_pptx.shapes.shapetree import GroupShapes
 from power_pptx.util import Emu, Inches, Pt
@@ -222,6 +226,105 @@ class DescribeGroupShapeSurface(object):
         assert movie.shape_type == MSO_SHAPE_TYPE.MEDIA
         # video play-controls timing is registered on the enclosing slide
         assert slide._element.xpath(".//p:timing//p:video")
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        prs = Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
+
+    @pytest.fixture
+    def group(self, slide):
+        grp = slide.shapes.add_group_shape()
+        grp.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
+        grp.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(2), Inches(1), Inches(1))
+        return grp
+
+
+class DescribeGroupShapeUngroupCleanup(object):
+    """`ungroup()` drops the group element, so whatever still names its id has to go with it.
+
+    The promoted members keep their ids and so keep everything that points at them; only the
+    dissolved group's own id is dead.
+    """
+
+    def it_removes_animations_that_target_the_dissolved_group(self, slide, group):
+        Entrance.fade(slide, group)
+        assert [e.shape_id for e in slide.animations] == [group.shape_id]
+
+        group.ungroup()
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def but_it_keeps_animations_that_target_the_promoted_members(self, slide, group):
+        member = list(group.shapes)[0]
+        Entrance.fade(slide, member)
+        Entrance.fade(slide, group)
+
+        group.ungroup()
+
+        assert [e.shape_id for e in slide.animations] == [member.shape_id]
+
+    def it_drops_overlap_allowances_naming_the_dissolved_group(self, slide, group):
+        other = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(7), Inches(1), Inches(1), Inches(1)
+        )
+        other.allow_overlap_with(group)
+        assert other.overlap_allowances == frozenset({group.shape_id})
+
+        group.ungroup()
+
+        assert other.overlap_allowances == frozenset()
+
+    def but_it_keeps_allowances_naming_the_promoted_members(self, slide, group):
+        member = list(group.shapes)[0]
+        other = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(7), Inches(1), Inches(1), Inches(1)
+        )
+        other.allow_overlap_with(member, group)
+
+        group.ungroup()
+
+        assert other.overlap_allowances == frozenset({member.shape_id})
+
+    def it_unglues_connectors_from_the_dissolved_group_but_not_from_its_members(self, slide, group):
+        member = list(group.shapes)[0]
+        connector = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(6), Inches(1), Inches(8), Inches(3)
+        )
+        connector.begin_connect(group, 3)
+        connector.end_connect(member, 1)
+
+        group.ungroup()
+
+        cNvCxnSpPr = connector._element.nvCxnSpPr.cNvCxnSpPr
+        assert cNvCxnSpPr.stCxn is None
+        assert cNvCxnSpPr.endCxn.id == member.shape_id
+
+    def it_does_not_suppress_a_collision_with_a_shape_reusing_the_groups_id(self):
+        # The allocator hands out max(id) + 1, so once the file is saved and reopened the
+        # dissolved group's id goes to the next shape added. An allowance left naming it would
+        # then silence a real collision between that newcomer and the shape holding it.
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        held_by = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
+        m1 = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(1), Inches(1))
+        m2 = slide.shapes.add_textbox(Inches(6), Inches(3), Inches(1), Inches(1))
+        group = slide.shapes.add_group_shape([m1, m2])
+        held_by.allow_overlap_with(group)
+        group_id = group.shape_id
+
+        group.ungroup()
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        reloaded = Presentation(buf).slides[0]
+
+        newcomer = reloaded.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
+        assert newcomer.shape_id == group_id
+        codes = [issue.code for issue in reloaded.lint().issues]
+        assert "ShapeCollision" in codes
 
     # fixtures -------------------------------------------------------
 

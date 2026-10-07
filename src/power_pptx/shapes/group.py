@@ -213,7 +213,12 @@ class GroupShape(BaseShape):
         or an enclosing group) with its position and size transformed from the
         group's child coordinate space into the container's space, so shapes do
         not move or resize visually. Z-order is preserved: the promoted shapes
-        occupy the group's former slot. The (now empty) group element is removed.
+        occupy the group's former slot. The (now empty) group element is removed,
+        and what the slide still holds that names the group's id goes with it,
+        exactly as for :meth:`~power_pptx.shapes.base.BaseShape.delete`: animation
+        entries (and the like) targeting the group, overlap allowances naming it,
+        and connectors glued to it. The promoted shapes keep their ids and so keep
+        everything that points at them.
 
         Raises ``ValueError`` if the group is rotated or flipped — baking such a
         transform into each child is ambiguous and unsupported; reset rotation
@@ -228,6 +233,15 @@ class GroupShape(BaseShape):
                 "ungroup() does not support a rotated or flipped group; reset "
                 "rotation and flip to 0 before ungrouping"
             )
+
+        # The group's own id is about to go stale, so snapshot it, and the slide,
+        # before the element leaves the tree.
+        slide = None
+        try:
+            slide = self.part.slide  # type: ignore[attr-defined]
+        except Exception:
+            slide = None
+        group_id = self.shape_id
 
         # Group offset/extent (in the container's coordinate space) and the
         # group's own child coordinate space (chOff/chExt).
@@ -261,4 +275,6 @@ class GroupShape(BaseShape):
             promoted.append(self._parent._shape_factory(elm))  # pyright: ignore[reportAttributeAccessIssue]
 
         container.remove(grpSp)
+        if slide is not None:
+            self._purge_dead_references(slide, frozenset({group_id}))
         return promoted
