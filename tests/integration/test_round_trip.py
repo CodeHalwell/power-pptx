@@ -87,6 +87,21 @@ class DescribeRoundTrip:
         group.shapes.add_shape(1, Inches(1), Inches(0.5), Inches(3), Inches(0.4))
         assert_round_trip(prs)
 
+    def it_round_trips_a_group_containing_a_freeform(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        builder = group.shapes.build_freeform(Inches(1), Inches(1))
+        builder.add_line_segments([(Inches(3), Inches(1)), (Inches(3), Inches(2))])
+        freeform = builder.convert_to_shape()
+        assert_round_trip(prs)
+        assert (group.left, group.top, group.width, group.height) == (
+            freeform.left,
+            freeform.top,
+            freeform.width,
+            freeform.height,
+        )
+
 
 class DescribeNonMutatingColorReadsRoundTrip:
     """Reading `Font.color` properties must not corrupt the round-trip."""

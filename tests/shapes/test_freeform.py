@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import pytest
 
+from power_pptx import Presentation
+from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.shapes.autoshape import Shape
 from power_pptx.shapes.freeform import (
     FreeformBuilder,
@@ -15,7 +17,7 @@ from power_pptx.shapes.freeform import (
     _MoveTo,
 )
 from power_pptx.shapes.shapetree import SlideShapes
-from power_pptx.util import Emu, Mm
+from power_pptx.util import Emu, Inches, Mm
 
 from ..unitutil.cxml import element, xml
 from ..unitutil.file import snippet_seq
@@ -95,6 +97,7 @@ class DescribeFreeformBuilder(object):
         _add_freeform_sp_.assert_called_once_with(builder, origin_x, origin_y)
         _start_path_.assert_called_once_with(builder, sp)
         assert apply_operation_to_.call_args_list == calls
+        shapes_._recalculate_extents.assert_called_once_with()
         shapes_._shape_factory.assert_called_once_with(sp)
         assert shape is shape_
 
@@ -563,3 +566,64 @@ class Describe_MoveTo(object):
     @pytest.fixture
     def _init_(self, request: FixtureRequest):
         return initializer_mock(request, _MoveTo, autospec=True)
+
+
+class DescribeFreeformInAGroup(object):
+    """A freeform added to a group must grow the group like any other member shape."""
+
+    def it_grows_the_group_extents_to_contain_the_freeform(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        builder = group.shapes.build_freeform(Inches(1), Inches(1))
+        builder.add_line_segments(
+            [(Inches(3), Inches(1)), (Inches(3), Inches(2)), (Inches(1), Inches(2))]
+        )
+
+        freeform = builder.convert_to_shape()
+
+        assert (freeform.left, freeform.top) == (Inches(1), Inches(1))
+        assert (freeform.width, freeform.height) == (Inches(2), Inches(1))
+        assert (group.left, group.top) == (freeform.left, freeform.top)
+        assert (group.width, group.height) == (freeform.width, freeform.height)
+        chOff, chExt = group._grpSp.chOff, group._grpSp.chExt
+        assert (chOff.x, chOff.y) == (freeform.left, freeform.top)
+        assert (chExt.cx, chExt.cy) == (freeform.width, freeform.height)
+
+    def and_it_unions_with_the_shapes_already_in_the_group(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(0.5), Inches(1), Inches(1))
+        builder = group.shapes.build_freeform(Inches(4), Inches(3))
+        builder.add_line_segments([(Inches(5), Inches(3)), (Inches(5), Inches(4))])
+
+        builder.convert_to_shape()
+
+        assert (group.left, group.top) == (Inches(0.5), Inches(0.5))
+        assert (group.width, group.height) == (Inches(4.5), Inches(3.5))
+
+    def and_it_grows_every_enclosing_group(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        outer = slide.shapes.add_group_shape()
+        inner = outer.shapes.add_group_shape()
+        builder = inner.shapes.build_freeform(Inches(2), Inches(2))
+        builder.add_line_segments([(Inches(3), Inches(2)), (Inches(3), Inches(3))])
+
+        freeform = builder.convert_to_shape()
+
+        for group in (inner, outer):
+            assert (group.left, group.top) == (freeform.left, freeform.top)
+            assert (group.width, group.height) == (freeform.width, freeform.height)
+
+    def but_a_freeform_on_a_slide_is_unaffected(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        builder = slide.shapes.build_freeform(Inches(1), Inches(1))
+        builder.add_line_segments([(Inches(3), Inches(1)), (Inches(3), Inches(2))])
+
+        freeform = builder.convert_to_shape()
+
+        assert (freeform.left, freeform.top) == (Inches(1), Inches(1))
+        assert (freeform.width, freeform.height) == (Inches(2), Inches(1))
