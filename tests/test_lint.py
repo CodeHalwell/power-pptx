@@ -188,6 +188,25 @@ class DescribeSlideDesignGroup:
         assert inside.lint_group == "kpi-card-1"
         assert after.lint_group is None
 
+    @pytest.mark.parametrize("existing", [1, 2, 3, 12, 30])
+    def it_tags_exactly_the_new_shapes_however_many_already_exist(self, existing):
+        # Regression: the block used to remember the shapes already on the slide as the
+        # ``id()`` of lxml proxies it did not keep alive.  A proxy's address is recycled as
+        # soon as it is garbage-collected, so proxies for *other* elements later matched the
+        # snapshot: shapes that predated the block were tagged and the one added in it was
+        # missed.  The slide's shapes are deliberately not kept here -- holding them would
+        # pin their proxies and hide the address reuse.
+        _, slide = _new_blank_slide()
+        for i in range(existing):
+            slide.shapes.add_shape(1, Inches(0.2 * i), Inches(0.5), Inches(0.1), Inches(0.1))
+        names_before = [s.name for s in slide.shapes]
+
+        with slide.design_group("kpi"):
+            added = slide.shapes.add_shape(1, Inches(0.5), Inches(3), Inches(1), Inches(1))
+
+        assert [s.name for s in slide.shapes if s.lint_group == "kpi"] == [added.name]
+        assert [s.name for s in slide.shapes][:existing] == names_before
+
     def it_uses_the_innermost_label_when_nested(self):
         _, slide = _new_blank_slide()
         with slide.design_group("outer"):
