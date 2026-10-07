@@ -546,7 +546,9 @@ def add_stat_strip(
 
     Each item dict accepts the same fields as ``add_kpi_card``'s
     ``label`` / ``value`` / ``delta``. Cards are sized to the strip's
-    width minus the gutters and stacked left-to-right.
+    width minus the gutters and stacked left-to-right.  *height* is each
+    card's height, so a strip too short for :func:`add_kpi_card`'s rows
+    raises :class:`ValueError` naming the minimum, with nothing added.
 
     Returns a :class:`StatStrip` whose ``.cards`` is a list of
     :class:`KpiCard` bundles, in the same order as `items`.
