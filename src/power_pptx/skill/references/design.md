@@ -201,6 +201,10 @@ For the plain "n equal boxes across this region" case, `panel.columns(5,
 gap=Pt(12))` / `panel.rows(2, ...)` from `BBox` are shorter — reach for
 `Grid` when you need column spans.
 
+`cols` and `rows` are counts: they must be integers `>= 1`. A float such
+as `cols=2.5` or a `bool` raises `ValueError` instead of being
+truncated to a grid you didn't ask for.
+
 ### Stack
 
 ```python
@@ -216,6 +220,22 @@ stack.reset()  # rewind cursor
 ```
 
 `direction="horizontal"` walks left-to-right with `gap` between items.
+
+`width=` / `height=` on the constructor are the default size of every
+cell, so a row of equal cards needs no per-call size; a size passed to
+`next()` / `place()` overrides it for that one cell:
+
+```python
+row = Stack(
+    direction="horizontal", gap=Pt(12), left=Pt(48), top=Pt(400), width=Pt(200), height=Pt(120)
+)
+row.place(card_a)
+row.place(card_b)
+row.place(card_c, width=Pt(320))  # this one is wider
+```
+
+A stack needs a width and a height from one place or the other;
+`next()` raises `TypeError` naming the one that is missing.
 
 ## Slide recipes
 
@@ -287,6 +307,75 @@ tinting deltas (falls back to green/red when unset). It applies
 `image_hero_slide` uses `palette["on_primary"]` for overlay text and
 tints the bottom band with `palette["primary"]` at 55% alpha.
 
+### Recipes that size themselves or refuse
+
+`table_slide`, `code_slide`, `timeline_slide`, `comparison_slide` and
+`figure_slide` take content of unpredictable size, so they measure it
+before placing it and either fit it on the slide (4:3 or 16:9) or raise a
+`ValueError` saying what to change. A rejected call adds no slide to the
+deck.
+
+```python
+from power_pptx.design.recipes import (
+    code_slide,
+    figure_slide,
+    table_slide,
+    timeline_slide,
+)
+
+table_slide(
+    prs,
+    title="Regional results",
+    columns=["Region", "Revenue", "Growth", "Margin"],
+    rows=rows,  # up to ~27 data rows on one slide (one fewer with totals)
+    widths=[0.4, 0.2],  # fewer widths than columns: the rest split what's left
+    aligns=["left", "right", "right", "right"],
+    totals={"label": "Total", "values": ["$660M", "", "75%"]},  # label + up to n-1 values
+    tokens=tokens,
+)
+
+code_slide(prs, title="Retry loop", code=snippet, language="python", tokens=tokens)
+
+timeline_slide(
+    prs,
+    title="Roadmap",
+    milestones=[{"date": "Q1", "label": "Kickoff", "done": True}, {"date": "Q2", "label": "Beta"}],
+    tokens=tokens,
+)
+
+figure_slide(prs, title="Architecture", figure="<svg ...>...</svg>")  # inline SVG
+```
+
+- **`table_slide`** — `widths` may name fewer columns than the table has
+  (fractions or `Length`s); the named columns keep exactly that width and
+  the rest share the remainder, and widths that leave nothing for them
+  raise. `totals["values"]` takes at most one value fewer than there are
+  columns (column 0 holds the label); more raise. When rows are too many
+  for their text, the cell margins tighten first, then the font shrinks a
+  point at a time (floor 9 pt); past that it raises and says how many data
+  rows fit, so split the table. It assumes single-line cells: a cell that
+  wraps makes its row taller than that check can know.
+- **`code_slide`** — set in `Consolas` (one family name; OOXML does not
+  accept a CSS font stack) at 14 pt, shrunk until the code, wrapped lines
+  included, fits the panel (floor 9 pt, about 32 lines); beyond that it
+  raises, so split the snippet. Tabs become four spaces. Text colour is
+  chosen to read on the panel, including the dark default used without
+  tokens.
+- **`timeline_slide`** — every box stays inside the slide margins and
+  clear of the rail; the rail is inset by half a label so the end labels
+  line up with the margins. The deck's body size is shrunk (floor 9 pt)
+  until every date and label fits its box. Past about 21 milestones on a
+  4:3 slide (29 on 16:9) the boxes would be under 0.7 in wide, so it
+  raises and tells you how many fit: split the roadmap.
+- **`comparison_slide`** — the two column headings sit in bands a fixed
+  0.6 in tall, so they share one size: the deck's heading size, reduced
+  (floor 9 pt) until both fit their band.
+- **`figure_slide`** — an inline SVG string (or bytes) is embedded;
+  rasterising its PNG companion needs `cairosvg`, otherwise
+  `CairoSvgUnavailable` is raised. `chart_slide` plots categories against
+  values (`line`, `line_markers`, `bar`, `column`, `pie`, `doughnut`,
+  `area`); for an XY scatter build the chart with `XyChartData`.
+
 ## Shape-level building blocks
 
 For mixed layouts where the slide-level recipes don't fit, reach for
@@ -330,6 +419,25 @@ All shape-level components tag their stacked shapes with
 `lint_group` so the linter doesn't flag the intentional overlap
 (label-on-card, fill-on-track) as a collision.
 
+The cards lay their insides out from their own size, and raise a
+`ValueError` naming the size needed when the content cannot fit (nothing
+is added to the slide):
+
+- **`add_kpi_card`** derives the value / label / delta rows from
+  `height`. At the default 1.9 in they are exactly the `kpi_slide` rows; a
+  taller card centres them and a shorter one squeezes them, down to a
+  minimum of about 1.3 in with the default type (more with large token
+  sizes) — below that the rows would hang under the card. The delta row is
+  reserved even when no delta is shown, so the cards of a strip keep their
+  values aligned.
+- **`add_article_card`** sizes its type for the card, not the deck: the
+  title is at most 16 pt and the blurb at most 11 pt whatever the
+  tokens' `heading` / `body` sizes are. A title that needs more than two
+  lines shrinks (to 12 pt) and its box grows, with the blurb placed
+  underneath; a long blurb shrinks (to 9 pt) to its box. A card too short
+  for the title, a line of blurb and the CTA, or too narrow for text,
+  raises.
+
 Other components in the same module:
 
 ```python
@@ -365,6 +473,27 @@ add_stat_strip(
     tokens=tokens,
 )
 ```
+
+## Ring diagrams
+
+`power_pptx.diagrams.hub_and_spoke` and `cycle` (see
+`geometry-and-arrows.md` for the whole family) put their nodes on a ring
+that touches the edge of the `BBox`'s shorter side. The nodes keep their
+default size (hub 0.25 and spokes 0.2 of that side; cycle cards 0.22) for
+up to about eight of them; beyond that the diameters shrink together,
+keeping their proportions, until no two nodes — and no spoke and the hub —
+overlap and the arrows have room to show. Labels are fitted to the text
+area an ellipse really has, so a small node gets a small font rather than
+a word broken in the middle.
+
+These diagrams declare only the overlaps they mean — each arrow with the
+shapes it joins (and, in `hub_and_spoke`, neighbouring arrows whose boxes
+overlap near the hub although the lines never meet), via
+`allow_overlap_with` — instead of tagging everything as one `lint_group`,
+so `slide.lint()` reports two spokes or cards that really collide. Keep a
+ring to roughly 12 nodes at most and its labels to short words: a long
+word in a small node shrinks until it fits, and `MinFontSize` reports it
+once it is under 9 pt.
 
 ## Starter pack
 

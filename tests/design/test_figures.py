@@ -213,6 +213,71 @@ class DescribeFigureSlideDispatch:
         pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
+    @staticmethod
+    def _svg_blobs(slide):
+        return [
+            rel.target_part.blob
+            for rel in slide.part.rels.values()
+            if not rel.is_external and rel.target_part.content_type == "image/svg+xml"
+        ]
+
+    @pytest.mark.parametrize("pad", ["", "\n  ", "﻿"])
+    def it_dispatches_inline_svg_markup_given_as_a_string(self, pad):
+        # A str is a *path* to add_svg_picture; markup has to reach it as bytes.
+        markup = pad + _STUB_SVG.decode("utf-8")
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure=markup)
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
+        assert len(pictures) == 1
+        assert self._svg_blobs(slide) == [markup.encode("utf-8")]
+
+    def it_dispatches_inline_svg_markup_without_an_xml_declaration(self):
+        markup = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><circle r="2"/></svg>'
+        )
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure=markup)
+        assert self._svg_blobs(slide) == [markup.encode("utf-8")]
+
+    def it_keeps_non_ascii_svg_text_intact(self):
+        markup = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="10">'
+            '<text y="8">Zürich – café</text></svg>'
+        )
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure=markup)
+        assert self._svg_blobs(slide) == [markup.encode("utf-8")]
+
+    def it_still_routes_an_svg_file_path_to_add_svg_picture(self, tmp_path):
+        path = tmp_path / "chart.svg"
+        path.write_bytes(_STUB_SVG)
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure=str(path))
+        assert self._svg_blobs(slide) == [_STUB_SVG]
+
+    def it_passes_inline_svg_through_from_spec(self):
+        from power_pptx.compose import from_spec
+
+        spec = {
+            "slides": [
+                {"layout": "figure", "title": "Diagram", "figure": _STUB_SVG.decode("utf-8")}
+            ],
+            "lint": "raise",
+        }
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            prs = from_spec(spec)
+        assert len(self._svg_blobs(prs.slides[0])) == 1
+
+    def it_keeps_the_figure_inside_the_slide_margins(self):
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure=_STUB_SVG, caption="Source: x")
+        assert slide.lint(min_severity="warning").issues == []
+
     def it_renders_a_caption_when_provided(self):
         prs = Presentation()
         fig = _FakePlotlyFigure()

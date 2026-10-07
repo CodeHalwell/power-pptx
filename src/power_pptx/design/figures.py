@@ -246,6 +246,11 @@ def add_svg_figure(
     :func:`add_matplotlib_figure` so authoring code can route every
     figure kind through the ``power_pptx.design.figures`` module.
 
+    A ``str`` is read as a *path*; to embed markup you already hold in
+    memory pass it as ``bytes`` (``svg_text.encode("utf-8")``).
+    :func:`~power_pptx.design.recipes.figure_slide` does that for inline
+    SVG strings.
+
     When *png_fallback* is omitted the SVG is rasterised via
     ``cairosvg`` for the Office SVG-extension PNG companion.
     """

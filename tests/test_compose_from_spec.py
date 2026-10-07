@@ -1930,7 +1930,7 @@ def _documented_layouts(image_path):
             "banded": False,
             "widths": [0.5, 0.5],
             "aligns": ["left", "right"],
-            "totals": {"label": "Total", "values": [3, 4]},
+            "totals": {"label": "Total", "values": [3]},
         },
         "code": {"title": "T", "code": "print('hi')  # {{ not_a_var }}", "language": "python"},
         "timeline": {

@@ -53,13 +53,16 @@ Example::
 from __future__ import annotations
 
 import contextlib
+import math
 import os
+import re
+from dataclasses import replace
 from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:
@@ -609,7 +612,10 @@ def chart_slide(
 
     *chart_type* is one of ``"line"``, ``"bar"`` (clustered horizontal
     bars), ``"column"`` (clustered vertical columns), ``"pie"``,
-    ``"area"``, ``"line_markers"``, ``"scatter"``, or ``"doughnut"``.
+    ``"area"``, ``"line_markers"``, or ``"doughnut"``.  Every one of
+    these plots *categories* against numbers; for an XY scatter chart
+    build the chart yourself with ``slide.shapes.add_chart`` and
+    :class:`~power_pptx.chart.data.XyChartData`.
 
     *categories* is the list of x-axis labels (or pie-slice labels).
     Each *series* mapping is ``{"name": str, "values": Sequence[float]}``;
@@ -746,9 +752,13 @@ def table_slide(
     palette's ``surface`` slot to improve scanning.
 
     *widths* assigns column widths.  Accepts a sequence of either
-    fractions summing to ~1.0 (``[0.5, 0.25, 0.25]``) or absolute
-    :class:`~power_pptx.util.Length` values.  Unspecified columns split
-    the remaining width evenly.
+    fractions of the table width (``[0.5, 0.25, 0.25]``) or absolute
+    :class:`~power_pptx.util.Length` values.  Fractions that name every
+    column are rescaled to fill the table; when fewer widths than columns are
+    given, those columns keep exactly the width asked for and the unspecified
+    ones split what remains evenly (``widths=[0.25, 0.25]`` on four columns
+    gives four equal columns).  Widths that leave nothing for the unspecified
+    columns raise :class:`ValueError`.
 
     *aligns* assigns horizontal alignment per column.  Accepts
     ``"left"`` / ``"center"`` / ``"right"``; defaults to ``"left"``
@@ -756,8 +766,19 @@ def table_slide(
 
     *totals* adds a footer row that visually separates from the data.
     Mapping shape: ``{"label": "Total", "values": [n1, n2, ...]}`` or
-    ``{"row": [c1, c2, c3, ...]}`` for a fully-explicit row.  The
-    footer is bold and uses ``primary`` palette text on a subtle band.
+    ``{"row": [c1, c2, c3, ...]}`` for a fully-explicit row.  The label
+    takes column 0 and the values fill the last columns, so there can be at
+    most one value fewer than there are columns; more raise
+    :class:`ValueError`.  The footer is bold and uses ``primary`` palette
+    text on a subtle band.
+
+    The table fills the space under the title and its rows share that height
+    equally.  When there are too many rows for the text to fit its row, the
+    cell margins are tightened first and then the font is shrunk a point at a
+    time (never below 9 pt); a table that still cannot fit raises
+    :class:`ValueError` suggesting you split it across slides.  Cells are
+    assumed to hold a single line of text: a cell that wraps makes its row
+    taller than this check can know.
 
     Tokens consumed:
 
@@ -771,13 +792,43 @@ def table_slide(
     if not columns:
         raise ValueError("table_slide requires at least one column")
 
-    slide = _add_blank(prs)
+    # Everything that can reject the input runs before the slide is added, so a
+    # ValueError never leaves a half-built slide behind in the deck.
     slide_w, slide_h = _slide_dims(prs)
-    _apply_background(slide, prs, tokens)
-
     margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
+
+    n_cols = len(columns)
+    totals_row = _coerce_totals_row(totals, n_cols) if totals else None
+    n_rows = len(rows) + 1 + (1 if totals_row is not None else 0)
+    table_top = Length(title_top + title_h + Inches(0.2))
+    table_h = Length(slide_h - table_top - Inches(0.5))
+    table_w = Length(slide_w - 2 * margin)
+    col_widths = _resolve_column_widths(widths, table_w, n_cols) if widths is not None else None
+    align_map = _coerce_aligns(aligns, n_cols)
+
+    header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
+    cell_token = _typography(tokens, "body", default_size=Pt(13))
+    totals_token = _typography(tokens, "body", default_size=Pt(13), default_bold=True)
+    row_tokens = [header_token]
+    if rows:
+        row_tokens.append(cell_token)
+    if totals_row is not None:
+        row_tokens.append(totals_token)
+    shrink_pt, cell_margin_y = _fit_table_rows(
+        n_data=len(rows),
+        has_totals=totals_row is not None,
+        table_h=int(table_h),
+        sizes_pt=[t.size.pt for t in row_tokens if t.size is not None],
+    )
+    header_token = _shrink_token(header_token, shrink_pt)
+    cell_token = _shrink_token(cell_token, shrink_pt)
+    totals_token = _shrink_token(totals_token, shrink_pt)
+
+    slide = _add_blank(prs)
+    _apply_background(slide, prs, tokens)
+
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
@@ -789,24 +840,13 @@ def table_slide(
         shrink_to_fit=True,
     )
 
-    totals_row = _coerce_totals_row(totals, len(columns)) if totals else None
-    n_rows = len(rows) + 1 + (1 if totals_row is not None else 0)
-    n_cols = len(columns)
-    table_top = Length(title_top + title_h + Inches(0.2))
-    table_h = Length(slide_h - table_top - Inches(0.5))
-    table_w = Length(slide_w - 2 * margin)
-
     gframe = slide.shapes.add_table(n_rows, n_cols, margin, table_top, table_w, table_h)
     table = gframe.table
 
-    if widths is not None:
-        _apply_column_widths(table, widths, table_w, n_cols)
+    if col_widths is not None:
+        for index, width in enumerate(col_widths):
+            table.columns[index].width = Emu(width)
 
-    align_map = _coerce_aligns(aligns, n_cols)
-
-    header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
-    cell_token = _typography(tokens, "body", default_size=Pt(13))
-    totals_token = _typography(tokens, "body", default_size=Pt(13), default_bold=True)
     header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
     header_text = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
     band_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
@@ -862,6 +902,14 @@ def table_slide(
                 anchor=MSO_ANCHOR.MIDDLE,
             )
 
+    for table_row in table.rows:
+        for cell in table_row.cells:
+            # A table cell takes its vertical alignment from ``a:tcPr``; the ``anchor``
+            # that _fill_text_frame puts on the cell's text body is ignored.
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if cell_margin_y is not None:
+                cell.margin_top = cell.margin_bottom = Emu(cell_margin_y)
+
     _apply_transition(slide, transition)
     return slide
 
@@ -888,22 +936,57 @@ def code_slide(
     without a *language* — the code is rendered as a plain monospace
     block on the surface fill.
 
+    The code is set in Consolas at 14 pt.  Long snippets shrink a point at a
+    time, never below 9 pt, until they fit the panel — lines that wrap count
+    for as many lines as they take — and the text frame is also marked to
+    shrink at render time as a last resort.  Tabs are expanded to four spaces.
+    A snippet that does not fit even at 9 pt raises :class:`ValueError`
+    suggesting you split it across slides.
+
     Tokens consumed:
 
     * **palette** — title from ``primary`` (fallback ``neutral``); code
-      panel fill from ``surface`` (fallback ``lt2``); plain code text
-      from ``neutral``; panel border from ``muted`` (fallback ``lt1``).
+      panel fill from ``surface`` (fallback ``lt2``, then a dark
+      default); plain code text from ``neutral`` — or white / near-black,
+      whichever reads better, when ``neutral`` is unset or too close to the
+      panel colour; panel border from ``muted`` (fallback ``lt1``).
     * **typography** — ``heading`` for the title; ``body`` is **not**
-      used for the code text (which is locked to a monospace family —
-      Cascadia Code → Consolas → Menlo → monospace).
+      used for the code text (which is locked to Consolas, a single
+      monospace family name — an OOXML typeface holds one name, so a
+      fallback list such as ``"Menlo, monospace"`` would leave PowerPoint
+      and LibreOffice with a proportional face).
     """
-    slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
-    _apply_background(slide, prs, tokens)
-
     margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
+    panel_top = Length(title_top + title_h + Inches(0.2))
+    panel_h = Length(slide_h - panel_top - Inches(0.5))
+    panel_w = Length(slide_w - 2 * margin)
+    pad = Inches(0.25)
+    code_w = Length(panel_w - 2 * pad)
+    code_h = Length(panel_h - 2 * pad)
+
+    # Tab stops are 1 in apart in PowerPoint, which would indent tab-indented code by
+    # several inches and invalidate the fit below, so indentation becomes spaces.
+    code = code.expandtabs(4)
+    # Try to highlight via Pygments; on any failure (missing dep,
+    # unknown lexer) fall back to plain monospace text — the slide
+    # renders correctly either way.
+    highlighted = _pygments_highlight(code, language) if language else None
+    lines = (
+        highlighted
+        if highlighted is not None
+        else [[(line, None)] for line in (code.splitlines() or [""])]
+    )
+    # Decide the size before touching the deck: a snippet that cannot fit raises here,
+    # not after a half-built slide has been appended.
+    mono_size = _fit_code_size(lines, code_w, code_h)
+    mono_family = _CODE_FAMILY
+
+    slide = _add_blank(prs)
+    _apply_background(slide, prs, tokens)
+
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
@@ -915,12 +998,10 @@ def code_slide(
         shrink_to_fit=True,
     )
 
-    panel_top = Length(title_top + title_h + Inches(0.2))
-    panel_h = Length(slide_h - panel_top - Inches(0.5))
-    panel_w = Length(slide_w - 2 * margin)
+    panel_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
     panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, margin, panel_top, panel_w, panel_h)
     panel.fill.solid()
-    panel.fill.fore_color.rgb = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
+    panel.fill.fore_color.rgb = panel_fill
     border = _palette(tokens, ("muted", "lt1"))
     if border is not None:
         panel.line.color.rgb = border
@@ -930,50 +1011,43 @@ def code_slide(
     _apply_card_styling(panel, tokens)
     panel.text_frame.text = ""
 
-    pad = Inches(0.25)
     code_box = slide.shapes.add_textbox(
-        Length(margin + pad),
-        Length(panel_top + pad),
-        Length(panel_w - 2 * pad),
-        Length(panel_h - 2 * pad),
+        Length(margin + pad), Length(panel_top + pad), code_w, code_h
     )
     tf = code_box.text_frame
     tf.word_wrap = True
     tf.vertical_anchor = MSO_ANCHOR.TOP
 
-    fallback_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
-    mono_size = Pt(14)
-    mono_family = "Cascadia Code, Consolas, Menlo, monospace"
-
-    # Try to highlight via Pygments; on any failure (missing dep,
-    # unknown lexer) fall back to plain monospace text — the slide
-    # renders correctly either way.
-    highlighted = _pygments_highlight(code, language) if language else None
+    # Plain code, and any token the highlighter leaves uncoloured (punctuation, names),
+    # takes this colour.  The text box has no fill of its own, so the linter cannot see
+    # that it sits on the panel; make sure it reads there.
+    fallback_color = _readable_on(_palette(tokens, ("neutral",)), panel_fill)
 
     para = tf.paragraphs[0]
     para.text = ""
-    para.alignment = PP_ALIGN.LEFT
-    if highlighted is None:
-        for line_idx, line in enumerate(code.splitlines() or [""]):
-            p = para if line_idx == 0 else tf.add_paragraph()
-            p.alignment = PP_ALIGN.LEFT
+    for line_idx, line_tokens in enumerate(lines):
+        p = para if line_idx == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT
+        for text, rgb in line_tokens:
+            if not text:
+                continue
             run = p.add_run()
-            run.text = line
+            run.text = text
             run.font.name = mono_family
-            run.font.size = mono_size
-            run.font.color.rgb = fallback_color
-    else:
-        for line_idx, line_tokens in enumerate(highlighted):
-            p = para if line_idx == 0 else tf.add_paragraph()
-            p.alignment = PP_ALIGN.LEFT
-            for text, rgb in line_tokens:
-                if not text:
-                    continue
-                run = p.add_run()
-                run.text = text
-                run.font.name = mono_family
-                run.font.size = mono_size
-                run.font.color.rgb = rgb if rgb is not None else fallback_color
+            run.font.size = Pt(mono_size)
+            run.font.color.rgb = rgb if rgb is not None else fallback_color
+
+    # A blank line has no run to carry the size, and an empty paragraph falls back
+    # to the 18 pt default for its height unless its end mark says otherwise.
+    from power_pptx.text.text import Font
+
+    for p in tf.paragraphs:
+        end_mark = Font(p._p.get_or_add_endParaRPr())  # pyright: ignore[reportPrivateUsage]
+        end_mark.name = mono_family
+        end_mark.size = Pt(mono_size)
+
+    # The size above is the baked, measured fit; autofit is the render-time fallback.
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     _apply_transition(slide, transition)
     return slide
@@ -982,6 +1056,9 @@ def code_slide(
 # ---------------------------------------------------------------------------
 # timeline_slide
 # ---------------------------------------------------------------------------
+
+#: Narrowest date / label box a timeline may shrink to; more milestones than that allows raise.
+_TIMELINE_MIN_LABEL_W = Inches(0.7)
 
 
 def timeline_slide(
@@ -998,6 +1075,11 @@ def timeline_slide(
     ``done`` flag (default ``False``).  Completed milestones get the
     ``positive`` palette tint; pending ones use ``muted``.
 
+    The date and label boxes share the rail's width, so a slide can label only
+    so many milestones: past about 21 on a 4:3 slide (29 on 16:9) each box would
+    be under 0.7 in wide, and the call raises :class:`ValueError` without adding
+    a slide.
+
     Tokens consumed:
 
     * **palette** — title from ``primary`` (fallback ``neutral``);
@@ -1010,11 +1092,28 @@ def timeline_slide(
     if not milestones:
         raise ValueError("timeline_slide requires at least one milestone")
 
-    slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
+    margin = Inches(0.6)
+    side_gap = Inches(0.1)  # clear space between two text boxes on the same side
+    content_w = int(slide_w) - 2 * int(margin)
+
+    # Text boxes on one side sit two milestones apart, so each may be up to two steps
+    # wide: the more milestones, the narrower the boxes, until a date no longer reads.
+    n = len(milestones)
+    label_w = Length(min(int(Inches(2.4)), (2 * content_w - int(side_gap) * (n - 1)) // (n + 1)))
+    if label_w < _TIMELINE_MIN_LABEL_W:
+        capacity = (2 * content_w + int(side_gap) - int(_TIMELINE_MIN_LABEL_W)) // (
+            int(_TIMELINE_MIN_LABEL_W) + int(side_gap)
+        )
+        raise ValueError(
+            f"timeline_slide: {n} milestones leave each label only "
+            f"{Emu(label_w).inches:.2f} in on this slide; at most {capacity} fit, "
+            "so split the roadmap across slides"
+        )
+
+    slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
     title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
@@ -1028,11 +1127,27 @@ def timeline_slide(
         shrink_to_fit=True,
     )
 
-    # Rail across the middle.
+    # Geometry.  A rail runs through the middle of the slide and milestone text
+    # alternates above / below it, so neighbours don't fight for the same space.
     rail_y = Length(slide_h // 2)
     rail_h = Pt(2)
-    rail_left = Length(margin + Inches(0.5))
-    rail_right = Length(slide_w - margin - Inches(0.5))
+    dot_d = Inches(0.28)
+    date_h = Inches(0.3)
+    label_h = Inches(0.7)
+    text_gap = Inches(0.1)  # clear space between a dot and the text above / below it
+
+    if n == 1:
+        rail_left = Length(margin + Inches(0.5))
+        rail_right = Length(slide_w - margin - Inches(0.5))
+        positions = [Length(rail_left + (rail_right - rail_left) // 2)]
+    else:
+        # The rail is inset by half a box at either end, which keeps the first and last
+        # box inside the slide margins while every box stays centred on its dot.
+        rail_left = Length(margin + label_w // 2)
+        rail_right = Length(slide_w - margin - label_w // 2)
+        span = int(rail_right) - int(rail_left)
+        positions = [Length(rail_left + int(round(i * span / (n - 1)))) for i in range(n)]
+
     rail = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         rail_left,
@@ -1046,26 +1161,28 @@ def timeline_slide(
     rail.line.fill.background()
     rail.text_frame.text = ""
 
-    n = len(milestones)
-    span = rail_right - rail_left
-    # Equally space milestones along the rail; n=1 sits dead center.
-    if n == 1:
-        positions = [Length(rail_left + span // 2)]
-    else:
-        positions = [Length(rail_left + int(i * span / (n - 1))) for i in range(n)]
-
-    dot_d = Inches(0.28)
-    # Cap the label width to the per-milestone spacing so adjacent labels don't
-    # overlap once milestones get close together (many milestones on one rail).
-    label_w = Inches(2.4)
-    if n > 1:
-        label_w = Length(min(int(label_w), int(span // (n - 1))))
-    body_token = _typography(tokens, "body", default_size=Pt(12))
-    date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
+    date_texts = [str(ms.get("date", "")) for ms in milestones]
+    label_texts = [str(ms.get("label", "")) for ms in milestones]
+    # The deck's body size is not necessarily 11-12 pt, but the boxes are fixed: bake
+    # one size per row at which every date / label actually fits its box.
+    inner_w = int(label_w) - 2 * int(_DEFAULT_INSET_X)
+    date_token = _fit_token(
+        _typography(tokens, "body", default_size=Pt(11), default_bold=True),
+        date_texts,
+        inner_w,
+        int(date_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
+    body_token = _fit_token(
+        _typography(tokens, "body", default_size=Pt(12)),
+        label_texts,
+        inner_w,
+        int(label_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
     body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
     pending_color = rail_color
     done_color = _palette(tokens, ("positive", "success")) or RGBColor(0x00, 0x8A, 0x3C)
 
+    dots: list[Any] = []
     for i, ms in enumerate(milestones):
         cx = positions[i]
         # Milestone dot.
@@ -1080,43 +1197,45 @@ def timeline_slide(
         dot.fill.fore_color.rgb = done_color if ms.get("done") else pending_color
         dot.line.fill.background()
         dot.text_frame.text = ""
+        dots.append(dot)
 
-        date_text = str(ms.get("date", ""))
-        label_text = str(ms.get("label", ""))
-        # Alternate above / below the rail so labels don't fight for the
-        # same vertical space when milestones are close together.
-        above = i % 2 == 0
-        if above:
-            date_top = Length(rail_y - dot_d // 2 - Inches(0.6))
-            label_top = Length(date_top + Inches(0.25))
+        # Above the rail the label sits next to the dot and the date above it; below
+        # the rail the date sits next to the dot and the label under it.  Either way
+        # the date is read first, and neither box touches the rail or the dot.
+        if i % 2 == 0:
+            label_top = Length(rail_y - dot_d // 2 - text_gap - label_h)
+            date_top = Length(label_top - date_h)
         else:
-            date_top = Length(rail_y + dot_d // 2 + Inches(0.15))
-            label_top = Length(date_top + Inches(0.3))
+            date_top = Length(rail_y + dot_d // 2 + text_gap)
+            label_top = Length(date_top + date_h)
 
-        if date_text:
-            db = slide.shapes.add_textbox(Length(cx - label_w // 2), date_top, label_w, Inches(0.3))
+        left = Length(cx - label_w // 2)
+        if date_texts[i]:
+            db = slide.shapes.add_textbox(left, date_top, label_w, date_h)
             _fill_text_frame(
                 db.text_frame,
-                date_text,
+                date_texts[i],
                 token=date_token,
                 color=body_color,
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
                 shrink_to_fit=True,
             )
-        if label_text:
-            lb = slide.shapes.add_textbox(
-                Length(cx - label_w // 2), label_top, label_w, Inches(0.7)
-            )
+        if label_texts[i]:
+            lb = slide.shapes.add_textbox(left, label_top, label_w, label_h)
             _fill_text_frame(
                 lb.text_frame,
-                label_text,
+                label_texts[i],
                 token=body_token,
                 color=body_color,
                 align=PP_ALIGN.CENTER,
                 anchor=MSO_ANCHOR.TOP,
                 shrink_to_fit=True,
             )
+
+    # The dots sit on the rail by design.  Allow exactly those overlaps — a blanket
+    # lint group would also hide a text box that really did land on the rail.
+    rail.allow_overlap_with(*dots)
 
     _apply_transition(slide, transition)
     return slide
@@ -1151,7 +1270,9 @@ def comparison_slide(
       ``on_primary``; row text from ``neutral``; even-row tint from
       ``surface`` (fallback ``lt2``).
     * **typography** — ``heading`` for the title and column headings;
-      ``body`` for the row text.
+      ``body`` for the row text.  The headings sit in bands a fixed 0.6 in
+      tall, so their size is the token's size reduced (never below 9 pt) just
+      far enough that both fit their band.
     """
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
@@ -1181,7 +1302,14 @@ def comparison_slide(
     head_text_color = _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
     row_text_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
     band_color = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
-    head_token = _typography(tokens, "heading", default_size=Pt(18), default_bold=True)
+    # The bands are a fixed height, whatever size the deck's heading type is: bake the one
+    # size at which both headings fit (never larger than the token's own).
+    head_token = _fit_token(
+        _typography(tokens, "heading", default_size=Pt(18), default_bold=True),
+        [left_heading, right_heading],
+        int(col_w) - 2 * int(_DEFAULT_INSET_X),
+        int(head_h) - 2 * int(_DEFAULT_INSET_Y),
+    )
     row_token = _typography(tokens, "body", default_size=Pt(14))
 
     columns = [
@@ -1205,6 +1333,7 @@ def comparison_slide(
             color=head_text_color,
             align=PP_ALIGN.LEFT,
             anchor=MSO_ANCHOR.MIDDLE,
+            shrink_to_fit=True,
         )
         # Rows.
         for i, row in enumerate(rows):
@@ -1260,7 +1389,12 @@ def figure_slide(
     * a Matplotlib ``Figure`` (or anything with ``.savefig``) →
       :func:`add_matplotlib_figure`.
     * a string starting with ``"<svg"`` (after lstrip) or ``bytes``
-      whose head matches the SVG sniff → :func:`add_svg_figure`.
+      whose head matches the SVG sniff → :func:`add_svg_figure`.  Inline
+      markup needs ``cairosvg`` (``pip install cairosvg``) to draw the PNG
+      companion that PowerPoint requires; without it
+      :class:`~power_pptx._svg.CairoSvgUnavailable` is raised, and
+      calling :func:`add_svg_figure` yourself with ``png_fallback=`` is
+      the way around that.
     * a string starting with ``"<"`` (any other tag) → treated as an
       HTML snippet and rendered via :func:`add_html_figure` (needs
       Playwright).
@@ -1364,15 +1498,17 @@ def _embed_figure(
 
     # Bytes / strings: SVG sniff vs HTML.
     if isinstance(figure, (bytes, bytearray, str)):
-        head = (
-            figure if isinstance(figure, (bytes, bytearray)) else figure.encode("utf-8", "replace")
-        )
-        head = bytes(head[:512]).lstrip()
+        data = figure.encode("utf-8", "replace") if isinstance(figure, str) else bytes(figure)
+        head = data[:512].lstrip(b"\xef\xbb\xbf").lstrip()  # a UTF-8 BOM, then blanks
         if head.startswith(b"<?xml") or b"<svg" in head[:200]:
-            _figures.add_svg_figure(slide, figure, left, top, width, height)
+            # add_svg_picture reads a ``str`` as a *path* (and a ``bytes`` as the
+            # document itself), so inline markup has to be handed over encoded.
+            _figures.add_svg_figure(slide, data, left, top, width, height)
             return
         if head.startswith(b"<"):
-            _figures.add_html_figure(slide, figure, left, top, width, height)
+            _figures.add_html_figure(
+                slide, figure if isinstance(figure, str) else data, left, top, width, height
+            )
             return
 
     raise TypeError(
@@ -1403,7 +1539,9 @@ def _is_markup_string(value: Any) -> bool:
     """
     if not isinstance(value, str):
         return False
-    s = value.lstrip()
+    # A byte-order mark survives ``open(path).read()`` on a BOM-prefixed file and is
+    # not whitespace to ``str.lstrip``.
+    s = value.lstrip("﻿").lstrip()
     if not s.startswith("<"):
         return False
     # XML declarations, doctypes, comments.
@@ -1543,6 +1681,126 @@ def _fill_text_frame(
     _apply_typography(run.font, token)
     if color is not None:
         run.font.color.rgb = color
+
+
+# ---------------------------------------------------------------------------
+# Text measurement — a deterministic fit model that needs no font file
+# ---------------------------------------------------------------------------
+#
+# A recipe owns the geometry of the boxes it fills, so it has to know whether
+# the text fits *before* anything renders.  ``TextFrame.fit_text`` is the right
+# tool when a real font file is at hand, but it flows a whole frame as a single
+# paragraph (explicit line breaks and indentation are ignored) and warns when
+# the named family isn't installed.  The recipes therefore use the small
+# conservative model below: the per-character width and line pitch that the
+# linter's own overflow heuristic assumes, plus a greedy word wrap that honours
+# line breaks.  It over-estimates slightly, which is the safe direction.
+
+_EMU_PER_PT = 12700
+#: Average advance of a mixed-case proportional face, as a fraction of the font size.
+_PROPORTIONAL_EM = 0.55
+#: ... of its bold weight.
+_BOLD_EM = 0.58
+#: Widest common monospace advance (Courier New, Menlo, DejaVu Sans Mono).
+_MONOSPACE_EM = 0.6
+#: Rendered line height as a multiple of the font size.
+_LINE_PITCH = 1.2
+#: Smallest size the recipes shrink text to; matches the linter's MinFontSize threshold.
+_MIN_LEGIBLE_PT = 9.0
+#: Inset python-pptx text frames carry until told otherwise (left/right, top/bottom).
+_DEFAULT_INSET_X = Inches(0.1)
+_DEFAULT_INSET_Y = Inches(0.05)
+
+
+def _wrapped_line_count(
+    text: str, width: int, size_pt: float, *, bold: bool = False, mono: bool = False
+) -> int:
+    """Estimate the lines *text* occupies in a box *width* EMU wide at *size_pt*.
+
+    Explicit line breaks start a new line, words wrap greedily at spaces, and a
+    word wider than the box is broken mid-word — the way PowerPoint and
+    LibreOffice both lay out a wrapped text frame.  Monospace text keeps its
+    leading indentation (tabs count as four columns); proportional text does
+    not need to, but is handled by the same loop.
+    """
+    em = _MONOSPACE_EM if mono else (_BOLD_EM if bold else _PROPORTIONAL_EM)
+    per_line = max(1, int(width / (em * size_pt * _EMU_PER_PT)))
+    total = 0
+    for line in re.split(r"[\n\v]", text):
+        if mono:
+            line = line.expandtabs(4)
+        lines, used = 1, 0
+        for token in re.findall(r"\s+|\S+", line):
+            n = len(token)
+            if token.isspace():
+                # Whitespace that overruns the box is swallowed by the break, so
+                # it only ever fills the line; the next word decides to wrap.
+                used = min(per_line, used + n)
+                continue
+            if used + n > per_line and used > 0:
+                lines += 1
+                used = 0
+            while n > per_line:
+                lines += 1
+                n -= per_line
+            used += n
+        total += lines
+    return total
+
+
+def _text_height(
+    text: str, width: int, size_pt: float, *, bold: bool = False, mono: bool = False
+) -> int:
+    """Estimated height in EMU of *text* wrapped to *width* EMU at *size_pt*."""
+    lines = _wrapped_line_count(text, width, size_pt, bold=bold, mono=mono)
+    return int(lines * size_pt * _LINE_PITCH * _EMU_PER_PT)
+
+
+def _fit_font_size(
+    text: str,
+    width: int,
+    height: int,
+    *,
+    max_pt: float,
+    min_pt: float = _MIN_LEGIBLE_PT,
+    bold: bool = False,
+    mono: bool = False,
+) -> Optional[float]:
+    """Return the largest size at which *text* fits *width* × *height* EMU, or ``None``.
+
+    Tries *max_pt* first (so a size that already fits is never changed), then
+    each whole point below it down to *min_pt*.  ``None`` means even *min_pt*
+    overflows.  A *max_pt* already below *min_pt* is its own floor — the model
+    never enlarges text it was asked to keep small.
+    """
+    floor = min(min_pt, max_pt)
+    size = float(max_pt)
+    while size >= floor:
+        if _text_height(text, width, size, bold=bold, mono=mono) <= height:
+            return size
+        size = float(math.ceil(size) - 1)
+    return None
+
+
+def _fit_token(
+    token: TypographyToken, texts: Sequence[str], width: int, height: int
+) -> TypographyToken:
+    """Return *token* resized so every one of *texts* fits a *width* × *height* box.
+
+    A row of sibling labels reads as one system only when they share a size, so
+    the size is the smallest any single text needs, and never larger than the
+    token's own.  A text that does not fit even at the legibility floor pins the
+    result to that floor; the box's autofit flag is the last line of defence.
+    """
+    max_pt = token.size.pt if token.size is not None else 12.0
+    floor = min(_MIN_LEGIBLE_PT, max_pt)
+    chosen = max_pt
+    for text in texts:
+        if not text:
+            continue
+        fit = _fit_font_size(text, width, height, max_pt=max_pt, bold=bool(token.bold))
+        chosen = min(chosen, floor if fit is None else fit)
+    return replace(token, size=Pt(chosen))
 
 
 def _apply_transition(slide: "Slide", transition: Optional[str]) -> None:
@@ -1709,6 +1967,54 @@ def _pygments_highlight(
     return lines
 
 
+def _readable_on(preferred: Optional[RGBColor], background: RGBColor) -> RGBColor:
+    """Return *preferred* if it reads on *background* (WCAG AA), else white or near-black.
+
+    Whichever of the two defaults contrasts more with *background* is used when
+    *preferred* is missing or too close to it.
+    """
+    from power_pptx.lint import (
+        _CONTRAST_THRESHOLD,  # pyright: ignore[reportPrivateUsage]
+        _contrast_ratio,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    if preferred is not None and _contrast_ratio(preferred, background) >= _CONTRAST_THRESHOLD:
+        return preferred
+    dark, light = RGBColor(0x22, 0x22, 0x22), RGBColor(0xF2, 0xF2, 0xF2)
+    return max((dark, light), key=lambda color: _contrast_ratio(color, background))
+
+
+#: Typeface of ``code_slide``.  One family name: an OOXML ``a:latin typeface`` is not a
+#: CSS font stack, so a comma-separated fallback list resolves to no font at all.
+_CODE_FAMILY = "Consolas"
+#: Size ``code_slide`` starts from before shrinking long snippets.
+_CODE_MAX_PT = 14.0
+
+
+def _fit_code_size(
+    lines: Sequence[Sequence[tuple[str, Optional[RGBColor]]]], width: int, height: int
+) -> float:
+    """Return the largest size at which *lines* of code fit a *width* × *height* text box.
+
+    Wrapped lines count as the lines they occupy and the text frame's default insets
+    are subtracted.  Raises :class:`ValueError` when even the legibility floor does not
+    fit, saying how much would.
+    """
+    text = "\n".join("".join(chunk for chunk, _ in line) for line in lines)
+    inner_w = int(width) - 2 * int(_DEFAULT_INSET_X)
+    inner_h = int(height) - 2 * int(_DEFAULT_INSET_Y)
+    size = _fit_font_size(text, inner_w, inner_h, max_pt=_CODE_MAX_PT, mono=True)
+    if size is None:
+        rows = int(inner_h / (_MIN_LEGIBLE_PT * _LINE_PITCH * _EMU_PER_PT))
+        columns = int(inner_w / (_MONOSPACE_EM * _MIN_LEGIBLE_PT * _EMU_PER_PT))
+        raise ValueError(
+            f"code_slide: {len(lines)} lines of code do not fit on one slide, even at "
+            f"{_MIN_LEGIBLE_PT:g} pt (about {rows} lines of up to {columns} characters fit); "
+            "split the snippet across several slides or trim it"
+        )
+    return size
+
+
 _ALIGN_MAP: dict[str, PP_ALIGN] = {
     "left": PP_ALIGN.LEFT,
     "center": PP_ALIGN.CENTER,
@@ -1735,55 +2041,117 @@ def _coerce_aligns(aligns: Optional[Sequence[str]], n_cols: int) -> list[PP_ALIG
     return out
 
 
-def _apply_column_widths(
-    table: Any,
-    widths: Sequence[Union[float, Length]],
-    table_w: Length,
-    n_cols: int,
-) -> None:
-    """Set table column widths from a sequence of fractions or Lengths.
+def _resolve_column_widths(
+    widths: Sequence[Union[float, Length]], table_w: int, n_cols: int
+) -> list[int]:
+    """Turn *widths* into one EMU width per column.
 
     Supports two input modes:
 
-    * **Fractions**: values < 5 are treated as fractions of *table_w*;
-      they should sum to ~1.0 (we normalise on a defensive basis so a
-      slightly-off list still lays out reasonably).
+    * **Fractions**: values < 5 are treated as fractions of *table_w*.
     * **Absolute lengths**: any :class:`Length` (or value ≥ 5) is taken
       verbatim.
 
-    Columns past ``len(widths)`` keep their default share of the
-    remaining width.
+    When *widths* names every column and uses fractions, they are rescaled to fill
+    *table_w* if they stray more than 1% from it (so a slightly-off list still lays
+    out).  When it names *fewer* columns, the named ones keep exactly the width
+    asked for and the rest share what remains evenly, the remainder going to the
+    last one so the columns add up to *table_w*.  Raises :class:`ValueError` if
+    nothing remains for the unspecified columns — they would be zero-width.
     """
-    total_table_w = int(table_w)
-    spec_lengths: list[int] = []
-    spec_is_fraction = False
+    specified: list[int] = []
+    uses_fractions = False
     for w in widths[:n_cols]:
         if isinstance(w, Length):
-            spec_lengths.append(int(w))
-        elif isinstance(w, (int, float)) and float(w) < 5:
-            spec_is_fraction = True
-            spec_lengths.append(int(round(float(w) * total_table_w)))
+            specified.append(int(w))
+        elif float(w) < 5:
+            uses_fractions = True
+            specified.append(int(round(float(w) * table_w)))
         else:
-            spec_lengths.append(int(w))
+            specified.append(int(w))
 
-    # Normalise fractions defensively if they don't sum to ~1.
-    if spec_is_fraction:
-        total_spec = sum(spec_lengths)
-        if total_spec > 0 and abs(total_spec - total_table_w) > total_table_w * 0.01:
-            scale = total_table_w / total_spec
-            spec_lengths = [int(round(v * scale)) for v in spec_lengths]
+    unspecified = n_cols - len(specified)
+    if unspecified > 0:
+        remaining = table_w - sum(specified)
+        if remaining <= 0:
+            raise ValueError(
+                f"widths= names {len(specified)} of {n_cols} columns but already takes "
+                f"{Emu(sum(specified)).inches:.2f} in of the {Emu(table_w).inches:.2f} in "
+                f"table, leaving no room for the other {unspecified}; give the named "
+                "columns less width or name every column"
+            )
+        share, extra = divmod(remaining, unspecified)
+        specified += [share] * unspecified
+        specified[-1] += extra
+    elif uses_fractions:
+        total = sum(specified)
+        if total > 0 and abs(total - table_w) > table_w * 0.01:
+            specified = [int(round(v * table_w / total)) for v in specified]
+            specified[-1] += table_w - sum(specified)
+    return specified
 
-    used = sum(spec_lengths)
-    remaining = max(0, total_table_w - used)
-    unspecified = n_cols - len(spec_lengths)
-    fill = (remaining // unspecified) if unspecified > 0 else 0
 
-    for i in range(n_cols):
-        col = table.columns[i]
-        if i < len(spec_lengths):
-            col.width = Emu(spec_lengths[i])
-        else:
-            col.width = Emu(fill)
+#: Top/bottom cell margin a table cell has until told otherwise.
+_TABLE_CELL_MARGIN_Y = int(_DEFAULT_INSET_Y)
+#: Margin ``table_slide`` drops to, before shrinking any text, when rows run short.
+_TABLE_COMPACT_MARGIN_Y = int(Inches(0.02))
+
+
+def _table_row_need(size_pt: float, margin_y: int) -> int:
+    """EMU a row needs for one line of *size_pt* text: its line height plus both margins."""
+    return int(size_pt * _LINE_PITCH * _EMU_PER_PT) + 2 * margin_y
+
+
+def _shrunk_pt(size_pt: float, shrink_pt: float) -> float:
+    """*size_pt* reduced by *shrink_pt*, but not below the legibility floor.
+
+    Text already smaller than the floor is left alone rather than enlarged.
+    """
+    return max(size_pt - shrink_pt, min(size_pt, _MIN_LEGIBLE_PT))
+
+
+def _shrink_token(token: TypographyToken, shrink_pt: float) -> TypographyToken:
+    """Return *token* with its size reduced by *shrink_pt* (see :func:`_shrunk_pt`)."""
+    if not shrink_pt or token.size is None:
+        return token
+    return replace(token, size=Pt(_shrunk_pt(token.size.pt, shrink_pt)))
+
+
+def _fit_table_rows(
+    *, n_data: int, has_totals: bool, table_h: int, sizes_pt: Sequence[float]
+) -> tuple[float, Optional[int]]:
+    """Choose how far a table must be tightened for its rows to hold their text.
+
+    The table's rows share *table_h* equally, and each has to be at least as tall
+    as one line of its text plus the cell margins.  The cheapest change that gets
+    there wins: nothing at all, then compact cell margins, then compact margins and
+    a font shrunk a point at a time (never below the legibility floor).  Returns
+    ``(shrink_pt, margin_y)`` where ``margin_y`` is ``None`` for "leave the margins
+    alone".  Raises :class:`ValueError`, naming how many rows would fit, when even
+    the tightest setting leaves the rows too short.
+    """
+    n_rows = n_data + 1 + (1 if has_totals else 0)
+    row_h = table_h // n_rows
+    if max(_table_row_need(s, _TABLE_CELL_MARGIN_Y) for s in sizes_pt) <= row_h:
+        return 0.0, None
+    shrink = 0.0
+    while True:
+        need = max(
+            _table_row_need(_shrunk_pt(s, shrink), _TABLE_COMPACT_MARGIN_Y) for s in sizes_pt
+        )
+        if need <= row_h:
+            return shrink, _TABLE_COMPACT_MARGIN_Y
+        if all(_shrunk_pt(s, shrink) <= min(s, _MIN_LEGIBLE_PT) for s in sizes_pt):
+            break
+        shrink += 1.0
+    tightest = max(
+        _table_row_need(min(s, _MIN_LEGIBLE_PT), _TABLE_COMPACT_MARGIN_Y) for s in sizes_pt
+    )
+    capacity = max(0, table_h // tightest - 1 - (1 if has_totals else 0))
+    raise ValueError(
+        f"table_slide: {n_data} data rows do not fit on one slide; at most {capacity} data "
+        f"rows fit at {_MIN_LEGIBLE_PT:g} pt. Please split the table across several slides."
+    )
 
 
 def _coerce_totals_row(totals: Mapping[str, Any], n_cols: int) -> list[Any]:
@@ -1795,17 +2163,20 @@ def _coerce_totals_row(totals: Mapping[str, Any], n_cols: int) -> list[Any]:
         return row
     label = totals.get("label", "Total")
     values = list(totals.get("values", []))
+    if len(values) > n_cols - 1:
+        raise ValueError(
+            f"totals.values takes at most {n_cols - 1} value(s) for a {n_cols}-column table "
+            f"(column 0 holds the label), got {len(values)}; use totals.row to spell out "
+            "every column"
+        )
     # Right-pad values with empty strings, place label in column 0,
     # values fill from the right.  This matches how spreadsheet
     # totals usually read.
     out: list[Any] = [""] * n_cols
     out[0] = label
-    if values:
-        # Place values in the *last* len(values) columns.
-        start = max(1, n_cols - len(values))
-        for i, v in enumerate(values):
-            if start + i < n_cols:
-                out[start + i] = v
+    # Place values in the *last* len(values) columns.
+    for i, v in enumerate(values):
+        out[n_cols - len(values) + i] = v
     return out
 
 
