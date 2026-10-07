@@ -47,6 +47,29 @@ if TYPE_CHECKING:
 _DEFAULT_FIT_FAMILY = "Calibri"
 
 
+def _find_stand_in_font_file(family: str, bold: bool, italic: bool) -> tuple[str, str] | None:
+    """Return `(path, style)` of the installed face of `family` nearest the one asked for.
+
+    Used when the exact face (`bold`, `italic`) is not installed: another face of the same family
+    measures far closer to the real thing than Pillow's default font does. Weight changes the
+    widths of the glyphs much more than slant does, so the slant is given up first, then the
+    weight, then both. `style` names the face found, e.g. ``"bold italic"``. |None| when no face
+    of `family` is installed at all.
+    """
+    for stand_in_bold, stand_in_italic in (
+        (bold, not italic),
+        (not bold, italic),
+        (not bold, not italic),
+    ):
+        path = find_font_file(family, stand_in_bold, stand_in_italic)
+        if path is not None:
+            style = " ".join(
+                (["bold"] if stand_in_bold else []) + (["italic"] if stand_in_italic else [])
+            )
+            return path, style or "regular"
+    return None
+
+
 class TextFrame(Subshape):
     """The part of a shape that contains its text.
 
@@ -120,14 +143,15 @@ class TextFrame(Subshape):
         `font_family` defaults to ``"Calibri"`` when omitted.
 
         **The fit is only as good as the metrics it measures against.**  When neither `font_file`
-        nor an installed `font_family` can be found, measurement falls back to Pillow's bundled
-        default font: the result is a plausible estimate, not the guarantee this method usually
-        provides, and a display face can still overflow.  *Naming* a family that isn't installed —
-        the brand-font-in-a-container case — emits a
-        :class:`~power_pptx.exc.FontMetricsWarning`.  Omitting the argument does not, since no
-        particular face was asked for; passing ``"Calibri"`` explicitly does, because that is a
-        request like any other.  ``strict=True`` turns *any* fallback into a |ValueError|, which
-        is what a build that must be exact should do::
+        nor an installed `font_family` can be found, measurement falls back to another installed
+        face of the same family if there is one, and otherwise to Pillow's bundled default font:
+        the result is a plausible estimate, not the guarantee this method usually provides, and a
+        display face can still overflow.  *Naming* a family that isn't installed — the
+        brand-font-in-a-container case — emits a :class:`~power_pptx.exc.FontMetricsWarning`.
+        Omitting the argument does not, since no particular face was asked for; passing
+        ``"Calibri"`` explicitly does, because that is a request like any other.  ``strict=True``
+        turns *any* fallback into a |ValueError|, which is what a build that must be exact should
+        do::
 
             # bundle the real metrics with the deck build
             tf.fit_text("Instrument Serif", max_size=44, font_file="fonts/InstrumentSerif.ttf")
@@ -413,8 +437,9 @@ class TextFrame(Subshape):
         allows all the text in this text frame to fit inside its extents when rendered using the
         font described by `family`, `bold`, and `italic`. If `font_file` is specified, it is used
         to calculate the fit, whether or not it matches `family`, `bold`, and `italic`. When no
-        font file is provided and no matching system font can be located, Pillow's bundled
-        default font is used so `fit_text` produces a usable estimate rather than raising.
+        font file is provided and no matching system font can be located, the nearest installed
+        face of the same family is used, or failing that Pillow's bundled default font, so
+        `fit_text` produces a usable estimate rather than raising.
 
         Raises :class:`ValueError` when even 1pt overflows the text frame — typically the
         frame is too small to render the wrapped text at any usable size.  Pre-IMPROVEMENTS
@@ -425,10 +450,16 @@ class TextFrame(Subshape):
             font_file = find_font_file(family, bold, italic)
             if font_file is None:
                 style = "".join((" bold" if bold else "", " italic" if italic else ""))
+                stand_in = _find_stand_in_font_file(family, bold, italic)
+                if stand_in is None:
+                    measured_with = "Pillow's default font"
+                else:
+                    font_file, stand_in_style = stand_in
+                    measured_with = f"the {stand_in_style} face of that family ({font_file})"
                 detail = (
-                    f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
-                    "default font instead of real metrics — the chosen size is an estimate and "
-                    "the text may still overflow when rendered with the intended face"
+                    f"{family!r}{style} is not installed, so fit_text measured with "
+                    f"{measured_with} instead of real metrics — the chosen size is an estimate "
+                    "and the text may still overflow when rendered with the intended face"
                 )
                 if strict:
                     raise ValueError(

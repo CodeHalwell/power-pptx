@@ -1783,6 +1783,106 @@ class DescribeFitTextFontMetrics(object):
         with pytest.raises(ValueError, match="not installed"):
             text_frame_.fit_text(max_size=40, strict=True)
 
+    def it_measures_with_another_face_of_the_family_before_the_default_font(
+        self, text_frame_, request
+    ):
+        # ---only the regular face is installed, but the caller asked for italic---
+        installed = {("Some Serif", False, False): "/fonts/SomeSerif.ttf"}
+        self._install(request, installed)
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning) as warned:
+            text_frame_.fit_text("Some Serif", italic=True, max_size=40)
+
+        assert best_fit_.call_args.args[3] == "/fonts/SomeSerif.ttf"
+        message = str(warned[0].message)
+        assert "'Some Serif' italic is not installed" in message
+        assert "regular face of that family" in message
+        assert "/fonts/SomeSerif.ttf" in message
+        assert "Pillow's default font" not in message
+
+    @pytest.mark.parametrize(
+        ("bold", "italic", "installed", "expected_file"),
+        [
+            # ---italic is dropped before bold: weight changes the widths far more---
+            (True, True, [(False, False), (True, False)], "bold.ttf"),
+            (True, True, [(False, False), (False, True)], "italic.ttf"),
+            (True, True, [(False, False)], "regular.ttf"),
+            (True, False, [(False, False), (False, True)], "regular.ttf"),
+            (False, True, [(True, False), (True, True)], "bold-italic.ttf"),
+            # ---a family with no regular face still beats the default font---
+            (False, False, [(True, False)], "bold.ttf"),
+            (False, False, [(True, True)], "bold-italic.ttf"),
+        ],
+    )
+    def and_it_prefers_the_face_closest_to_the_style_asked_for(
+        self, text_frame_, request, bold, italic, installed, expected_file
+    ):
+        names = {
+            (False, False): "regular.ttf",
+            (True, False): "bold.ttf",
+            (False, True): "italic.ttf",
+            (True, True): "bold-italic.ttf",
+        }
+        self._install(request, {("Some Serif", b, i): names[(b, i)] for b, i in installed})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning):
+            text_frame_.fit_text("Some Serif", bold=bold, italic=italic, max_size=40)
+
+        assert best_fit_.call_args.args[3] == expected_file
+
+    def but_it_still_falls_back_to_the_default_font_when_no_face_of_the_family_exists(
+        self, text_frame_, request
+    ):
+        self._install(request, {("Another Family", False, False): "/fonts/Another.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.warns(FontMetricsWarning, match="Pillow's default font"):
+            text_frame_.fit_text("Some Serif", max_size=40)
+
+        assert best_fit_.call_args.args[3] is None
+
+    def and_strict_refuses_a_stand_in_face_too(self, text_frame_, request):
+        self._install(request, {("Some Serif", False, False): "/fonts/SomeSerif.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with pytest.raises(ValueError, match="fit_text.strict=True."):
+            text_frame_.fit_text("Some Serif", italic=True, max_size=40, strict=True)
+
+        best_fit_.assert_not_called()
+
+    def and_it_stays_quiet_about_a_stand_in_when_no_family_was_asked_for(
+        self, text_frame_, request
+    ):
+        self._install(request, {("Calibri", True, False): "/fonts/Calibri-Bold.ttf"})
+        best_fit_ = self._stub_fitter(request)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            text_frame_.fit_text(max_size=40)
+
+        assert best_fit_.call_args.args[3] == "/fonts/Calibri-Bold.ttf"
+
+    # fixture components -----------------------------------
+
+    @staticmethod
+    def _install(request, installed):
+        """Make `find_font_file` see only the `{(family, bold, italic): path}` faces given."""
+
+        def find_font_file(family, bold=False, italic=False):
+            return installed.get((family, bold, italic))
+
+        return function_mock(
+            request, "power_pptx.text.text.find_font_file", side_effect=find_font_file
+        )
+
+    @staticmethod
+    def _stub_fitter(request):
+        return function_mock(
+            request, "power_pptx.text.text.TextFitter.best_fit_font_size", return_value=12
+        )
+
     @pytest.fixture
     def text_frame_(self):
         prs = Presentation()
