@@ -272,6 +272,19 @@ class DescribeTextFrame(object):
         text_frame = Shape(element(sp_cxml), None).text_frame
         assert text_frame._extents == (731520, 822960)
 
+    def but_it_takes_the_insets_from_its_parent_when_the_parent_has_them(self):
+        # ---a table cell keeps its margins on `a:tcPr`; the `a:bodyPr` of its text body is
+        # ---empty (or stale) and must not be consulted
+        class Parent:
+            width = Inches(4)
+            height = Inches(1)
+            _text_insets = (Inches(0.5), Inches(0.25), Inches(0.75), Inches(0.125))
+
+        txBody = element("p:txBody/(a:bodyPr{lIns=1,tIns=2,rIns=3,bIns=4},a:p)")
+        text_frame = TextFrame(txBody, Parent())  # pyright: ignore[reportArgumentType]
+
+        assert text_frame._extents == (Inches(4) - Inches(1.25), Inches(1) - Inches(0.375))
+
     def it_applies_fit_to_help_fit_text(self, request):
         family, font_size, bold, italic = "Family", 42, True, False
         _set_font_ = method_mock(request, TextFrame, "_set_font")

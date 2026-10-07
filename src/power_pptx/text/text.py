@@ -114,7 +114,8 @@ class TextFrame(Subshape):
 
         Every paragraph and every soft line break in the text starts a new line, so a list of
         short paragraphs is sized for the lines it will really take up, not for the same words
-        run together.
+        run together. A text frame in a table cell is measured against the cell's own box, less
+        the cell margins.
 
         `font_family` defaults to ``"Calibri"`` when omitted.
 
@@ -459,12 +460,18 @@ class TextFrame(Subshape):
     def _extents(self) -> tuple[Length, Length]:
         """(cx, cy) 2-tuple representing the effective rendering area of this text-frame.
 
-        Margins are taken into account.
+        Margins are taken into account. A parent that keeps the insets of its text itself, as a
+        table cell does on `a:tcPr`, supplies them as a `_text_insets` (left, top, right, bottom)
+        4-tuple; otherwise they are the margins in this text frame's `a:bodyPr`.
         """
         parent = cast("ProvidesExtents", self._parent)
+        insets = getattr(parent, "_text_insets", None)
+        if insets is None:
+            insets = (self.margin_left, self.margin_top, self.margin_right, self.margin_bottom)
+        left, top, right, bottom = insets
         return (
-            Length(parent.width - self.margin_left - self.margin_right),
-            Length(parent.height - self.margin_top - self.margin_bottom),
+            Length(parent.width - left - right),
+            Length(parent.height - top - bottom),
         )
 
     def _set_font(self, family: str, size: int, bold: bool, italic: bool):

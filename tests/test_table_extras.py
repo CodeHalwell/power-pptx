@@ -13,12 +13,18 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.oxml.ns import qn
+from power_pptx.text.layout import TextFitter
 from power_pptx.util import Inches, Pt
 
 from .unitutil.file import testfile
 
 #: A font file shipped with the test suite, so measurements are the same on every machine.
 _CALIBRIZ = testfile("calibriz.ttf")
+
+_SENTENCE = (
+    "Quarterly revenue grew twelve percent year over year, driven by enterprise renewals "
+    "and a stronger mid-market pipeline across all regions."
+)
 
 
 def _new_table(rows=2, cols=2, w=Inches(4), h=Inches(2)):
@@ -133,6 +139,33 @@ class DescribeFitToBox:
         with pytest.raises(ValueError):
             table.fit_to_box(min_font_pt=0)
 
+    def it_measures_a_merged_cell_against_the_whole_merged_box(self):
+        # ---3 x 3 table, 9in x 3in: a 3in x 1in cell holds this sentence only in small type,
+        # ---but the merged cell below spans 9in x 2in
+        _, _, unmerged = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        unmerged.cell(1, 0).text = _SENTENCE
+        _, _, merged = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        merged.cell(1, 0).merge(merged.cell(2, 2))
+        merged.cell(1, 0).text = _SENTENCE
+
+        small = unmerged.fit_to_box(max_font_pt=18, min_font_pt=6, font_file=_CALIBRIZ)
+        large = merged.fit_to_box(max_font_pt=18, min_font_pt=6, font_file=_CALIBRIZ)
+
+        assert small < 18
+        assert large == 18
+
+    def and_it_ignores_text_left_behind_in_a_spanned_cell(self):
+        # ---a spanned cell is not drawn, so its text must not shrink the whole table---
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        table.cell(1, 0).merge(table.cell(2, 2))
+        table.cell(1, 0).text = "Merged"
+        table.cell(1, 1).text = _SENTENCE * 4  # hMerge
+        table.cell(2, 0).text = _SENTENCE * 4  # vMerge
+
+        size = table.fit_to_box(max_font_pt=18, min_font_pt=6, font_file=_CALIBRIZ)
+
+        assert size == 18
+
     def it_measures_each_paragraph_of_a_cell_on_its_own_line(self):
         _, _, stacked = _new_table(1, 1, w=Inches(4), h=Inches(1.5))
         stacked.cell(0, 0).text = "\n".join(["Revenue up 12%", "Churn down 3%", "NPS at 61"] * 2)
@@ -158,6 +191,45 @@ class DescribeCellExtents:
         # Each column = 2", each row = 1" by default split.
         assert int(cell.width) == int(Inches(2))
         assert int(cell.height) == int(Inches(1))
+
+    def it_spans_all_the_columns_and_rows_a_merged_cell_covers(self):
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        table.cell(1, 0).merge(table.cell(2, 2))
+
+        origin = table.cell(1, 0)
+
+        assert origin.width == Inches(9)
+        assert origin.height == Inches(2)
+
+    def and_it_adds_up_columns_and_rows_of_unequal_size(self):
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        for column, inches in zip(table.columns, (1, 2, 6)):
+            column.width = Inches(inches)
+        for row, inches in zip(table.rows, (0.5, 1, 1.5)):
+            row.height = Inches(inches)
+        table.cell(0, 1).merge(table.cell(1, 2))
+
+        origin = table.cell(0, 1)
+
+        assert origin.width == Inches(2) + Inches(6)
+        assert origin.height == Inches(0.5) + Inches(1)
+
+    def but_a_spanned_cell_keeps_the_size_of_its_own_grid_slot(self):
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        table.cell(1, 0).merge(table.cell(2, 2))
+
+        for row_idx, col_idx in ((1, 1), (1, 2), (2, 0), (2, 2)):
+            cell = table.cell(row_idx, col_idx)
+            assert cell.width == Inches(3), (row_idx, col_idx)
+            assert cell.height == Inches(1), (row_idx, col_idx)
+
+    def and_a_cell_merged_in_one_direction_spans_only_that_direction(self):
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(1, 2).merge(table.cell(2, 2))
+
+        assert (table.cell(0, 0).width, table.cell(0, 0).height) == (Inches(6), Inches(1))
+        assert (table.cell(1, 2).width, table.cell(1, 2).height) == (Inches(3), Inches(2))
 
 
 class DescribeAddTableStyleClean:
@@ -207,6 +279,50 @@ class DescribeCellFitText:
         size = cell.text_frame.paragraphs[0].runs[0].font.size
         assert size is not None
         assert size.pt < 18
+
+    def it_measures_against_the_cell_box_less_the_cell_margins(self):
+        # ---a cell keeps its insets on `a:tcPr`, not on the `a:bodyPr` of its text body---
+        _, _, table = _new_table(1, 1, w=Inches(4), h=Inches(1))
+        cell = table.cell(0, 0)
+        cell.text = "Quarterly revenue by region, trailing twelve months"
+        cell.margin_left = cell.margin_right = Inches(1)
+        cell.margin_top = cell.margin_bottom = Inches(0.3)
+
+        size = cell.text_frame.fit_text("Calibri", max_size=60, font_file=_CALIBRIZ)
+
+        inner_box = (Inches(2), Inches(0.4))
+        assert cell.text_frame._extents == inner_box
+        assert size == TextFitter.best_fit_font_size(cell.text, inner_box, 60, _CALIBRIZ)
+
+    def and_it_uses_the_default_cell_margins_when_none_are_set(self):
+        _, _, table = _new_table(1, 1, w=Inches(4), h=Inches(1))
+        cell = table.cell(0, 0)
+
+        # ---OOXML default insets: 0.1in left and right, 0.05in top and bottom---
+        assert cell.text_frame._extents == (Inches(4) - Inches(0.2), Inches(1) - Inches(0.1))
+
+    def and_fit_text_agrees_with_fit_to_box_about_the_room_a_cell_has(self):
+        _, _, table = _new_table(1, 1, w=Inches(4), h=Inches(1))
+        cell = table.cell(0, 0)
+        cell.text = _SENTENCE
+        cell.margin_left = cell.margin_right = Inches(0.6)
+        cell.margin_top = cell.margin_bottom = Inches(0.2)
+
+        by_frame = cell.text_frame.fit_text("Calibri", max_size=40, font_file=_CALIBRIZ)
+        by_table = table.fit_to_box(max_font_pt=40, min_font_pt=1, font_file=_CALIBRIZ)
+
+        assert by_frame == by_table
+
+    def it_measures_a_merged_cell_against_the_whole_merged_box(self):
+        _, _, table = _new_table(3, 3, w=Inches(9), h=Inches(3))
+        table.cell(1, 0).merge(table.cell(2, 2))
+        cell = table.cell(1, 0)
+        cell.text = _SENTENCE
+
+        size = cell.text_frame.fit_text("Calibri", max_size=18, font_file=_CALIBRIZ)
+
+        assert cell.text_frame._extents == (Inches(9) - Inches(0.2), Inches(2) - Inches(0.1))
+        assert size == 18
 
 
 class DescribeCellFormat:
