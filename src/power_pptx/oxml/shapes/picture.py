@@ -58,7 +58,7 @@ class CT_Picture(BaseShapeElement):
         return self.spPr.ln
 
     @classmethod
-    def new_ph_pic(cls, id_, name, desc, rId):
+    def new_ph_pic(cls, id_: int, name: str, desc: str, rId: str):
         """
         Return a new `p:pic` placeholder element populated with the supplied
         parameters.
@@ -69,7 +69,9 @@ class CT_Picture(BaseShapeElement):
         return parse_xml(cls._pic_ph_tmpl() % (id_, quoteattr(name), quoteattr(desc), rId))
 
     @classmethod
-    def new_pic(cls, shape_id, name, desc, rId, x, y, cx, cy):
+    def new_pic(
+        cls, shape_id: int, name: str, desc: str, rId: str, x: int, y: int, cx: int, cy: int
+    ):
         """Return new `<p:pic>` element tree configured with supplied parameters.
 
         `name` and `desc` are plain text (e.g. a file name); they are escaped for use as

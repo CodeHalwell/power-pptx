@@ -16,12 +16,17 @@ clear error message when missing.
 from __future__ import annotations
 
 import os
-from typing import IO, Tuple, Union
+from typing import IO, TYPE_CHECKING, Tuple, Union
 
 from lxml import etree
 
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.oxml.ns import nsuri, qn
+
+if TYPE_CHECKING:
+    from power_pptx.opc.package import Part
+    from power_pptx.package import Package
+    from power_pptx.parts.slide import SlidePart
 
 PathOrFile = Union[str, "os.PathLike[str]", IO[bytes], bytes]
 """Either a filesystem path, a binary file-like, or a raw blob."""
@@ -125,7 +130,9 @@ def add_svg_blip_extension(pic_elm, svg_rId: str) -> None:
     svgBlip.set(qn("r:embed"), svg_rId)
 
 
-def add_svg_image_part(slide_part, svg_blob: bytes, filename: str | None = None):
+def add_svg_image_part(
+    slide_part: SlidePart, svg_blob: bytes, filename: str | None = None
+) -> tuple[Part, str]:
     """Register `svg_blob` as an SVG image part on `slide_part`'s package.
 
     Returns ``(image_part, rId)``: the :class:`power_pptx.parts.image.ImagePart`
@@ -157,7 +164,7 @@ def add_svg_image_part(slide_part, svg_blob: bytes, filename: str | None = None)
     return image_part, rId
 
 
-def _find_svg_part(package, svg_blob: bytes):
+def _find_svg_part(package: Package, svg_blob: bytes) -> Part | None:
     """Return the SVG image part in `package` whose content is `svg_blob`, or |None|.
 
     Blobs are compared directly, which is the same test as comparing their SHA1 digests

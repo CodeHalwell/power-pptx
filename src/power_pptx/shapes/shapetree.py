@@ -208,7 +208,9 @@ def _container_extents(shapetree, container) -> tuple[int, int]:
     return (w, h)
 
 
-def _measure_anchor_container(shapetree, anchor, container) -> tuple[int, int, int, int] | None:
+def _measure_anchor_container(
+    shapetree: _BaseShapes, anchor: str | None, container: object
+) -> tuple[int, int, int, int] | None:
     """Return the box a new shape's `anchor` is relative to, or |None| without an `anchor`.
 
     Called *before* the shape is added. An invalid `anchor` or `container` then raises with
@@ -222,9 +224,14 @@ def _measure_anchor_container(shapetree, anchor, container) -> tuple[int, int, i
     return _container_box(shapetree, container)
 
 
-def _move_to_anchor(shape, anchor, box, margin) -> None:
+def _move_to_anchor(
+    shape: BaseShape,
+    anchor: str | None,
+    box: tuple[int, int, int, int] | None,
+    margin: Length,
+) -> None:
     """Move `shape` to its `anchor` position within `box`, as from `_measure_anchor_container`."""
-    if box is None:
+    if anchor is None or box is None:
         return
     cl, ct, cw, ch = box
     new_left, new_top = _compute_anchor_left_top(
