@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Iterator
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.dml.fill import CT_GradientFillProperties
 from power_pptx.enum.shapes import MSO_CONNECTOR_TYPE
@@ -209,7 +210,7 @@ class CT_GroupShape(BaseShapeElement):
         xml = (
             "<p:grpSp %s>\n"
             "  <p:nvGrpSpPr>\n"
-            '    <p:cNvPr id="%%d" name="%%s"/>\n'
+            '    <p:cNvPr id="%%d" name=%%s/>\n'
             "    <p:cNvGrpSpPr/>\n"
             "    <p:nvPr/>\n"
             "  </p:nvGrpSpPr>\n"
@@ -222,7 +223,7 @@ class CT_GroupShape(BaseShapeElement):
             "    </a:xfrm>\n"
             "  </p:grpSpPr>\n"
             "</p:grpSp>" % nsdecls("a", "p", "r")
-        ) % (id_, name)
+        ) % (id_, quoteattr(name))
         grpSp = parse_xml(xml)
         return grpSp
 

@@ -224,10 +224,14 @@ class Picture(_BasePicture):
                 continue
             # Skip if this shape is itself a placeholder for text we
             # want to keep visible.
-            if exclude_text and getattr(shape, "has_text_frame", False):
-                tf = getattr(shape, "text_frame", None)
-                if tf is not None and tf.text.strip():
-                    continue
+            # -- `.text`, not `.text_frame.text`: this is only a read, and asking a shape with no
+            # -- text body for its text frame would add one --
+            if (
+                exclude_text
+                and getattr(shape, "has_text_frame", False)
+                and getattr(shape, "text", "").strip()
+            ):
+                continue
             if box.contains(my_box):
                 candidates.append((box.area, shape, box))
         if not candidates:

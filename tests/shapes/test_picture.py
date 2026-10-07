@@ -329,3 +329,30 @@ class DescribePicture(object):
     @pytest.fixture
     def slide_part_(self, request):
         return instance_mock(request, SlidePart)
+
+
+class DescribePictureEnclosingContainerReadsText(object):
+    """`enclosing_container()` looks at other shapes' text; that read must not edit them."""
+
+    def it_does_not_add_a_txBody_to_a_placeholder_it_looks_at(self):
+        import io
+
+        from power_pptx import Presentation
+        from power_pptx.util import Inches
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+            "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+            "0049454e44ae426082"
+        )
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        picture_ph = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+        assert picture_ph.element.txBody is None  # -- a cloned picture placeholder has none --
+        picture = slide.shapes.add_picture(
+            io.BytesIO(png), picture_ph.left, picture_ph.top, Inches(0.5), Inches(0.5)
+        )
+
+        picture.enclosing_container()
+
+        assert picture_ph.element.txBody is None

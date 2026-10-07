@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls
@@ -52,7 +53,7 @@ class CT_Connector(BaseShapeElement):
             parse_xml(
                 f"<p:cxnSp {nsdecls('a', 'p')}>\n"
                 f"  <p:nvCxnSpPr>\n"
-                f'    <p:cNvPr id="{id_}" name="{name}"/>\n'
+                f'    <p:cNvPr id="{id_}" name={quoteattr(name)}/>\n'
                 f"    <p:cNvCxnSpPr/>\n"
                 f"    <p:nvPr/>\n"
                 f"  </p:nvCxnSpPr>\n"

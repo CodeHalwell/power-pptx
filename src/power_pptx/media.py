@@ -26,17 +26,20 @@ class Video(object):
         return cls(blob, mime_type, filename)
 
     @classmethod
-    def from_path_or_file_like(cls, movie_file: str | IO[bytes], mime_type: str | None) -> Video:
+    def from_path_or_file_like(
+        cls, movie_file: str | os.PathLike[str] | IO[bytes], mime_type: str | None
+    ) -> Video:
         """Return a new |Video| object containing video in *movie_file*.
 
-        *movie_file* can be either a path (string) or a file-like
-        (e.g. StringIO) object.
+        *movie_file* can be either a path (a string or any `os.PathLike`, such as a
+        `pathlib.Path`) or a file-like (e.g. StringIO) object.
         """
-        if isinstance(movie_file, str):
+        if isinstance(movie_file, (str, os.PathLike)):
             # treat movie_file as a path
-            with open(movie_file, "rb") as f:
+            path = os.fsdecode(movie_file)
+            with open(path, "rb") as f:
                 blob = f.read()
-            filename = os.path.basename(movie_file)
+            filename = os.path.basename(path)
         else:
             # assume movie_file is a file-like object
             blob = movie_file.read()

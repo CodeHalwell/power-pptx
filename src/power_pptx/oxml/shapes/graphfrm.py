@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.chart.chart import CT_Chart
@@ -196,13 +197,16 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
 
         Note that a graphicFrame element is not a valid shape until it contains a graphical object
         such as a table.
+
+        `name` is plain text (a placeholder being filled keeps its own name, which may contain
+        markup characters); it is escaped for use as an attribute value here.
         """
         return cast(
             CT_GraphicalObjectFrame,
             parse_xml(
                 f"<p:graphicFrame {nsdecls('a', 'p')}>\n"
                 f"  <p:nvGraphicFramePr>\n"
-                f'    <p:cNvPr id="{id_}" name="{name}"/>\n'
+                f'    <p:cNvPr id="{id_}" name={quoteattr(name)}/>\n'
                 f"    <p:cNvGraphicFramePr>\n"
                 f'      <a:graphicFrameLocks noGrp="1"/>\n'
                 f"    </p:cNvGraphicFramePr>\n"
@@ -254,7 +258,7 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
             parse_xml(
                 f"<p:graphicFrame {nsdecls('a', 'p', 'r')}>\n"
                 f"  <p:nvGraphicFramePr>\n"
-                f'    <p:cNvPr id="{id_}" name="{name}"/>\n'
+                f'    <p:cNvPr id="{id_}" name={quoteattr(name)}/>\n'
                 f"    <p:cNvGraphicFramePr>\n"
                 f'      <a:graphicFrameLocks noGrp="1"/>\n'
                 f"    </p:cNvGraphicFramePr>\n"
@@ -271,7 +275,7 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
                 f'                r:id="{ole_object_rId}"'
                 f'                imgW="{imgW}"'
                 f'                imgH="{imgH}"'
-                f'                progId="{progId}">\n'
+                f"                progId={quoteattr(progId)}>\n"
                 f"        <p:embed/>\n"
                 f"        <p:pic>\n"
                 f"          <p:nvPicPr>\n"

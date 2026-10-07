@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, cast
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, PP_PLACEHOLDER
 from power_pptx.oxml import parse_xml
@@ -259,7 +260,12 @@ class CT_Shape(BaseShapeElement):
     def new_autoshape_sp(
         id_: int, name: str, prst: str, left: int, top: int, width: int, height: int
     ) -> CT_Shape:
-        """Return a new `p:sp` element tree configured as a base auto shape."""
+        """Return a new `p:sp` element tree configured as a base auto shape.
+
+        Unlike the other constructors here, `name` must already be escaped for use in an XML
+        attribute value. Its one caller builds it from `AutoShapeType.basename`, which is escaped
+        because a few auto-shape names contain double quotes.
+        """
         xml = (
             "<p:sp %s>\n"
             "  <p:nvSpPr>\n"
@@ -312,7 +318,7 @@ class CT_Shape(BaseShapeElement):
         xml = (
             "<p:sp %s>\n"
             "  <p:nvSpPr>\n"
-            '    <p:cNvPr id="%s" name="%s"/>\n'
+            '    <p:cNvPr id="%s" name=%s/>\n'
             "    <p:cNvSpPr/>\n"
             "    <p:nvPr/>\n"
             "  </p:nvSpPr>\n"
@@ -353,7 +359,7 @@ class CT_Shape(BaseShapeElement):
             "    </a:p>\n"
             "  </p:txBody>\n"
             "</p:sp>" % (nsdecls("a", "p"), "%d", "%s", "%d", "%d", "%d", "%d")
-        ) % (shape_id, name, x, y, cx, cy)
+        ) % (shape_id, quoteattr(name), x, y, cx, cy)
         return cast(CT_Shape, parse_xml(xml))
 
     @staticmethod
@@ -366,7 +372,7 @@ class CT_Shape(BaseShapeElement):
             parse_xml(
                 f"<p:sp {nsdecls('a', 'p')}>\n"
                 f"  <p:nvSpPr>\n"
-                f'    <p:cNvPr id="{id_}" name="{name}"/>\n'
+                f'    <p:cNvPr id="{id_}" name={quoteattr(name)}/>\n'
                 f"    <p:cNvSpPr>\n"
                 f'      <a:spLocks noGrp="1"/>\n'
                 f"    </p:cNvSpPr>\n"
@@ -397,10 +403,10 @@ class CT_Shape(BaseShapeElement):
         return sp
 
     @staticmethod
-    def new_textbox_sp(id_, name, left, top, width, height):
+    def new_textbox_sp(id_, name: str, left, top, width, height):
         """Return a new `p:sp` element tree configured as a base textbox shape."""
         tmpl = CT_Shape._textbox_sp_tmpl()
-        xml = tmpl % (id_, name, left, top, width, height)
+        xml = tmpl % (id_, quoteattr(name), left, top, width, height)
         sp = parse_xml(xml)
         return sp
 
@@ -428,7 +434,7 @@ class CT_Shape(BaseShapeElement):
         return (
             "<p:sp %s>\n"
             "  <p:nvSpPr>\n"
-            '    <p:cNvPr id="%s" name="%s"/>\n'
+            '    <p:cNvPr id="%s" name=%s/>\n'
             '    <p:cNvSpPr txBox="1"/>\n'
             "    <p:nvPr/>\n"
             "  </p:nvSpPr>\n"

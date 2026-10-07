@@ -425,8 +425,15 @@ class Shape(BaseShape):
         assigned text causes a line-break (soft carriage-return) to be inserted. (The vertical-tab
         character appears in clipboard text copied from PowerPoint as its str encoding of
         line-breaks.)
+
+        A shape with no text body, such as a picture or chart placeholder cloned from a layout,
+        has no text: reading it returns `""` and, unlike :attr:`text_frame`, does not add an empty
+        text body to the shape.
         """
-        return self.text_frame.text
+        txBody = self._sp.txBody
+        if txBody is None:
+            return ""
+        return TextFrame(txBody, self).text
 
     @text.setter
     def text(self, text: str):

@@ -5,10 +5,14 @@
 from __future__ import annotations
 
 import io
+import os
+import zipfile
 
 import pytest
 
-from power_pptx.chart.data import ChartData
+import power_pptx
+from power_pptx import Presentation
+from power_pptx.chart.data import CategoryChartData, ChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_CONNECTOR, PP_PLACEHOLDER, PROG_ID
 from power_pptx.media import SPEAKER_IMAGE_BYTES, Video
@@ -2378,3 +2382,376 @@ class Describe_NotesSlideShapeFactory(object):
     @pytest.fixture
     def shapes_(self, request):
         return instance_mock(request, _BaseShapes)
+
+
+# ---------------------------------------------------------------------------
+# Integration-style regression tests: real slides, real XML, no mocks.
+# ---------------------------------------------------------------------------
+
+# a 1x1 pixel PNG
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+    "0049454e44ae426082"
+)
+
+
+def _blank_slide():
+    prs = Presentation()
+    return prs, prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _write_file(tmp_path, name, data):
+    """Write `data` to `tmp_path/name`, skipping the test if the OS rejects the file name."""
+    path = tmp_path / name
+    try:
+        path.write_bytes(data)
+    except (OSError, ValueError):  # e.g. a double quote in a Windows file name
+        pytest.skip("this file system does not allow the file name %r" % name)
+    return path
+
+
+class DescribeNamesContainingMarkupCharacters(object):
+    """File names and placeholder names are spliced into XML, so they must be escaped.
+
+    A name like `Q&A chart.png` or `my "best" photo.png` is perfectly legal on disk, and the
+    shape-tree API must carry it through to the `descr`/`name` attribute literally.
+    """
+
+    @pytest.mark.parametrize("stem", ['my "best" photo', "Q&A chart", "R&D <draft>"])
+    def it_can_add_a_picture_whose_file_name_contains_markup_or_quotes(self, tmp_path, stem):
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, stem + ".png", TINY_PNG)
+
+        picture = slide.shapes.add_picture(str(path), Inches(1), Inches(1))
+
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == [stem + ".png"]
+
+    def and_it_can_add_the_same_image_again_after_a_special_character_file_name(self, tmp_path):
+        # -- images are de-duplicated by SHA1, so the part that remembers the awkward file
+        # -- name is reused (and its name re-spliced into XML) by later, unrelated adds
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, 'my "best" photo.png', TINY_PNG)
+        slide.shapes.add_picture(str(path), Inches(1), Inches(1))
+
+        again = slide.shapes.add_picture(io.BytesIO(TINY_PNG), Inches(2), Inches(2))
+
+        assert again.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ['my "best" photo.png']
+
+    def it_can_add_a_movie_whose_file_name_contains_markup_or_quotes(self, tmp_path):
+        _, slide = _blank_slide()
+        path = _write_file(tmp_path, "Tom & Jerry.mp4", b"\x00" * 16)
+
+        movie = slide.shapes.add_movie(
+            str(path), Inches(1), Inches(1), Inches(2), Inches(1), mime_type="video/mp4"
+        )
+
+        assert movie.name == "Tom & Jerry.mp4"
+
+    def it_can_insert_a_picture_into_a_placeholder_whose_name_contains_an_ampersand(self, tmp_path):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        placeholder = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+        placeholder.name = "Hero & Logo"
+        path = _write_file(tmp_path, "Q&A chart.png", TINY_PNG)
+
+        picture = placeholder.insert_picture(str(path))
+
+        assert picture.name == "Hero & Logo"
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ["Q&A chart.png"]
+
+    @pytest.mark.parametrize("name", ["Hero & Logo", 'The "big" one', "Q<4>"])
+    def it_can_insert_a_chart_or_table_into_a_placeholder_whose_name_contains_markup(self, name):
+        _, slide = _blank_slide()
+        spTree = slide.shapes._spTree
+        for idx, ph_type in ((10, PP_PLACEHOLDER.CHART), (11, PP_PLACEHOLDER.TABLE)):
+            spTree.add_placeholder(100 + idx, "Placeholder %d" % idx, ph_type, "horz", "full", idx)
+            placeholder = slide.placeholders[idx]
+            placeholder.name = name  # -- as a designer (or a loaded deck) would have named it --
+            placeholder.left, placeholder.top = Inches(1), Inches(1)
+            placeholder.width, placeholder.height = Inches(4), Inches(3)
+        chart_data = CategoryChartData()
+        chart_data.categories = ["A", "B"]
+        chart_data.add_series("S1", (1, 2))
+
+        chart_frame = slide.placeholders[10].insert_chart(XL_CHART_TYPE.PIE, chart_data)
+        table_frame = slide.placeholders[11].insert_table(2, 2)
+
+        assert chart_frame.name == name
+        assert table_frame.name == name
+
+
+class DescribeAddGroupShapeWithShapes(object):
+    """`add_group_shape(shapes)` moves existing shapes into the new group, so it must check them."""
+
+    def it_moves_the_given_shapes_into_the_new_group(self):
+        _, slide = _blank_slide()
+        a = slide.shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(1), Inches(1), 914400, 914400
+        )
+        b = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, Inches(4), Inches(3), 914400, 914400)
+        ids_before = [a.shape_id, b.shape_id]
+
+        group = slide.shapes.add_group_shape([a, b])
+
+        assert [shape.shape_id for shape in group.shapes] == ids_before
+        assert [shape.shape_id for shape in slide.shapes] == [group.shape_id]
+        assert (group.left, group.top) == (Inches(1), Inches(1))
+        assert (group.width, group.height) == (Inches(4), Inches(3))
+
+    def it_rejects_a_shape_from_another_slide_and_changes_nothing(self):
+        prs, slide = _blank_slide()
+        other = prs.slides.add_slide(prs.slide_layouts[6])
+        mine = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, 0, 914400, 914400)
+        theirs = other.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="different slide"):
+            slide.shapes.add_group_shape([mine, theirs])
+
+        assert [shape.shape_id for shape in slide.shapes] == [mine.shape_id]
+        assert [shape.shape_id for shape in other.shapes] == [theirs.shape_id]
+
+    def it_rejects_a_shape_from_another_presentation(self):
+        _, slide = _blank_slide()
+        _, other_slide = _blank_slide()
+        theirs = other_slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="different slide"):
+            slide.shapes.add_group_shape([theirs])
+
+    def it_rejects_a_placeholder_that_inherits_its_geometry_and_changes_nothing(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])  # -- "Title and Content" --
+        title, body = slide.shapes.title, slide.placeholders[1]
+        assert title.element.x is None  # -- position comes from the layout --
+
+        with pytest.raises(ValueError, match="left, top, width and height"):
+            slide.shapes.add_group_shape([body, title])
+
+        assert [shape.shape_id for shape in slide.shapes] == [title.shape_id, body.shape_id]
+
+    def but_it_accepts_a_placeholder_once_it_has_a_geometry_of_its_own(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        title = slide.shapes.title
+        title.left, title.top, title.width, title.height = (
+            title.left,
+            title.top,
+            title.width,
+            title.height,
+        )
+
+        group = slide.shapes.add_group_shape([title])
+
+        assert [shape.shape_id for shape in group.shapes] == [title.shape_id]
+        assert (group.left, group.top) == (title.left, title.top)
+
+    def it_rejects_a_group_that_would_contain_itself_and_adds_no_stray_group(self):
+        _, slide = _blank_slide()
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, 0, 914400, 914400)
+
+        with pytest.raises(ValueError, match="inside itself"):
+            group.shapes.add_group_shape([group])
+
+        assert [shape.shape_id for shape in group.shapes] == [inner.shape_id]
+
+    def it_documents_the_shapes_argument(self):
+        doc = _BaseGroupShapes.add_group_shape.__doc__
+        assert doc is not None
+        assert "`shapes`" in doc
+        assert "ValueError" in doc
+
+
+class DescribeGraphicFramesAreAddedBeforeAnExtLst(object):
+    """`p:extLst` must stay the last child of a shape tree, whichever `add_*` method is used."""
+
+    EXT_LST = (
+        '<p:extLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+        '<p:ext uri="{00000000-0000-0000-0000-000000000001}"/></p:extLst>'
+    )
+
+    @pytest.fixture(params=["slide", "group"])
+    def shapes(self, request):
+        """The shape collection under test: a slide's, or a group's, each carrying an extLst."""
+        _, slide = _blank_slide()
+        shapes = slide.shapes if request.param == "slide" else slide.shapes.add_group_shape().shapes
+        shapes._spTree.append(parse_xml(self.EXT_LST))
+        return shapes
+
+    @staticmethod
+    def _child_tags(shapes):
+        return [child.tag.split("}")[1] for child in shapes._spTree]
+
+    def it_adds_a_chart_before_the_extLst(self, shapes):
+        chart_data = CategoryChartData()
+        chart_data.categories = ["A", "B"]
+        chart_data.add_series("S1", (1, 2))
+
+        graphic_frame = shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), chart_data
+        )
+
+        assert self._child_tags(shapes)[-2:] == ["graphicFrame", "extLst"]
+        assert shapes._spTree.xpath("p:graphicFrame")[0] is graphic_frame.element
+
+    def and_it_adds_an_ole_object_before_the_extLst(self, shapes):
+        shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(1), Inches(1))
+
+        assert self._child_tags(shapes)[-2:] == ["graphicFrame", "extLst"]
+
+    def and_it_adds_a_movie_before_the_extLst(self, shapes):
+        shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+
+        assert self._child_tags(shapes)[-2:] == ["pic", "extLst"]
+
+    def but_it_still_appends_when_there_is_no_extLst(self):
+        _, slide = _blank_slide()
+        slide.shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(1), Inches(1))
+        assert self._child_tags(slide.shapes)[-1] == "graphicFrame"
+
+
+class DescribeEmfImages(object):
+    """An EMF is stored as an `.emf` part of type `image/x-emf`, never as a WMF."""
+
+    EMF_PATH = os.path.join(os.path.dirname(power_pptx.__file__), "templates", "generic-icon.emf")
+
+    @staticmethod
+    def _image_parts(slide):
+        return [
+            rel.target_part
+            for rel in slide.part.rels.values()
+            if rel.reltype.endswith("/image") and not rel.is_external
+        ]
+
+    def it_stores_an_EMF_picture_as_an_emf_part(self):
+        _, slide = _blank_slide()
+
+        picture = slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+
+        (image_part,) = self._image_parts(slide)
+        assert image_part.partname == "/ppt/media/image1.emf"
+        assert image_part.content_type == "image/x-emf"
+        assert picture.image.ext == "emf"
+        assert picture.image.filename == "generic-icon.emf"
+
+    def and_it_still_stores_a_png_as_a_png(self):
+        _, slide = _blank_slide()
+
+        slide.shapes.add_picture(io.BytesIO(TINY_PNG), Inches(1), Inches(1))
+
+        (image_part,) = self._image_parts(slide)
+        assert image_part.partname == "/ppt/media/image1.png"
+        assert image_part.content_type == "image/png"
+
+    @pytest.mark.parametrize("prog_id", [PROG_ID.DOCX, PROG_ID.PPTX, PROG_ID.XLSX, "Foo.Bar.18"])
+    def it_stores_the_default_icon_of_an_OLE_object_as_an_emf_part(self, prog_id):
+        _, slide = _blank_slide()
+
+        slide.shapes.add_ole_object(io.BytesIO(b"payload"), prog_id, Inches(1), Inches(1))
+
+        (icon_part,) = self._image_parts(slide)
+        assert icon_part.partname.endswith(".emf")
+        assert icon_part.content_type == "image/x-emf"
+
+    def it_declares_the_emf_content_type_in_the_saved_package(self):
+        prs, slide = _blank_slide()
+        slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+        buf = io.BytesIO()
+        prs.save(buf)
+
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            names = zf.namelist()
+            content_types = zf.read("[Content_Types].xml").decode("utf-8")
+
+        assert "ppt/media/image1.emf" in names
+        assert not any(name.endswith(".wmf") for name in names)
+        assert 'Extension="emf" ContentType="image/x-emf"' in content_types
+
+    def and_it_reads_the_image_back_from_a_saved_deck(self):
+        prs, slide = _blank_slide()
+        slide.shapes.add_picture(self.EMF_PATH, Inches(1), Inches(1))
+        buf = io.BytesIO()
+        prs.save(buf)
+
+        reopened = Presentation(io.BytesIO(buf.getvalue()))
+
+        assert reopened.slides[0].shapes[0].image.ext == "emf"
+
+
+class DescribePathlibPathArguments(object):
+    """Wherever a file path is accepted, a `pathlib.Path` works as well as a `str`."""
+
+    @staticmethod
+    def _png(tmp_path, name="pic.png"):
+        path = tmp_path / name
+        path.write_bytes(TINY_PNG)
+        return path
+
+    def it_can_add_a_picture_from_a_Path(self, tmp_path):
+        _, slide = _blank_slide()
+
+        picture = slide.shapes.add_picture(self._png(tmp_path), Inches(1), Inches(1))
+
+        assert picture.image.blob == TINY_PNG
+        assert picture.element.xpath("p:nvPicPr/p:cNvPr/@descr") == ["pic.png"]
+
+    def it_can_add_a_movie_and_its_poster_frame_from_Paths(self, tmp_path):
+        _, slide = _blank_slide()
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"\x00" * 16)
+
+        movie = slide.shapes.add_movie(
+            video,
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
+            poster_frame_image=self._png(tmp_path, "poster.png"),
+            mime_type="video/mp4",
+        )
+
+        assert movie.name == "clip.mp4"
+        assert movie.poster_frame.blob == TINY_PNG
+
+    def it_can_insert_a_picture_into_a_placeholder_from_a_Path(self, tmp_path):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        placeholder = next(p for p in slide.placeholders if p.placeholder_format.type == 18)
+
+        picture = placeholder.insert_picture(self._png(tmp_path))
+
+        assert picture.image.blob == TINY_PNG
+
+    def it_can_add_an_OLE_object_and_its_icon_from_Paths(self, tmp_path):
+        _, slide = _blank_slide()
+        payload = tmp_path / "book.xlsx"
+        payload.write_bytes(b"workbook bytes")
+
+        frame = slide.shapes.add_ole_object(
+            payload,
+            PROG_ID.XLSX,
+            Inches(1),
+            Inches(1),
+            icon_file=self._png(tmp_path, "icon.png"),
+        )
+
+        assert frame.ole_format.blob == b"workbook bytes"
+
+    def and_it_can_add_an_SVG_picture_from_a_Path(self, tmp_path):
+        _, slide = _blank_slide()
+        svg = tmp_path / "logo.svg"
+        svg.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>')
+
+        picture = slide.shapes.add_svg_picture(
+            svg, Inches(1), Inches(1), Inches(1), Inches(1), png_fallback=self._png(tmp_path)
+        )
+
+        assert picture.shape_type == 13

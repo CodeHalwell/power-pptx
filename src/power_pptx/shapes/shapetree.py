@@ -208,24 +208,64 @@ def _container_extents(shapetree, container) -> tuple[int, int]:
     return (w, h)
 
 
+def _measure_anchor_container(
+    shapetree: _BaseShapes, anchor: str | None, container: object
+) -> tuple[int, int, int, int] | None:
+    """Return the box a new shape's `anchor` is relative to, or |None| without an `anchor`.
+
+    Called *before* the shape is added. An invalid `anchor` or `container` then raises with
+    the shape tree untouched, and a `container` that is the group being added to is measured
+    as it is now rather than after the new shape's unanchored starting position has stretched
+    it.
+    """
+    if anchor is None:
+        return None
+    _resolve_anchor(anchor)
+    return _container_box(shapetree, container)
+
+
+def _move_to_anchor(
+    shape: BaseShape,
+    anchor: str | None,
+    box: tuple[int, int, int, int] | None,
+    margin: Length,
+) -> None:
+    """Move `shape` to its `anchor` position within `box`, as from `_measure_anchor_container`."""
+    if anchor is None or box is None:
+        return
+    cl, ct, cw, ch = box
+    new_left, new_top = _compute_anchor_left_top(
+        anchor, cw, ch, int(shape.width), int(shape.height), int(margin)
+    )
+    shape.left = Emu(cl + new_left)
+    shape.top = Emu(ct + new_top)
+
+
 class _LintGroupScope:
     """Context manager returned by :meth:`_BaseShapes.lint_group_scope`.
 
-    On enter it snapshots the current shape count of the tree; on
-    exit it tags every shape added in between with
+    On enter it snapshots the shape elements the tree already holds; on
+    exit it tags every shape that was not among them with
     ``shape.lint_group = name``. A diff-based approach keeps the
     implementation independent of which ``add_*`` method the caller
     uses — the proxy doesn't have to wrap each one individually, and
     custom helpers that ultimately call into the tree just work.
+
+    The snapshot is of the elements themselves, not a count: a count is
+    thrown off by a shape deleted inside the block, which shifts the
+    slice and leaves one of the new shapes untagged. lxml returns the
+    same proxy object for an element only while some reference to it is
+    alive, so the snapshot holds those references; that is what makes
+    the membership test on exit (by identity) trustworthy.
     """
 
     def __init__(self, shapetree, name):
         self._shapetree = shapetree
         self._name = name
-        self._snapshot = 0
+        self._existing: frozenset[ShapeElement] = frozenset()
 
     def __enter__(self):
-        self._snapshot = len(list(self._shapetree._iter_member_elms()))
+        self._existing = frozenset(self._shapetree._iter_member_elms())
         return self._shapetree
 
     def __exit__(self, exc_type, exc, tb):
@@ -234,7 +274,8 @@ class _LintGroupScope:
         # report, which is the worse default.
 
         elms = list(self._shapetree._iter_member_elms())
-        added = elms[self._snapshot :]
+        added = [elm for elm in elms if elm not in self._existing]
+        self._existing = frozenset()  # -- let go of the proxies held for the comparison --
         if not added:
             return False  # nothing to tag, propagate any exception
 
@@ -604,12 +645,22 @@ class _BaseGroupShapes(_BaseShapes):
     def add_group_shape(self, shapes: Iterable[BaseShape] = ()) -> GroupShape:
         """Return a |GroupShape| object newly appended to this shape tree.
 
-        The group shape is empty and must be populated with shapes using methods on its shape
-        tree, available on its `.shapes` property. The position and extents of the group shape are
-        determined by the shapes it contains; its position and extents are recalculated each time
-        a shape is added to it.
+        When `shapes` is omitted the group shape is empty and must be populated with shapes using
+        methods on its shape tree, available on its `.shapes` property. The position and extents of
+        the group shape are determined by the shapes it contains; its position and extents are
+        recalculated each time a shape is added to it.
+
+        `shapes` is an optional iterable of existing shapes to *move* into the new group, in the
+        order given; they are not copied. Each one must be a shape on the same slide as this shape
+        tree and must have a position and size of its own. A placeholder that still inherits its
+        geometry from the layout does not, so assign its `left`, `top`, `width` and `height`
+        first. Shapes keep their current coordinates, and a group they were taken from is not
+        refit (call its `fit_to_children()`). |ValueError| is raised, and nothing is changed, if
+        a shape belongs to a different slide, has no position and size of its own, or contains
+        this shape tree.
         """
         shapes = tuple(shapes)
+        self._validate_shapes_to_group(shapes)
         grpSp = self._element.add_grpSp()
         for shape in shapes:
             grpSp.insert_element_before(
@@ -622,13 +673,13 @@ class _BaseGroupShapes(_BaseShapes):
 
     def add_ole_object(
         self,
-        object_file: str | IO[bytes],
+        object_file: str | os.PathLike[str] | IO[bytes],
         prog_id: str,
         left: Length,
         top: Length,
         width: Length | None = None,
         height: Length | None = None,
-        icon_file: str | IO[bytes] | None = None,
+        icon_file: str | os.PathLike[str] | IO[bytes] | None = None,
         icon_width: Length | None = None,
         icon_height: Length | None = None,
     ) -> GraphicFrame:
@@ -640,18 +691,20 @@ class _BaseGroupShapes(_BaseShapes):
         size is used. This is advised for best appearance where applicable because it avoids an
         icon with a "stretched" appearance.
 
-        `object_file` may either be a str path to a file or file-like object (such as
-        `io.BytesIO`) containing the bytes of the object to be embedded (such as an Excel file).
+        `object_file` may either be a path to a file (a str or any `os.PathLike`, such as a
+        `pathlib.Path`) or a file-like object (such as `io.BytesIO`) containing the bytes of the
+        object to be embedded (such as an Excel file).
 
         `prog_id` can be either a member of `power_pptx.enum.shapes.PROG_ID` or a str value like
         `"Adobe.Exchange.7"` determined by inspecting the XML generated by PowerPoint for an
         object of the desired type.
 
-        `icon_file` may either be a str path to an image file or a file-like object containing the
-        image. The image provided will be displayed in lieu of the OLE object; double-clicking on
-        the image opens the object (subject to operating-system limitations). The image file can
-        be any supported image file. Those produced by PowerPoint itself are generally EMF and can
-        be harvested from a PPTX package that embeds such an object. PNG and JPG also work fine.
+        `icon_file` may either be a path to an image file (a str or `os.PathLike`) or a file-like
+        object containing the image. The image provided will be displayed in lieu of the OLE
+        object; double-clicking on the image opens the object (subject to operating-system
+        limitations). The image file can be any supported image file. Those produced by PowerPoint
+        itself are generally EMF and can be harvested from a PPTX package that embeds such an
+        object. PNG and JPG also work fine.
 
         `icon_width` and `icon_height` are `Length` values (e.g. Emu() or Inches()) that describe
         the size of the icon image within the shape. These should be omitted unless a custom
@@ -664,6 +717,8 @@ class _BaseGroupShapes(_BaseShapes):
         width, height = _coerce_emu(width), _coerce_emu(height)
         icon_width = _coerce_emu(icon_width)
         icon_height = _coerce_emu(icon_height)
+        if isinstance(object_file, os.PathLike):
+            object_file = os.fsdecode(object_file)
         graphicFrame = _OleObjectElementCreator.graphicFrame(
             self,
             self._next_shape_id,
@@ -677,13 +732,13 @@ class _BaseGroupShapes(_BaseShapes):
             icon_width,
             icon_height,
         )
-        self._spTree.append(graphicFrame)
+        self._spTree.insert_element_before(graphicFrame, "p:extLst")
         self._recalculate_extents()
         return cast(GraphicFrame, self._shape_factory(graphicFrame))
 
     def add_picture(
         self,
-        image_file: str | IO[bytes],
+        image_file: str | os.PathLike[str] | IO[bytes],
         left: Length = Emu(0),
         top: Length = Emu(0),
         width: Length | None = None,
@@ -695,12 +750,12 @@ class _BaseGroupShapes(_BaseShapes):
     ) -> Picture:
         """Add picture shape displaying image in `image_file`.
 
-        `image_file` can be either a path to a file (a string) or a file-like object. The picture
-        is positioned with its top-left corner at (`left`, `top`). If `width` and `height` are
-        both |None|, the native size of the image is used. If only one of `width` or `height` is
-        used, the unspecified dimension is calculated to preserve the aspect ratio of the image.
-        If both are specified, the picture is stretched to fit, without regard to its native
-        aspect ratio.
+        `image_file` can be either a path to a file (a string or any `os.PathLike`, such as a
+        `pathlib.Path`) or a file-like object. The picture is positioned with its top-left corner
+        at (`left`, `top`). If `width` and `height` are both |None|, the native size of the image
+        is used. If only one of `width` or `height` is used, the unspecified dimension is
+        calculated to preserve the aspect ratio of the image. If both are specified, the picture
+        is stretched to fit, without regard to its native aspect ratio.
 
         When `anchor` is given, ``left`` and ``top`` are recomputed
         from the anchor + the picture's rendered dimensions. The
@@ -729,17 +784,13 @@ class _BaseGroupShapes(_BaseShapes):
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         image_part, rId = self.part.get_or_add_image_part(image_file)
         pic = self._add_pic_from_image_part(image_part, rId, left, top, width, height)
-        self._recalculate_extents()
         picture = cast(Picture, self._shape_factory(pic))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(picture.width), int(picture.height), int(margin)
-            )
-            picture.left = Emu(cl + new_left)
-            picture.top = Emu(ct + new_top)
+        _move_to_anchor(picture, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the picture's final position --
+        self._recalculate_extents()
         return picture
 
     def add_svg_picture(
@@ -768,6 +819,10 @@ class _BaseGroupShapes(_BaseShapes):
         `left` / `top` / `width` / `height` work exactly as in
         :meth:`add_picture` — both extents default to the rasterised
         PNG's native size when omitted.
+
+        As with :meth:`add_picture`, adding the same SVG again — on this
+        slide or another — reuses its part in the package rather than
+        storing a second copy.
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
@@ -831,16 +886,12 @@ class _BaseGroupShapes(_BaseShapes):
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
         autoshape_type = AutoShapeType(autoshape_type_id)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         sp = self._add_sp(autoshape_type, left, top, width, height)
-        self._recalculate_extents()
         shape = cast(Shape, self._shape_factory(sp))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(shape.width), int(shape.height), int(margin)
-            )
-            shape.left = Emu(cl + new_left)
-            shape.top = Emu(ct + new_top)
+        _move_to_anchor(shape, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the shape's final position --
+        self._recalculate_extents()
         return shape
 
     def add_textbox(
@@ -863,16 +914,12 @@ class _BaseGroupShapes(_BaseShapes):
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
+        anchor_box = _measure_anchor_container(self, anchor, container)
         sp = self._add_textbox_sp(left, top, width, height)
-        self._recalculate_extents()
         textbox = cast(Shape, self._shape_factory(sp))
-        if anchor is not None:
-            cl, ct, cw, ch = _container_box(self, container)
-            new_left, new_top = _compute_anchor_left_top(
-                anchor, cw, ch, int(textbox.width), int(textbox.height), int(margin)
-            )
-            textbox.left = Emu(cl + new_left)
-            textbox.top = Emu(ct + new_top)
+        _move_to_anchor(textbox, anchor, anchor_box, margin)
+        # -- a group is refit only now, around the text box's final position --
+        self._recalculate_extents()
         return textbox
 
     def add_text(
@@ -1136,7 +1183,7 @@ class _BaseGroupShapes(_BaseShapes):
         graphicFrame = CT_GraphicalObjectFrame.new_chart_graphicFrame(
             shape_id, name, rId, x, y, cx, cy
         )
-        self._spTree.append(graphicFrame)
+        self._spTree.insert_element_before(graphicFrame, "p:extLst")
         return graphicFrame
 
     def _add_cxnSp(
@@ -1258,12 +1305,12 @@ class _BaseGroupShapes(_BaseShapes):
 
     def add_movie(
         self,
-        movie_file: str | IO[bytes],
+        movie_file: str | os.PathLike[str] | IO[bytes],
         left: Length,
         top: Length,
         width: Length,
         height: Length,
-        poster_frame_image: str | IO[bytes] | None = None,
+        poster_frame_image: str | os.PathLike[str] | IO[bytes] | None = None,
         mime_type: str = CT.VIDEO,
     ) -> GraphicFrame:
         """Return newly added movie shape displaying video in `movie_file`.
@@ -1283,6 +1330,9 @@ class _BaseGroupShapes(_BaseShapes):
         (`width`, `height`), and containing `movie_file`. Before the video is started,
         `poster_frame_image` is displayed as a placeholder for the video. The video play-controls
         timing is registered on the enclosing slide even when the movie is added to a group.
+
+        `movie_file` and `poster_frame_image` are each either a path (a str or any `os.PathLike`,
+        such as a `pathlib.Path`) or a file-like object.
         """
         left, top = _coerce_emu(left), _coerce_emu(top)
         width, height = _coerce_emu(width), _coerce_emu(height)
@@ -1297,7 +1347,7 @@ class _BaseGroupShapes(_BaseShapes):
             poster_frame_image,
             mime_type,
         )
-        self._spTree.append(movie_pic)
+        self._spTree.insert_element_before(movie_pic, "p:extLst")
         self._add_video_timing(movie_pic)
         self._recalculate_extents()
         return cast(GraphicFrame, self._shape_factory(movie_pic))
@@ -1321,6 +1371,32 @@ class _BaseGroupShapes(_BaseShapes):
         sld = self._spTree.xpath("/p:sld")[0]
         childTnLst = sld.get_or_add_childTnLst()
         childTnLst.add_video(pic.shape_id)
+
+    def _validate_shapes_to_group(self, shapes: tuple[BaseShape, ...]) -> None:
+        """Raise |ValueError| unless every one of `shapes` can be moved into a new group here.
+
+        Checked up front, so a bad argument leaves this shape tree untouched.
+        """
+        if not shapes:
+            return
+        slide_part = self.part
+        # -- this shape tree and every group above it; none of them can be grouped into itself --
+        enclosing = [self._element, *self._element.iterancestors()]
+        for shape in shapes:
+            shape_elm = shape.element
+            if shape.part is not slide_part:
+                raise ValueError(
+                    "cannot group %r: it belongs to a different slide. A shape can only be "
+                    "grouped on its own slide; add it to this slide first" % shape.name
+                )
+            if any(shape_elm is elm for elm in enclosing):
+                raise ValueError("cannot group %r inside itself" % shape.name)
+            if any(getattr(shape_elm, attr, None) is None for attr in ("x", "y", "cx", "cy")):
+                raise ValueError(
+                    "cannot group %r: it has no position and size of its own (a placeholder "
+                    "inherits them from its layout). Assign its left, top, width and height "
+                    "first" % shape.name
+                )
 
     def _recalculate_extents(self) -> None:
         """Adjust position and size to incorporate all contained shapes.
@@ -1620,12 +1696,12 @@ class _MoviePicElementCreator(object):
         self,
         shapes: _BaseGroupShapes,
         shape_id: int,
-        movie_file: str | IO[bytes],
+        movie_file: str | os.PathLike[str] | IO[bytes],
         x: Length,
         y: Length,
         cx: Length,
         cy: Length,
-        poster_frame_file: str | IO[bytes] | None,
+        poster_frame_file: str | os.PathLike[str] | IO[bytes] | None,
         mime_type: str | None,
     ):
         super(_MoviePicElementCreator, self).__init__()
@@ -1641,12 +1717,12 @@ class _MoviePicElementCreator(object):
         cls,
         shapes: _BaseGroupShapes,
         shape_id: int,
-        movie_file: str | IO[bytes],
+        movie_file: str | os.PathLike[str] | IO[bytes],
         x: Length,
         y: Length,
         cx: Length,
         cy: Length,
-        poster_frame_image: str | IO[bytes] | None,
+        poster_frame_image: str | os.PathLike[str] | IO[bytes] | None,
         mime_type: str | None,
     ) -> CT_Picture:
         """Return a new `p:pic` element containing video in `movie_file`.
@@ -1681,7 +1757,7 @@ class _MoviePicElementCreator(object):
         )
 
     @lazyproperty
-    def _poster_frame_image_file(self) -> str | IO[bytes]:
+    def _poster_frame_image_file(self) -> str | os.PathLike[str] | IO[bytes]:
         """Return the image file for video placeholder image.
 
         If no poster frame file is provided, the default "media loudspeaker" image is used.
@@ -1751,13 +1827,13 @@ class _OleObjectElementCreator(object):
         self,
         shapes: _BaseGroupShapes,
         shape_id: int,
-        ole_object_file: str | IO[bytes],
+        ole_object_file: str | os.PathLike[str] | IO[bytes],
         prog_id: PROG_ID | str,
         x: Length,
         y: Length,
         cx: Length | None,
         cy: Length | None,
-        icon_file: str | IO[bytes] | None,
+        icon_file: str | os.PathLike[str] | IO[bytes] | None,
         icon_width: Length | None,
         icon_height: Length | None,
     ):
@@ -1778,13 +1854,13 @@ class _OleObjectElementCreator(object):
         cls,
         shapes: _BaseGroupShapes,
         shape_id: int,
-        ole_object_file: str | IO[bytes],
+        ole_object_file: str | os.PathLike[str] | IO[bytes],
         prog_id: PROG_ID | str,
         x: Length,
         y: Length,
         cx: Length | None,
         cy: Length | None,
-        icon_file: str | IO[bytes] | None,
+        icon_file: str | os.PathLike[str] | IO[bytes] | None,
         icon_width: Length | None,
         icon_height: Length | None,
     ) -> CT_GraphicalObjectFrame:
@@ -1860,7 +1936,7 @@ class _OleObjectElementCreator(object):
         return self._icon_height_arg if self._icon_height_arg is not None else Emu(609600)
 
     @lazyproperty
-    def _icon_image_file(self) -> str | IO[bytes]:
+    def _icon_image_file(self) -> str | os.PathLike[str] | IO[bytes]:
         """Reference to image file containing icon to show in lieu of this object.
 
         This can be either a str path or a file-like object (io.BytesIO typically).

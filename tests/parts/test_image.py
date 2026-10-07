@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import io
+import os
+import pathlib
+import struct
 
 import pytest
 
+import power_pptx
 from power_pptx.package import Package
-from power_pptx.parts.image import Image, ImagePart
+from power_pptx.parts.image import Image, ImagePart, _is_emf
 from power_pptx.util import Emu
 
 from ..unitutil.file import absjoin, test_file_dir
@@ -20,6 +24,41 @@ from ..unitutil.mock import (
 )
 
 images_pptx_path = absjoin(test_file_dir, "with_images.pptx")
+
+
+def _emf_blob() -> bytes:
+    """A minimal EMF: just the 88-byte EMR_HEADER record, enough for Pillow to read its size."""
+    return struct.pack(
+        "<II4i4i4sIIIHHIIIii",
+        1,  # -- record type: EMR_HEADER --
+        88,  # -- record size --
+        0,
+        0,
+        100,
+        50,  # -- bounds, in device units --
+        0,
+        0,
+        2540,
+        1270,  # -- frame, in .01 mm --
+        b" EMF",  # -- signature, at offset 40 --
+        0x10000,  # -- version --
+        88,  # -- bytes --
+        1,  # -- records --
+        1,  # -- handles --
+        0,
+        0,
+        0,
+        0,
+        100,
+        50,  # -- device size in pixels --
+    ) + struct.pack("<ii", 25, 12)  # -- ... and in millimetres --
+
+
+def _placeable_wmf_blob() -> bytes:
+    """The 22-byte "placeable" WMF header Aldus put in front of a Windows metafile."""
+    key = b"\xd7\xcd\xc6\x9a"
+    return key + struct.pack("<HhhhhHIH", 0, 0, 0, 100, 50, 96, 0, 0) + b"\x01\x00\x09\x00" * 4
+
 
 test_image_path = absjoin(test_file_dir, "python-icon.jpeg")
 test_eps_path = absjoin(test_file_dir, "cdw-logo.eps")
@@ -107,6 +146,29 @@ class DescribeImage(object):
         Image.from_blob.assert_called_once_with(blob, None)
         assert image is image_
 
+    def it_can_construct_from_a_pathlib_path(self, from_blob_, image_):
+        with open(test_image_path, "rb") as f:
+            blob = f.read()
+        from_blob_.return_value = image_
+
+        image = Image.from_file(pathlib.Path(test_image_path))
+
+        Image.from_blob.assert_called_once_with(blob, "python-icon.jpeg")
+        assert image is image_
+
+    def and_it_can_construct_from_any_os_PathLike(self, from_blob_, image_):
+        class PathLike:
+            def __fspath__(self):
+                return test_image_path
+
+        with open(test_image_path, "rb") as f:
+            blob = f.read()
+        from_blob_.return_value = image_
+
+        Image.from_file(PathLike())
+
+        Image.from_blob.assert_called_once_with(blob, "python-icon.jpeg")
+
     def it_can_construct_from_a_blob(self, _init_):
         image = Image.from_blob(b"blob", "foo.png")
 
@@ -124,6 +186,28 @@ class DescribeImage(object):
     def it_knows_its_canonical_filename_extension(self, ext_fixture):
         image, expected_value = ext_fixture
         assert image.ext == expected_value
+
+    def it_knows_an_EMF_by_its_header_even_though_Pillow_calls_it_WMF(self):
+        image = Image.from_blob(_emf_blob())
+
+        assert image._format == "WMF"  # -- Pillow's plugin opens both metafile formats --
+        assert image.ext == "emf"
+        assert image.content_type == "image/x-emf"
+
+    def but_it_still_knows_a_real_WMF_as_a_wmf(self):
+        image = Image.from_blob(_placeable_wmf_blob())
+
+        assert image.ext == "wmf"
+        assert image.content_type == "image/x-wmf"
+
+    @pytest.mark.parametrize("template", ["generic-icon", "docx-icon", "pptx-icon", "xlsx-icon"])
+    def it_knows_the_bundled_OLE_icons_are_EMF_files(self, template):
+        path = os.path.join(os.path.dirname(power_pptx.__file__), "templates", template + ".emf")
+
+        image = Image.from_file(path)
+
+        assert image.ext == "emf"
+        assert image.content_type == "image/x-emf"
 
     def it_knows_its_dpi(self, dpi_fixture):
         image, expected_value = dpi_fixture
@@ -244,3 +328,26 @@ class DescribeImage(object):
     @pytest.fixture
     def _pil_props_(self, request):
         return property_mock(request, Image, "_pil_props")
+
+
+class Describe_is_emf(object):
+    """Unit-test suite for `power_pptx.parts.image._is_emf()`."""
+
+    def it_recognizes_an_EMF_header(self):
+        assert _is_emf(_emf_blob()) is True
+
+    @pytest.mark.parametrize(
+        "blob",
+        [
+            None,
+            b"",
+            b"\x01\x00\x00\x00",  # -- right record type but far too short to hold a signature --
+            _placeable_wmf_blob(),
+            b"\x01\x00\x09\x00" + b"\x00" * 60,  # -- a non-placeable WMF header --
+            b"\x89PNG\r\n\x1a\n" + b"\x00" * 60,
+            # -- the EMF signature in the right place but not behind an EMR_HEADER record --
+            b"\x02\x00\x00\x00" + b"\x00" * 36 + b" EMF" + b"\x00" * 8,
+        ],
+    )
+    def but_not_anything_else(self, blob):
+        assert _is_emf(blob) is False

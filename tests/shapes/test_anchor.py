@@ -8,6 +8,8 @@ on every corner-anchored element (logos, watermarks, page numbers).
 
 from __future__ import annotations
 
+import io
+
 import pytest
 
 from power_pptx import Presentation
@@ -288,6 +290,46 @@ class DescribeLintGroupScope:
         # The second auto-named scope must pick a fresh number.
         assert second.lint_group == "design-group-2"
 
+    def it_tags_every_new_shape_when_an_existing_one_is_deleted_inside_the_block(self):
+        # -- a shape count taken on entry is fooled by a deletion: two shapes before, one
+        # -- deleted and two added makes three, so only `elms[2:]` -- one new shape -- was tagged
+        prs, slide = _slide()
+        doomed = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+        survivor = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2), 0, Inches(1), Inches(1))
+
+        with slide.shapes.lint_group_scope("g"):
+            doomed.delete()
+            first = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), 0, Inches(1), Inches(1))
+            second = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(6), 0, Inches(1), Inches(1))
+
+        assert first.lint_group == "g"
+        assert second.lint_group == "g"
+        assert survivor.lint_group is None
+
+    def and_it_does_not_tag_an_existing_shape_that_was_only_reordered(self):
+        prs, slide = _slide()
+        a = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+        b = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2), 0, Inches(1), Inches(1))
+
+        with slide.shapes.lint_group_scope("g"):
+            slide.shapes._spTree.append(a.element)  # -- send `a` to the front of the z-order --
+            added = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), 0, Inches(1), Inches(1))
+
+        assert added.lint_group == "g"
+        assert a.lint_group is None
+        assert b.lint_group is None
+
+    def it_tags_shapes_added_to_a_group_inside_the_block(self):
+        prs, slide = _slide()
+        group = slide.shapes.add_group_shape()
+        existing = group.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+
+        with group.shapes.lint_group_scope("g"):
+            added = group.shapes.add_shape(MSO_SHAPE.OVAL, Inches(2), 0, Inches(1), Inches(1))
+
+        assert added.lint_group == "g"
+        assert existing.lint_group is None
+
     def it_still_tags_when_the_block_raises(self):
         # Better to tag than leave shapes flagged as real overlaps in
         # the lint report.
@@ -322,3 +364,158 @@ class DescribeAnchorOnAddPicture:
         # is, the right edge must sit at slide_w - margin.
         assert int(pic.left + pic.width) == int(Inches(10) - Inches(0.25))
         assert int(pic.top + pic.height) == int(Inches(7.5) - Inches(0.25))
+
+
+class DescribeAnchorInsideAGroup:
+    """A group must be refit around its members' final, *anchored* positions.
+
+    The anchor is applied after the shape is created, so refitting the group before moving the
+    shape leaves the group describing the position the shape started at.
+    """
+
+    PNG = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+        "0049454e44ae426082"
+    )
+
+    @staticmethod
+    def _group_holding_a_card():
+        prs, slide = _slide()
+        group = slide.shapes.add_group_shape()
+        card = group.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        return slide, group, card
+
+    @staticmethod
+    def _box(shape):
+        return (int(shape.left), int(shape.top), int(shape.width), int(shape.height))
+
+    def _assert_group_is_exactly_the_card(self, group, card):
+        # -- the badge ended up inside the card, so the group is the card and nothing more --
+        assert self._box(group) == self._box(card) == tuple(int(Inches(v)) for v in (1, 1, 4, 3))
+        chOff, chExt = group._grpSp.chOff, group._grpSp.chExt
+        assert (int(chOff.x), int(chOff.y)) == (int(card.left), int(card.top))
+        assert (int(chExt.cx), int(chExt.cy)) == (int(card.width), int(card.height))
+
+    def it_refits_the_group_around_an_anchored_shape(self):
+        _, group, card = self._group_holding_a_card()
+
+        badge = group.shapes.add_shape(
+            MSO_SHAPE.OVAL,
+            Inches(0),
+            Inches(0),
+            Inches(0.5),
+            Inches(0.5),
+            anchor="bottom-right",
+            margin=Inches(0.1),
+            container=card,
+        )
+
+        assert self._box(badge) == tuple(int(Inches(v)) for v in (4.4, 3.4, 0.5, 0.5))
+        self._assert_group_is_exactly_the_card(group, card)
+
+    def and_it_refits_the_group_around_an_anchored_textbox(self):
+        _, group, card = self._group_holding_a_card()
+
+        label = group.shapes.add_textbox(
+            Inches(0),
+            Inches(0),
+            Inches(1),
+            Inches(0.4),
+            anchor="top-center",
+            margin=Inches(0.2),
+            container=card,
+        )
+
+        assert int(label.top) == int(Inches(1.2))
+        self._assert_group_is_exactly_the_card(group, card)
+
+    def and_it_refits_the_group_around_an_anchored_picture(self):
+        _, group, card = self._group_holding_a_card()
+
+        logo = group.shapes.add_picture(
+            io.BytesIO(self.PNG),
+            Inches(0),
+            Inches(0),
+            Inches(0.5),
+            Inches(0.5),
+            anchor="bottom-right",
+            margin=Inches(0.1),
+            container=card,
+        )
+
+        assert self._box(logo) == tuple(int(Inches(v)) for v in (4.4, 3.4, 0.5, 0.5))
+        self._assert_group_is_exactly_the_card(group, card)
+
+    def it_anchors_to_a_group_as_it_was_before_the_new_shape_was_added(self):
+        # -- the new shape starts at (0, 0), outside the group; it must not stretch the
+        # -- container the anchor is measured against
+        _, group, card = self._group_holding_a_card()
+
+        badge = group.shapes.add_shape(
+            MSO_SHAPE.OVAL,
+            Inches(0),
+            Inches(0),
+            Inches(0.5),
+            Inches(0.5),
+            anchor="top-left",
+            margin=Inches(0.1),
+            container=group,
+        )
+
+        assert (int(badge.left), int(badge.top)) == (int(Inches(1.1)), int(Inches(1.1)))
+        self._assert_group_is_exactly_the_card(group, card)
+
+    def and_it_anchors_a_group_member_to_the_slide_by_default(self):
+        prs, slide = _slide()
+        prs.slide_width, prs.slide_height = Inches(10), Inches(7.5)
+        group = slide.shapes.add_group_shape()
+
+        badge = group.shapes.add_shape(
+            MSO_SHAPE.OVAL,
+            Inches(0),
+            Inches(0),
+            Inches(1),
+            Inches(1),
+            anchor="bottom-right",
+            margin=Inches(0.25),
+        )
+
+        assert self._box(badge) == tuple(int(Inches(v)) for v in (8.75, 6.25, 1, 1))
+        assert self._box(group) == self._box(badge)
+
+
+class DescribeAnchorValidation:
+    """A bad `anchor` or `container` must be reported before anything is added."""
+
+    @pytest.mark.parametrize("bad_anchor", ["south-west", "left-top", "top"])
+    def it_adds_no_shape_when_the_anchor_is_invalid(self, bad_anchor):
+        _, slide = _slide()
+        add_calls = (
+            lambda: slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1), anchor=bad_anchor
+            ),
+            lambda: slide.shapes.add_textbox(0, 0, Inches(1), Inches(1), anchor=bad_anchor),
+            lambda: slide.shapes.add_picture(
+                "tests/test_files/python-powered.png", 0, 0, anchor=bad_anchor
+            ),
+        )
+
+        for add in add_calls:
+            with pytest.raises(ValueError, match="anchor"):
+                add()
+
+        assert len(slide.shapes) == 0
+        assert len(slide.part.rels) == 1  # -- just the layout; no orphan image relationship --
+
+    def and_it_adds_no_shape_when_the_container_is_unusable(self):
+        _, slide = _slide()
+
+        with pytest.raises(ValueError, match="container"):
+            slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1), anchor="center", container=42
+            )
+
+        assert len(slide.shapes) == 0

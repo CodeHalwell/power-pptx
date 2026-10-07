@@ -12,6 +12,16 @@ from power_pptx.oxml.shapes.shared import ST_Direction, ST_PlaceholderSize
 from ...unitutil.cxml import element
 from ..unitdata.shape import a_gd, a_prstGeom, an_avLst
 
+# -- names that are legal shape names but break naive XML templating --
+AWKWARD_NAMES = [
+    'Hero "banner"',
+    "Hero & Logo",
+    "Q<4> results",
+    'it\'s 100% & "done"',
+    "tabbed\tname",
+    "two\nlines",
+]
+
 
 class DescribeCT_PresetGeometry2D(object):
     def it_can_get_the_gd_elms_as_a_sequence(self, gd_lst_fixture):
@@ -129,6 +139,29 @@ class DescribeCT_Shape(object):
         sp = CT_Shape.new_textbox_sp(id_, name, left, top, width, height)
         # verify -----------------------
         assert sp.xml == xml
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_freeform_sp(self, name):
+        sp = CT_Shape.new_freeform_sp(9, name, 1, 2, 3, 4)
+        assert sp.xpath("p:nvSpPr/p:cNvPr")[0].get("name") == name
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_placeholder_sp(self, name):
+        sp = CT_Shape.new_placeholder_sp(
+            9, name, PP_PLACEHOLDER.BODY, ST_Direction.HORZ, ST_PlaceholderSize.FULL, 1
+        )
+        assert sp.xpath("p:nvSpPr/p:cNvPr")[0].get("name") == name
+
+    @pytest.mark.parametrize("name", AWKWARD_NAMES)
+    def it_escapes_the_name_of_a_new_textbox_sp(self, name):
+        sp = CT_Shape.new_textbox_sp(9, name, 1, 2, 3, 4)
+        assert sp.xpath("p:nvSpPr/p:cNvPr")[0].get("name") == name
+
+    def but_it_takes_the_name_of_a_new_autoshape_sp_as_already_escaped(self):
+        # -- `AutoShapeType.basename` escapes the one auto-shape name containing quotes, so
+        # -- escaping again here would double-escape it
+        sp = CT_Shape.new_autoshape_sp(9, "&quot;No&quot; Symbol 8", "noSmoking", 1, 2, 3, 4)
+        assert sp.xpath("p:nvSpPr/p:cNvPr")[0].get("name") == '"No" Symbol 8'
 
     def it_knows_whether_it_is_an_autoshape(self, is_autoshape_fixture):
         sp, expected_value = is_autoshape_fixture

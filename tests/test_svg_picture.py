@@ -139,6 +139,80 @@ class DescribeAddSvgPicture:
         raster_.assert_called_once()
 
 
+class DescribeSvgPartReuse:
+    """Identical SVG bytes share one SVG part, as identical PNG bytes already share one image."""
+
+    OTHER_SVG = SVG_DOC.replace(b"#FF6600", b"#0066FF")
+
+    @staticmethod
+    def _svg_parts(prs):
+        return [
+            part for part in prs.part.package.iter_parts() if part.content_type == "image/svg+xml"
+        ]
+
+    @staticmethod
+    def _add(slide, svg, left=1):
+        return slide.shapes.add_svg_picture(
+            io.BytesIO(svg), Inches(left), Inches(1), Inches(1), Inches(1), png_fallback=TINY_PNG
+        )
+
+    def it_reuses_the_svg_part_for_identical_svg_bytes(self):
+        prs, slide = _new_slide()
+
+        first = self._add(slide, SVG_DOC, left=1)
+        second = self._add(slide, SVG_DOC, left=3)
+
+        assert len(self._svg_parts(prs)) == 1
+        svg_rIds = [
+            pic.element.xpath(".//*[local-name()='svgBlip']/@r:embed")[0] for pic in (first, second)
+        ]
+        assert svg_rIds[0] == svg_rIds[1]
+
+    def and_it_shares_the_part_between_slides(self):
+        prs, slide = _new_slide()
+        other_slide = prs.slides.add_slide(prs.slide_layouts[5])
+
+        self._add(slide, SVG_DOC)
+        self._add(other_slide, SVG_DOC)
+
+        assert len(self._svg_parts(prs)) == 1
+
+    def but_it_keeps_different_svgs_apart(self):
+        prs, slide = _new_slide()
+
+        self._add(slide, SVG_DOC, left=1)
+        self._add(slide, self.OTHER_SVG, left=3)
+
+        parts = self._svg_parts(prs)
+        assert len(parts) == 2
+        assert {part.blob for part in parts} == {SVG_DOC, self.OTHER_SVG}
+        assert len({part.partname for part in parts}) == 2
+
+    def it_writes_a_single_svg_file_to_the_saved_package(self, tmp_path):
+        import zipfile
+
+        prs, slide = _new_slide()
+        for left in (1, 3, 5):
+            self._add(slide, SVG_DOC, left=left)
+        path = tmp_path / "svg_reuse.pptx"
+
+        prs.save(str(path))
+
+        with zipfile.ZipFile(str(path)) as zf:
+            assert len([n for n in zf.namelist() if n.endswith(".svg")]) == 1
+
+    def and_it_reuses_an_svg_part_loaded_from_a_saved_deck(self, tmp_path):
+        prs, slide = _new_slide()
+        self._add(slide, SVG_DOC)
+        path = tmp_path / "svg_loaded.pptx"
+        prs.save(str(path))
+
+        reopened = Presentation(str(path))
+        self._add(reopened.slides[0], SVG_DOC, left=4)
+
+        assert len(self._svg_parts(reopened)) == 1
+
+
 class DescribeRasterizeSvg:
     def it_raises_a_clear_error_when_cairosvg_is_missing(self, monkeypatch):
         # Force the import inside ``rasterize_svg`` to fail.

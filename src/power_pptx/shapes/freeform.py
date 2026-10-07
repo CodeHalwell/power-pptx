@@ -103,6 +103,9 @@ class FreeformBuilder(Sequence[DrawingOperation]):
         geometry in different locations on the slide.
         """
         sp = self._add_freeform_sp(origin_x, origin_y)
+        # -- every other `add_*` method of a shape collection refits an enclosing group around
+        # -- its new member; a no-op on a slide's shape tree --
+        self._shapes._recalculate_extents()  # pyright: ignore[reportPrivateUsage]
         path = self._start_path(sp)
         for drawing_operation in self:
             drawing_operation.apply_operation_to(path)

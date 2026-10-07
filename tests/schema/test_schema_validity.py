@@ -548,6 +548,131 @@ def _deck_lint_relationship_model() -> bytes:
     return _saved(prs)
 
 
+def _deck_names_with_markup_characters() -> bytes:
+    # Regression: file names and placeholder names are spliced into the XML templates for
+    # pictures, movies and graphic frames. `Q&A chart.png`, `my "best" photo.png` and a
+    # placeholder renamed "Hero & Logo" used to raise (or, for a name that reached a
+    # quoted attribute unescaped, emit an unparsable slide), and every name must come out
+    # as a well-formed `name`/`descr` attribute.
+    import os
+    import tempfile
+
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+    from power_pptx.enum.shapes import PP_PLACEHOLDER
+
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+        "0049454e44ae426082"
+    )
+    prs = Presentation()
+    s = _blank_slide(prs)
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def write(name: str, data: bytes) -> str:
+            path = os.path.join(tmp, name)
+            try:
+                with open(path, "wb") as f:
+                    f.write(data)
+            except OSError:  # -- e.g. quotes or angle brackets in a Windows file name --
+                path = os.path.join(tmp, "".join("_" if c in '"<>' else c for c in name))
+                with open(path, "wb") as f:
+                    f.write(data)
+            return path
+
+        s.shapes.add_picture(write('my "best" photo.png', png), Inches(1), Inches(1))
+        s.shapes.add_picture(write("Q&A chart.png", png), Inches(3), Inches(1))
+        s.shapes.add_movie(
+            write("Tom & Jerry.mp4", b"\x00" * 16),
+            Inches(1),
+            Inches(3),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+
+        s2 = prs.slides.add_slide(prs.slide_layouts[8])  # -- "Picture with Caption" --
+        picture_ph = next(ph for ph in s2.placeholders if ph.placeholder_format.type == 18)
+        picture_ph.name = "Hero & Logo"
+        picture_ph.insert_picture(write("R&D <draft>.png", png))
+
+        # -- chart and table placeholders keep their (renamed) name when filled --
+        s3 = _blank_slide(prs)
+        for idx, ph_type in ((10, PP_PLACEHOLDER.CHART), (11, PP_PLACEHOLDER.TABLE)):
+            s3.shapes._spTree.add_placeholder(
+                100 + idx, "Ph %d" % idx, ph_type, "horz", "full", idx
+            )
+            ph = s3.placeholders[idx]
+            ph.name = 'Q&A "results" <draft>'
+            ph.left, ph.top, ph.width, ph.height = Inches(1), Inches(1), Inches(4), Inches(3)
+        data = CategoryChartData()
+        data.categories = ["A", "B"]
+        data.add_series("S1", (1, 2))
+        s3.placeholders[10].insert_chart(XL_CHART_TYPE.PIE, data)
+        s3.placeholders[11].insert_table(2, 2)
+    return _saved(prs)
+
+
+def _deck_shape_trees_with_extlst() -> bytes:
+    # Regression: chart, OLE-object and movie frames were appended with a bare
+    # `spTree.append()` while every other `add_*` inserts before `p:extLst`, so on a
+    # shape tree (or group) that carries an extLst they landed after it. The schema
+    # wants shapes first and `p:extLst` last; PowerPoint offers to repair the file.
+    from power_pptx.chart.data import CategoryChartData
+    from power_pptx.enum.chart import XL_CHART_TYPE
+    from power_pptx.enum.shapes import MSO_SHAPE, PROG_ID
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    def ext_lst():
+        return parse_xml(
+            '<p:extLst %s><p:ext uri="{00000000-0000-0000-0000-000000000001}"/></p:extLst>'
+            % nsdecls("p")
+        )
+
+    prs = Presentation()
+    s = _blank_slide(prs)
+    group = s.shapes.add_group_shape()
+    for shapes in (s.shapes, group.shapes):
+        shapes._spTree.append(ext_lst())
+        shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(1), Inches(1))
+        data = CategoryChartData()
+        data.categories = ["A", "B"]
+        data.add_series("S1", (1, 2))
+        shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), data
+        )
+        shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(5), Inches(1))
+        shapes.add_movie(
+            io.BytesIO(b"\x00" * 16),
+            Inches(5),
+            Inches(3),
+            Inches(2),
+            Inches(1),
+            mime_type="video/mp4",
+        )
+    return _saved(prs)
+
+
+def _deck_emf_images() -> bytes:
+    # Regression: Pillow reports an EMF as "WMF", so EMF pictures and the default OLE
+    # icons (which are EMF files) were stored as `image*.wmf` with `image/x-wmf`. They
+    # are now `.emf` / `image/x-emf`, and that extension must be declared in the
+    # package's [Content_Types].xml like every other part.
+    import os
+
+    import power_pptx
+    from power_pptx.enum.shapes import PROG_ID
+
+    templates = os.path.join(os.path.dirname(power_pptx.__file__), "templates")
+    prs = Presentation()
+    s = _blank_slide(prs)
+    s.shapes.add_picture(os.path.join(templates, "pptx-icon.emf"), Inches(1), Inches(1))
+    s.shapes.add_ole_object(io.BytesIO(b"payload"), PROG_ID.XLSX, Inches(4), Inches(1))
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
@@ -573,6 +698,9 @@ _DECK_BUILDERS = {
     "diagrams": _deck_diagrams,
     "ergonomics": _deck_ergonomics,
     "lint_relationship_model": _deck_lint_relationship_model,
+    "names_with_markup_characters": _deck_names_with_markup_characters,
+    "shape_trees_with_extlst": _deck_shape_trees_with_extlst,
+    "emf_images": _deck_emf_images,
 }
 
 
