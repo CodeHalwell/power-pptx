@@ -18,8 +18,10 @@ Example::
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Iterator, Sequence
 
+from lxml import etree
 from lxml.etree import _Element as LxmlElement  # pyright: ignore[reportPrivateUsage]
 
 from power_pptx.oxml.ns import _nsmap as _GLOBAL_NSMAP  # pyright: ignore[reportPrivateUsage]
@@ -53,15 +55,68 @@ def _xpath(element: LxmlElement, expr: str) -> list[LxmlElement]:
 def _node_pts(data_element: LxmlElement) -> list[LxmlElement]:
     """Return all ``<dgm:pt>`` elements whose ``type`` marks them as content nodes.
 
+    ``type`` is optional on ``<dgm:pt>`` and defaults to ``"node"`` (``ST_PtType``), and
+    PowerPoint omits it on ordinary content nodes, so a point without the attribute is a
+    content node too.  The doc / pres / parTrans / sibTrans points are structural and
+    never match.
+
     The returned list is in document order, which corresponds to the visual
     display order in most SmartArt layouts.
     """
-    return _xpath(data_element, "dgm:ptLst/dgm:pt[@type='node' or @type='asst']")
+    return _xpath(data_element, "dgm:ptLst/dgm:pt[not(@type) or @type='node' or @type='asst']")
 
 
 def _text_runs(pt: LxmlElement) -> list[LxmlElement]:
     """Return all ``<a:t>`` leaf elements inside a ``<dgm:pt>/<dgm:t>`` text body."""
     return _xpath(pt, "dgm:t//a:r/a:t")
+
+
+def _add_run(p: LxmlElement, text: str) -> None:
+    """Append a run holding `text` to paragraph `p`, ahead of its ``a:endParaRPr``.
+
+    The new run inherits the paragraph's end-of-paragraph character properties (language,
+    and in a cached drawing the size too) the way PowerPoint carries them over when text is
+    typed into an empty paragraph.
+    """
+    r = p.makeelement(qn("a:r"))
+    end_para_rPr = p.find(qn("a:endParaRPr"))
+    if end_para_rPr is not None:
+        rPr = deepcopy(end_para_rPr)
+        rPr.tag = qn("a:rPr")
+        r.append(rPr)
+        end_para_rPr.addprevious(r)
+    else:
+        p.append(r)
+    etree.SubElement(r, qn("a:t")).text = text
+
+
+def _write_node_text(pt: LxmlElement, text: str) -> None:
+    """Replace the text of the content node `pt` with `text`."""
+    runs = _text_runs(pt)
+    if runs:
+        # Overwrite first run; clear the rest.
+        runs[0].text = text
+        for extra_run in runs[1:]:
+            extra_run.text = ""
+    else:
+        # No existing <a:t>.  PowerPoint's "[Text]" placeholder nodes hold an empty paragraph
+        # (<a:p><a:endParaRPr/></a:p>); write into it rather than starting a second one,
+        # which would render the new text on line two.
+        t_body = pt.find(qn("dgm:t"))
+        if t_body is None:
+            t_body = etree.SubElement(pt, qn("dgm:t"))
+            etree.SubElement(t_body, qn("a:bodyPr"))
+            etree.SubElement(t_body, qn("a:lstStyle"))
+        p = t_body.find(qn("a:p"))
+        if p is None:
+            p = etree.SubElement(t_body, qn("a:p"))
+        _add_run(p, text)
+
+    # A node holding real text is no longer a placeholder: PowerPoint drops `phldr` once text
+    # is typed in, and a node left flagged would still be treated as the "[Text]" prompt.
+    if text:
+        for prSet in pt.findall(qn("dgm:prSet")):
+            prSet.attrib.pop("phldr", None)
 
 
 # ---------------------------------------------------------------------------
@@ -138,28 +193,7 @@ class SmartArtShape:
         for i, pt in enumerate(nodes):
             if i >= len(values):
                 break
-            new_text = str(values[i])
-            runs = _text_runs(pt)
-            if runs:
-                # Overwrite first run; clear the rest.
-                runs[0].text = new_text
-                for extra_run in runs[1:]:
-                    extra_run.text = ""
-            else:
-                # No existing <a:t>; build a minimal <dgm:t>/<a:p>/<a:r>/<a:t> subtree.
-                t_body = pt.find(qn("dgm:t"))
-                if t_body is None:
-                    from lxml import etree
-
-                    t_body = etree.SubElement(pt, qn("dgm:t"))
-                    etree.SubElement(t_body, qn("a:bodyPr"))
-                    etree.SubElement(t_body, qn("a:lstStyle"))
-                from lxml import etree
-
-                p = etree.SubElement(t_body, qn("a:p"))
-                r = etree.SubElement(p, qn("a:r"))
-                t = etree.SubElement(r, qn("a:t"))
-                t.text = new_text
+            _write_node_text(pt, str(values[i]))
 
     # ------------------------------------------------------------------
     # Internals
