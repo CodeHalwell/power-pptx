@@ -5,8 +5,9 @@ from __future__ import annotations
 import io
 
 import pytest
+from lxml import etree
 
-from power_pptx import Presentation
+from power_pptx import Presentation, audit
 from power_pptx.dml.color import RGBColor
 from power_pptx.lint import (
     _LEGACY_LINT_GROUP_ATTR,
@@ -22,11 +23,20 @@ from power_pptx.lint import (
     ShapeCollision,
     ShapeCollisionShadow,
     SlideLintReport,
+    TextOverflow,
     ZOrderAnomaly,
     _contrast_ratio,
     _find_lint_ext,
+    _overlap_allowed,
 )
 from power_pptx.util import Emu, Inches, Pt
+
+# A 1x1 PNG: the smallest image ``add_picture`` will accept.
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"
+    "53de0000000c4944415478da6300010000000500010d0a2db40000000049"
+    "454e44ae426082"
+)
 
 
 def _new_blank_slide():
@@ -187,6 +197,25 @@ class DescribeSlideDesignGroup:
         assert outside.lint_group is None
         assert inside.lint_group == "kpi-card-1"
         assert after.lint_group is None
+
+    @pytest.mark.parametrize("existing", [1, 2, 3, 12, 30])
+    def it_tags_exactly_the_new_shapes_however_many_already_exist(self, existing):
+        # Regression: the block used to remember the shapes already on the slide as the
+        # ``id()`` of lxml proxies it did not keep alive.  A proxy's address is recycled as
+        # soon as it is garbage-collected, so proxies for *other* elements later matched the
+        # snapshot: shapes that predated the block were tagged and the one added in it was
+        # missed.  The slide's shapes are deliberately not kept here -- holding them would
+        # pin their proxies and hide the address reuse.
+        _, slide = _new_blank_slide()
+        for i in range(existing):
+            slide.shapes.add_shape(1, Inches(0.2 * i), Inches(0.5), Inches(0.1), Inches(0.1))
+        names_before = [s.name for s in slide.shapes]
+
+        with slide.design_group("kpi"):
+            added = slide.shapes.add_shape(1, Inches(0.5), Inches(3), Inches(1), Inches(1))
+
+        assert [s.name for s in slide.shapes if s.lint_group == "kpi"] == [added.name]
+        assert [s.name for s in slide.shapes][:existing] == names_before
 
     def it_uses_the_innermost_label_when_nested(self):
         _, slide = _new_blank_slide()
@@ -507,6 +536,53 @@ class DescribeSetParagraphDefaults:
         assert tf.paragraphs[1].runs[0].font.name == "Inter"
 
 
+class DescribeTextOverflow:
+    """The line-count heuristic behind ``TextOverflow``."""
+
+    @staticmethod
+    def _overflow_ratio(text, *, width=Inches(3), height=Inches(0.4)):
+        """Return the ``TextOverflow`` ratio for *text* in a rectangle, or ``None``.
+
+        A rectangle rather than a textbox: autoshapes default to ``auto_size = NONE``,
+        whereas ``add_textbox`` frames shrink-wrap and are never checked.
+        """
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), width, height)
+        box.text_frame.text = text
+        found = [i for i in slide.lint().issues if isinstance(i, TextOverflow)]
+        return found[0].ratio if found else None
+
+    def it_counts_each_paragraph_as_a_line(self):
+        # 18pt text in a frame one line tall (0.4" less 0.1" of margin = 21.6pt).
+        assert self._overflow_ratio("one\ntwo\nthree\nfour\nfive") == pytest.approx(5.0)
+
+    def it_counts_each_explicit_line_break_as_a_line(self):
+        # Regression: ``<a:br/>`` reads back as "\v", and only "\n" used to split the text,
+        # so five lines made of line breaks were counted as one and never reported.
+        assert self._overflow_ratio("one\vtwo\vthree\vfour\vfive") == pytest.approx(5.0)
+
+    def it_does_not_flag_text_that_fits_once_the_breaks_are_counted(self):
+        assert self._overflow_ratio("one", height=Inches(0.4)) is None
+        assert self._overflow_ratio("one\vtwo", height=Inches(0.7)) is None
+
+    @pytest.mark.parametrize(
+        "paragraphs",
+        [
+            "a\nb\nc",
+            "a much longer line that wraps\nand another that is just as long",
+            # 16 characters in all: short enough for the tighter single-line width estimate if
+            # it were still taken to be a single line, but it is two lines.
+            "abcdefghijklmn\no",
+        ],
+    )
+    def it_treats_a_line_break_like_a_paragraph_break(self, paragraphs):
+        frame = {"width": Inches(2), "height": Inches(0.7)}
+        with_paragraphs = self._overflow_ratio(paragraphs, **frame)
+        with_breaks = self._overflow_ratio(paragraphs.replace("\n", "\v"), **frame)
+        assert with_paragraphs is not None  # the frame is too small for all three texts
+        assert with_breaks == with_paragraphs
+
+
 class DescribeAutoFixTextOverflow:
     """Regression tests for IMPROVEMENT_PLAN.md item 4.
 
@@ -623,6 +699,78 @@ class DescribeLowContrast:
         assert [i for i in slide.lint().issues if isinstance(i, LowContrast)] == []
 
 
+class DescribeLowContrastBackground:
+    """Which background the text is measured against: the shape's fill, or the slide's."""
+
+    @staticmethod
+    def _white_text_in_a_card_on_a_white_slide(fill):
+        """A card with white text on a slide whose explicit background is white.
+
+        *fill* is applied to the card; the text colour and the slide background are fixed.
+        """
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        card = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(1))
+        card.text_frame.text = "White on a card"
+        card.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        fill(card)
+        return slide
+
+    @staticmethod
+    def _low_contrast(slide):
+        return [i for i in slide.lint().issues if isinstance(i, LowContrast)]
+
+    def it_skips_a_card_filled_with_a_theme_colour(self):
+        # Regression: a solid fill that is not an explicit RGB (here the dark-blue ACCENT_1) was
+        # treated as "no fill", so the white text was measured against the white slide and
+        # reported at 1.00:1 although it sits on dark blue.
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        def accent_fill(card):
+            card.fill.solid()
+            card.fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
+
+        slide = self._white_text_in_a_card_on_a_white_slide(accent_fill)
+
+        assert self._low_contrast(slide) == []
+
+    def it_skips_a_card_with_a_gradient_fill(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.gradient())
+        assert self._low_contrast(slide) == []
+
+    def it_skips_a_card_with_a_patterned_fill(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.patterned())
+        assert self._low_contrast(slide) == []
+
+    def but_it_still_measures_an_explicit_rgb_fill(self):
+        def white_fill(card):
+            card.fill.solid()
+            card.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        slide = self._white_text_in_a_card_on_a_white_slide(white_fill)
+
+        assert len(self._low_contrast(slide)) == 1
+
+    def but_it_still_falls_back_to_the_slide_when_the_shape_has_no_fill_of_its_own(self):
+        # A textbox has no fill, so the text sits on the slide itself.
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "White on white"
+        box.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        issues = self._low_contrast(slide)
+
+        assert len(issues) == 1
+        assert issues[0].ratio == pytest.approx(1.0)
+
+    def and_an_explicit_no_fill_means_the_text_sits_on_the_slide(self):
+        slide = self._white_text_in_a_card_on_a_white_slide(lambda card: card.fill.background())
+        assert len(self._low_contrast(slide)) == 1
+
+
 class DescribeZOrderAnomaly:
     def it_flags_a_filled_shape_drawn_above_a_contained_shape(self):
         _, slide = _new_blank_slide()
@@ -652,6 +800,41 @@ class DescribeZOrderAnomaly:
         slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
         assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
 
+    @staticmethod
+    def _photo_under_a_full_slide_scrim(alpha):
+        """The picture + scrim + text pattern: a photo, then a slide-sized black scrim over it."""
+        _, slide = _new_blank_slide()
+        slide.shapes.add_picture(io.BytesIO(_TINY_PNG), Inches(2), Inches(2), Inches(3), Inches(2))
+        scrim = slide.shapes.add_shape(1, Emu(0), Emu(0), Inches(10), Inches(7.5))
+        scrim.fill.solid()
+        scrim.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        if alpha is not None:
+            scrim.fill.fore_color.alpha = alpha
+        return slide
+
+    @pytest.mark.parametrize("alpha", [0.4, 0.99, 0.0])
+    def it_does_not_flag_a_translucent_scrim_over_a_photo(self, alpha):
+        # Regression: a fill with ``<a:alpha>`` below 100% lets what is under it show through,
+        # but any solid fill used to count as opaque, so the photo was reported as "hidden".
+        slide = self._photo_under_a_full_slide_scrim(alpha)
+        assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
+
+    @pytest.mark.parametrize("alpha", [None, 1.0])
+    def but_it_still_flags_an_opaque_scrim_over_a_photo(self, alpha):
+        slide = self._photo_under_a_full_slide_scrim(alpha)
+        assert len([i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]) == 1
+
+    def it_reads_the_alpha_of_a_theme_colour_fill_too(self):
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_textbox(Inches(2), Inches(2), Inches(1), Inches(1))
+        veil = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
+        veil.fill.solid()
+        veil.fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
+        veil.fill.fore_color.alpha = 0.5
+        assert [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)] == []
+
 
 class DescribeMasterPlaceholderCollision:
     def it_flags_a_textbox_at_the_position_of_an_unused_layout_placeholder(self):
@@ -677,6 +860,184 @@ class DescribeMasterPlaceholderCollision:
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         # Slide already inherits the title; no extra textbox added.
         assert [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)] == []
+
+
+def _bare_runs_slide():
+    """A textbox and a rectangle whose runs carry no ``<a:rPr>``."""
+    prs, slide = _new_blank_slide()
+    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "no run properties\nsecond paragraph"
+    # A textbox frame shrink-wraps, which exempts it from the overflow check; the rectangle's
+    # frame has no auto-size, so that check reads its runs too.
+    rect = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(3), Inches(1))
+    rect.text_frame.text = "bare run in a rectangle"
+    return prs, slide
+
+
+def _picture_with_caption_slide():
+    """A slide from the "Picture with Caption" layout.
+
+    Its picture placeholder is a ``p:sp`` that was cloned without a ``p:txBody``.
+    """
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[8])
+    slide.shapes.title.text_frame.text = "A caption title"
+    return prs, slide
+
+
+def _title_and_content_slide():
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text_frame.text = "A title"
+    slide.placeholders[1].text_frame.text = "a bullet\nanother bullet"
+    return prs, slide
+
+
+def _group_with_textbox_slide():
+    prs, slide = _new_blank_slide()
+    group = slide.shapes.add_group_shape()
+    box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    box.text_frame.text = "inside a group"
+    return prs, slide
+
+
+def _shape_without_a_text_body_slide():
+    """An autoshape with no ``p:txBody``, as written by tools that omit empty ones."""
+    prs, slide = _new_blank_slide()
+    shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+    shape._element.remove(shape._element.txBody)
+    return prs, slide
+
+
+_READ_ONLY_SCENARIOS = pytest.mark.parametrize(
+    "build",
+    [
+        _bare_runs_slide,
+        _picture_with_caption_slide,
+        _title_and_content_slide,
+        _group_with_textbox_slide,
+        _shape_without_a_text_body_slide,
+    ],
+    ids=["bare-runs", "picture-with-caption", "title-and-content", "group", "no-text-body"],
+)
+
+
+class DescribeLintIsReadOnly:
+    """``slide.lint()`` inspects a slide; it must never change it.
+
+    Reading ``run.font`` inserts an empty ``<a:rPr/>`` into a run that has none, and reading
+    ``shape.text_frame`` adds a ``<p:txBody>`` to a ``p:sp`` that lacks one.  Both are fine for
+    a caller who is about to write, and both change the bytes saved for a deck that was only
+    being checked (``lint_on_save``, ``audit()`` and every CI run included).
+    """
+
+    @_READ_ONLY_SCENARIOS
+    def it_leaves_the_slide_xml_untouched(self, build):
+        _, slide = build()
+        before = etree.tostring(slide._element)
+
+        slide.lint()
+
+        assert etree.tostring(slide._element) == before
+
+    @_READ_ONLY_SCENARIOS
+    def and_leaves_it_untouched_when_checking_effect_bleed(self, build):
+        _, slide = build()
+        before = etree.tostring(slide._element)
+
+        slide.lint(include_effect_bleed=True)
+
+        assert etree.tostring(slide._element) == before
+
+    @_READ_ONLY_SCENARIOS
+    def and_audit_leaves_it_untouched_too(self, build):
+        prs, slide = build()
+        before = etree.tostring(slide._element)
+
+        audit(prs)
+
+        assert etree.tostring(slide._element) == before
+
+    def it_still_reports_what_it_reads_from_explicit_run_properties(self):
+        # The read-only path must see exactly what the mutating one did.
+        _, slide = _new_blank_slide()
+        rect = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        rect.text_frame.text = "tiny and pale"
+        run = rect.text_frame.paragraphs[0].runs[0]
+        run.font.size = Pt(7)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        rect.fill.solid()
+        rect.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        codes = {i.code for i in slide.lint().issues}
+
+        assert {"MinFontSize", "LowContrast"} <= codes
+
+    def it_does_not_choke_on_a_shape_with_no_text_body(self):
+        _, slide = _shape_without_a_text_body_slide()
+        shape = list(slide.shapes)[0]
+        assert shape.has_text_frame  # the API says "yes"; the XML has nothing yet
+
+        codes = {i.code for i in slide.lint().issues}
+
+        assert not codes & {"TextOverflow", "MinFontSize", "LowContrast"}
+
+
+class DescribeReadOnlyTextAccess:
+    """The helpers the linter uses to look at text without creating any."""
+
+    def it_finds_no_text_frame_on_a_shape_that_has_no_text_body(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _shape_without_a_text_body_slide()
+        shape = list(slide.shapes)[0]
+        before = etree.tostring(slide._element)
+
+        assert _text_frame_if_present(shape) is None
+        assert etree.tostring(slide._element) == before
+
+    def it_finds_the_text_frame_when_there_is_a_text_body(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _new_blank_slide()
+        rect = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        rect.text_frame.text = "hello"
+
+        frame = _text_frame_if_present(rect)
+
+        assert frame is not None
+        assert frame.text == "hello"
+
+    def it_finds_no_text_frame_on_a_shape_that_cannot_hold_text(self):
+        from power_pptx.lint import _text_frame_if_present
+
+        _, slide = _group_with_textbox_slide()
+        group = list(slide.shapes)[0]
+        assert _text_frame_if_present(group) is None
+
+    def it_finds_no_font_on_a_run_without_run_properties(self):
+        from power_pptx.lint import _run_font
+
+        _, slide = _bare_runs_slide()
+        run = list(slide.shapes)[0].text_frame.paragraphs[0].runs[0]
+        before = etree.tostring(slide._element)
+
+        assert _run_font(run) is None
+        assert etree.tostring(slide._element) == before
+
+    def it_reads_the_font_of_a_run_that_has_run_properties(self):
+        from power_pptx.lint import _run_font
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "sized"
+        run = box.text_frame.paragraphs[0].runs[0]
+        run.font.size = Pt(11)
+
+        font = _run_font(run)
+
+        assert font is not None
+        assert font.size == Pt(11)
 
 
 class DescribeReportSummary:
@@ -773,6 +1134,51 @@ class DescribeEffectBleedGeometry:
         bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
         assert len(bleed) >= 1
         assert any(i.code == "OffSlideShadow" for i in bleed)
+
+    def _bleed_only_slide(self):
+        """A shape flush with the right edge whose 1" shadow blur crosses it."""
+        _, slide = _new_blank_slide()
+        slide_w, _slide_h = self._slide_dims(slide)
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
+        s.shadow.blur_radius = Emu(914400)
+        return slide
+
+    def it_reports_OffSlideShadow_as_a_warning(self):
+        # Regression: it inherited ERROR from OffSlide, so a purely cosmetic clipped shadow
+        # made ``has_errors`` true -- and ``auto_fix()`` has nothing to clamp, because the
+        # shape itself is on the slide -- leaving a gate that could never be cleared.
+        report = self._bleed_only_slide().lint(include_effect_bleed=True)
+
+        bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
+
+        assert bleed
+        assert {i.severity for i in bleed} == {LintSeverity.WARNING}
+        assert not report.has_errors
+
+    def and_leaves_a_real_OffSlide_an_error(self):
+        _, slide = _new_blank_slide()
+        slide_w, _slide_h = self._slide_dims(slide)
+        slide.shapes.add_shape(1, slide_w - Inches(1), Inches(1), Inches(2), Inches(2))
+
+        report = slide.lint(include_effect_bleed=True)
+
+        off = [i for i in report.issues if i.code == "OffSlide"]
+        assert off
+        assert {i.severity for i in off} == {LintSeverity.ERROR}
+        assert report.has_errors
+
+    def and_has_nothing_for_auto_fix_to_do_about_it(self):
+        report = self._bleed_only_slide().lint(include_effect_bleed=True)
+
+        assert report.auto_fix() == []
+        assert any(isinstance(i, OffSlideShadow) for i in report.issues)
+
+    def and_drops_out_of_an_errors_only_report(self):
+        slide = self._bleed_only_slide()
+
+        report = slide.lint(include_effect_bleed=True, min_severity="error")
+
+        assert report.issues == []
 
     def it_does_not_fire_collision_when_bleed_disabled(self):
         _, slide = _new_blank_slide()
@@ -960,6 +1366,28 @@ class DescribeAutoFixSizeClamp:
         assert int(s.width) <= int(slide_w)
         assert int(s.left) + int(s.width) <= int(slide_w)
         assert int(s.height) <= int(slide_h)
+
+
+class DescribeLintWithoutASlideSize:
+    """A presentation with no ``<p:sldSz>`` is linted against the 10" x 7.5" default."""
+
+    def it_flags_a_shape_crossing_the_default_slide_edge(self):
+        prs, slide = _new_blank_slide()
+        prs._element.remove(prs._element.sldSz)
+        slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(2), Inches(1))  # reaches 11"
+
+        off = [i for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+        assert [i.side for i in off] == ["right"]
+
+    def and_clamps_it_back_inside_the_default(self):
+        prs, slide = _new_blank_slide()
+        prs._element.remove(prs._element.sldSz)
+        shape = slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(2), Inches(1))
+
+        slide.lint().auto_fix()
+
+        assert shape.left == Inches(8)
 
 
 class DescribeFingerprints:
@@ -1451,6 +1879,49 @@ class DescribeCollisionAllowanceSuppression:
         a, b = _add_overlapping_rects(slide, 2)
         a.overlap_allowances = {9999}
         assert len(_collisions(slide)) == 1
+
+
+class DescribeCollisionCheckCost:
+    """Per-shape lookups in the collision walk are done once, not once per pair."""
+
+    def it_resolves_each_shape_id_once_rather_than_once_per_pair(self, monkeypatch):
+        # Regression: ``_overlap_allowed`` used to re-read both shapes' ids (an xpath each) for
+        # every pair, which made a 400-shape slide take ~4.7s to lint against ~0.34s with the
+        # ids resolved up front.  Counting resolutions keeps the guard deterministic where a
+        # wall-clock threshold would be flaky.
+        import power_pptx.lint as lint_module
+
+        _, slide = _new_blank_slide()
+        count = 30
+        # Small, well-separated cells: nothing overlaps, so every one of the
+        # count * (count - 1) / 2 pairs reaches the allowance check.
+        for i in range(count):
+            left, top = Inches(0.9 * (i % 10)), Inches(0.9 * (i // 10))
+            slide.shapes.add_shape(1, left, top, Inches(0.5), Inches(0.5))
+        resolved = []
+        original = lint_module._shape_id
+
+        def counting(shape):
+            resolved.append(shape)
+            return original(shape)
+
+        monkeypatch.setattr(lint_module, "_shape_id", counting)
+
+        report = slide.lint()
+
+        assert [i for i in report.issues if isinstance(i, ShapeCollision)] == []
+        assert len(resolved) <= count
+
+    def it_takes_the_two_shape_ids_and_the_two_allowance_sets(self):
+        assert _overlap_allowed(1, 2, frozenset({2}), frozenset())
+        assert _overlap_allowed(1, 2, frozenset(), frozenset({1}))
+        assert not _overlap_allowed(1, 2, frozenset({3}), frozenset({4}))
+
+    def but_a_shape_with_no_id_cannot_be_named_by_an_allowance(self):
+        # Without an id there is nothing for the other side's set to name.
+        assert not _overlap_allowed(None, 2, frozenset(), frozenset({1}))
+        assert not _overlap_allowed(1, None, frozenset({2}), frozenset())
+        assert not _overlap_allowed(None, None, frozenset({1}), frozenset({2}))
 
 
 class DescribeShapeLayerHints:

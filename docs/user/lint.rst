@@ -34,14 +34,28 @@ Issue types
 -----------
 
 * :class:`power_pptx.lint.TextOverflow` — estimated text extent exceeds the
-  text-frame extent.  The current implementation uses a fast
-  character/line-count heuristic (default character width of
-  ``0.55 × pt``, line height of ``1.2 × pt``) and respects text-frame
-  margins; shapes with ``auto_size`` set to ``TEXT_TO_FIT_SHAPE`` or
+  text-frame extent.  This is a character-count *estimate*, not a
+  measurement: no font is loaded.  The text is split into lines at every
+  paragraph and line break, each line is assumed to take ``0.55 em`` per
+  character (``0.45 em`` for a single-line string of up to 20 characters)
+  and ``1.2 ×`` the font size in height, and the frame is the shape less
+  its text-frame margins.  The font size is the explicit size of the
+  first run of the first paragraph, or 18pt when that run sets none.
+  Shapes with ``auto_size`` set to ``TEXT_TO_FIT_SHAPE`` or
   ``SHAPE_TO_FIT_TEXT`` are skipped because they cannot overflow by
-  definition.
+  definition.  Expect misses and false alarms near the limit, and see
+  :ref:`lint-limits` for what is not taken into account; for a real
+  measurement use ``text_frame.fit_text(...)``, which uses Pillow font
+  metrics.
 * :class:`power_pptx.lint.OffSlide` — a shape is wholly or partly outside the
   slide bounds.
+* ``OffSlideShadow`` and ``ShapeCollisionShadow`` — the *bleed-only*
+  variants, reported only for ``slide.lint(include_effect_bleed=True)``,
+  which widens each shape by its shadow blur radius.  The shape itself is
+  on the slide (or clear of its neighbour) and only its shadow crosses the
+  line, so ``OffSlideShadow`` is a ``WARNING`` rather than the ``ERROR`` of
+  a real ``OffSlide``.  Silence them per shape with
+  ``shape.lint_skip = {"OffSlideShadow"}``.
 * :class:`power_pptx.lint.ShapeCollision` — two shapes' bounding boxes overlap
   significantly.  See :ref:`lint-groups` for the three ways to declare that an
   overlap is intentional.
@@ -52,11 +66,15 @@ Issue types
   Auto-fixable: :meth:`SlideLintReport.auto_fix` snaps the drifted edge onto
   the grid.
 * :class:`power_pptx.lint.LowContrast` — text and resolved background fill
-  have a WCAG contrast ratio below 4.5:1.  Resolves only solid RGB fills
-  (theme colors and gradients are skipped silently to avoid false
-  positives).
+  have a WCAG contrast ratio below 4.5:1.  Resolves only solid RGB fills:
+  a shape filled with a theme color, gradient or pattern is skipped
+  silently (not measured against the slide behind it) to avoid false
+  positives.  Shapes with no fill of their own are measured against the
+  slide's explicit solid background, if it has one.
 * :class:`power_pptx.lint.ZOrderAnomaly` — a filled shape is drawn above a
-  shape it visually contains, hiding the inner shape at render time.
+  shape it visually contains, hiding the inner shape at render time.  A
+  fill with an alpha below 100% (a translucent scrim over a photo) lets
+  the shape beneath show through, so it does not count.
 * :class:`power_pptx.lint.LayerOrderViolation` — a shape declares
   ``layer_above = "..."`` but is drawn *below* a shape in that layer, so it
   will be hidden at render time.  Severity ERROR, because the declaration
@@ -70,6 +88,41 @@ Issue types
 Each issue carries a ``severity`` (:class:`~power_pptx.lint.LintSeverity`),
 a ``code`` string, a human-readable ``message``, and a ``shapes``
 tuple of the shapes it implicates.
+
+.. _lint-limits:
+
+What the linter does not see
+----------------------------
+
+The linter looks at what is written in the file, with cheap geometry.  It
+does not render anything and it does not resolve inheritance, so some
+cases are outside its view:
+
+* **Auto-sized frames are never checked for overflow.**  A frame whose
+  ``auto_size`` is ``SHAPE_TO_FIT_TEXT`` or ``TEXT_TO_FIT_SHAPE`` cannot
+  overflow by definition, so ``TextOverflow`` skips it.
+  ``add_textbox`` creates its frames with ``SHAPE_TO_FIT_TEXT``, so a text
+  box is exempt until you set ``text_frame.auto_size = MSO_AUTO_SIZE.NONE``;
+  an autoshape from ``add_shape`` sets no auto-size and is checked.  Only
+  the frame's own setting counts, not one inherited from the layout or
+  master.
+* **Inherited font sizes are not resolved.**  A run with no explicit size
+  is estimated at 18pt, so a title placeholder whose layout makes it 44pt
+  is under-estimated.  Only the first run of the first paragraph sets the
+  size for the whole frame.
+* **Anchor, spacing and wrapping are ignored.**  Vertical anchor, line and
+  paragraph spacing and ``word_wrap`` do not enter the estimate.
+* **Rotated shapes are linted with their unrotated frame.**  A shape
+  rotated 90 degrees can be reported as ``OffSlide`` while it sits on the
+  slide, or missed while it hangs off.
+* **Shapes inside a group are not linted.**  The per-shape checks
+  (overflow, font size, contrast, off-slide, grid drift, collisions) run on
+  the slide's top-level shapes.  A group counts as one shape with the
+  group's extent, and its children are never visited.
+
+Linting is read-only: ``slide.lint()`` and ``audit(prs)`` never add a text
+body, run properties or anything else to the slide.  Only ``auto_fix()``
+and ``slide.tidy()`` change it.
 
 Auto-fix
 --------
@@ -109,6 +162,11 @@ Not auto-fixable:
   :ref:`lint-groups`) rather than moving anything.
 * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
   ``MasterPlaceholderCollision`` — require designer judgment.
+* ``OffSlideShadow``, ``ShapeCollisionShadow`` — the bleed-only issues from
+  ``slide.lint(include_effect_bleed=True)``.  The shape's own bounding box
+  is on the slide (or clear of its neighbour) and only its shadow crosses
+  the line, so there is no geometry to clamp or nudge: reduce the blur,
+  move the shape, or silence the code with ``shape.lint_skip``.
 
 :meth:`Slide.tidy <power_pptx.slide.Slide.tidy>` is the one-call wrapper around lint-then-fix, with the
 flags most decks want by default::

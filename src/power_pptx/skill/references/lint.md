@@ -15,6 +15,10 @@ report.has_errors  # bool
 print(report.summary())
 ```
 
+`slide.lint()` (like `audit(prs)`) is read-only: it never adds a text
+body, run properties or anything else to the slide. Only `auto_fix()` and
+`slide.tidy()` change it.
+
 For a whole deck, iterate the slides yourself:
 
 ```python
@@ -48,8 +52,37 @@ Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the
 shapes it implicates.
 
-`TextOverflow` uses Pillow font metrics and respects margins, vertical
-anchor, line spacing, and `auto_size`.
+`TextOverflow` is a character-count **estimate**, not a measurement: it
+never loads a font. It splits the text at every paragraph and line break,
+assumes about 0.55 em per character (0.45 em for a single-line string of
+up to 20 characters) and a 1.2x line height, subtracts the frame's
+margins, and reports the shape when the estimated lines outnumber the
+lines that fit. The size it assumes is the explicit size of the first run
+of the first paragraph, else 18 pt. Expect misses and false alarms near
+the limit; to bake in a real measurement (Pillow font metrics) use
+`text_frame.fit_text(...)` instead.
+
+It does **not** read vertical anchor, line or paragraph spacing,
+`word_wrap`, the size of any run after the first, font sizes inherited
+from a layout or master (a title placeholder is estimated at 18 pt however
+large its inherited size), or rotation.
+
+## What the linter does not see
+
+- **Auto-sized frames are never checked for overflow.** A frame whose
+  `auto_size` is `SHAPE_TO_FIT_TEXT` or `TEXT_TO_FIT_SHAPE` can't overflow
+  by definition, so `TextOverflow` skips it. `add_textbox` creates its
+  frames with `SHAPE_TO_FIT_TEXT`, so a text box is exempt until you set
+  `text_frame.auto_size = MSO_AUTO_SIZE.NONE`; autoshapes from `add_shape`
+  set no auto-size and are checked. Only the frame's own setting counts,
+  not one inherited from the layout.
+- **Rotated shapes are linted with their unrotated frame.** A shape
+  rotated 90 degrees can be reported as `OffSlide` while it sits on the
+  slide, or missed while it hangs off.
+- **Shapes inside a group are not linted.** The per-shape checks
+  (overflow, font size, contrast, off-slide, grid drift, collisions) run
+  on the slide's top-level shapes. A group counts as one shape with the
+  group's extent; its children are never visited.
 
 ## Auto-fix
 
@@ -78,6 +111,13 @@ Reported only, never auto-fixed:
   design. Declare the overlap instead — see below.
 - **`LowContrast`**, **`MinFontSize`**, **`ZOrderAnomaly`**,
   **`MasterPlaceholderCollision`** → need designer judgment.
+- **`OffSlideShadow`**, **`ShapeCollisionShadow`** → the bleed-only
+  issues from the opt-in `slide.lint(include_effect_bleed=True)`, which
+  widens each shape by its shadow blur. The shape itself is on the slide
+  (or clear of its neighbour) and only its shadow crosses the line, so
+  there is no geometry to fix: reduce the blur, move the shape, or
+  `shape.lint_skip = {"OffSlideShadow"}`. `OffSlideShadow` is a WARNING,
+  not an error, for that reason.
 
 `slide.tidy()` is the one-call wrapper: it lints, then applies the safe
 subset (`fix_offslide`, `fix_overflow`, `fix_layer_order` on by default;

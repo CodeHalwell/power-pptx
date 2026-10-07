@@ -35,17 +35,20 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
 from enum import Enum
 from typing import TYPE_CHECKING, Sequence
 
 from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.geometry import _slide_dimensions  # pyright: ignore[reportPrivateUsage]
 from power_pptx.util import Emu
 
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape
     from power_pptx.slide import Slide
+    from power_pptx.text.text import Font, TextFrame, _Run  # pyright: ignore[reportPrivateUsage]
     from power_pptx.util import Length
 
 
@@ -146,10 +149,17 @@ class OffSlideShadow(OffSlide):
     fires when ``slide.lint(include_effect_bleed=True)`` is set.  Use
     ``shape.lint_skip = {"OffSlideShadow"}`` to silence the bleed-only
     variant without silencing real :class:`OffSlide` issues.
+
+    Severity is ``WARNING``, not the ``ERROR`` of a real :class:`OffSlide`:
+    the shape itself is on the slide and only the soft edge of its shadow
+    is clipped, which is cosmetic.  It is not auto-fixable either (there is
+    no geometry to clamp), so as an error it would fail ``has_errors`` with
+    nothing :meth:`SlideLintReport.auto_fix` could do about it.
     """
 
     def __init__(self, shape: BaseShape, side: str):
         super().__init__(shape, side, code="OffSlideShadow")
+        self.severity = LintSeverity.WARNING
         # The raw bbox stays on-slide; only the shadow bleed crosses
         # the edge, so the inherited "Shape extends beyond …" message
         # would mislead readers.
@@ -526,6 +536,13 @@ class SlideLintReport:
           ``layer_above`` pair to suppress.
         * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
           ``MasterPlaceholderCollision`` — require designer judgment.
+        * ``OffSlideShadow``, ``ShapeCollisionShadow`` — the bleed-only
+          issues reported under ``include_effect_bleed=True``.  The shape's
+          own bounding box is on the slide (or clear of its neighbour) and
+          only its shadow crosses the line, so there is no geometry to
+          clamp or nudge.  Reduce the blur, move the shape, or silence the
+          code with ``shape.lint_skip``.  This is why ``OffSlideShadow`` is
+          a ``WARNING`` rather than an ``ERROR``.
         """
         fixes: list[str] = []
         slide_w, slide_h = _slide_dimensions(self._slide)
@@ -759,9 +776,6 @@ class SlideLintReport:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SLIDE_W = Emu(9144000)  # 10 inches in EMU (standard widescreen)
-_DEFAULT_SLIDE_H = Emu(6858000)  # 7.5 inches in EMU
-
 
 def _issue_fingerprint(issue: LintIssue) -> str:
     """Return a 12-char hex digest stable across runs for *issue*.
@@ -967,15 +981,6 @@ def lint_report_to_sarif(
     return _build_sarif(grouped)
 
 
-def _slide_dimensions(slide: Slide) -> tuple[Length | None, Length | None]:
-    """Return (width, height) of the slide in EMU, falling back to widescreen defaults."""
-    try:
-        prs = slide.part.package.presentation_part.presentation
-        return prs.slide_width or _DEFAULT_SLIDE_W, prs.slide_height or _DEFAULT_SLIDE_H
-    except Exception:
-        return _DEFAULT_SLIDE_W, _DEFAULT_SLIDE_H
-
-
 def _shape_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
     """Return (left, top, right, bottom) in EMU for the shape's bounding box.
 
@@ -1058,19 +1063,68 @@ def _check_off_slide(
     return issues
 
 
-def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
-    """Return TextOverflow issues for *shape* using a simple line-count heuristic.
+def _text_frame_if_present(shape: BaseShape) -> TextFrame | None:
+    """Return *shape*'s text frame if it has a text body, else ``None``.
 
-    Skips shapes with auto-size enabled or when no text frame is present.
-    The heuristic estimates the number of lines the text would require
-    (assuming ~60 characters per line at the default font size) and compares
-    that to the number of lines that fit in the text-frame height.
+    ``shape.text_frame`` adds an empty ``<p:txBody>`` to a ``p:sp`` that
+    lacks one -- a picture or chart placeholder cloned from a layout, or a
+    shape from a file that never had text -- and linting must not change
+    the slide it inspects.  A shape with no text body has no text to check.
+    """
+    if not shape.has_text_frame:
+        return None
+    if getattr(shape._element, "txBody", None) is None:  # pyright: ignore[reportPrivateUsage]
+        return None
+    return shape.text_frame  # type: ignore[attr-defined]
+
+
+def _run_font(run: _Run) -> Font | None:
+    """Return *run*'s :class:`~power_pptx.text.text.Font`, or ``None`` if it has no ``<a:rPr>``.
+
+    ``run.font`` inserts an empty ``<a:rPr/>`` into a run that lacks one.
+    Wrapping the existing element instead leaves the slide untouched, and a
+    run with no run properties has no explicit font settings at all -- which
+    is what a ``Font`` with every property ``None`` would have told us anyway.
+    """
+    rPr = run._r.rPr  # pyright: ignore[reportPrivateUsage]
+    if rPr is None:
+        return None
+    from power_pptx.text.text import Font
+
+    return Font(rPr)
+
+
+def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
+    """Return TextOverflow issues for *shape* using a character-count heuristic.
+
+    This is an estimate, not a measurement: no font is loaded.  The text is
+    split into lines at every paragraph break and explicit line break.
+    Each line is assumed to wrap after ``frame width / (0.55 em)``
+    characters (``0.45 em`` for a single-line string of up to 20
+    characters, which suits all-caps badge and pill labels) and every
+    resulting line to be ``1.2 em`` tall.  The frame is the shape's own
+    width and height less the text-frame margins.  The shape is flagged
+    when the estimated line count exceeds the number of lines that fit.
+
+    The em is the explicit size of the first run of the first paragraph,
+    else 18 pt.  Not taken into account: vertical anchor, line and
+    paragraph spacing, ``word_wrap``, the size of any later run, font sizes
+    and auto-size inherited from a layout or master placeholder, and the
+    shape's rotation.
+
+    Never checked: a shape without a text body, and a frame whose own
+    ``auto_size`` is ``SHAPE_TO_FIT_TEXT`` or ``TEXT_TO_FIT_SHAPE`` (it
+    cannot overflow by definition).  ``add_textbox`` creates its frames
+    with ``SHAPE_TO_FIT_TEXT``, so a text box is exempt unless its
+    ``auto_size`` is set to ``NONE``.  Per-shape checks like this one run
+    on the slide's top-level shapes only; shapes inside a group are not
+    visited.
     """
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
+    tf = _text_frame_if_present(shape)
+    if tf is None:
         return issues
 
-    tf = shape.text_frame  # type: ignore[attr-defined]
     # Skip when the shape auto-sizes (no overflow possible by definition)
     if tf.auto_size in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE):
         return issues
@@ -1083,8 +1137,9 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     _PT_TO_EMU = 12700
     _DEFAULT_FONT_PT = 18
     try:
-        first_run = tf.paragraphs[0].runs[0]
-        font_pt = (first_run.font.size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
+        first_font = _run_font(tf.paragraphs[0].runs[0])
+        first_size = first_font.size if first_font is not None else None
+        font_pt = (first_size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
     except (IndexError, AttributeError):
         font_pt = _DEFAULT_FONT_PT
 
@@ -1105,8 +1160,11 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     # there's only one line.  For short single-line strings (≤ 20
     # chars), use a tighter 0.45× multiplier — see IMPROVEMENT_PLAN
     # item 11 for the failure case ("MOST POPULAR" pill at 9pt).
-    has_newline = "\n" in text
-    short_single_line = (not has_newline) and len(text) <= 20
+    #
+    # An explicit line break (``<a:br/>``) reads back as "\v" and starts a
+    # new line just as a paragraph break ("\n") does, so both separate lines.
+    lines = re.split(r"[\n\v]", text)
+    short_single_line = len(lines) == 1 and len(text) <= 20
     char_w_pt_mult = 0.45 if short_single_line else 0.55
     char_w_emu = font_pt * char_w_pt_mult * _PT_TO_EMU
     # Line height ~ 1.2 × font size
@@ -1121,9 +1179,7 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     # a raw float), so a real two-line render slips past the check.
     # ``ceil`` matches what the renderer does: each wrapped line is one
     # full line of vertical space.  See IMPROVEMENTS item 7.
-    estimated_lines = sum(
-        max(1, math.ceil(len(line) / chars_per_line)) for line in text.split("\n")
-    )
+    estimated_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
 
     if estimated_lines > lines_available:
         ratio = estimated_lines / lines_available
@@ -1492,8 +1548,8 @@ def _shape_lint_layer(shape: BaseShape) -> tuple[str | None, str | None]:
 
 
 def _overlap_allowed(
-    shape_a: BaseShape,
-    shape_b: BaseShape,
+    id_a: int | None,
+    id_b: int | None,
     allow_a: frozenset[int],
     allow_b: frozenset[int],
 ) -> bool:
@@ -1504,8 +1560,11 @@ def _overlap_allowed(
     the collision to be suppressed, matching how a designer thinks
     about it ("the badge is allowed to sit on the card") without
     forcing them to tag both ends.
+
+    Takes the shapes' ids (as :func:`_shape_id` returns them) rather than
+    the shapes: resolving an id is an xpath lookup, so the caller does it
+    once per shape instead of twice per *pair*.
     """
-    id_a, id_b = _shape_id(shape_a), _shape_id(shape_b)
     if id_b is not None and id_b in allow_a:
         return True
     return id_a is not None and id_a in allow_b
@@ -1697,9 +1756,12 @@ def _check_collisions(
     # compare against.
     using_bleed = bbox_fn is not _shape_bbox
     raw_bboxes = [_shape_bbox(s) for s in shapes] if using_bleed else None
+    # Everything the pair loop needs to know about a shape is read once here;
+    # the loop below is O(n^2) and must not touch the XML.
     groups = [_shape_lint_group(s) for s in shapes]
     allows = [_shape_lint_allow(s) for s in shapes]
     layers = [_shape_lint_layer(s) for s in shapes]
+    ids = [_shape_id(s) for s in shapes]
 
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
@@ -1711,7 +1773,7 @@ def _check_collisions(
 
             # Explicit pairwise allowance — one side naming the other is
             # enough. Also intent, so it too runs before scoring.
-            if _overlap_allowed(shapes[i], shapes[j], allows[i], allows[j]):
+            if _overlap_allowed(ids[i], ids[j], allows[i], allows[j]):
                 continue
 
             # Layer hints: an overlap that agrees with a declared
@@ -1789,14 +1851,17 @@ def _check_min_font_size(
 ) -> list[LintIssue]:
     """Return a single MinFontSize issue if any run is below *threshold_pt*."""
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
+    tf = _text_frame_if_present(shape)
+    if tf is None:
         return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
     smallest: float | None = None
     for paragraph in tf.paragraphs:
         for run in paragraph.runs:
+            font = _run_font(run)
+            if font is None:
+                continue
             try:
-                size = run.font.size
+                size = font.size
             except (AttributeError, ValueError):
                 continue
             if size is None:
@@ -1921,6 +1986,22 @@ def _resolve_solid_rgb(fill):
         return None
 
 
+def _paints_own_fill(shape: BaseShape) -> bool:
+    """Return ``True`` if *shape* has an explicit fill that covers what is behind it.
+
+    That is any fill type but "none": an unset fill is inherited (as far as
+    this linter can tell, the shape is transparent) and an explicit ``noFill``
+    paints nothing, so in both cases the slide behind shows through.
+    """
+    try:
+        from power_pptx.enum.dml import MSO_FILL_TYPE
+
+        fill_type = shape.fill.type  # type: ignore[attr-defined]
+    except Exception:
+        return False
+    return fill_type is not None and fill_type != MSO_FILL_TYPE.BACKGROUND
+
+
 def _slide_background_rgb(slide: Slide):
     """Best-effort RGB extraction from the slide's explicit background fill.
 
@@ -1948,10 +2029,8 @@ def _slide_background_rgb(slide: Slide):
 def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     """Return a LowContrast issue if shape's text has poor contrast against its fill."""
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
-        return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
-    if not tf.text.strip():
+    tf = _text_frame_if_present(shape)
+    if tf is None or not tf.text.strip():
         return issues
 
     # Pick the first run's font color (best-effort).
@@ -1959,8 +2038,9 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     try:
         for paragraph in tf.paragraphs:
             for run in paragraph.runs:
+                font = _run_font(run)
                 try:
-                    rgb = run.font.color.rgb
+                    rgb = font.color.rgb if font is not None else None
                 except (AttributeError, ValueError):
                     rgb = None
                 if rgb is not None:
@@ -1978,6 +2058,13 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     with contextlib.suppress(Exception):
         bg_rgb = _resolve_solid_rgb(shape.fill)  # type: ignore[attr-defined]
     if bg_rgb is None:
+        # The slide only shows through a shape that paints no fill of its own.
+        # A fill we merely *can't read* as one RGB (a theme colour, a gradient)
+        # still covers the slide, and measuring against what it covers answers
+        # a different question -- white text on a dark-blue accent card would
+        # come out as 1.00:1 against a white slide.  Skip rather than guess.
+        if _paints_own_fill(shape):
+            return issues
         bg_rgb = _slide_background_rgb(slide)
     if bg_rgb is None:
         return issues
@@ -2008,11 +2095,19 @@ def _bbox_contains(outer: tuple[int, int, int, int], inner: tuple[int, int, int,
 
 
 def _shape_has_opaque_fill(shape: BaseShape) -> bool:
-    """Return ``True`` if *shape* has an opaque (solid) fill."""
+    """Return ``True`` if *shape* has an opaque (solid, not translucent) fill.
+
+    A solid fill whose colour carries an alpha below 100% lets what is
+    drawn beneath it show through -- a scrim over a photo, a tinted
+    overlay -- so it does not hide the shapes it covers.
+    """
     try:
         from power_pptx.enum.dml import MSO_FILL_TYPE
 
-        return shape.fill.type == MSO_FILL_TYPE.SOLID  # type: ignore[attr-defined]
+        fill = shape.fill  # type: ignore[attr-defined]
+        if fill.type != MSO_FILL_TYPE.SOLID:
+            return False
+        return fill.fore_color.alpha >= 1.0
     except Exception:
         return False
 

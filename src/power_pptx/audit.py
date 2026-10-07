@@ -194,6 +194,10 @@ def audit(
     in passing-defaults mode; per-slide overrides should be supplied
     via the slide-level ``slide.lint(...)`` API directly.
     """
+    from power_pptx.lint import (
+        _run_font,  # pyright: ignore[reportPrivateUsage]
+        _text_frame_if_present,  # pyright: ignore[reportPrivateUsage]
+    )
     from power_pptx.shapes.picture import Picture
 
     report = AuditReport()
@@ -213,12 +217,13 @@ def audit(
 
         content_shapes = 0
         for shape in slide.shapes:
+            # Look at the text without creating any: ``shape.text_frame`` adds a
+            # ``<p:txBody>`` to a shape that has none and ``run.font`` adds an
+            # ``<a:rPr/>`` to a run that has none, and the audit never mutates.
+            tf = _text_frame_if_present(shape)
+            text = tf.text.strip() if tf is not None else ""
             # Skip layout placeholders that are entirely inherited.
-            if (
-                shape.is_placeholder
-                and getattr(shape, "has_text_frame", False)
-                and not shape.text_frame.text.strip()
-            ):
+            if shape.is_placeholder and getattr(shape, "has_text_frame", False) and not text:
                 continue
             # Skip full-bleed background rectangles — they're decoration,
             # not content, so a slide that only contains them should be
@@ -229,10 +234,8 @@ def audit(
                 sh = int(shape.height)
             except Exception:
                 sw = sh = 0
-            if bleed_w > 0 and bleed_h > 0 and sw >= bleed_w and sh >= bleed_h:
-                has_text = getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip()
-                if not has_text:
-                    continue
+            if bleed_w > 0 and bleed_h > 0 and sw >= bleed_w and sh >= bleed_h and not text:
+                continue
             content_shapes += 1
 
             # Picture sanity.
@@ -249,11 +252,11 @@ def audit(
                     pass
 
             # Font warning sweep.
-            if check_fonts and getattr(shape, "has_text_frame", False):
-                tf = shape.text_frame
+            if check_fonts and tf is not None:
                 for para in tf.paragraphs:
                     for run in para.runs:
-                        name = run.font.name
+                        font = _run_font(run)
+                        name = font.name if font is not None else None
                         if name and name.lower() not in _COMMON_FONTS:
                             report.font_warnings.append((idx, name))
 

@@ -142,6 +142,57 @@ class DescribeBBox:
         assert bb.height == Inches(7.5)
 
 
+class DescribeSlideBoxWithoutASlideSize:
+    """A presentation with no ``<p:sldSz>`` falls back to the 10" x 7.5" default.
+
+    The linter has always done so; ``BBox.from_slide`` -- and the ``Slide`` helpers built on it --
+    used to raise ``TypeError`` from ``int(None)`` instead.
+    """
+
+    @pytest.fixture
+    def sizeless_slide(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        prs._element.remove(prs._element.sldSz)
+        assert prs.slide_width is None
+        assert prs.slide_height is None
+        return slide
+
+    def it_falls_back_to_the_default_size(self, sizeless_slide):
+        bb = BBox.from_slide(sizeless_slide)
+        assert (bb.left, bb.top, bb.width, bb.height) == (0, 0, Inches(10), Inches(7.5))
+
+    def it_agrees_with_the_size_the_linter_assumes(self, sizeless_slide):
+        from power_pptx.lint import _slide_dimensions
+
+        bb = BBox.from_slide(sizeless_slide)
+        assert (bb.width, bb.height) == _slide_dimensions(sizeless_slide)
+
+    def but_it_still_uses_the_size_the_presentation_declares(self, slide):
+        prs = slide.part.package.presentation_part.presentation
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        bb = BBox.from_slide(slide)
+        assert (bb.width, bb.height) == (Inches(13.333), Inches(7.5))
+
+    def and_so_does_slide_bbox(self, sizeless_slide):
+        assert sizeless_slide.slide_bbox() == BBox.from_inches(0, 0, 10, 7.5)
+
+    def and_so_does_content_bbox(self, sizeless_slide):
+        sizeless_slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        assert sizeless_slide.content_bbox() == BBox.from_inches(1, 1, 2, 1)
+
+    def and_so_does_find_empty_region(self, sizeless_slide):
+        sizeless_slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
+        region = sizeless_slide.find_empty_region()
+        assert region is not None
+        assert BBox.from_slide(sizeless_slide).contains(region)
+
+
 class DescribeShapeBboxProperty:
     def it_returns_a_bbox(self, slide):
         rect = slide.shapes.add_shape(

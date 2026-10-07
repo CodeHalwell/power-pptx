@@ -455,14 +455,18 @@ class Slide(_BaseSlide):
             raise ValueError("design_group name must be a non-empty string")
 
         sp_tree = self._element.spTree
-        before = {id(elm) for elm in sp_tree.iter_shape_elms()}
+        # Keep the proxies themselves, not their ``id()``s: lxml hands out a short-lived Python
+        # proxy per element access and recycles its address once it is collected, so a set of
+        # ids ends up matching proxies of *different* elements.  Holding the proxies for the
+        # length of the block pins each element to one proxy, which makes membership exact.
+        before = set(sp_tree.iter_shape_elms())
         try:
             yield
         finally:
             from power_pptx.lint import _read_lint_group, _write_lint_group
 
             for elm in sp_tree.iter_shape_elms():
-                if id(elm) in before:
+                if elm in before:
                     continue
                 try:
                     cNvPr = elm._nvXxPr.cNvPr
@@ -486,7 +490,9 @@ class Slide(_BaseSlide):
 
         Returns a |SlideLintReport| with a list of detected issues (text
         overflow, shapes off-slide, shape collisions).  The report is
-        generated fresh on each call.
+        generated fresh on each call.  Linting is read-only: the slide is
+        never modified (only :meth:`SlideLintReport.auto_fix` and
+        :meth:`tidy` change it).
 
         *include_effect_bleed* (opt-in, default |False|) widens each
         shape's bbox by its shadow blur radius before the OffSlide and
