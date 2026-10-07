@@ -3,9 +3,27 @@
 from __future__ import annotations
 
 import io
+import warnings
+
+import pytest
 
 from power_pptx import Presentation
+from power_pptx.enum.action import PP_ACTION
 from power_pptx.util import Inches
+
+from ..schema.hierarchy_decks import (
+    BLUE,
+    RED,
+    add_logo,
+    add_theme_image_fill,
+    embedded_images,
+    needs_schema_validator,
+    saved_bytes,
+    solid_png,
+    zip_names,
+)
+from ..schema.hierarchy_validator import iter_hierarchy_violations
+from ..schema.oxml_schema_validator import iter_schema_violations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -466,3 +484,287 @@ class Describe_import_slide_relationship_remap:
                 rid,
                 relmap[rid],
             )
+
+
+# ---------------------------------------------------------------------------
+# Dependencies of a cloned master's theme
+# ---------------------------------------------------------------------------
+
+
+class Describe_import_slide_cloned_master_theme:
+    def it_copies_images_referenced_by_the_cloned_masters_theme(self):
+        src = Presentation()
+        add_theme_image_fill(src, solid_png(RED))
+        src.slides.add_slide(src.slide_layouts[6])
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        themes = {n: embedded_images(blob, n) for n in zip_names(blob, r"ppt/theme/theme\d+\.xml")}
+        assert sorted(themes.values(), key=len) == [[], [solid_png(RED)]]
+        assert list(iter_hierarchy_violations(blob)) == []
+
+    def it_keeps_deduping_onto_a_clone_whose_theme_image_was_renumbered(self):
+        # Once a cloned theme's own dependencies are copied, its image can land on a different
+        # rId than in the source (here the source numbering has a gap).  A raw-bytes theme
+        # comparison would then stop matching the master's own source and every later import
+        # would clone yet another master.
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        src = Presentation()
+        theme_part = src.slide_master.part.part_related_by(RT.THEME)
+        decoy = src.part.package.get_or_add_image_part(io.BytesIO(solid_png(BLUE)))
+        decoy_rId = theme_part.relate_to(decoy, RT.IMAGE)
+        add_theme_image_fill(src, solid_png(RED))
+        theme_part.rels.pop(decoy_rId)
+        src.slides.add_slide(src.slide_layouts[6])
+        src.slides.add_slide(src.slide_layouts[0])
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0])
+        assert len(dst.slide_masters) == 2
+        dst.import_slide(src.slides[1])
+
+        assert len(dst.slide_masters) == 2
+
+
+# ---------------------------------------------------------------------------
+# Slide-jump hyperlinks to slides that are not part of the import
+# ---------------------------------------------------------------------------
+
+
+def _jump_deck():
+    """Return ``(deck, jumper, target)``; a shape on `jumper` jumps to the `target` slide.
+
+    The target carries a picture of its own so a wrongly cloned target shows up as extra media.
+    """
+    src = Presentation()
+    jumper = src.slides.add_slide(src.slide_layouts[6])
+    target = src.slides.add_slide(src.slide_layouts[6])
+    target.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1)).text_frame.text = "target"
+    target.shapes.add_picture(
+        io.BytesIO(solid_png(RED)), Inches(1), Inches(3), Inches(1), Inches(1)
+    )
+    shape = jumper.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    shape.text_frame.text = "jump"
+    shape.click_action.target_slide = target
+    return src, jumper, target
+
+
+def _shape_with_text(slide, text: str):
+    return next(sh for sh in slide.shapes if sh.has_text_frame and sh.text_frame.text == text)
+
+
+class Describe_import_slide_slide_jump_links:
+    def it_does_not_clone_the_target_slide_into_the_destination(self):
+        # Regression: `_copy_dependencies` treated the RT.SLIDE relationship of a slide-jump
+        # hyperlink as a generic dependency and cloned the TARGET slide into the destination
+        # as an orphan part (not in sldIdLst, no layout relationship, its media duplicated).
+        _, jumper, _ = _jump_deck()
+        dst = Presentation()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dst.import_slide(jumper)
+
+        blob = saved_bytes(dst)
+        assert len(dst.slides) == 1
+        assert zip_names(blob, r"ppt/slides/slide\d+\.xml") == ["ppt/slides/slide1.xml"]
+        assert zip_names(blob, r"ppt/media/.*") == []
+
+    @needs_schema_validator
+    def it_produces_a_schema_valid_package(self):
+        _, jumper, _ = _jump_deck()
+        dst = Presentation()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dst.import_slide(jumper)
+
+        assert list(iter_schema_violations(saved_bytes(dst))) == []
+
+    def it_removes_the_dangling_action_from_the_imported_shape(self):
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        _, jumper, _ = _jump_deck()
+        dst = Presentation()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            imported = dst.import_slide(jumper)
+
+        shape = _shape_with_text(imported, "jump")
+        assert shape.click_action.action == PP_ACTION.NONE
+        assert shape._element.xpath(".//a:hlinkClick") == []
+        assert all(rel.reltype != RT.SLIDE for rel in imported.part.rels.values())
+
+    def it_warns_once_that_the_links_to_slides_outside_the_import_were_removed(self):
+        _, jumper, target = _jump_deck()
+        second = jumper.shapes.add_textbox(Inches(1), Inches(3), Inches(3), Inches(1))
+        second.text_frame.text = "jump again"
+        second.click_action.target_slide = target
+        dst = Presentation()
+
+        with pytest.warns(UserWarning, match=r"removed 2 slide-jump hyperlinks") as record:
+            dst.import_slide(jumper)
+
+        assert len(record) == 1
+        # -- the warning points at the caller of `Presentation.import_slide()` --
+        assert record[0].filename == __file__
+
+    def it_removes_a_slide_jump_on_a_text_run_too(self):
+        src = Presentation()
+        jumper = src.slides.add_slide(src.slide_layouts[6])
+        target = src.slides.add_slide(src.slide_layouts[6])
+        box = jumper.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        run = box.text_frame.paragraphs[0].add_run()
+        run.text = "go there"
+        run.hyperlink.target_slide = target
+        dst = Presentation()
+
+        with pytest.warns(UserWarning, match="slide-jump"):
+            imported = dst.import_slide(jumper)
+
+        imported_run = imported.shapes[0].text_frame.paragraphs[0].runs[0]
+        assert imported_run.text == "go there"
+        assert imported_run.hyperlink.target_slide is None
+        assert imported_run.hyperlink.address is None
+        assert zip_names(saved_bytes(dst), r"ppt/slides/slide\d+\.xml") == ["ppt/slides/slide1.xml"]
+
+    def it_leaves_external_hyperlinks_alone_next_to_a_removed_slide_jump(self):
+        _, jumper, _ = _jump_deck()
+        box = jumper.shapes.add_textbox(Inches(1), Inches(3), Inches(3), Inches(1))
+        run = box.text_frame.paragraphs[0].add_run()
+        run.text = "site"
+        run.hyperlink.address = "https://example.com/keep"
+        dst = Presentation()
+
+        with pytest.warns(UserWarning, match="slide-jump"):
+            imported = dst.import_slide(jumper)
+
+        imported_run = _shape_with_text(imported, "site").text_frame.paragraphs[0].runs[0]
+        assert imported_run.hyperlink.address == "https://example.com/keep"
+
+    def it_keeps_a_slide_jump_to_the_slide_being_imported(self):
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        shape.text_frame.text = "to self"
+        shape.click_action.target_slide = slide
+        dst = Presentation()
+
+        imported = dst.import_slide(slide)
+
+        jump = _shape_with_text(imported, "to self")
+        assert jump.click_action.target_slide.part is imported.part
+
+    def it_keeps_slide_jumps_to_other_slides_of_the_same_deck(self):
+        # Importing into the deck the slide came from (duplicating it) must keep the link:
+        # the target is a real slide of the destination, not an orphan to clone.
+        prs, jumper, target = _jump_deck()
+
+        copy = prs.import_slide(jumper)
+
+        assert len(prs.slides) == 3
+        jump = _shape_with_text(copy, "jump")
+        assert jump.click_action.target_slide.part is target.part
+        blob = saved_bytes(prs)
+        assert len(zip_names(blob, r"ppt/slides/slide\d+\.xml")) == 3
+
+    def it_points_a_copied_notes_slide_at_the_copy_when_duplicating_within_one_deck(self):
+        # The notes slide's link back to its slide targets a slide of the destination (the
+        # original), yet the copy's notes slide must belong to the copy.
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        prs, jumper, _ = _jump_deck()
+        jumper.notes_slide.notes_text_frame.text = "speaker notes"
+
+        copy = prs.import_slide(jumper)
+
+        assert copy.notes_slide.part.part_related_by(RT.SLIDE) is copy.part
+        assert jumper.notes_slide.part.part_related_by(RT.SLIDE) is jumper.part
+
+    def it_keeps_relative_slide_jump_actions(self):
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        src.slides.add_slide(src.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "next"
+        hlink = box._element.nvSpPr.cNvPr.get_or_add_hlinkClick()
+        hlink.set("action", "ppaction://hlinkshowjump?jump=nextslide")
+        hlink.rId = ""
+        dst = Presentation()
+
+        imported = dst.import_slide(slide)
+
+        assert _shape_with_text(imported, "next").click_action.action == PP_ACTION.NEXT_SLIDE
+
+
+# ---------------------------------------------------------------------------
+# Identical image bytes are stored once
+# ---------------------------------------------------------------------------
+
+
+def _picture_slide(prs: Presentation, color) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_picture(
+        io.BytesIO(solid_png(color)), Inches(1), Inches(1), Inches(1), Inches(1)
+    )
+
+
+class Describe_import_slide_image_dedupe:
+    def it_stores_one_image_part_for_slides_that_share_an_image(self):
+        # Regression: every import created a new image part, so three slides sharing a PNG
+        # produced image1.png .. image3.png in the destination.
+        src = Presentation()
+        for _ in range(3):
+            _picture_slide(src, RED)
+        dst = Presentation()
+
+        for slide in src.slides:
+            dst.import_slide(slide)
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 1
+        for name in zip_names(blob, r"ppt/slides/slide\d+\.xml"):
+            assert embedded_images(blob, name) == [solid_png(RED)]
+
+    def it_reuses_an_image_the_destination_already_holds(self):
+        src = Presentation()
+        _picture_slide(src, RED)
+        dst = Presentation()
+        _picture_slide(dst, RED)
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 1
+        for name in zip_names(blob, r"ppt/slides/slide\d+\.xml"):
+            assert embedded_images(blob, name) == [solid_png(RED)]
+
+    def but_keeps_images_with_different_bytes_apart(self):
+        src = Presentation()
+        _picture_slide(src, RED)
+        dst = Presentation()
+        _picture_slide(dst, BLUE)
+
+        dst.import_slide(src.slides[0])
+
+        blob = saved_bytes(dst)
+        assert len(zip_names(blob, r"ppt/media/.*")) == 2
+        embedded = [embedded_images(blob, n) for n in zip_names(blob, r"ppt/slides/slide\d+\.xml")]
+        assert sorted(embedded) == sorted([[solid_png(BLUE)], [solid_png(RED)]])
+
+    def it_merges_identical_images_that_the_source_stores_twice(self):
+        # Two distinct source image parts with the same bytes (the source package need not
+        # dedupe) still land as a single image part in the destination.
+        src = Presentation()
+        _picture_slide(src, RED)
+        add_logo(src, src.slide_master.part, solid_png(RED), shape_id=900, dedupe=False)
+        assert len(zip_names(saved_bytes(src), r"ppt/media/.*")) == 2
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0], merge_master="clone")
+
+        assert len(zip_names(saved_bytes(dst), r"ppt/media/.*")) == 1

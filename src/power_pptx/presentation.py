@@ -235,7 +235,17 @@ class Presentation(PartElementProxy):
     ) -> Slide:
         """Copy *source_slide* into this presentation and return the new |Slide|.
 
-        The imported slide is appended after any existing slides.
+        The imported slide is appended after any existing slides.  Images the
+        presentation already holds (same bytes) are reused, not stored again.
+
+        A hyperlink on the slide that jumps to another slide (a click action or
+        text hyperlink set with ``target_slide``) survives only when it targets
+        the imported slide itself or, when the slide is imported into the
+        presentation it comes from, another slide of that presentation.  A jump
+        to any other slide is removed from the imported copy — the target is
+        not copied along, and a link to nowhere would be a broken action — and
+        a :class:`UserWarning` reports how many links were removed.  Relative
+        jumps (next, previous, first or last slide) are unaffected.
 
         Parameters
         ----------
@@ -279,7 +289,13 @@ class Presentation(PartElementProxy):
         the template.  Slide content (shapes, text, animations) is preserved.
 
         The template can be a ``.potx`` or any ``.pptx``/``.pptm`` file — the
-        master(s) inside are used regardless of the extension.
+        master(s) inside are used regardless of the extension.  They are copied
+        in with their themes, layouts and the pictures those use; the presentation's
+        previous masters and layouts are dropped, and the presentation is usable
+        right away (``slide_masters``, ``slide_layouts``, ``slides.add_slide()``),
+        without a save and reopen.  A template that has no slide layout cannot
+        take the slides over: a :class:`UserWarning` is issued and the
+        presentation is left as it was.
 
         Layout matching (in priority order):
 

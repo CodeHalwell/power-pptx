@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import contextlib
 import warnings
-from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
+from power_pptx._slide_importer import _PartCopier  # pyright: ignore[reportPrivateUsage]
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from power_pptx.opc.packuri import PackURI
 
 if TYPE_CHECKING:
-    from power_pptx.opc.package import Part
-    from power_pptx.package import Package
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart
 
@@ -27,9 +24,14 @@ def apply_template(
     Each slide's layout is matched to the closest layout in the template (by name, then by
     type, then fallback to the template's first layout).
 
-    After all slides are remapped the old master/layout/theme parts that are no longer
-    referenced are dropped automatically when the package is saved (they are no longer
-    reachable from any relationship).
+    The template's masters are cloned into the destination together with their themes, layouts
+    and the pictures and other parts those use, under fresh unique ids.  The old
+    master/layout/theme parts are then unregistered, so the package no longer reaches them and
+    they are not written when it is saved.  The presentation stays fully usable in memory
+    afterwards; collections obtained earlier (``Presentation.slide_masters``) keep working.
+
+    A template without any slide layout cannot take over the slides: a :class:`UserWarning` is
+    issued and the destination is left unchanged.
 
     Parameters
     ----------
@@ -42,7 +44,7 @@ def apply_template(
     applier.run()
 
 
-class _TemplateApplier:
+class _TemplateApplier(_PartCopier):
     """Stateful helper for template application."""
 
     def __init__(
@@ -50,50 +52,33 @@ class _TemplateApplier:
         dst_prs_part: PresentationPart,
         tpl_prs_part: PresentationPart,
     ) -> None:
-        self._dst_prs_part = dst_prs_part
+        super().__init__(dst_prs_part)
         self._tpl_prs_part = tpl_prs_part
-        self._dst_package: Package = dst_prs_part.package  # type: ignore[assignment]
-        # Tracks partnames already reserved during this run to avoid collisions
-        self._reserved: set[str] = set()
 
     def run(self) -> None:
         """Execute the template application."""
-        # 1. Clone the template masters (with themes + layouts) into the destination
-        tpl_master_to_dst_master = self._clone_template_masters()
+        tpl_masters = list(self._iter_template_masters())
+        if not any(self._iter_master_layouts(master) for master in tpl_masters):
+            warnings.warn(
+                "apply_template: no layouts available in the template; "
+                "the presentation was left unchanged.",
+                stacklevel=4,
+            )
+            return
 
-        # 2. Build a flat list of all template layout parts (for matching)
+        # 1. Clone the template masters (with themes, layouts and their dependencies) into the
+        # destination.  The clones are registered next to the old masters, which keeps every
+        # master and layout id unique while both sets exist.
+        new_masters: list[SlideMasterPart] = []
         tpl_layouts: list[SlideLayoutPart] = []
-        for tpl_master_part, dst_master_part in tpl_master_to_dst_master.items():
-            for rel in tpl_master_part.rels.values():
-                if rel.is_external or rel.reltype != RT.SLIDE_LAYOUT:
-                    continue
-                tpl_layouts.append(rel.target_part)  # type: ignore[arg-type]
+        dst_layouts: list[SlideLayoutPart] = []
+        for tpl_master in tpl_masters:
+            dst_master, layout_map = self._clone_master(tpl_master)
+            new_masters.append(dst_master)
+            tpl_layouts.extend(layout_map.keys())
+            dst_layouts.extend(layout_map.values())
 
-        # Map tpl layout partname → corresponding dst layout part
-        tpl_partname_to_dst_layout: dict[str, SlideLayoutPart] = {}
-        for tpl_master_part, dst_master_part in tpl_master_to_dst_master.items():
-            for tpl_rel, dst_rel in zip(
-                [
-                    r
-                    for r in tpl_master_part.rels.values()
-                    if not r.is_external and r.reltype == RT.SLIDE_LAYOUT
-                ],
-                [
-                    r
-                    for r in dst_master_part.rels.values()
-                    if not r.is_external and r.reltype == RT.SLIDE_LAYOUT
-                ],
-            ):
-                tpl_partname_to_dst_layout[tpl_rel.target_part.partname] = dst_rel.target_part  # type: ignore[assignment]
-
-        # Build dst layouts list in the same order as tpl_layouts (parallel)
-        dst_layouts: list[SlideLayoutPart] = [
-            tpl_partname_to_dst_layout[lp.partname]  # type: ignore[index]
-            for lp in tpl_layouts
-            if lp.partname in tpl_partname_to_dst_layout
-        ]
-
-        # 3. Remap each existing slide to the best-matching template layout
+        # 2. Remap each existing slide to the best-matching template layout
         dst_prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
         sldIdLst = dst_prs_element.sldIdLst
         if sldIdLst is not None:
@@ -101,63 +86,19 @@ class _TemplateApplier:
                 slide_part: SlidePart = self._dst_prs_part.related_part(sldId.rId)  # type: ignore[assignment]
                 self._remap_slide(slide_part, tpl_layouts, dst_layouts)
 
-        # 4. Remove old masters from the presentation element
-        # (unreachable parts are not included when the package is saved)
-        self._drop_old_masters(set(tpl_master_to_dst_master.values()))
+        # 3. Unregister the old masters (unreachable parts are not included when the package is
+        # saved)
+        self._drop_old_masters(new_masters)
 
-        # 5. Register new masters in presentation element
-        for dst_master_part in tpl_master_to_dst_master.values():
-            rId = self._dst_prs_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
-            sldMasterIdLst = dst_prs_element.get_or_add_sldMasterIdLst()
-            sldMasterIdLst._add_sldMasterId(rId=rId)  # pyright: ignore[reportAttributeAccessIssue]
+        self._warn_removed_slide_links("apply_template")
 
-    # ------------------------------------------------------------------
-    # Master cloning
-    # ------------------------------------------------------------------
-
-    def _clone_template_masters(self) -> dict[SlideMasterPart, SlideMasterPart]:
-        """Clone each master in the template into the destination.
-
-        Returns a mapping: template SlideMasterPart → cloned destination SlideMasterPart.
-        """
-        result: dict[SlideMasterPart, SlideMasterPart] = {}
-        dst_package = self._dst_package
-        tpl_prs_element = self._tpl_prs_part._element  # pyright: ignore[reportPrivateUsage]
-
-        if tpl_prs_element.sldMasterIdLst is None:
-            return result
-
-        for entry in tpl_prs_element.sldMasterIdLst.sldMasterId_lst:
-            tpl_master_part: SlideMasterPart = self._tpl_prs_part.related_part(entry.rId)  # type: ignore[assignment]
-
-            # Clone theme
-            dst_theme_part: Part | None = None
-            try:
-                src_theme = tpl_master_part.part_related_by(RT.THEME)
-                theme_pn = self._next_partname("/ppt/theme/theme%d.xml")
-                dst_theme_part = _clone_part(src_theme, theme_pn, dst_package)
-            except KeyError:
-                pass
-
-            # Clone master
-            master_pn = self._next_partname("/ppt/slideMasters/slideMaster%d.xml")
-            dst_master_part = _clone_xml_part(tpl_master_part, master_pn, dst_package)
-            if dst_theme_part is not None:
-                dst_master_part.relate_to(dst_theme_part, RT.THEME)
-
-            # Clone layouts
-            for rel in tpl_master_part.rels.values():
-                if rel.is_external or rel.reltype != RT.SLIDE_LAYOUT:
-                    continue
-                src_lo: SlideLayoutPart = rel.target_part  # type: ignore[assignment]
-                lo_pn = self._next_partname("/ppt/slideLayouts/slideLayout%d.xml")
-                dst_lo = _clone_xml_part(src_lo, lo_pn, dst_package)
-                dst_lo.relate_to(dst_master_part, RT.SLIDE_MASTER)
-                dst_master_part.relate_to(dst_lo, RT.SLIDE_LAYOUT)
-
-            result[tpl_master_part] = dst_master_part  # type: ignore[assignment]
-
-        return result
+    def _iter_template_masters(self) -> Iterator[SlideMasterPart]:
+        """Yield each slide master of the template, in `p:sldMasterIdLst` order."""
+        sldMasterIdLst = self._tpl_prs_part._element.sldMasterIdLst  # pyright: ignore[reportPrivateUsage]
+        if sldMasterIdLst is None:
+            return
+        for entry in sldMasterIdLst.sldMasterId_lst:
+            yield self._tpl_prs_part.related_part(entry.rId)  # type: ignore[misc]
 
     # ------------------------------------------------------------------
     # Slide remapping
@@ -176,14 +117,6 @@ class _TemplateApplier:
             if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT:
                 old_layout_rId = rId
                 break
-
-        if not dst_layouts:
-            warnings.warn(
-                "apply_template: no layouts available in the template; "
-                "slide layout relationship could not be updated.",
-                stacklevel=3,
-            )
-            return
 
         # Determine current slide's layout info for matching
         current_lo_name: str = ""
@@ -221,76 +154,40 @@ class _TemplateApplier:
     # Old master removal
     # ------------------------------------------------------------------
 
-    def _drop_old_masters(self, new_masters: set[SlideMasterPart]) -> None:
-        """Remove old master entries from the presentation element.
+    def _drop_old_masters(self, new_masters: list[SlideMasterPart]) -> None:
+        """Unregister every master of the destination that is not one of *new_masters*.
 
-        Also removes any direct presentation→theme relationship, since the
-        theme is now owned by the new master.
+        The old masters' relationships and `p:sldMasterIdLst` entries are removed; the list
+        element itself is edited in place rather than replaced, so a
+        `Presentation.slide_masters` collection obtained earlier (it wraps that very element)
+        keeps working.  Also re-points the presentation→theme relationship: it is removed
+        from the old theme and now targets the theme of the first new master, as in a
+        PowerPoint-authored file.
 
         The old Part objects remain in memory but will not be written to the package
         because they are no longer reachable from any relationship.
         """
-        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
-        sldMasterIdLst = prs_element.sldMasterIdLst
+        prs_part = self._dst_prs_part
+        keep = set(new_masters)
 
-        if sldMasterIdLst is None:
-            return
+        for rId, rel in list(prs_part.rels.items()):
+            if (
+                not rel.is_external
+                and rel.reltype == RT.SLIDE_MASTER
+                and rel.target_part not in keep
+            ):
+                prs_part.rels.pop(rId)
 
-        # Collect rIds that point to OLD masters (not in new_masters)
-        old_rIds: list[str] = []
-        for entry in list(sldMasterIdLst.sldMasterId_lst):
-            part = self._dst_prs_part.related_part(entry.rId)
-            if part not in new_masters:
-                old_rIds.append(entry.rId)
-
-        # Remove relationships to old masters
-        for rId in old_rIds:
-            self._dst_prs_part.rels.pop(rId)
+        sldMasterIdLst = prs_part._element.sldMasterIdLst  # pyright: ignore[reportPrivateUsage]
+        if sldMasterIdLst is not None:
+            for entry in list(sldMasterIdLst.sldMasterId_lst):
+                if entry.rId not in prs_part.rels:
+                    sldMasterIdLst.remove(entry)
 
         # Remove any direct presentation→theme relationship so the old theme
         # is no longer reachable from the presentation.
-        theme_rIds_to_remove: list[str] = []
-        for rId, rel in list(self._dst_prs_part.rels.items()):
+        for rId, rel in list(prs_part.rels.items()):
             if not rel.is_external and rel.reltype == RT.THEME:
-                theme_rIds_to_remove.append(rId)
-        for rId in theme_rIds_to_remove:
-            self._dst_prs_part.rels.pop(rId)
-
-        # Remove the entire sldMasterIdLst — it will be rebuilt in run()
-        prs_element.remove(sldMasterIdLst)
-
-    # ------------------------------------------------------------------
-    # Partname helpers
-    # ------------------------------------------------------------------
-
-    def _next_partname(self, tmpl: str) -> PackURI:
-        """Return the next non-colliding partname, accounting for locally reserved names."""
-        prefix = tmpl[: (tmpl % 42).find("42")]
-        existing = {
-            p.partname for p in self._dst_package.iter_parts() if p.partname.startswith(prefix)
-        }
-        taken = existing | {pn for pn in self._reserved if pn.startswith(prefix)}
-        n = 1
-        while True:
-            candidate = tmpl % n
-            if candidate not in taken:
-                self._reserved.add(candidate)
-                return PackURI(candidate)
-            n += 1
-
-
-# ---------------------------------------------------------------------------
-# Part-copy helpers (shared logic)
-# ---------------------------------------------------------------------------
-
-
-def _clone_part(src_part: Part, new_partname: PackURI, dst_package: Package) -> Part:
-    from power_pptx.opc.package import PartFactory
-
-    return PartFactory(new_partname, src_part.content_type, dst_package, blob=src_part.blob)
-
-
-def _clone_xml_part(src_part: Part, new_partname: PackURI, dst_package: Package) -> Part:
-
-    new_element = deepcopy(src_part._element)  # pyright: ignore[reportPrivateUsage]
-    return src_part.__class__(new_partname, src_part.content_type, dst_package, new_element)
+                prs_part.rels.pop(rId)
+        with contextlib.suppress(KeyError):  # a master need not have a theme
+            prs_part.relate_to(new_masters[0].part_related_by(RT.THEME), RT.THEME)
