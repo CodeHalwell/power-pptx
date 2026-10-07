@@ -1135,6 +1135,51 @@ class DescribeEffectBleedGeometry:
         assert len(bleed) >= 1
         assert any(i.code == "OffSlideShadow" for i in bleed)
 
+    def _bleed_only_slide(self):
+        """A shape flush with the right edge whose 1" shadow blur crosses it."""
+        _, slide = _new_blank_slide()
+        slide_w, _slide_h = self._slide_dims(slide)
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
+        s.shadow.blur_radius = Emu(914400)
+        return slide
+
+    def it_reports_OffSlideShadow_as_a_warning(self):
+        # Regression: it inherited ERROR from OffSlide, so a purely cosmetic clipped shadow
+        # made ``has_errors`` true -- and ``auto_fix()`` has nothing to clamp, because the
+        # shape itself is on the slide -- leaving a gate that could never be cleared.
+        report = self._bleed_only_slide().lint(include_effect_bleed=True)
+
+        bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
+
+        assert bleed
+        assert {i.severity for i in bleed} == {LintSeverity.WARNING}
+        assert not report.has_errors
+
+    def and_leaves_a_real_OffSlide_an_error(self):
+        _, slide = _new_blank_slide()
+        slide_w, _slide_h = self._slide_dims(slide)
+        slide.shapes.add_shape(1, slide_w - Inches(1), Inches(1), Inches(2), Inches(2))
+
+        report = slide.lint(include_effect_bleed=True)
+
+        off = [i for i in report.issues if i.code == "OffSlide"]
+        assert off
+        assert {i.severity for i in off} == {LintSeverity.ERROR}
+        assert report.has_errors
+
+    def and_has_nothing_for_auto_fix_to_do_about_it(self):
+        report = self._bleed_only_slide().lint(include_effect_bleed=True)
+
+        assert report.auto_fix() == []
+        assert any(isinstance(i, OffSlideShadow) for i in report.issues)
+
+    def and_drops_out_of_an_errors_only_report(self):
+        slide = self._bleed_only_slide()
+
+        report = slide.lint(include_effect_bleed=True, min_severity="error")
+
+        assert report.issues == []
+
     def it_does_not_fire_collision_when_bleed_disabled(self):
         _, slide = _new_blank_slide()
         a = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(2))

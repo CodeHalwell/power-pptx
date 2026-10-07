@@ -148,10 +148,17 @@ class OffSlideShadow(OffSlide):
     fires when ``slide.lint(include_effect_bleed=True)`` is set.  Use
     ``shape.lint_skip = {"OffSlideShadow"}`` to silence the bleed-only
     variant without silencing real :class:`OffSlide` issues.
+
+    Severity is ``WARNING``, not the ``ERROR`` of a real :class:`OffSlide`:
+    the shape itself is on the slide and only the soft edge of its shadow
+    is clipped, which is cosmetic.  It is not auto-fixable either (there is
+    no geometry to clamp), so as an error it would fail ``has_errors`` with
+    nothing :meth:`SlideLintReport.auto_fix` could do about it.
     """
 
     def __init__(self, shape: BaseShape, side: str):
         super().__init__(shape, side, code="OffSlideShadow")
+        self.severity = LintSeverity.WARNING
         # The raw bbox stays on-slide; only the shadow bleed crosses
         # the edge, so the inherited "Shape extends beyond …" message
         # would mislead readers.
@@ -528,6 +535,13 @@ class SlideLintReport:
           ``layer_above`` pair to suppress.
         * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
           ``MasterPlaceholderCollision`` — require designer judgment.
+        * ``OffSlideShadow``, ``ShapeCollisionShadow`` — the bleed-only
+          issues reported under ``include_effect_bleed=True``.  The shape's
+          own bounding box is on the slide (or clear of its neighbour) and
+          only its shadow crosses the line, so there is no geometry to
+          clamp or nudge.  Reduce the blur, move the shape, or silence the
+          code with ``shape.lint_skip``.  This is why ``OffSlideShadow`` is
+          a ``WARNING`` rather than an ``ERROR``.
         """
         fixes: list[str] = []
         slide_w, slide_h = _slide_dimensions(self._slide)
