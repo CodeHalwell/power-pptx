@@ -37,8 +37,11 @@ inputs:
   ``"06D6FE"``), or
 * a 3-tuple of ``int`` in ``[0, 255]``.
 
-So this works uniformly::
+So this works uniformly, once the fill is solid (a new autoshape's fill is
+unset, and reading ``fore_color`` before ``fill.solid()`` raises
+``TypeError``; ``shape.fill_hex(...)`` does both steps in one call)::
 
+    shape.fill.solid()
     shape.fill.fore_color.rgb = "#06D6FE"
     shape.fill.fore_color.rgb = (6, 214, 254)
     shape.fill.fore_color.rgb = RGBColor(6, 214, 254)

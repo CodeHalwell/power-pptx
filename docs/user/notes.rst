@@ -107,7 +107,7 @@ as well as get at its text via its text frame.
 You can also access the other placeholders::
 
     >>> for placeholder in notes_slide.placeholders:
-    ...   print placeholder.placeholder_format.type
+    ...   print(placeholder.placeholder_format.type)
     ...
     SLIDE_IMAGE (101)
     BODY (2)
@@ -116,7 +116,7 @@ You can also access the other placeholders::
 and also the shapes (a superset of the placeholders)::
 
     >>> for shape in notes_slide.shapes:
-    ...   print shape
+    ...   print(shape)
     ...
     <power_pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e890>
     <power_pptx.shapes.placeholder.NotesSlidePlaceholder object at 0x11091e750>

@@ -128,7 +128,7 @@ The skill documents the headline space-aware-authoring workflow, the
 ``BBox`` value object, the one-call ``add_text`` / ``add_arrow``
 helpers, the diagram recipes (``horizontal_pipeline``,
 ``hub_and_spoke``, ``cycle``, ``decision_tree``,
-``comparison_columns``), and 16 focused reference docs covering
+``comparison_columns``), and 17 focused reference docs covering
 effects, animations, transitions, theming, charts, tables, 3D,
 SmartArt, and rendering.  It also includes an *anti-patterns* section
 calling out the mistakes LLMs commonly make (mis-comparing wrapper
