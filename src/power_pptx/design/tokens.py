@@ -198,7 +198,7 @@ class DesignTokens:
         or shadow extent given as a bare int of 1-99 EMU raise
         :class:`ValueError` naming the token (``tokens.typography.heading.size``).
         """
-        if not isinstance(spec, Mapping):
+        if not isinstance(spec, Mapping):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(f"tokens must be a mapping; got {type(spec).__name__!r}")
         palette = {name: _coerce_color(value) for name, value in _section(spec, "palette").items()}
         typography = {
@@ -247,7 +247,11 @@ class DesignTokens:
         or simply mutate the returned instance — the dataclass fields
         are mutable.
         """
-        spec = _PRESETS.get(name) if isinstance(name, str) else None
+        spec = (
+            _PRESETS.get(name)
+            if isinstance(name, str)  # pyright: ignore[reportUnnecessaryIsInstance]
+            else None
+        )
         if spec is None:
             raise ValueError(f"Unknown preset {name!r}; choose from {sorted(_PRESETS)}")
         return cls.from_dict(spec)
@@ -754,6 +758,14 @@ def _describe_length(length: Length) -> str:
     return f"{int(length)} EMU ({length.pt:.3g} pt)"
 
 
+def _coerce_length_at(value: Any, path: str) -> Length:
+    """:func:`_coerce_length`, with *path* prefixed to the :class:`TypeError` it raises."""
+    try:
+        return _coerce_length(value)
+    except TypeError as exc:
+        raise TypeError(f"{path}: {exc}") from None
+
+
 def _coerce_font_size(value: Any, path: str) -> Length:
     """Coerce a typography size, requiring 1 pt <= size <= 4000 pt.
 
@@ -761,7 +773,7 @@ def _coerce_font_size(value: Any, path: str) -> Length:
     why it is rejected here, naming *path*, instead of surfacing later as
     "value must be in range 100 to 400000" from deep inside a recipe.
     """
-    size = _coerce_length(value)
+    size = _coerce_length_at(value, path)
     if not _MIN_FONT_SIZE <= size <= _MAX_FONT_SIZE:
         hint = f"a bare int is read as EMU, so {_UNIT_HINT}" if _is_bare_int(value) else _UNIT_HINT
         raise ValueError(
@@ -778,7 +790,7 @@ def _coerce_extent(value: Any, path: str) -> Length:
     *path*.  ``0`` has no unit to get wrong and is accepted, as is any
     :class:`Length` or ``float``.
     """
-    length = _coerce_length(value)
+    length = _coerce_length_at(value, path)
     if _is_bare_int(value) and value != 0 and abs(value) < _MIN_BARE_EMU:
         raise ValueError(
             f"{path}: a bare int is read as EMU, and {_describe_length(length)} is almost "
@@ -788,9 +800,12 @@ def _coerce_extent(value: Any, path: str) -> Length:
 
 
 def _coerce_alpha(value: Any, path: str) -> float:
-    alpha = float(value)
-    if not 0.0 <= alpha <= 1.0:
-        raise ValueError(f"{path}: shadow alpha must be in [0.0, 1.0]; got {value!r}")
+    try:
+        alpha: Optional[float] = float(value)
+    except (TypeError, ValueError):
+        alpha = None
+    if alpha is None or not 0.0 <= alpha <= 1.0:
+        raise ValueError(f"{path}: shadow alpha must be a number in [0.0, 1.0]; got {value!r}")
     return alpha
 
 

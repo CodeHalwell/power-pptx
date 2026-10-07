@@ -424,7 +424,7 @@ def _add_slide(
             f"{where}: each slide must be a mapping with a 'layout' key; "
             f"got {type(slide_spec).__name__!r}"
         )
-    layout_value = slide_spec.get("layout")
+    layout_value: Any = slide_spec.get("layout")
     if layout_value is not None and not isinstance(layout_value, str):
         raise ValueError(f"{where}.layout: must be a string; got {type(layout_value).__name__!r}")
     layout_name = (layout_value or "blank").lower()
@@ -709,7 +709,7 @@ def _set_title(slide: Any, title: str | None) -> None:
 
 
 def _set_subtitle_or_body(
-    slide: Any, spec: dict[str, Any], layout_name: str, *, where: str = ""
+    slide: Any, spec: Mapping[str, Any], layout_name: str, *, where: str = ""
 ) -> None:
     """Populate the secondary placeholder or add shapes based on layout type.
 
@@ -1103,7 +1103,7 @@ def _add_kpi_shapes(slide: Any, kpis: Sequence[Mapping[str, Any]]) -> None:
     value (``14`` -> ``+14.0``), a string such as ``"+14 pts"`` is used
     verbatim, and ``delta_text`` wins over ``delta``.
     """
-    from power_pptx.design.recipes import _resolve_delta
+    from power_pptx.design.recipes import _resolve_delta  # pyright: ignore[reportPrivateUsage]
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import PP_ALIGN
     from power_pptx.util import Inches, Length, Pt

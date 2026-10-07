@@ -550,3 +550,26 @@ class DescribePresetNames:
     def it_rejects_a_non_string_preset_name_as_unknown(self, name):
         with pytest.raises(ValueError, match="Unknown preset"):
             DesignTokens.from_preset(name)  # pyright: ignore[reportArgumentType]
+
+
+class DescribeNonNumericLengthsAndAlpha:
+    """A value that is no number at all names its token too, not just a bad unit."""
+
+    def it_names_the_token_when_a_font_size_is_text(self):
+        # ``"36pt"`` is what a YAML author writes; it is not a unit this takes.
+        with pytest.raises(TypeError, match=r"tokens\.typography\.heading\.size: cannot coerce"):
+            DesignTokens.from_dict({"typography": {"heading": {"family": "Inter", "size": "36pt"}}})
+
+    @pytest.mark.parametrize("category", ["radii", "spacings"])
+    def it_names_the_token_when_a_radius_or_spacing_is_text(self, category):
+        with pytest.raises(TypeError, match=rf"tokens\.{category}\.md: cannot coerce '8pt'"):
+            DesignTokens.from_dict({category: {"md": "8pt"}})
+
+    def it_names_the_token_when_a_shadow_extent_is_text(self):
+        with pytest.raises(TypeError, match=r"tokens\.shadows\.card\.distance: cannot coerce"):
+            DesignTokens.from_dict({"shadows": {"card": {"distance": "4pt"}}})
+
+    @pytest.mark.parametrize("alpha", ["opaque", [0.5], {}])
+    def it_names_the_token_when_alpha_is_not_a_number(self, alpha):
+        with pytest.raises(ValueError, match=r"tokens\.shadows\.card\.alpha: .*must be a number"):
+            DesignTokens.from_dict({"shadows": {"card": {"alpha": alpha}}})
