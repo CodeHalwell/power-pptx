@@ -7,7 +7,26 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import MSO_THEME_COLOR
+from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.theme import Theme, ThemeColors, ThemeFonts
+from power_pptx.util import Inches
+
+# The twelve slots a theme's <a:clrScheme> actually holds, in schema order (bg1/bg2/tx1/tx2
+# are aliases for lt1/lt2/dk1/dk2 and never appear there).
+_CANONICAL_SLOTS = (
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "hlink",
+    "folHlink",
+)
 
 
 @pytest.fixture
@@ -115,6 +134,65 @@ class DescribeThemeApply:
     def it_rejects_non_theme_arguments(self, theme):
         with pytest.raises(TypeError):
             theme.apply("not a theme")  # type: ignore[arg-type]
+
+    # -- rebind_shape_colors: which slot a literal color is rebound to -------------------
+
+    @staticmethod
+    def _rebind(palette: dict[str, RGBColor], literal: RGBColor):
+        """Give a deck `palette`, fill a shape with `literal`, re-skin the deck, return the
+        shape's fill element and the number of rebinds `apply()` reported."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        for name, rgb in palette.items():
+            prs.theme.colors[MSO_THEME_COLOR.from_xml(name)] = rgb
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = literal
+
+        other = Presentation().theme
+        other.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x00, 0x00)
+        n = prs.theme.apply(other, rebind_shape_colors=True, presentation=prs)
+        return shape.fill._xPr.xpath("a:solidFill/a:schemeClr/@val"), n
+
+    @pytest.mark.parametrize("slot_name", _CANONICAL_SLOTS)
+    def it_rebinds_a_literal_to_its_canonical_slot_never_to_an_alias(self, slot_name):
+        # -- every slot gets its own color, so each literal matches exactly one slot. The
+        # -- light slots used to come back as the bg1 / bg2 aliases while the dark ones came
+        # -- back as dk1 / dk2, because MSO_THEME_COLOR lists BACKGROUND_* before LIGHT_*. --
+        palette = {
+            name: RGBColor(0x10 + i, 0x20 + i, 0x30 + i) for i, name in enumerate(_CANONICAL_SLOTS)
+        }
+
+        val, n = self._rebind(palette, palette[slot_name])
+
+        assert val == [slot_name]
+        assert n == 1
+
+    @pytest.mark.parametrize(
+        ("shared", "expected"),
+        [
+            # -- ties go to the slot that comes first in the color scheme's schema order --
+            (("lt1", "lt2"), "lt1"),
+            (("dk1", "accent3"), "dk1"),
+            (("dk2", "accent1"), "dk2"),
+            (("accent1", "accent2"), "accent1"),
+            (("accent6", "hlink"), "accent6"),
+        ],
+    )
+    def and_it_breaks_ties_between_slots_sharing_a_color_in_schema_order(self, shared, expected):
+        palette = {
+            name: RGBColor(0x10 + i, 0x20 + i, 0x30 + i) for i, name in enumerate(_CANONICAL_SLOTS)
+        }
+        twin = RGBColor(0xAB, 0xCD, 0xEF)
+        for name in shared:
+            palette[name] = twin
+
+        val, n = self._rebind(palette, twin)
+
+        assert val == [expected]
+        assert n == 1
 
 
 class DescribeThemeName:

@@ -1,8 +1,8 @@
-"""Schema validation for DrawingML output: gradient shading, picture recolor.
+"""Schema validation for DrawingML output: gradient shading, picture recolor, theme rebinding.
 
-These decks exercise paths of ``power_pptx.dml`` that emit (or reorder) XML, and
-assert the generated parts still validate against the ISO/IEC 29500 schemas -- the
-"reopens fine but PowerPoint offers to repair it" class of bug.
+These decks exercise paths of ``power_pptx.dml`` and ``power_pptx.theme`` that emit (or
+reorder) XML, and assert the generated parts still validate against the ISO/IEC 29500
+schemas -- the "reopens fine but PowerPoint offers to repair it" class of bug.
 """
 
 from __future__ import annotations
@@ -128,4 +128,46 @@ class DescribeGradientShadingSchemaValidity:
 
         # guard against passing vacuously: every shape really did gain its `a:lin`
         assert _slide_xml(blob).count("<a:lin ") == len(entry_points)
+        assert_schema_valid(blob)
+
+
+class DescribeThemeRebindSchemaValidity:
+    def it_validates_after_literals_are_rebound_to_canonical_theme_slots(self):
+        # `Theme.apply(..., rebind_shape_colors=True)` rewrites literal colors to
+        # <a:schemeClr val="dk1|lt1|dk2|lt2|accentN|...">; the canonical names (not the
+        # bg1/tx1 aliases) are what it now writes for every slot.
+        from power_pptx.dml.color import RGBColor
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slots = (
+            MSO_THEME_COLOR.LIGHT_1,
+            MSO_THEME_COLOR.DARK_1,
+            MSO_THEME_COLOR.LIGHT_2,
+            MSO_THEME_COLOR.DARK_2,
+            MSO_THEME_COLOR.ACCENT_1,
+        )
+        for i, slot in enumerate(slots):
+            shape = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, Inches(0.5 + i * 1.8), Inches(1), Inches(1.5), Inches(1)
+            )
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = prs.theme.colors[slot]
+
+        other = Presentation().theme
+        other.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x00, 0x00)
+        assert prs.theme.apply(other, rebind_shape_colors=True, presentation=prs) == len(slots)
+
+        blob = _saved(prs)
+
+        # guard against passing vacuously: each shape's own fill (not the default
+        # `p:style`, which already names lt1 and accent1) was rebound, to canonical names
+        root = etree.fromstring(_slide_xml(blob).encode("utf-8"))
+        rebound = [
+            fill.find(qn("a:schemeClr")).get("val")
+            for fill in root.iter(qn("a:solidFill"))
+            if fill.getparent().tag == qn("p:spPr")
+        ]
+        assert rebound == ["lt1", "dk1", "lt2", "dk2", "accent1"]
         assert_schema_valid(blob)
