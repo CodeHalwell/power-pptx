@@ -29,6 +29,10 @@ on:
     types: [completed]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   # A workflow_run start says only "the release workflow finished", not
   # "it cut a release".  That workflow succeeds as a no-op when
@@ -70,19 +74,23 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" != "workflow_run" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "$EVENT_NAME start — publishing as before."
-            exit 0
-          fi
+          HEAD_SHA=$(git rev-parse HEAD)
           version=$(python -c "import re; print(re.search(r'__version__\s*=\s*[\"\']([^\"\']+)[\"\']', open('src/power_pptx/__init__.py').read()).group(1))")
           tag="v$version"
           if ! tagged=$(git rev-parse -q --verify "refs/tags/$tag^{commit}"); then
+            if [ "$EVENT_NAME" != "workflow_run" ]; then
+              echo "No $tag tag for this version. Refusing to publish."
+              exit 1
+            fi
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "No $tag tag — the release workflow cut nothing. Skipping."
             exit 0
           fi
           if [ "$tagged" != "$HEAD_SHA" ]; then
+            if [ "$EVENT_NAME" != "workflow_run" ]; then
+              echo "$tag does not point at $HEAD_SHA. Refusing to publish."
+              exit 1
+            fi
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "$tag points at $tagged, not the commit being built ($HEAD_SHA)."
             echo "This run carried no version bump. Skipping."
@@ -90,6 +98,16 @@ jobs:
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "$tag == $HEAD_SHA — this run cut the release. Publishing."
+
+      - name: Require successful CI for the version tag's commit
+        if: steps.check.outputs.publish == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const requireCI = require('./.github/scripts/require-ci.cjs');
+            // github.sha may be an annotated tag object; use the checked-out commit.
+            const {stdout} = await exec.getExecOutput('git', ['rev-parse', 'HEAD']);
+            await requireCI({github, context, core, sha: stdout.trim()});
 
   build:
     name: Build distribution

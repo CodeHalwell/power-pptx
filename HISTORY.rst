@@ -14,6 +14,98 @@ installs the ``pptx`` import name) is also present in the environment.
 .. _`scanny/python-pptx`: https://github.com/scanny/python-pptx
 
 
+Unreleased
+++++++++++
+
+Added
+.....
+
+* Declarative native ``Row``, ``Column``, ``Card``, ``Badge``, ``MetricTile``,
+  ``TextBlock``, and ``NativeContent`` components preflight measured layouts,
+  padding, gaps, flexible sizing, font availability, and overlap intent.
+* ``from_html(mode="hybrid")`` imports explicitly annotated editable rich
+  text, charts with workbooks, and tables; complex CSS regions stay captured.
+  Optional browser reference images support comparison with saved-slide renders.
+* Text fitting supports minimum sizes, line budgets, authored breaks, and
+  line spacing; ``measure_text`` provides read-only font metrics.
+* Installed ``power-pptx review`` command and Python review/validation APIs
+  produce PPTX, PDF, all PNGs, contact sheets, packaged OOXML validation,
+  round-trip checks, font inventory, reference differences, and batch galleries.
+* Plotly supports explicit browser export and automatic Kaleido-to-browser
+  fallback, including SVG with browser-rendered PNG fallback. Figure recipes
+  forward export options through ``plotly_options``.
+* Three reproducible authoring workflow decks cover nine additional slides;
+  bundled skill guidance explains all new APIs and their limitations.
+* ``power_pptx.compose.from_html`` builds a deck from styled HTML sections
+  in DOM order using one Chromium session. It accepts markup, UTF-8 bytes,
+  or a local HTML file; preserves visible text in notes/alt text; and
+  checks container overflow before capture.
+* HTML figure capture accepts local files and a CSS ``selector``, waits
+  for image decoding and web fonts, supports explicit application
+  readiness, transparent backgrounds, and contain/cover/stretch fitting.
+  Relative assets are served from the HTML directory on a temporary
+  localhost server. Capture density no longer changes physical size.
+  The default wait is now ``load`` and fitting is ``contain``; request
+  ``wait_until="networkidle"`` / ``fit="stretch"`` explicitly for the
+  previous behavior. ``figure_slide`` / JSON figure specs forward browser
+  options through ``html_options``.
+* Optional ``html``, ``svg``, and ``embedding`` dependency extras, a real
+  Chromium CI test job, a styled HTML/native companion example, and a
+  bundled guide to HTML-driven native/hybrid/captured slide workflows.
+* A modern gallery with eight decks and 32 slides spanning editable native,
+  hybrid, and HTML capture workflows. Its reproducible builder validates
+  schema, round-trip fidelity, lint, every rendered page, and browser/render
+  similarity for captured decks. CI uploads the previews for visual review.
+
+Fixed
+.....
+
+* Audit/lint font reads no longer insert empty run properties. Review checks
+  save/reopen fidelity before audit inspection, avoiding self-induced diffs.
+* Text overflow lint respects explicit no-wrap and paragraph line spacing,
+  including OOXML point quantization for browser-measured text regions.
+* Hub-and-spoke diagrams use the available outer radius instead of packing
+  spokes into the hub. Dense diagrams shrink spoke nodes to preserve gaps
+  and remain inside their region; connectors follow circular radii instead
+  of rectangular edges. Impossible node sizes fail before mutation.
+* Contrast lint respects opaque containing cards in drawing order. It skips
+  ambiguous gradient, translucent, picture, and partially covered backdrops
+  instead of comparing their labels against the slide background.
+* SVG inputs accept inline Unicode markup, validate the actual XML root
+  (including prefixed SVG), and reject malformed documents. HTML with an
+  inline SVG is no longer misrouted to SVG embedding. Identical SVG media
+  parts are reused across slide occurrences.
+* Text fitting preserves paragraph breaks, soft line breaks, and blank
+  lines instead of measuring them as spaces. Whitespace-only frames no
+  longer crash; non-positive ``max_size`` raises ``ValueError``. The
+  overflow linter also counts soft and leading/trailing blank lines.
+* Thumbnail rendering uses an isolated workspace and LibreOffice profile
+  for each call. Reusing an output directory no longer loses overwritten
+  PNGs or returns stale PDF pages. Both pipelines verify the full slide
+  count before selecting requested slides; conversion files are cleaned up.
+* Deck audits inspect nested groups, validate standard raster image data,
+  and include broken pictures in ``has_errors``. Full-slide pictures and
+  charts count as content; only full-bleed, empty rectangles are treated
+  as background decoration. Vector/WDP images are checked for non-empty
+  data without requiring a raster decoder.
+* Legacy JSON layouts reject unknown fields with slide locations and typo
+  suggestions, matching recipe layouts. Named standard template layouts
+  populate the same content fields as their aliases. Invalid slide entries
+  and layout types raise contextual ``ValueError`` exceptions.
+
+Development
+...........
+
+* CI exercises real LibreOffice/Poppler rendering, checks Ruff correctness
+  rules throughout the source/tests, and applies full Ruff checks to the
+  maintained authoring/validation modules. A separate Pyright configuration
+  checks the audit, composition, and rendering entry points; the broader
+  strict-typing backlog remains outside this initial gate.
+* Automatic and manual release/publish paths require successful CI for the
+  exact commit on the default branch. Publishing also verifies that the
+  version tag identifies the checked-out commit.
+
+
 2.12.0 (2026-08-24)
 +++++++++++++++++++
 

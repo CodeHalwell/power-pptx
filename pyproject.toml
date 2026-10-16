@@ -41,6 +41,12 @@ license = { text = "MIT" }
 readme = "README.rst"
 requires-python = ">=3.9"
 
+[project.optional-dependencies]
+html = ["playwright>=1.40"]
+svg = ["cairosvg>=2.5"]
+embedding = ["playwright>=1.40", "cairosvg>=2.5"]
+review = ["pypdfium2>=4"]
+
 [project.urls]
 Changelog = "https://github.com/codehalwell/power-pptx/blob/master/HISTORY.rst"
 Documentation = "https://codehalwell.github.io/power-pptx/"
@@ -133,7 +139,7 @@ select = [
     "PLR0402",  # -- Name compared with itself like `foo == foo` --
     "PT",       # -- flake8-pytest-style --
     "SIM",      # -- flake8-simplify --
-    "TCH001",   # -- detect typing-only imports not under `if TYPE_CHECKING` --
+    "TC001",    # -- detect typing-only imports not under `if TYPE_CHECKING` --
     "UP015",    # -- redundant `open()` mode parameter (like "r" is default) --
     "UP018",    # -- Unnecessary {literal_type} call like `str("abc")`. (rewrite as a literal) --
     "UP032",    # -- Use f-string instead of `.format()` call --
@@ -143,7 +149,6 @@ select = [
 ignore = [
     "COM812",   # -- over aggressively insists on trailing commas where not desireable --
     "PT001",    # -- wants empty parens on @pytest.fixture where not used (essentially always) --
-    "PT005",    # -- flags mock fixtures with names intentionally matching private method name --
     "PT011",    # -- pytest.raises({exc}) too broad, use match param or more specific exception --
     "PT012",    # -- pytest.raises() block should contain a single simple statement --
     "SIM117",   # -- merge `with` statements for context managers that have same scope --
@@ -163,8 +168,12 @@ power_pptx = [
     "skill/SKILL.md",
     "skill/references/*.md",
     "templates/*",
+    "design/*.js",
+    "schemas/*.xsd",
 ]
 
 [project.scripts]
 # Convenience CLI: `power-pptx-skill install` ≈ `python -m power_pptx.skill install`.
 power-pptx-skill = "power_pptx.skill.__main__:main"
+power-pptx = "power_pptx.__main__:main"
+power-pptx-review = "power_pptx.review:main"

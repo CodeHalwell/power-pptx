@@ -63,6 +63,13 @@ valid layout suggested) rather than silently producing a blank slide —
 so a typo like `"titel"` fails loudly. Use `"layout": "blank"`
 explicitly when you actually want a blank slide.
 
+Unknown fields are rejected for both legacy and recipe layouts. For example,
+`{"layout": "title", "subtitel": "..."}` raises a `ValueError` locating
+`slides[0]` and suggesting `subtitle`; `bullets` layouts similarly validate
+the `bullets` field. Non-mapping slide entries and non-string layout values
+raise contextual errors. Named standard layouts such as `"Title Slide"`
+accept and populate the same fields as their aliases.
+
 `tokens` accepts five shapes:
 
 - A preset by name: `{"preset": "modern_light"}` (optionally with

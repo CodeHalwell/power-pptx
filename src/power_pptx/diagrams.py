@@ -391,14 +391,28 @@ def hub_and_spoke(
 
     ``centre`` is the label of the hub.  ``spokes`` is an iterable of
     string labels or step-dicts (see :func:`horizontal_pipeline`).
+    Spoke centers use the available outer radius; node diameters shrink
+    when necessary to leave space between the hub and neighboring spokes.
+    Split a dense diagram across slides when labels become too small.
     """
     coerced = _coerce_steps(spokes)
     n = len(coerced)
 
+    if any(not math.isfinite(value) or value <= 0 for value in (spoke_size, hub_size)):
+        raise ValueError("spoke_size and hub_size must be finite and positive")
+
     # Place the hub in the centre at ~25% of the smaller dimension.
     short = min(int(bbox.width), int(bbox.height))
     hub_diameter = int(short * 0.25 * hub_size)
-    spoke_diameter = int(short * 0.2 * spoke_size)
+    gap = max(1, int(short * 0.04))
+    max_spoke = (short - hub_diameter) / 2 - gap
+    if n > 1:
+        # Neighbor distance is 2r sin(pi/n), with r=(short-diameter)/2.
+        sine = math.sin(math.pi / n)
+        max_spoke = min(max_spoke, (short * sine - gap) / (1 + sine))
+    spoke_diameter = int(min(short * 0.2 * spoke_size, max_spoke))
+    if hub_diameter <= 0 or spoke_diameter <= 0:
+        raise ValueError("bbox is too small for the requested hub_size and spoke count")
     cx, cy = int(bbox.cx), int(bbox.cy)
 
     hub_box = BBox(
@@ -429,7 +443,7 @@ def hub_and_spoke(
     _fit_circular_label(hub, diameter=hub_diameter, font=font, max_size_pt=size_pt, bold=True)
 
     # Place spokes evenly around the hub.
-    radius = (min(int(bbox.width), int(bbox.height)) - hub_diameter - spoke_diameter) // 2
+    radius = (short - spoke_diameter) // 2
     spokes_built: list[Any] = []
     arrows: list[Any] = []
     for i, step in enumerate(coerced):
@@ -463,13 +477,23 @@ def hub_and_spoke(
         )
 
         spokes_built.append(spoke)
+        # Shape-to-shape arrow routing chooses rectangular card edges. Circular
+        # nodes need perimeter points along the radial direction instead.
+        inset = min(int(Pt(2)), gap // 4)
+        ux, uy = math.cos(angle), math.sin(angle)
         arrow = slide.shapes.add_arrow(
-            hub,
-            spoke,
+            (
+                Emu(round(cx + (hub_diameter / 2 + inset) * ux)),
+                Emu(round(cy + (hub_diameter / 2 + inset) * uy)),
+            ),
+            (
+                Emu(round(sx - (spoke_diameter / 2 + inset) * ux)),
+                Emu(round(sy - (spoke_diameter / 2 + inset) * uy)),
+            ),
             head="triangle",
             color=accent,
             weight_pt=1.5,
-            inset_pt=2.0,
+            inset_pt=0.0,
         )
         arrows.append(arrow)
     _tag_group(slide, "hub-and-spoke", [hub] + spokes_built + arrows)

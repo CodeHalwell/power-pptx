@@ -41,6 +41,18 @@ def _new_slide():
 
 
 class DescribeLooksLikeSvg:
+    @pytest.mark.parametrize("blob", [
+        b'<html><body><svg width="10" height="10"></svg></body></html>',
+        b'<svg xmlns="http://www.w3.org/2000/svg"><broken></svg>',
+        b'<not-svg xmlns="http://www.w3.org/2000/svg"/>',
+    ])
+    def it_rejects_html_and_malformed_svg(self, blob):
+        assert not looks_like_svg(blob)
+
+    def it_recognises_prefixed_svg_after_a_long_comment(self):
+        blob = b'<!--' + b'comment ' * 100 + b'--><s:svg xmlns:s="http://www.w3.org/2000/svg"/>'
+        assert looks_like_svg(blob)
+
     def it_recognises_an_svg_blob(self):
         assert looks_like_svg(SVG_DOC) is True
 
@@ -52,6 +64,31 @@ class DescribeLooksLikeSvg:
 
 
 class DescribeAddSvgPicture:
+    def it_accepts_inline_unicode_svg(self):
+        _prs, slide = _new_slide()
+        pic = slide.shapes.add_svg_picture(
+            SVG_DOC.decode("utf-8"), Inches(1), Inches(1), Inches(2), Inches(2),
+            png_fallback=TINY_PNG,
+        )
+        assert "svgBlip" in pic.element.xml
+
+    def it_reuses_svg_parts_across_slides(self, tmp_path):
+        import zipfile
+
+        prs, first = _new_slide()
+        second = prs.slides.add_slide(prs.slide_layouts[6])
+        for slide in [first, second]:
+            for _ in range(2):
+                slide.shapes.add_svg_picture(
+                    SVG_DOC, Inches(1), Inches(1), Inches(2), Inches(2), png_fallback=TINY_PNG
+                )
+        path = tmp_path / "shared-svg.pptx"
+        prs.save(path)
+        with zipfile.ZipFile(path) as package:
+            assert len([name for name in package.namelist() if name.endswith(".svg")]) == 1
+        reopened = Presentation(path)
+        assert "svgBlip" in reopened.slides[1].shapes[1].element.xml
+
     def it_embeds_svg_with_explicit_png_fallback(self):
         prs, slide = _new_slide()
 

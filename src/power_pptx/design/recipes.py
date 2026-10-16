@@ -1300,6 +1300,8 @@ def figure_slide(
     figure: Any,
     caption: Optional[str] = None,
     figure_format: str = "auto",
+    html_options: Optional[dict[str, Any]] = None,
+    plotly_options: Optional[dict[str, Any]] = None,
     tokens: Optional[DesignTokens] = None,
     transition: Optional[str] = None,
 ) -> "Slide":
@@ -1323,6 +1325,12 @@ def figure_slide(
     *figure_format* (``"auto"`` / ``"svg"`` / ``"png"``) is forwarded
     to the Plotly / Matplotlib adapter; ignored for SVG / HTML / image
     inputs.
+
+    *html_options* forwards browser capture options such as ``selector``,
+    ``viewport`` and ``wait_for_function`` when the input is HTML.
+
+    *plotly_options* forwards ``backend``, ``browser_path``, pixel dimensions,
+    and other export options to the Plotly adapter.
 
     *caption* is rendered in the bottom-right corner if supplied.
 
@@ -1358,7 +1366,10 @@ def figure_slide(
     fig_h = Length(slide_h - fig_top - Inches(0.5) - cap_h)
     fig_w = Length(slide_w - 2 * margin)
 
-    _embed_figure(slide, figure, margin, fig_top, fig_w, fig_h, figure_format)
+    _embed_figure(
+        slide, figure, margin, fig_top, fig_w, fig_h, figure_format,
+        html_options, plotly_options,
+    )
 
     if caption:
         cap_top = Length(slide_h - Inches(0.5) - cap_h)
@@ -1389,6 +1400,8 @@ def _embed_figure(
     width: Length,
     height: Length,
     figure_format: str,
+    html_options: Optional[dict[str, Any]] = None,
+    plotly_options: Optional[dict[str, Any]] = None,
 ) -> None:
     """Dispatch *figure* by type to the matching figures-module adapter."""
     from power_pptx.design import figures as _figures
@@ -1396,7 +1409,8 @@ def _embed_figure(
     # Plotly figure: detected by duck-typed .to_image().
     if hasattr(figure, "to_image") and callable(figure.to_image):
         _figures.add_plotly_figure(
-            slide, figure, left, top, width, height, format=figure_format
+            slide, figure, left, top, width, height, format=figure_format,
+            **(plotly_options or {}),
         )
         return
 
@@ -1413,6 +1427,11 @@ def _embed_figure(
         if ext == ".svg":
             _figures.add_svg_figure(slide, figure, left, top, width, height)
             return
+        if ext in {".html", ".htm"}:
+            _figures.add_html_figure(
+                slide, figure, left, top, width, height, **(html_options or {})
+            )
+            return
         if ext in _RASTER_EXTS:
             slide.shapes.add_picture(str(figure), left, top, width, height)
             return
@@ -1422,13 +1441,17 @@ def _embed_figure(
 
     # Bytes / strings: SVG sniff vs HTML.
     if isinstance(figure, (bytes, bytearray, str)):
-        head = figure if isinstance(figure, (bytes, bytearray)) else figure.encode("utf-8", "replace")
-        head = bytes(head[:512]).lstrip()
-        if head.startswith(b"<?xml") or b"<svg" in head[:200]:
+        from power_pptx._svg import looks_like_svg
+
+        blob = figure if isinstance(figure, (bytes, bytearray)) else figure.encode("utf-8")
+        head = bytes(blob).lstrip(b"\xef\xbb\xbf \t\r\n")
+        if looks_like_svg(bytes(blob)):
             _figures.add_svg_figure(slide, figure, left, top, width, height)
             return
         if head.startswith(b"<"):
-            _figures.add_html_figure(slide, figure, left, top, width, height)
+            _figures.add_html_figure(
+                slide, figure, left, top, width, height, **(html_options or {})
+            )
             return
 
     raise TypeError(
@@ -1459,7 +1482,7 @@ def _is_markup_string(value: Any) -> bool:
     """
     if not isinstance(value, str):
         return False
-    s = value.lstrip()
+    s = value.lstrip("\ufeff \t\r\n")
     if not s.startswith("<"):
         return False
     # XML declarations, doctypes, comments.

@@ -40,11 +40,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+from contextlib import suppress
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Iterable, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Union, cast
 
 if TYPE_CHECKING:
-    from power_pptx.api import Presentation as _Presentation
+    from power_pptx.presentation import Presentation as _Presentation
     from power_pptx.slide import Slide as _Slide
 
 DEFAULT_SOFFICE_BIN = "soffice"
@@ -95,6 +96,7 @@ def _run_soffice(
     """
     cmd = [
         soffice_bin,
+        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
         "--headless",
         "--norestore",
         "--nologo",
@@ -127,6 +129,7 @@ def _run_soffice_pdf(
     """
     cmd = [
         soffice_bin,
+        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
         "--headless",
         "--norestore",
         "--nologo",
@@ -159,10 +162,11 @@ def render_slide_thumbnails(
     """Render slide thumbnails for `prs` via headless LibreOffice.
 
     `out_dir` is the directory to write PNGs into; if ``None``, a
-    temporary directory is used and the returned paths point inside it
-    (the caller is responsible for cleanup).  When ``return_bytes=True``
-    the function reads each PNG into memory and returns ``bytes``
-    objects instead, deleting the temporary directory before returning.
+    temporary output directory is used (the caller is responsible for
+    cleanup). Conversion always happens in a separate private workspace,
+    so repeated calls never include stale images from ``out_dir``.
+    When ``return_bytes=True``, only PNG bytes are returned; no output
+    files are copied and the workspace is removed before returning.
 
     `slide_indexes` is a 0-based list of slide indexes to return; when
     ``None``, all slides are returned in deck order.
@@ -194,13 +198,10 @@ def render_slide_thumbnails(
 
     bin_path = _resolve_binary(soffice_bin)
 
-    cleanup_tmp = out_dir is None
-    work_dir = Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
-    work_dir.mkdir(parents=True, exist_ok=True)
-
     expected_slide_count = len(list(prs.slides))
 
-    try:
+    with tempfile.TemporaryDirectory(prefix="pptx-render-") as tmp:
+        work_dir = Path(tmp)
         deck_path = work_dir / "_render_input.pptx"
         _save_to_path(prs, deck_path)
 
@@ -210,7 +211,7 @@ def render_slide_thumbnails(
             png_paths = _render_via_png(
                 bin_path, deck_path, work_dir, timeout
             )
-            if strategy == "png" and len(png_paths) < expected_slide_count:
+            if strategy == "png" and len(png_paths) != expected_slide_count:
                 raise ThumbnailRendererError(
                     "soffice --convert-to png emitted %d PNG(s) for a "
                     "%d-slide deck.  Most LibreOffice 7+ builds only write "
@@ -221,15 +222,13 @@ def render_slide_thumbnails(
 
         # Auto-fallback: PNG path didn't produce one image per slide.
         if strategy == "pdf" or (
-            strategy == "auto" and len(png_paths) < expected_slide_count
+            strategy == "auto" and len(png_paths) != expected_slide_count
         ):
             # Clean up partial PNG output from the auto-mode first attempt
             # so we don't confuse the slide-index lookup.
             for stale in png_paths:
-                try:
+                with suppress(OSError):
                     stale.unlink()
-                except OSError:
-                    pass
             png_paths = _render_via_pdf(
                 bin_path, deck_path, work_dir, timeout, dpi=dpi
             )
@@ -242,17 +241,31 @@ def render_slide_thumbnails(
                 "fallback also requires `pdftoppm` (Poppler) or `pypdfium2`."
             )
 
+        if len(png_paths) != expected_slide_count:
+            raise ThumbnailRendererError(
+                "rendering emitted %d PNG(s) for a %d-slide deck"
+                % (len(png_paths), expected_slide_count)
+            )
+
         if slide_indexes is not None:
             wanted = list(slide_indexes)
             png_paths = _select_indexes(png_paths, wanted)
 
         if return_bytes:
-            data = [p.read_bytes() for p in png_paths]
-            return data
-        return list(png_paths)
-    finally:
-        if cleanup_tmp and return_bytes:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            return [p.read_bytes() for p in png_paths]
+
+        output_dir = (
+            Path(out_dir)
+            if out_dir is not None
+            else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for png_path in png_paths:
+            target = output_dir / png_path.name
+            shutil.copy2(png_path, target)
+            paths.append(target)
+        return paths
 
 
 def _render_via_png(
@@ -318,10 +331,8 @@ def _render_via_pdf(
     try:
         return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi)
     finally:
-        try:
+        with suppress(OSError):
             pdf_path.unlink()
-        except OSError:
-            pass
 
 
 def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
@@ -567,7 +578,7 @@ def render_slides(
         index_iter: list[int] = list(range(len(paths)))
     else:
         index_iter = list(slides)
-    for idx, p in zip(index_iter, paths):
+    for idx, p in zip(index_iter, cast(List[Path], paths)):
         new_name = name_template.format(idx)
         target = p.parent / new_name
         if p != target:

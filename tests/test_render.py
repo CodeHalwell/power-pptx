@@ -56,6 +56,26 @@ def _fake_soffice_run_with_names(work_dir: Path, names):
 
 
 class DescribeRenderSlideThumbnails:
+    def it_can_render_twice_into_the_same_directory(self, tmp_path, two_slide_prs):
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
+        ):
+            first = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="png")
+            second = render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="png")
+
+        assert first == second
+        assert all(path.exists() for path in second)
+        assert not (tmp_path / "_render_input.pptx").exists()
+
+    def it_leaves_no_output_on_conversion_failure(self, tmp_path, two_slide_prs):
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice",
+            side_effect=_fake_soffice_run(tmp_path, exit_code=1),
+        ), pytest.raises(ThumbnailRendererError):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
     def it_returns_paths_for_every_slide_by_default(self, tmp_path, two_slide_prs):
         with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
             "power_pptx.render._run_soffice", side_effect=_fake_soffice_run(tmp_path)
@@ -347,6 +367,36 @@ class DescribePdfFallback:
 
         assert len(paths) == 2
         assert not png_called
+
+    def it_does_not_return_stale_pages_from_an_earlier_render(self, tmp_path, two_slide_prs):
+        one_slide = Presentation()
+        one_slide.slides.add_slide(one_slide.slide_layouts[6])
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice_pdf", side_effect=self._fake_pdf_run(tmp_path)
+        ), patch(
+            "power_pptx.render._pdf_to_pngs",
+            side_effect=self._fake_pdf_split(tmp_path, num_pages=2),
+        ):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="pdf")
+
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice_pdf", side_effect=self._fake_pdf_run(tmp_path)
+        ), patch(
+            "power_pptx.render._pdf_to_pngs",
+            side_effect=self._fake_pdf_split(tmp_path, num_pages=1),
+        ):
+            paths = render_slide_thumbnails(one_slide, out_dir=tmp_path, strategy="pdf")
+
+        assert [path.name for path in paths] == ["_render_input-page-1.png"]
+
+    def it_rejects_an_incomplete_pdf_render(self, tmp_path, two_slide_prs):
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice_pdf", side_effect=self._fake_pdf_run(tmp_path)
+        ), patch(
+            "power_pptx.render._pdf_to_pngs",
+            side_effect=self._fake_pdf_split(tmp_path, num_pages=1),
+        ), pytest.raises(ThumbnailRendererError, match="1 PNG.*2-slide deck"):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="pdf")
 
     def it_raises_when_neither_pipeline_produces_pngs(self, tmp_path, two_slide_prs):
         with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(

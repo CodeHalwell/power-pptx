@@ -29,12 +29,21 @@ The audit is read-only — it never mutates the deck.
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
+
+from PIL import Image as PILImage
+
+from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from power_pptx.shapes.autoshape import Shape
+from power_pptx.shapes.group import GroupShape
 
 if TYPE_CHECKING:
-    from power_pptx.api import Presentation
     from power_pptx.lint import LintIssue
+    from power_pptx.presentation import Presentation
+    from power_pptx.shapes.base import BaseShape
+    from power_pptx.shapes.picture import Picture
 
 
 __all__ = ["AuditReport", "audit"]
@@ -60,7 +69,7 @@ class AuditReport:
     """Structured summary returned by :func:`audit`."""
 
     lint_issues: list[tuple[int, "LintIssue"]] = field(default_factory=list)
-    broken_pictures: list[tuple[int, Any]] = field(default_factory=list)
+    broken_pictures: list[tuple[int, Picture]] = field(default_factory=list)
     empty_slides: list[int] = field(default_factory=list)
     font_warnings: list[tuple[int, str]] = field(default_factory=list)
     size_warnings: list[tuple[int, str, int]] = field(default_factory=list)
@@ -68,9 +77,10 @@ class AuditReport:
 
     @property
     def has_errors(self) -> bool:
+        """True when lint errors or broken pictures need fixing."""
         from power_pptx.lint import LintSeverity
 
-        return any(
+        return bool(self.broken_pictures) or any(
             issue.severity == LintSeverity.ERROR
             for _idx, issue in self.lint_issues
         )
@@ -98,7 +108,9 @@ class AuditReport:
             lines.append("")
             lines.append(f"## Broken pictures ({len(self.broken_pictures)})")
             for idx, shape in self.broken_pictures:
-                lines.append(f"- slide {idx}: `{shape.name}` is zero-sized or missing image data")
+                lines.append(
+                    f"- slide {idx}: `{shape.name}` is zero-sized or has missing/corrupt image data"
+                )
         if self.empty_slides:
             lines.append("")
             lines.append("## Empty slides")
@@ -199,12 +211,13 @@ def audit(
             report.lint_issues.append((idx, issue))
 
         content_shapes = 0
-        for shape in slide.shapes:
+        for shape in _leaf_shapes(slide.shapes):
+            tf = getattr(shape, "text_frame", None)
             # Skip layout placeholders that are entirely inherited.
             if (
                 shape.is_placeholder
-                and getattr(shape, "has_text_frame", False)
-                and not shape.text_frame.text.strip()
+                and tf is not None
+                and not tf.text.strip()
             ):
                 continue
             # Skip full-bleed background rectangles — they're decoration,
@@ -217,37 +230,55 @@ def audit(
             except Exception:
                 sw = sh = 0
             if (
-                bleed_w > 0
+                isinstance(shape, Shape)
+                and shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+                and shape.auto_shape_type == MSO_SHAPE.RECTANGLE
+                and bleed_w > 0
                 and bleed_h > 0
                 and sw >= bleed_w
                 and sh >= bleed_h
+                and int(shape.left or 0) <= slide_w * 0.05
+                and int(shape.top or 0) <= slide_h * 0.05
+                and int(shape.left or 0) + sw >= bleed_w
+                and int(shape.top or 0) + sh >= bleed_h
             ):
-                has_text = (
-                    getattr(shape, "has_text_frame", False)
-                    and shape.text_frame.text.strip()
-                )
+                has_text = tf is not None and tf.text.strip()
                 if not has_text:
                     continue
             content_shapes += 1
 
             # Picture sanity.
             if isinstance(shape, Picture):
-                if int(shape.width) <= 0 or int(shape.height) <= 0:
-                    report.broken_pictures.append((idx, shape))
-                # Picture size warning via the underlying image part.
+                broken = int(shape.width) <= 0 or int(shape.height) <= 0
                 try:
-                    img = shape.image  # type: ignore[attr-defined]
-                    size_bytes = len(img.blob)
+                    rId = shape._pic.blip_rId
+                    if rId is None:
+                        raise ValueError("picture has no embedded image")
+                    image_part = shape.part.related_part(rId)
+                    blob = image_part.blob
+                    size_bytes = len(blob)
                     if size_bytes > size_warn_bytes:
                         report.size_warnings.append((idx, shape.name, size_bytes))
-                except Exception:
-                    pass
+                    if not blob:
+                        broken = True
+                    elif image_part.content_type in {
+                        "image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff"
+                    }:
+                        # Validate standard raster formats. Vectors and WDP
+                        # can be valid without an installed Pillow decoder.
+                        with PILImage.open(io.BytesIO(blob)) as image:
+                            image.verify()
+                except (OSError, ValueError, KeyError, AttributeError, TypeError, SyntaxError):
+                    broken = True
+                if broken:
+                    report.broken_pictures.append((idx, shape))
 
             # Font warning sweep.
-            if check_fonts and getattr(shape, "has_text_frame", False):
-                tf = shape.text_frame
+            if check_fonts and tf is not None:
                 for para in tf.paragraphs:
                     for run in para.runs:
+                        if run._r.rPr is None:
+                            continue
                         name = run.font.name
                         if name and name.lower() not in _COMMON_FONTS:
                             report.font_warnings.append((idx, name))
@@ -256,3 +287,12 @@ def audit(
             report.empty_slides.append(idx)
 
     return report
+
+
+def _leaf_shapes(shapes: Iterable[BaseShape]) -> Iterator[BaseShape]:
+    """Visit content inside nested groups without counting group wrappers."""
+    for shape in shapes:
+        if isinstance(shape, GroupShape):
+            yield from _leaf_shapes(shape.shapes)
+        else:
+            yield shape

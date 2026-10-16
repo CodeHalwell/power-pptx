@@ -324,6 +324,12 @@ report.size_warnings                     # [(idx, name, bytes), ...]
 The audit is read-only — it never mutates the deck. The markdown
 output is structured for chat replies.
 
+Audits visit shapes inside nested groups and validate embedded PNG, JPEG,
+GIF, BMP, and TIFF data. Missing, corrupt, or zero-sized pictures appear in
+`broken_pictures` and make `has_errors` true. Vector formats and WDP are
+checked for non-empty data without requiring a raster decoder. Full-slide
+pictures and charts count as content; empty background rectangles do not.
+
 ---
 
 ## Render helpers

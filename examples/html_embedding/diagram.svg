@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="400" viewBox="0 0 360 400">
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+    <path d="M0 0 L8 4 L0 8Z" fill="#42685d"/></marker></defs>
+  <g font-family="DejaVu Sans, sans-serif" text-anchor="middle">
+    <rect x="24" y="12" width="312" height="96" rx="20" fill="#214b44"/>
+    <text x="180" y="70" font-size="30" font-weight="bold" fill="white">HTML design</text>
+    <path d="M180 118V148" stroke="#42685d" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="24" y="160" width="312" height="96" rx="20" fill="#e2e9dd"/>
+    <text x="180" y="218" font-size="28" font-weight="bold" fill="#214b44">Layout + hierarchy</text>
+    <path d="M180 266V296" stroke="#42685d" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="24" y="308" width="312" height="80" rx="20" fill="#c8dfb8"/>
+    <text x="180" y="358" font-size="28" font-weight="bold" fill="#214b44">PowerPoint slides</text>
+  </g>
+</svg>

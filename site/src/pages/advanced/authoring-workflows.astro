@@ -1,0 +1,78 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+const components = `from power_pptx import BBox
+from power_pptx.design import Card, Column, MetricTile, Row, TextBlock
+from power_pptx.util import Inches, Pt
+
+Column([
+    TextBlock("A calmer operating rhythm.", font="DejaVu Sans",
+              size_pt=34, min_size_pt=30, max_lines=1, bold=True),
+    Row([
+        MetricTile("94%", "Adoption", font="DejaVu Sans"),
+        Card([TextBlock("Make the next move clear.", font="DejaVu Sans")]),
+    ], gap=Pt(18), height=Inches(3)),
+], gap=Pt(24)).render(slide, BBox.from_inches(.65, .6, 12, 6), strict_fonts=True)`;
+const hybrid = `from power_pptx.compose import from_html
+prs = from_html("brief.html", mode="hybrid", reference_dir="browser-reference")`;
+const review = `pip install 'power-pptx[embedding,review]'
+python -m playwright install chromium
+# Install LibreOffice separately; use Poppler or the PDFium review extra.
+power-pptx review deck.pptx --out-dir review
+power-pptx review brief.html --mode hybrid --out-dir review
+power-pptx review one.pptx two.pptx --out-dir batch`;
+---
+<DocsLayout title="Modern Authoring Workflows"
+  description="Measured native components, annotated HTML, constrained typography, browser figures, and installed visual review.">
+  <p class="lead">Carry a strong web design into editable slides with measured components,
+    explicit HTML annotations, and a review bundle for every page.</p>
+  <h2 id="components">Measured native components</h2>
+  <Code code={components} lang="python" />
+  <p>Rows distribute flexible width; columns measure natural heights and distribute spare height
+    using grow weights. Padding and gaps use Pt/Inches lengths. Font sizes use integer points.
+    Badges have intrinsic width. Trees are checked before shapes are created; impossible layouts
+    raise LayoutOverflowError. Text and shapes stay editable, with measured line breaks saved.</p>
+  <p>Use NativeContent(builder, height=...) to reserve a chart or table slot. It receives
+    (slide, bbox); the builder’s own behavior is outside layout preflight. Give components unique
+    names to retrieve their first shape from the result. Container overlap declarations preserve
+    sibling collision checks.</p>
+  <h2 id="typography">Typography constraints</h2>
+  <p>TextFrame.fit_text accepts min_size, max_lines, preserve_breaks, and line_spacing.
+    preserve_breaks forbids additional wrapping; an impossible fit leaves formatting unchanged.
+    power_pptx.text.measure_text provides read-only line and size measurements. Use installed
+    fonts and strict metrics for final output; metric files do not embed fonts.</p>
+  <h2 id="hybrid">Annotated HTML to editable slides</h2>
+  <Code code={hybrid} lang="python" />
+  <table><thead><tr><th>Annotation</th><th>Result</th></tr></thead><tbody>
+    <tr><td>data-pptx="text"</td><td>Editable rich text with browser-measured line breaks</td></tr>
+    <tr><td>data-pptx="chart"</td><td>Native chart and workbook from data-pptx-chart JSON</td></tr>
+    <tr><td>data-pptx="table"</td><td>Editable table cells, merges, basic fills and borders</td></tr>
+    <tr><td>data-pptx="capture"</td><td>Independent captured visual</td></tr>
+  </tbody></table>
+  <p>Unmarked CSS stays in the background image. Annotated descendants are removed from the base
+    and become foreground layers ordered by z-index and DOM order. Annotations cannot nest,
+    overflow the section, or depend on arbitrary CSS stacking. Hybrid requires contain fitting
+    and installed native fonts; font_map supports deliberate substitutions.</p>
+  <p>Native text supports basic rich runs, color, opacity, alignment, and padding. Put backgrounds
+    and decoration on unmarked parents. Transforms, mixed sizes, RTL/vertical text, text-transform,
+    letter spacing, and shadow/gradient text need separate text annotations or capture. Tables use
+    plain cell text. Charts use a minimal native style and explicit data; supported types are
+    column, bar, line, area, pie, and doughnut. Browser chart styling is not translated.</p>
+  <h2 id="figures">Browser figure export</h2>
+  <p>add_plotly_figure(..., backend="browser", format="svg") uses self-contained Plotly.js and
+    embeds SVG plus a browser PNG fallback. Install Plotly and the HTML extra with Chromium.
+    backend="auto" tries Kaleido then the browser; backend="kaleido" disables fallback.
+    figure_slide forwards options through plotly_options. Matplotlib keeps its direct exporter.</p>
+  <h2 id="review">Review every saved slide</h2>
+  <Code code={review} lang="bash" />
+  <p>The installed command accepts PPTX, HTML, JSON, and YAML. It saves PPTX, PDF, all PNGs,
+    contact sheets, bundled schema/package checks, round-trip checks, font availability, an audit,
+    and a local gallery. HTML inputs retain original browser references. --reference-html or
+    --reference-dir enables comparisons; --max-error makes pixel differences a gate.
+    --font-policy error gates missing explicit native fonts. Theme fonts are outside that inventory.</p>
+  <p>Inspect every rendered page for wrapping, clipping, contrast, and composition, then record
+    findings in REVIEW.md. Automated reports mark visual review pending. Structural checks and
+    pixel differences do not certify appearance or Microsoft PowerPoint playback.</p>
+  <p>The source examples/authoring_workflows/ directory builds three decks and nine slides using
+    these public APIs. The bundled skill’s authoring-workflows.md documents the full contract.</p>
+</DocsLayout>

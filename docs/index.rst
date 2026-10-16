@@ -77,6 +77,8 @@ User Guide
    user/transitions
    user/lint
    user/compose
+   user/content-embedding
+   user/authoring-workflows
    user/theme
    user/design
    user/charts-advanced
@@ -122,6 +124,7 @@ API Documentation
    api/theme
    api/design
    api/render
+   api/review
    api/smart_art
    api/enum/index
 

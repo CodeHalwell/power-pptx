@@ -13,6 +13,8 @@ _scratch/
 tags
 /tests/debug.py
 /examples/starter_pack/_out/
+/examples/html_embedding/_out/
+/examples/modern_gallery/_out/
 
 # Claude Code agent worktrees (transient, harness-managed)
 .claude/worktrees/

@@ -25,7 +25,7 @@ _NSMapArg = Mapping[None, str] | Mapping[str, str] | Mapping[str | None, str]
 
 _NonDefaultNSMapArg = Mapping[str, str]
 
-_OutputMethodArg = Literal["html", "text", "xml"]
+_OutputMethodArg = Literal["html", "text", "xml", "c14n", "c14n2"]
 
 _TagName: TypeAlias = str
 

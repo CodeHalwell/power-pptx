@@ -52,12 +52,18 @@ def build():
 
     # --- force overrides a per-slide kind --------------------------------
     s = blank(prs)
+    s.shapes.add_textbox(Inches(1), Inches(3), Inches(11), Inches(1.5)).text = (
+        "Deck-wide force override: PUSH"
+    )
     s.transition.kind = MSO_TRANSITION_TYPE.WHEEL
     prs.set_transition(kind=MSO_TRANSITION_TYPE.PUSH, force=True)
     assert s.transition.kind == MSO_TRANSITION_TYPE.PUSH
 
     # --- clear on a fresh slide ------------------------------------------
     s = blank(prs)
+    s.shapes.add_textbox(Inches(1), Inches(3), Inches(11), Inches(1.5)).text = (
+        "Transition cleared: no transition"
+    )
     s.transition.kind = MSO_TRANSITION_TYPE.FADE
     s.transition.clear()
     assert s.transition.kind is None

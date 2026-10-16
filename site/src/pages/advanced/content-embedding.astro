@@ -1,0 +1,102 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+
+const install = `pip install 'power-pptx[embedding]'
+python -m playwright install chromium`;
+const deck = `from pathlib import Path
+from power_pptx.compose import from_html
+
+# One visible, 1280 × 720 <section data-slide> per slide.
+prs = from_html(
+    Path("deck.html"),
+    selector="[data-slide]",
+    viewport=(1280, 720), slide_size="16:9",
+    device_scale_factor=2, fit="contain",
+    # For asynchronous charts: wait_for_function="window.deckReady === true"
+)
+prs.save("deck.pptx")`;
+const element = `from power_pptx import BBox, add_html_figure, add_svg_figure
+
+picture = add_html_figure(
+    slide, "diagram.html", *BBox.from_inches(1, 1.5, 8, 4.5),
+    selector="#architecture", fit="contain", omit_background=True,
+)
+picture.alt_text = "Request flow through the gateway to services."
+
+# Native SVG in modern Office, with a PNG companion for other renderers.
+add_svg_figure(slide, "logo.svg", *BBox.from_inches(0.5, 0.5, 2, 1))`;
+---
+
+<DocsLayout title="HTML & SVG Embedding"
+  description="Use styled HTML as a slide design reference, capture sections, and combine native content with embedded SVG or browser visuals.">
+  <p class="lead">
+    A good HTML design gives you the typography, spacing, palette, and composition for a deck.
+    Preserve those choices when building native slides, browser captures, or a hybrid.
+  </p>
+  <h2 id="choose">Choose the right output</h2>
+  <table>
+    <thead><tr><th>Goal</th><th>Workflow</th><th>Editability</th></tr></thead>
+    <tbody>
+      <tr><td>Content that changes</td><td>Rebuild HTML layout with native APIs</td><td>Editable text, cards, tables and charts</td></tr>
+      <tr><td>Browser appearance</td><td><code>compose.from_html</code></td><td>One static picture per section; text also in notes</td></tr>
+      <tr><td>Complex artwork with editable copy</td><td>Native text plus SVG/HTML figures</td><td>Native content with embedded assets</td></tr>
+    </tbody>
+  </table>
+  <p>
+    HTML capture preserves browser pixels. It does not translate arbitrary CSS into editable
+    PowerPoint shapes. The bundled skill's <code>content-embedding.md</code> guide covers the
+    native reconstruction workflow and <code>examples/html_embedding/</code> builds both versions.
+  </p>
+  <h2 id="install">Optional dependencies</h2>
+  <Code code={install} />
+  <p>
+    The <code>[html]</code> and <code>[svg]</code> extras are also available separately.
+    An existing Chromium can be selected with <code>browser_path</code> or
+    <code>POWER_PPTX_CHROMIUM</code>. These APIs are new in this source tree; check availability
+    when using a pinned older package.
+  </p>
+  <h2 id="sections">Styled sections into a deck</h2>
+  <Code code={deck} />
+  <p>
+    Sections are captured in DOM order with one browser session. Keep them visible in normal
+    document flow, using fixed dimensions matching the deck. Local CSS, images, and fonts under
+    the HTML directory are served temporarily on localhost. Inline markup should use data URLs
+    or absolute asset URLs.
+  </p>
+  <p>
+    Capture waits for decoded images and ready web fonts, disables CSS animations, and hides
+    carets. Use an explicit ready condition for application-rendered charts. Container overflow
+    raises by default; <code>check_overflow=False</code> permits intentional overflow. The
+    default wait is <code>load</code>; choose <code>networkidle</code> explicitly when needed.
+  </p>
+  <p>
+    Visible text is copied to notes and picture alt text. <code>data-title</code>,
+    <code>aria-label</code>, or the first heading names each picture. Notes preserve content
+    but do not make text inside the picture selectable or editable.
+  </p>
+  <h2 id="assets">Embed individual visuals</h2>
+  <Code code={element} />
+  <p>
+    <code>contain</code> preserves proportions, <code>cover</code> crops to fill, and
+    <code>stretch</code> changes proportions. Capture density changes resolution, not physical
+    size. A CSS selector must match one visible element. JSON figure specs and
+    <code>figure_slide</code> forward capture settings through <code>html_options</code>.
+  </p>
+  <h2 id="svg">Portable SVG</h2>
+  <p>
+    SVG inputs accept markup, bytes, paths, and binary streams. Repeated identical media are
+    shared across slides. Use self-contained SVG with a <code>viewBox</code> and embedded image
+    resources. Web fonts, scripts, <code>foreignObject</code>, and complex CSS filters can differ
+    between Office and CairoSVG; capture the containing HTML for those visuals. An explicit
+    <code>png_fallback</code> can provide a high-resolution raster companion.
+  </p>
+  <h2 id="verify">Compare the rendered result</h2>
+  <p>
+    Keep editable text and business data native where useful. Map browser bounds relative to each
+    section to <code>BBox</code>, using the deck's real dimensions. At 1280px → 13⅓ inches, 64px
+    CSS type maps to 48pt. Run native layout checks, then render and compare with the HTML reference:
+    the linter cannot inspect text inside a picture. A long <code>full_page</code> screenshot is
+    one image; it does not paginate a webpage.
+  </p>
+</DocsLayout>
