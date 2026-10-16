@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from typing import TYPE_CHECKING
 
 from PIL import ImageFont
@@ -19,7 +21,16 @@ class TextFitter(tuple):
 
     @classmethod
     def best_fit_font_size(
-        cls, text: str, extents: tuple[Length, Length], max_size: int, font_file: str | None
+        cls,
+        text: str,
+        extents: tuple[Length, Length],
+        max_size: int,
+        font_file: str | None,
+        *,
+        min_size: int = 1,
+        max_lines: int | None = None,
+        preserve_breaks: bool = False,
+        line_spacing: float = 1.2,
     ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
@@ -31,6 +42,21 @@ class TextFitter(tuple):
         """
         line_source = _LineSource(text)
         text_fitter = cls(line_source, extents, font_file)
+        if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, 1.2):
+            _validate_constraints(min_size, max_size, max_lines, line_spacing)
+            for size in range(int(max_size), min_size - 1, -1):
+                lines = text_fitter._wrap_lines(line_source, size)
+                if lines is None or (max_lines is not None and len(lines) > max_lines):
+                    continue
+                if preserve_breaks and len(lines) != len(re.split(r"\r\n|[\n\v\r]", text)):
+                    continue
+                height = max(
+                    _rendered_size("Ty", size, font_file)[1],
+                    int(size * line_spacing * 12700),
+                ) * len(lines)
+                if height <= extents[1]:
+                    return size
+            return None
         return text_fitter._best_fit_font_size(max_size)
 
     def _best_fit_font_size(self, max_size: int) -> int | None:
@@ -38,6 +64,8 @@ class TextFitter(tuple):
         Return the largest whole-number point size less than or equal to
         *max_size* that this fitter can fit, or ``None`` when no size fits.
         """
+        if int(max_size) < 1:
+            raise ValueError("max_size must be at least 1pt")
         predicate = self._fits_inside_predicate
         sizes = _BinarySearchTree.from_ordered_sequence(range(1, int(max_size) + 1))
         return sizes.find_max(predicate)
@@ -135,17 +163,34 @@ class TextFitter(tuple):
         the available width at *point_size* (``_break_line`` returns
         ``None``), signalling "no-fit" to callers without raising.
         """
-        result = self._break_line(line_source, point_size)
-        if result is None:
-            return None
-        text, remainder = result
-        lines = [text]
-        if remainder:
-            sub = self._wrap_lines(remainder, point_size)
-            if sub is None:
-                return None
-            lines.extend(sub)
+        # Paragraph boundaries (\n) and soft breaks (\v) always occupy a
+        # line, including empty and trailing lines. Wrapping the whole string
+        # through str.split() would silently flatten them into spaces.
+        lines = []
+        for text in re.split(r"\r\n|[\n\v\r]", line_source._text):
+            remainder = _LineSource(text)
+            if not remainder:
+                lines.append("")
+            while remainder:
+                result = self._break_line(remainder, point_size)
+                if result is None:
+                    return None
+                line, remainder = result
+                lines.append(line)
         return lines
+
+
+def _validate_constraints(min_size, max_size, max_lines, line_spacing):
+    if isinstance(min_size, bool) or not isinstance(min_size, int) or min_size < 1:
+        raise ValueError("min_size must be a positive integer point size")
+    if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < min_size:
+        raise ValueError("max_size must be an integer at least min_size")
+    if max_lines is not None and (
+        isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 1
+    ):
+        raise ValueError("max_lines must be a positive integer or None")
+    if not math.isfinite(line_spacing) or line_spacing <= 0:
+        raise ValueError("line_spacing must be finite and positive")
 
 
 class _BinarySearchTree(object):

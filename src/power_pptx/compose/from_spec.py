@@ -53,7 +53,11 @@ YAML usage::
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Mapping, Optional
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional
+
+if TYPE_CHECKING:
+    from power_pptx.presentation import Presentation
 
 # ---------------------------------------------------------------------------
 # Built-in layout aliases — map friendly names to the PowerPoint blank
@@ -76,6 +80,18 @@ _LAYOUT_ALIASES: dict[str, str] = {
     "picture": "Picture with Caption",
     "kpi_grid": "Title Only",  # rendered via shapes on top of Title Only
 }
+
+# Only content fields consumed by each legacy layout are accepted. Shared
+# fields also apply to named layouts from custom templates.
+_LEGACY_CONTENT_KEYS = {
+    "title": {"subtitle"},
+    "bullets": {"bullets"},
+    "section": {"subtitle", "text"},
+    "two_column": {"left", "right", "content_left", "content_right"},
+    "comparison_layout": {"left", "right", "content_left", "content_right"},
+    "kpi_grid": {"kpis"},
+}
+_COMMON_SLIDE_KEYS = {"layout", "title", "transition", "shapes"}
 
 # Lowercase transition name → MSO_TRANSITION_TYPE member name.
 _TRANSITION_NAMES: dict[str, str] = {
@@ -113,7 +129,7 @@ def from_spec(
     spec: dict[str, Any],
     *,
     vars: Optional[Mapping[str, Any]] = None,
-) -> Any:
+) -> Presentation:
     """Return a :class:`~power_pptx.api.Presentation` built from the plain-dict *spec*.
 
     *spec* keys:
@@ -230,7 +246,7 @@ def from_yaml(
     path: str,
     *,
     vars: Optional[Mapping[str, Any]] = None,
-) -> Any:
+) -> Presentation:
     """Load a deck spec from *path* (YAML file) and run :func:`from_spec`.
 
     Requires ``pyyaml`` (``pip install pyyaml``).  The YAML file must
@@ -246,7 +262,7 @@ def from_yaml(
         raise ImportError(
             "from_yaml requires pyyaml; install with `pip install pyyaml`"
         ) from exc
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         spec = yaml.safe_load(f) or {}
     if not isinstance(spec, dict):
         raise ValueError(f"YAML at {path!r} did not parse to a mapping")
@@ -276,8 +292,10 @@ _RECIPE_LAYOUTS: dict[str, tuple[str, frozenset[str]]] = {
     "table":            ("table_slide",      frozenset({"title", "columns", "rows"})),
     "code":             ("code_slide",       frozenset({"title", "code"})),
     "timeline":         ("timeline_slide",   frozenset({"title", "milestones"})),
-    "comparison":       ("comparison_slide", frozenset({"title", "left_heading", "right_heading", "rows"})),
-    "figure":           ("figure_slide",     frozenset({"title", "figure"})),
+    "comparison": (
+        "comparison_slide", frozenset({"title", "left_heading", "right_heading", "rows"})
+    ),
+    "figure": ("figure_slide", frozenset({"title", "figure"})),
 }
 
 
@@ -312,6 +330,12 @@ def _validate_spec_keys(spec: dict[str, Any]) -> None:
         raise ValueError(f"lint must be one of {sorted(_VALID_LINT_VALUES)!r}, got {lint!r}")
     if not isinstance(spec.get("slides", []), list):
         raise ValueError("'slides' must be a list")
+    for index, slide in enumerate(spec.get("slides", [])):
+        if not isinstance(slide, Mapping):
+            raise ValueError(f"slides[{index}]: each slide must be a mapping")
+        layout = slide.get("layout")
+        if layout is not None and not isinstance(layout, str):
+            raise ValueError(f"slides[{index}].layout must be a string")
 
 
 def _resolve_layout(prs: Any, layout_name: str) -> Any:
@@ -384,13 +408,33 @@ def _add_slide(
             layout_name = upgrade
 
     if layout_name in _RECIPE_LAYOUTS:
-        slide = _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+        try:
+            slide = _add_recipe_slide(prs, slide_spec, layout_name, tokens)
+        except ValueError as exc:
+            raise ValueError(f"slides[{slide_index}]: {exc}") from exc
     else:
         layout = _resolve_layout(prs, layout_name)
+        # Named standard layouts accept the same fields as their aliases.
+        legacy_name = next(
+            (
+                alias for alias, name in _LAYOUT_ALIASES.items()
+                if name.lower() == layout.name.lower()
+            ),
+            layout_name,
+        )
+        if layout_name == "kpi_grid":
+            legacy_name = layout_name
+        accepted = _COMMON_SLIDE_KEYS | _LEGACY_CONTENT_KEYS.get(legacy_name, set())
+        unknown = set(slide_spec) - accepted
+        if unknown:
+            raise ValueError(
+                f"slides[{slide_index}]: layout {layout_name!r}: unknown spec keys "
+                f"{_format_unknown(unknown, accepted)}. Accepted: {sorted(accepted)}."
+            )
         slide = prs.slides.add_slide(layout)
 
         _set_title(slide, slide_spec.get("title"))
-        _set_subtitle_or_body(slide, slide_spec, layout_name)
+        _set_subtitle_or_body(slide, slide_spec, legacy_name)
         _set_transition(slide, slide_spec.get("transition"))
 
     if "shapes" in slide_spec:
@@ -479,10 +523,8 @@ def _add_recipe_slide(
 def _set_title(slide: Any, title: str | None) -> None:
     if title is None:
         return
-    try:
+    with suppress(AttributeError):
         slide.shapes.title.text = title
-    except AttributeError:
-        pass  # layout has no title placeholder
 
 
 def _set_subtitle_or_body(slide: Any, spec: dict[str, Any], layout_name: str) -> None:
@@ -847,9 +889,9 @@ def _apply_overlap_allowances(
 
 def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
     """Add KPI card shapes to *slide* — label, value, and optional delta."""
+    from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import PP_ALIGN
     from power_pptx.util import Inches, Pt
-    from power_pptx.dml.color import RGBColor
 
     prs_part = slide.part.package.presentation_part
     slide_w = prs_part.presentation.slide_width or Inches(10)
@@ -859,7 +901,6 @@ def _add_kpi_shapes(slide: Any, kpis: list[dict[str, Any]]) -> None:
         return
 
     card_w = Inches(2.2)
-    card_h = Inches(1.8)
     gap = Inches(0.2)
     total_w = n * card_w + (n - 1) * gap
     start_x = (slide_w - total_w) // 2

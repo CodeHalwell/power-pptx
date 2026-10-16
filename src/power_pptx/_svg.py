@@ -39,8 +39,8 @@ class CairoSvgUnavailable(RuntimeError):
 def load_image_blob(source: PathOrFile) -> Tuple[bytes, str | None]:
     """Return ``(blob, filename)`` for `source`.
 
-    `source` may be a path, a binary file-like, or a raw ``bytes``
-    blob.  The filename component is best-effort and is only used as a
+    `source` may be inline SVG markup, a path, a binary file-like, or a
+    raw ``bytes`` blob. The filename component is best-effort and is only used as a
     nice-to-have for the partname; ``None`` is returned for in-memory
     sources.
 
@@ -57,6 +57,8 @@ def load_image_blob(source: PathOrFile) -> Tuple[bytes, str | None]:
     """
     if isinstance(source, (bytes, bytearray)):
         return bytes(source), None
+    if isinstance(source, str) and source.lstrip("\ufeff \t\r\n").startswith("<"):
+        return source.encode("utf-8"), None
     if isinstance(source, (str, os.PathLike)):
         with open(source, "rb") as f:
             return f.read(), os.path.basename(os.fspath(source))
@@ -68,15 +70,16 @@ def load_image_blob(source: PathOrFile) -> Tuple[bytes, str | None]:
 
 
 def looks_like_svg(blob: bytes) -> bool:
-    """Heuristic: does `blob` smell like an SVG document?"""
-    head = blob[:512].lstrip()
-    if not head:
+    """True for a well-formed SVG document, rather than HTML containing SVG."""
+    try:
+        root = etree.fromstring(
+            blob,
+            parser=etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True),
+        )
+    except (etree.XMLSyntaxError, ValueError):
         return False
-    # Allow leading XML declaration / DOCTYPE; just look for "<svg" up
-    # near the start.  Real SVG sniffing would require an XML parse,
-    # which is overkill for a one-shot helper.
-    lowered = head.lower()
-    return b"<svg" in lowered
+    name = etree.QName(root)
+    return name.localname == "svg" and name.namespace in {None, "http://www.w3.org/2000/svg"}
 
 
 def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None) -> bytes:
@@ -100,7 +103,10 @@ def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None
     if output_size is not None:
         kwargs["output_width"] = int(output_size[0])
         kwargs["output_height"] = int(output_size[1])
-    return cairosvg.svg2png(bytestring=svg_blob, **kwargs)
+    result = cairosvg.svg2png(bytestring=svg_blob, **kwargs)
+    if result is None:
+        raise RuntimeError("SVG rasterisation produced no PNG data")
+    return result
 
 
 def add_svg_blip_extension(pic_elm, svg_rId: str) -> None:
@@ -138,6 +144,15 @@ def add_svg_image_part(slide_part, svg_blob: bytes, filename: str | None = None)
     from power_pptx.parts.image import ImagePart
 
     package = slide_part.package
+    # Reuse a logo/diagram across slides instead of storing one SVG part
+    # for every occurrence. Raster fallbacks already use package deduplication.
+    for part in package.iter_parts():
+        if (
+            isinstance(part, ImagePart)
+            and part.content_type == SVG_CONTENT_TYPE
+            and part.blob == svg_blob
+        ):
+            return part, slide_part.relate_to(part, RT.IMAGE)
     partname = package.next_image_partname("svg")
     image_part = ImagePart(
         partname,

@@ -309,6 +309,8 @@ def sec_charts(prs):
                               "has_legend": True, "legend_position": "right"})
     chart.plots[0].has_data_labels = True
     dl = chart.plots[0].data_labels
+    dl.show_value = False
+    dl.show_percentage = True
     dl.number_format = "0%"
     dl.number_format_is_linked = False
     dl.position = XL_LABEL_POSITION.OUTSIDE_END

@@ -9,9 +9,104 @@ on:
       - develop
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[embedding]' -r requirements-quality.txt
+      - name: Check correctness rules throughout the source and tests
+        run: ruff check --select E9,F63,F7,F82 src tests
+      - name: Check maintained authoring and validation modules
+        run: >-
+          ruff check src/power_pptx/audit.py src/power_pptx/render.py
+          src/power_pptx/compose/from_spec.py src/power_pptx/text/layout.py
+          src/power_pptx/text/text.py src/power_pptx/lint.py
+          tests/test_reliability.py tests/integration/test_render_libreoffice.py
+          src/power_pptx/design/figures.py src/power_pptx/design/_html.py
+          src/power_pptx/compose/from_html.py src/power_pptx/_svg.py
+          tests/design/test_html_capture.py tests/integration/test_html_embedding.py
+          src/power_pptx/design/containers.py src/power_pptx/text/measurement.py
+          src/power_pptx/compose/_hybrid.py src/power_pptx/design/_html_layers.py
+          src/power_pptx/validation.py src/power_pptx/review.py src/power_pptx/_schema.py
+          src/power_pptx/__main__.py tests/design/test_containers.py
+          tests/text/test_constraints.py tests/test_validation.py
+          tests/integration/test_hybrid_html.py tests/integration/test_review.py
+      - name: Check public entry point types
+        run: pyright --project pyright-ci.json
+      - name: Check release gate behavior
+        run: node --test .github/scripts/require-ci.test.cjs
+
+  html-embedding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[embedding]' -r requirements-test.txt plotly
+      - name: Install Chromium and browser dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Exercise styled HTML and SVG embedding
+        run: >-
+          pytest -v tests/integration/test_html_embedding.py tests/test_svg_picture.py
+          tests/integration/test_hybrid_html.py
+      - name: Build the styled HTML and native companion decks
+        run: python examples/html_embedding/build.py --out-dir "$RUNNER_TEMP/html-embedding"
+
+  render-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install rendering tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-impress poppler-utils
+      - run: pip install . -r requirements-test.txt
+      - name: Exercise real LibreOffice rendering
+        run: >-
+          pytest -v tests/integration/test_render_libreoffice.py
+          tests/integration/test_review.py
+
+  modern-gallery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install rendering tools and the gallery fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-impress poppler-utils fonts-dejavu-core
+      - run: pip install '.[embedding]' -r requirements-test.txt matplotlib plotly
+      - run: python -m playwright install --with-deps chromium
+      - name: Build, validate, round-trip, and render all 32 gallery slides
+        run: >-
+          python examples/modern_gallery/build.py --render
+          --out-dir "$RUNNER_TEMP/modern-gallery"
+      - name: Exercise measured native, annotated hybrid, and browser figure workflows
+        run: >-
+          python examples/authoring_workflows/build.py
+          --out-dir "$RUNNER_TEMP/authoring-workflows"
+      - name: Keep rendered slides and validation evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modern-gallery
+          path: |
+            ${{ runner.temp }}/modern-gallery
+            ${{ runner.temp }}/authoring-workflows
+          retention-days: 14
 
   build:
     runs-on: ubuntu-latest

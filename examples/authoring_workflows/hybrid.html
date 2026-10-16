@@ -1,0 +1,69 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Orbit hybrid brief</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:24px/1.35 "DejaVu Sans";color:#172334}
+section{position:relative;width:1280px;height:720px;overflow:hidden;background:#f2f5fa}
+.eyebrow{position:absolute;top:42px;left:64px;font-size:15px;font-weight:700;color:#526176}
+h1{position:absolute;left:64px;top:99px;width:1140px;margin:0;font-size:58px;line-height:1.15}
+p{margin:0}.sub{position:absolute;left:68px;top:267px;width:500px;color:#526176;font-size:25px}
+.art-region{position:absolute;left:690px;top:230px;width:520px;height:420px}
+.art{position:absolute;left:40px;top:40px;width:440px;height:340px;border-radius:38px;
+background:radial-gradient(circle at 30% 25%,#c9c1ff,transparent 65%),linear-gradient(135deg,#6554e8,#263d60);
+box-shadow:0 22px 40px #293a5b24;overflow:hidden}
+.art svg{width:100%;height:100%}.card{position:absolute;left:64px;top:275px;width:740px;
+height:350px;background:white;border-radius:24px;border:1px solid #dde5f0}
+.chart{position:absolute;left:88px;top:300px;width:690px;height:290px;font-size:20px}
+.chart svg{display:block}
+.stat{position:absolute;left:865px;top:310px;width:310px;font-size:84px;color:#6554e8;font-weight:700}
+.detail{position:absolute;left:870px;top:435px;width:290px;color:#526176;font-size:25px}
+table{position:absolute;left:64px;top:285px;width:1152px;height:300px;border-collapse:collapse;
+font-size:24px;table-layout:fixed}th,td{padding:18px 24px;text-align:left;border-bottom:1px solid #d6dfec}
+th{background:#263d60;color:white}td{background:white}td:nth-child(3){color:#28725f;font-weight:700}
+.footer{position:absolute;left:64px;bottom:35px;font-size:15px;color:#526176}
+</style>
+<section data-slide data-title="Orbit / hybrid composition">
+  <div class="eyebrow" data-pptx="text">ORBIT / A NEW WAY TO WORK</div>
+  <h1 data-pptx="text">Beautiful by default.<br><b>Editable</b> where it matters.</h1>
+  <p class="sub" data-pptx="text">Keep your brand’s visual language.<br><br>Give your team real slide text<br>they can update in PowerPoint.</p>
+  <div class="art-region" data-pptx="capture" aria-label="Orbit network artwork">
+  <div class="art">
+    <svg viewBox="0 0 440 340"><g fill="none" stroke="#ffffff65">
+      <ellipse cx="220" cy="170" rx="180" ry="67" transform="rotate(-30 220 170)"/>
+      <ellipse cx="220" cy="170" rx="180" ry="67" transform="rotate(30 220 170)"/>
+      <circle cx="220" cy="170" r="114"/></g>
+      <circle cx="220" cy="170" r="39" fill="white"/><circle cx="65" cy="260" r="12" fill="#c9c1ff"/>
+      <circle cx="368" cy="95" r="16" fill="#b1ebd1"/>
+    </svg>
+  </div></div>
+  <div class="footer">Native rich text + captured SVG/CSS artwork · 01</div>
+</section>
+<section data-slide data-title="Orbit / editable chart">
+  <div class="eyebrow" data-pptx="text">ORBIT / TEAM SIGNALS</div>
+  <h1 data-pptx="text">Momentum you can measure.</h1>
+  <div class="card"></div>
+  <div class="chart" data-pptx="chart" data-name="Activation chart"
+       data-pptx-chart='{"type":"column","categories":["Week 1","Week 2","Week 3","Week 4"],"series":[{"name":"Activation","values":[42,58,73,94]}],"colors":["#6554E8"]}'>
+    <svg viewBox="0 0 690 290" width="690" height="290">
+      <g fill="#6554e8"><rect x="80" y="146" width="85" height="104"/>
+      <rect x="230" y="107" width="85" height="143"/><rect x="380" y="70" width="85" height="180"/>
+      <rect x="530" y="18" width="85" height="232"/></g>
+      <g font-family="DejaVu Sans" font-size="18" fill="#526176" text-anchor="middle">
+      <text x="122" y="280">Week 1</text><text x="272" y="280">Week 2</text>
+      <text x="422" y="280">Week 3</text><text x="572" y="280">Week 4</text></g>
+    </svg>
+  </div>
+  <div class="stat" data-pptx="text">94%</div>
+  <p class="detail" data-pptx="text">active by week four.<br><br>A real chart, with<br>an editable workbook.</p>
+  <div class="footer">Native chart rebuilt from explicit data · 02</div>
+</section>
+<section data-slide data-title="Orbit / editable table">
+  <div class="eyebrow" data-pptx="text">ORBIT / THE NEXT CHAPTER</div>
+  <h1 data-pptx="text">A plan everyone can act on.</h1>
+  <table data-pptx="table" data-name="Quarterly roadmap">
+    <tr><th>Focus</th><th>Next milestone</th><th>Status</th></tr>
+    <tr><td>Shared workspaces</td><td>Team rollout</td><td>Ready</td></tr>
+    <tr><td>Decision history</td><td>Public beta</td><td>On track</td></tr>
+    <tr><td>Signals &amp; insights</td><td>Design partners</td><td>In progress</td></tr>
+  </table>
+  <div class="footer">Native table cells, typography, fills, and borders · 03</div>
+</section>
+</html>

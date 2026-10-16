@@ -540,7 +540,23 @@ def _deck_lint_relationship_model() -> bytes:
     return _saved(prs)
 
 
+def _deck_svg_embedding() -> bytes:
+    from PIL import Image
+
+    prs = Presentation()
+    fallback = io.BytesIO()
+    Image.new("RGB", (200, 100), "#214b44").save(fallback, format="PNG")
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">'
+           '<rect width="200" height="100" fill="#214b44"/></svg>')
+    for _ in range(2):
+        slide = _blank_slide(prs)
+        slide.shapes.add_svg_picture(svg, Inches(1), Inches(1), Inches(4), Inches(2),
+                                     png_fallback=fallback.getvalue())
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
+    "svg_embedding": _deck_svg_embedding,
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,
     "run_properties": _deck_run_properties,

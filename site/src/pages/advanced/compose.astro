@@ -65,6 +65,12 @@ const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and
   <h2 id="from-spec">from_spec — JSON authoring</h2>
   <Code code={fromSpec} />
   <p>
+    Legacy and recipe layouts both reject unknown fields with a <code>ValueError</code>
+    identifying the slide and suggesting corrections. For example, <code>subtitel</code>
+    on a title slide suggests <code>subtitle</code>. Named standard layouts such as
+    <code>Title Slide</code> populate the same fields as their aliases.
+  </p>
+  <p>
     With <code>"lint": "raise"</code> in the spec the build fails fast on geometry errors — ideal in
     CI or agent pipelines where a broken deck is worse than no deck.
   </p>

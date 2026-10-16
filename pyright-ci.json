@@ -1,0 +1,22 @@
+{
+  "include": [
+    "src/power_pptx/audit.py",
+    "src/power_pptx/render.py",
+    "src/power_pptx/compose/from_spec.py",
+    "src/power_pptx/compose/from_html.py",
+    "src/power_pptx/design/figures.py",
+    "src/power_pptx/design/_html.py",
+    "src/power_pptx/_svg.py",
+    "src/power_pptx/design/containers.py",
+    "src/power_pptx/text/measurement.py",
+    "src/power_pptx/compose/_hybrid.py",
+    "src/power_pptx/design/_html_layers.py",
+    "src/power_pptx/validation.py",
+    "src/power_pptx/review.py",
+    "src/power_pptx/__main__.py"
+  ],
+  "pythonPlatform": "All",
+  "pythonVersion": "3.9",
+  "stubPath": "./typings",
+  "typeCheckingMode": "basic"
+}

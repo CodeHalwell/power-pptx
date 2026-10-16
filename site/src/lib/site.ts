@@ -55,6 +55,8 @@ export const DOCS_SIDEBAR: SidebarSection[] = [
       { label: "Geometry & Arrows", href: withBase("/advanced/geometry-and-arrows") },
       { label: "Placeholders & Notes", href: withBase("/advanced/placeholders") },
       { label: "Pictures & Media", href: withBase("/advanced/pictures-and-media") },
+      { label: "HTML & SVG Embedding", href: withBase("/advanced/content-embedding") },
+      { label: "Modern Authoring Workflows", href: withBase("/advanced/authoring-workflows") },
       { label: "Tables", href: withBase("/advanced/tables") },
       { label: "Charts", href: withBase("/advanced/charts") },
       { label: "Diagram Recipes", href: withBase("/advanced/diagrams") },

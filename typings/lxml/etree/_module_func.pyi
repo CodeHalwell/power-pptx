@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Literal, overload
+from typing import Literal, Mapping, overload
 
 from .._types import _ElementOrTree, _OutputMethodArg
 from ..etree import HTMLParser, XMLParser
 from ._element import _Element
 
 def fromstring(text: str | bytes, parser: XMLParser | HTMLParser) -> _Element: ...
+def SubElement(
+    _parent: _Element,
+    _tag: str,
+    attrib: Mapping[str, str] | None = None,
+    nsmap: Mapping[str | None, str] | None = None,
+    **_extra: str,
+) -> _Element: ...
 
 # -- Native str, no XML declaration --
 @overload

@@ -58,8 +58,8 @@ require Microsoft PowerPoint to be installed or licensed.
 
 **Why this fork exists: space-aware authoring.**  The headline
 proposition is that text doesn't overflow its container and shapes
-don't slide off the edges of the slide.  Three layered tools used
-together catch ~all real-world layout issues:
+don't slide off the edges of the slide. Three layered tools catch many
+common layout errors; rendering and visual review complete the quality check:
 
 1. ``TextFrame.fit_text(...)`` measures with Pillow font metrics and
    bakes a fitting size into the XML *before* save.
@@ -70,6 +70,39 @@ together catch ~all real-world layout issues:
 
 Reach for power-pptx whenever the deck is generated dynamically and
 has to look right without manual cleanup.
+
+Modern web-style decks
+----------------------
+
+Use styled HTML as a visual specification, preserve it through browser capture,
+or combine editable native content with SVG and captured visuals. The
+``examples/modern_gallery/`` source suite builds eight decks / 32 slides:
+product dashboards, dark developer tools, editorial pages, research, finance,
+glass interfaces, commerce, and bold posters. Its builder validates structure,
+round-trip fidelity, and every rendered page, then creates a local preview
+gallery. CI retains the rendered output for visual review.
+
+See ``examples/modern_gallery/README.md`` for the reproducible build and the
+bundled skill's ``modern-slide-design.md`` / ``content-embedding.md`` guides
+for agent authoring workflows and editability choices.
+
+Measured ``Row``, ``Column``, ``Card``, ``Badge``, and ``MetricTile`` components
+create editable layouts with padding, gaps, and constrained typography.
+``from_html(..., mode="hybrid")`` rebuilds explicitly annotated text, charts,
+and tables as native objects while capturing complex CSS. Plotly supports
+``backend="browser"`` and automatic fallback from Kaleido.
+
+Review an existing deck or HTML source with the installed command::
+
+    power-pptx review deck.pptx --out-dir review
+    power-pptx review brief.html --mode hybrid --out-dir review
+    power-pptx review one.pptx two.pptx --out-dir batch
+
+It generates PDF, every slide PNG, contact sheets, packaged schema/round-trip
+validation, optional browser differences, and a local gallery. Inspect all
+slides and record visual findings. ``examples/authoring_workflows/`` contains
+three complete decks using these APIs; the bundled skill's
+``authoring-workflows.md`` documents the annotation contract and limitations.
 
 Installation
 ------------
@@ -91,6 +124,9 @@ imports.
 
 Optional dependencies:
 
+* ``pip install 'power-pptx[embedding]'`` — HTML and SVG adapters.
+  Run ``python -m playwright install chromium`` for HTML capture;
+  ``[html]`` and ``[svg]`` extras are also available separately.
 * ``cairosvg`` — install only if you want ``add_svg_picture(...)`` to
   auto-rasterise the PNG fallback.
 * ``pyyaml`` — install only if you want ``DesignTokens.from_yaml``.
@@ -98,6 +134,8 @@ Optional dependencies:
   ``Presentation.render_thumbnails()``.
 * ``pdftoppm`` (Poppler) or ``pypdfium2`` — required for the
   PDF→PNG split path in the thumbnail renderer.
+* ``pip install 'power-pptx[review]'`` — PDFium for the installed review
+  command when Poppler is unavailable; LibreOffice is still required.
 
 Claude Code skill
 -----------------
@@ -126,9 +164,9 @@ Other useful commands::
 
 The skill documents the headline space-aware-authoring workflow, the
 ``BBox`` value object, the one-call ``add_text`` / ``add_arrow``
-helpers, the diagram recipes (``horizontal_pipeline``,
+helpers, the HTML/SVG embedding workflow, the diagram recipes (``horizontal_pipeline``,
 ``hub_and_spoke``, ``cycle``, ``decision_tree``,
-``comparison_columns``), and 16 focused reference docs covering
+``comparison_columns``), and focused reference docs covering
 effects, animations, transitions, theming, charts, tables, 3D,
 SmartArt, and rendering.  It also includes an *anti-patterns* section
 calling out the mistakes LLMs commonly make (mis-comparing wrapper
@@ -177,6 +215,15 @@ The fork extends the 1.0.2 surface with features the upstream roadmap
 did not cover.  All additions are drop-in compatible — existing
 scripts keep working — and every new feature ships with a round-trip
 regression test.
+
+* **HTML as a design reference** — ``compose.from_html("deck.html")``
+  captures one ``[data-slide]`` section per slide with fonts, local assets,
+  inline SVG, and browser CSS intact. ``add_html_figure`` captures a
+  selected element into an existing slide. The bundled skill explains
+  how agents can preserve the same design with editable native objects,
+  embedded vector assets, or a hybrid. Browser captures are static pictures;
+  text is also copied to speaker notes when composing a deck. See
+  ``examples/html_embedding/`` for captured and native companion decks.
 
 * **Space-aware authoring** — ``TextFrame.fit_text`` bakes a fitting
   size before save; ``auto_size`` flags shrink at render time; the

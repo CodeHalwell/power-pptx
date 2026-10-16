@@ -42,6 +42,12 @@ render_slides(
   <Code code={snippet0} />
 
   <Code code={snippet1} />
+  <p>
+    Each call uses a private workspace and LibreOffice profile. Reusing <code>out_dir</code>
+    returns only the current render's requested slides, even when the deck gets shorter.
+    Unrelated files are preserved; matching output filenames are replaced. Intermediate
+    files are cleaned up, and <code>return_bytes=True</code> does not write output files.
+  </p>
 
   <h2 id="agent-loop">The agent feedback loop</h2>
   <ol>

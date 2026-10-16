@@ -1,5 +1,9 @@
 # Space-aware authoring
 
+Read `authoring-workflows.md` for measured native components, `min_size`,
+`max_lines`, `preserve_breaks`, read-only text measurement, and the installed
+all-slide review command. Prefer those APIs to repeated manual layout glue.
+
 This is the **headline reason `power-pptx` exists**. Generated decks
 break in two predictable ways:
 
@@ -37,6 +41,11 @@ tf.fit_text(font_family="Inter", max_size=44, bold=True)
 `fit_text` also sets `auto_size = MSO_AUTO_SIZE.NONE`, so PowerPoint
 won't second-guess the size at render time, and returns the point size
 it applied.
+
+Measurement preserves paragraph breaks (`\n`), soft line breaks (`\v`),
+and empty lines. Whitespace-only frames are safe to fit. The linter counts
+these breaks too. Custom paragraph spacing and font substitution can still
+differ between renderers, so inspect a thumbnail for final layout review.
 
 ### The guarantee is only as good as the font metrics
 

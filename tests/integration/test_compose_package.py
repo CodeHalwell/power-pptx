@@ -27,9 +27,9 @@ class Describe_compose_package:
 
         assert compose.apply_template is apply_template
 
-    def it_advertises_all_four_in__all__(self):
+    def it_advertises_all_composition_entry_points(self):
         assert set(compose.__all__) == {
-            "from_spec", "from_yaml", "import_slide", "apply_template"
+            "from_spec", "from_yaml", "from_html", "import_slide", "apply_template"
         }
 
     def it_can_drive_from_spec_end_to_end(self):

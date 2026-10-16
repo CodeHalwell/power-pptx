@@ -44,3 +44,13 @@ future other presentation text objects.
    :members:
    :member-order: bysource
    :undoc-members:
+
+Read-only measurement
+---------------------
+
+.. currentmodule:: power_pptx.text.measurement
+
+.. autoclass:: TextMeasurement
+   :members:
+
+.. autofunction:: measure_text

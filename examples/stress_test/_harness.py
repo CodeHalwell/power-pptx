@@ -13,7 +13,7 @@ single run surfaces as many library bugs as possible:
                      after c14n canonicalisation (the project's release gate).
 4. **reopen**      — the saved ``.pptx`` re-opens cleanly in power-pptx.
 5. **schema**      — every part validates against the bundled ISO-29500 XSDs
-                     (``tests/schema/oxml_schema_validator``). This is the check
+                     (``power_pptx.validation``). This is the check
                      that catches the "opens in python-pptx / LibreOffice but
                      Microsoft PowerPoint reports the file as broken" bug class.
 
@@ -41,7 +41,7 @@ from zipfile import ZipFile
 from lxml import etree
 
 # Make the suite runnable straight from a fresh source checkout (no install):
-# put the sibling helpers (HERE), the repo root (for `tests.schema...`), and the
+# put the sibling helpers (HERE), the repo root, and the
 # src/ layout (for `import power_pptx`) on the path *before* importing the
 # package. These are prepended, so a local checkout takes precedence over any
 # installed power-pptx — intended, since the suite tests the tree it ships with.
@@ -55,10 +55,10 @@ for _p in (str(HERE), str(REPO_ROOT), str(REPO_ROOT / "src")):
 from power_pptx import Presentation  # noqa: E402
 from power_pptx.lint import LintSeverity  # noqa: E402
 
-# The ISO-29500 XSD validator ships with the test suite. It's the harness that
+# The ISO-29500 XSD validator ships in the installed package. It's the harness that
 # catches the "opens fine but PowerPoint repairs it" bug class, so we fold it in.
 try:
-    from tests.schema.oxml_schema_validator import (  # type: ignore
+    from power_pptx.validation import (
         iter_schema_violations,
         schema_validation_available,
     )

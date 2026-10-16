@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>From a web design to a presentation</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "DejaVu Sans", sans-serif; color: #183d36; }
+    [data-slide] { position: relative; width: 1280px; height: 720px; background: #f4f1e7; }
+    .eyebrow { position: absolute; left: 64px; top: 60px; font-size: 18px; letter-spacing: 3px; }
+    h1 { position: absolute; left: 64px; top: 132px; margin: 0;
+         font-size: 64px; line-height: 1.14; letter-spacing: -2px; }
+    .intro { position: absolute; left: 64px; top: 388px; width: 690px;
+             font-size: 27px; line-height: 1.5; margin: 0; color: #42685d; }
+    .diagram { position: absolute; left: 844px; top: 152px; width: 360px; height: 400px; }
+    footer { position: absolute; left: 64px; right: 64px; bottom: 40px; font-size: 16px;
+             display: flex; justify-content: space-between; color: #42685d; }
+    .choices h1 { font-size: 58px; }
+    .cards { position: absolute; left: 64px; top: 350px; display: flex; gap: 72px; }
+    article { width: 336px; height: 264px; padding: 28px; border: 1px solid #cbd6ca;
+              border-radius: 20px; background: white; }
+    .number { font-size: 18px; color: #42685d; }
+    h2 { font-size: 28px; margin: 22px 0 16px; letter-spacing: -1px; }
+    article p { font-size: 22px; line-height: 1.45; margin: 0; color: #42685d; }
+  </style>
+</head>
+<body>
+  <section data-slide data-title="Good slides start with good structure">
+    <div class="eyebrow">STUDIO / FIELD NOTES</div>
+    <h1>Good slides start<br>with good structure.</h1>
+    <p class="intro">Keep the visual decisions that make an HTML design work:
+      a clear hierarchy, generous spacing, and one idea per slide.</p>
+    <img class="diagram" src="diagram.svg" alt="HTML design becomes layout and hierarchy, then slides">
+    <footer><span>HTML → POWERPOINT</span><span>01 / 02</span></footer>
+  </section>
+  <section data-slide class="choices" data-title="Choose the right kind of embedding">
+    <div class="eyebrow">DESIGN THE HANDOFF</div>
+    <h1>Choose the right<br>kind of embedding.</h1>
+    <div class="cards">
+      <article><div class="number">01</div><h2>Native objects</h2>
+        <p>Editable text, tables, and charts for content that needs to change.</p></article>
+      <article><div class="number">02</div><h2>SVG assets</h2>
+        <p>Sharp diagrams and logos with a PNG companion for previews.</p></article>
+      <article><div class="number">03</div><h2>HTML capture</h2>
+        <p>Faithful browser styling for complex visuals and static slide designs.</p></article>
+    </div>
+    <footer><span>NATIVE + VECTOR + CAPTURED</span><span>02 / 02</span></footer>
+  </section>
+</body>
+</html>

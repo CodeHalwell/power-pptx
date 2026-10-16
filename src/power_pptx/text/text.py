@@ -97,12 +97,18 @@ class TextFrame(Subshape):
         italic: bool = False,
         font_file: str | None = None,
         strict: bool = False,
+        *,
+        min_size: int = 1,
+        max_lines: int | None = None,
+        preserve_breaks: bool = False,
+        line_spacing: float | None = None,
     ) -> int | None:
         """Fit text-frame text entirely within bounds of its shape.
 
         Make the text in this text frame fit entirely within the bounds of its shape by setting
         word wrap on and applying the "best-fit" font size to all the text it contains.  Returns
         the point size applied (|None| when the frame is empty and nothing was done).
+        Paragraph breaks, soft line breaks, and blank lines are included in measurement.
 
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
         be set larger than `max_size` points. If the path to a matching TrueType font is provided
@@ -130,7 +136,26 @@ class TextFrame(Subshape):
 
         :func:`power_pptx.text.fonts.font_is_installed` answers the same question up front,
         without measuring anything.
+
+        ``min_size`` rejects an unreadably small fit. ``max_lines`` caps the
+        rendered line count; ``preserve_breaks=True`` prevents additional
+        wrapping beyond explicit paragraph/soft breaks. ``line_spacing`` is
+        a positive line-height multiplier, used for measurement and applied to
+        each paragraph. Unsatisfiable constraints raise before any mutation.
         """
+        options = {}
+        if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, None):
+            from power_pptx.text.layout import _validate_constraints
+
+            _validate_constraints(min_size, max_size, max_lines, line_spacing or 1.2)
+            if line_spacing is not None and line_spacing <= 0:
+                raise ValueError("line_spacing must be finite and positive")
+            options = {
+                "min_size": min_size,
+                "max_lines": max_lines,
+                "preserve_breaks": preserve_breaks,
+                "line_spacing": line_spacing if line_spacing is not None else 1.2,
+            }
         # ---no-op when empty as fit behavior not defined for that case---
         if self.text == "":
             return None  # pragma: no cover
@@ -146,8 +171,12 @@ class TextFrame(Subshape):
             # Only a caller who *named* a face is owed a warning; an omitted
             # argument expresses no requirement to break.
             warn_on_fallback=font_family is not None,
+            **options,
         )
         self._apply_fit(family, font_size, bold, italic)
+        if line_spacing is not None:
+            for paragraph in self.paragraphs:
+                paragraph.line_spacing = line_spacing
         return font_size
 
     @property
@@ -392,6 +421,7 @@ class TextFrame(Subshape):
         strict: bool = False,
         *,
         warn_on_fallback: bool = True,
+        **constraints,
     ) -> int:
         """Return font-size in points that best fits text in this text-frame.
 
@@ -429,11 +459,13 @@ class TextFrame(Subshape):
                         FontMetricsWarning,
                         stacklevel=3,
                     )
-        size = TextFitter.best_fit_font_size(self.text, self._extents, max_size, font_file)
+        size = TextFitter.best_fit_font_size(
+            self.text, self._extents, max_size, font_file, **constraints
+        )
         if size is None:
             raise ValueError(
-                "fit_text: text does not fit at any size from 1pt to "
-                f"{max_size}pt in this text frame; resize the shape, "
+                f"fit_text: text does not fit at any size from {constraints.get('min_size', 1)}pt "
+                f"to {max_size}pt with the requested line constraints; resize the shape, "
                 "shorten the text, or split it across multiple frames."
             )
         return size

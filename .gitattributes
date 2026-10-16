@@ -1,0 +1,2 @@
+# Keep the vendored ISO schemas byte-identical to their specification sources.
+src/power_pptx/schemas/*.xsd whitespace=-blank-at-eol

@@ -1,7 +1,8 @@
 """High-level composition entry points.
 
 This package collects the cross-presentation operations introduced over
-Phases 2 and 7: JSON-driven authoring (:func:`from_spec`), single-slide
+Phases 2 and 7: JSON-driven authoring (:func:`from_spec`), styled HTML
+section capture (:func:`from_html`), single-slide
 import across decks (:func:`import_slide`), and bulk template re-pointing
 (:func:`apply_template`).
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 from power_pptx._slide_importer import import_slide
 from power_pptx._template_applier import apply_template
+from power_pptx.compose.from_html import from_html
 from power_pptx.compose.from_spec import from_spec, from_yaml
 
-__all__ = ["apply_template", "from_spec", "from_yaml", "import_slide"]
+__all__ = ["apply_template", "from_html", "from_spec", "from_yaml", "import_slide"]

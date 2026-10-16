@@ -1,5 +1,9 @@
 # Design system layer (Phase 9)
 
+For measured native `Row`, `Column`, `Card`, `Badge`, `MetricTile`, and
+`NativeContent` components, read `authoring-workflows.md`. These add automatic
+padding, gaps, child measurement, sizing, and deliberate background overlap.
+
 The `power_pptx.design` package turns the low-level API into something where
 the *default* output looks good. Nothing here adds new XML — it's all
 built on top of the foundations from earlier phases.

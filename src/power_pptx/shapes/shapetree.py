@@ -771,8 +771,8 @@ class _BaseGroupShapes(_BaseShapes):
         and an ``<asvg:svgBlip>`` extension references the SVG.  This
         method handles both halves.
 
-        `svg_file` is a path, file-like object, or raw ``bytes`` blob
-        of SVG markup.  `png_fallback` is the raster fallback in the
+        `svg_file` is inline Unicode markup, a path, a file-like object,
+        or raw ``bytes`` of SVG markup. `png_fallback` is the raster fallback in the
         same forms.  When `png_fallback` is ``None`` the SVG is
         rasterised via ``cairosvg`` (an *optional* dependency); a
         clear error is raised if it isn't installed.

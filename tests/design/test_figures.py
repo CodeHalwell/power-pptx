@@ -172,6 +172,12 @@ class DescribeAddHtmlFigure:
 
 
 class DescribeFigureSlideDispatch:
+    def it_dispatches_svg_markup_with_a_unicode_bom(self):
+        prs = Presentation()
+        with patch("power_pptx._svg.rasterize_svg", return_value=_TINY_PNG):
+            slide = figure_slide(prs, title="SVG", figure="\ufeff" + _STUB_SVG.decode("utf-8"))
+        assert "svgBlip" in slide.shapes[-1].element.xml
+
     def it_dispatches_a_plotly_figure(self):
         prs = Presentation()
         fig = _FakePlotlyFigure()

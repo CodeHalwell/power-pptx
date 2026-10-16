@@ -1113,8 +1113,8 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     if tf.auto_size in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE):
         return issues
 
-    text = tf.text.strip()
-    if not text:
+    text = tf.text.replace("\v", "\n")
+    if not text.strip():
         return issues
 
     # Rough per-run font-size estimate: fall back to 18pt (914400 EMU/pt = 12700)
@@ -1122,7 +1122,8 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     _DEFAULT_FONT_PT = 18
     try:
         first_run = tf.paragraphs[0].runs[0]
-        font_pt = (first_run.font.size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
+        size = first_run.font.size if first_run._r.rPr is not None else None
+        font_pt = (size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
     except (IndexError, AttributeError):
         font_pt = _DEFAULT_FONT_PT
 
@@ -1149,9 +1150,17 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     char_w_emu = font_pt * char_w_pt_mult * _PT_TO_EMU
     # Line height ~ 1.2 × font size
     line_h_emu = font_pt * 1.2 * _PT_TO_EMU
+    spacing = tf.paragraphs[0].line_spacing
+    if isinstance(spacing, int):
+        line_h_emu = spacing or line_h_emu
+    elif isinstance(spacing, float):
+        line_h_emu = font_pt * spacing * _PT_TO_EMU
 
     chars_per_line = max(1, frame_w / char_w_emu)
-    lines_available = max(1, frame_h / line_h_emu)
+    # OOXML rounds exact line spacing to 1/100 pt; allow that quantization
+    # per authored line when comparing a browser-measured or native box.
+    tolerance = len(text.split("\n")) * _PT_TO_EMU / 100
+    lines_available = max(1, (frame_h + tolerance) / line_h_emu)
     # When a line wraps, it occupies a whole-number line slot in the
     # rendered frame — half a line of overflow still pushes content out.
     # Counting the raw float (e.g. 1.5 lines for a 31-char line that
@@ -1160,7 +1169,8 @@ def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
     # ``ceil`` matches what the renderer does: each wrapped line is one
     # full line of vertical space.  See IMPROVEMENTS item 7.
     estimated_lines = sum(
-        max(1, math.ceil(len(line) / chars_per_line)) for line in text.split("\n")
+        1 if tf.word_wrap is False else max(1, math.ceil(len(line) / chars_per_line))
+        for line in text.split("\n")
     )
 
     if estimated_lines > lines_available:
@@ -1781,15 +1791,11 @@ def _check_collisions(
             area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
             area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
             size_ratio = min(area_i, area_j) / max(area_i, area_j)
-            if size_ratio < 0.9:
-                if _bbox_contains(bboxes[i], bboxes[j]) and area_j < area_i:
-                    # j is the smaller shape and it's drawn on top of i
-                    # (j > i in spTree order); skip.
-                    continue
-                # Note: ``i contained in j with i < j`` would mean the
-                # smaller shape is *under* the larger one — a
-                # ZOrderAnomaly, not a layered-design pattern — so we
-                # let collision detection proceed.
+            if size_ratio < 0.9 and _bbox_contains(bboxes[i], bboxes[j]) and area_j < area_i:
+                # j is the smaller shape and it's drawn on top of i
+                # (j > i in spTree order); skip. A smaller i would be
+                # underneath j, so that case remains a collision.
+                continue
 
             kind, score = _classify_collision(bboxes[i], bboxes[j], pct)
 
@@ -1837,6 +1843,8 @@ def _check_min_font_size(
     smallest: float | None = None
     for paragraph in tf.paragraphs:
         for run in paragraph.runs:
+            if run._r.rPr is None:
+                continue
             try:
                 size = run.font.size
             except (AttributeError, ValueError):
@@ -1922,8 +1930,8 @@ def _check_off_grid_drift(shapes: Sequence[BaseShape]) -> list[LintIssue]:
 
 
 # ---------------------------------------------------------------------------
-# Low contrast — compare text RGB against shape fill RGB (or, if absent,
-# slide background RGB) and warn when the ratio is below WCAG AA (4.5:1).
+# Low contrast — compare text RGB against its visible fill or the nearest
+# enclosing card behind it, then the slide background (WCAG AA, 4.5:1).
 # Skips silently when colors can't be resolved (theme color, gradient, etc.).
 # ---------------------------------------------------------------------------
 
@@ -1991,6 +1999,57 @@ def _slide_background_rgb(slide: Slide):
         return None
 
 
+def _text_background_rgb(shape: BaseShape, slide: Slide):
+    """Resolve an opaque RGB backdrop without treating a card as transparent.
+
+    Text boxes commonly have no fill of their own. Looking straight through
+    their containing card to the slide background produces false contrast
+    warnings (and misses dark text on dark cards). Respect painting order.
+    Skip ambiguous gradients, translucent fills, pictures, and partial covers
+    rather than claiming a contrast ratio for a background we cannot resolve.
+    """
+    from power_pptx.enum.dml import MSO_FILL_TYPE
+
+    try:
+        fill = shape.fill  # type: ignore[attr-defined]
+        if fill.type not in (None, MSO_FILL_TYPE.BACKGROUND):
+            if fill.type == MSO_FILL_TYPE.SOLID and fill.fore_color.alpha == 1.0:
+                return _resolve_solid_rgb(fill)
+            return None
+    except (AttributeError, NotImplementedError):
+        return None
+
+    preceding = []
+    for candidate in slide.shapes:
+        if candidate._element is shape._element:  # pyright: ignore[reportPrivateUsage]
+            break
+        preceding.append(candidate)
+    bounds = _shape_bbox(shape)
+    for candidate in reversed(preceding):
+        other = _shape_bbox(candidate)
+        if bounds[0] >= other[2] or other[0] >= bounds[2]:
+            continue
+        if bounds[1] >= other[3] or other[1] >= bounds[3]:
+            continue
+        try:
+            fill = candidate.fill
+            if fill.type in (None, MSO_FILL_TYPE.BACKGROUND):
+                continue
+            if fill.type == MSO_FILL_TYPE.SOLID and fill.fore_color.alpha == 0.0:
+                continue
+            if (
+                _bbox_contains(other, bounds)
+                and not candidate.rotation
+                and fill.type == MSO_FILL_TYPE.SOLID
+                and fill.fore_color.alpha == 1.0
+            ):
+                return _resolve_solid_rgb(fill)
+        except (AttributeError, NotImplementedError):
+            pass
+        return None
+    return _slide_background_rgb(slide)
+
+
 def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     """Return a LowContrast issue if shape's text has poor contrast against its fill."""
     issues: list[LintIssue] = []
@@ -2005,6 +2064,8 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     try:
         for paragraph in tf.paragraphs:
             for run in paragraph.runs:
+                if run._r.rPr is None:
+                    continue
                 try:
                     rgb = run.font.color.rgb
                 except (AttributeError, ValueError):
@@ -2019,14 +2080,7 @@ def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
     if text_rgb is None:
         return issues
 
-    # Find a background to compare against: prefer shape fill, then slide bg.
-    bg_rgb = None
-    try:
-        bg_rgb = _resolve_solid_rgb(shape.fill)  # type: ignore[attr-defined]
-    except Exception:
-        pass
-    if bg_rgb is None:
-        bg_rgb = _slide_background_rgb(slide)
+    bg_rgb = _text_background_rgb(shape, slide)
     if bg_rgb is None:
         return issues
 
@@ -2120,10 +2174,10 @@ def _placeholder_bboxes(slide: Slide) -> list[tuple[int, int, int, int, int]]:
                 continue
             if idx in used_idxs:
                 continue
-            l, t, r, b = _shape_bbox(ph)
-            if r - l <= 0 or b - t <= 0:
+            left, top, right, bottom = _shape_bbox(ph)
+            if right - left <= 0 or bottom - top <= 0:
                 continue
-            out.append((l, t, r, b, idx))
+            out.append((left, top, right, bottom, idx))
     except Exception:
         return out
     return out

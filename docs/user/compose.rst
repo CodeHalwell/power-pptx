@@ -37,6 +37,13 @@ shapes before construction (no JSON Schema is involved)::
 Layout names map either to Phase-9 design recipes (where supplied) or to
 a small built-in set of layouts using the host presentation's master.
 
+Legacy and recipe layouts both reject unknown fields with a
+:class:`ValueError` naming the slide and suggesting corrections. For
+example, ``subtitel`` on a ``title`` slide suggests ``subtitle`` instead
+of silently losing the content. Named standard layouts such as
+``Title Slide`` populate the same fields as their aliases. Slide entries
+must be mappings and layout names must be strings.
+
 The ``"lint"`` field accepts ``"off"`` (the default), ``"warn"``, or
 ``"raise"``, and acts only on error-severity issues.  Decks that were not
 built from a spec get the same gate from ``prs.lint_on_save`` — see

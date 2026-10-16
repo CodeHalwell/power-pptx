@@ -40,6 +40,11 @@ mutating, theming, linting, or rendering decks, consult it before writing code:
 
 - `src/power_pptx/skill/SKILL.md` — cheat sheet, common operations,
   anti-patterns, and pitfalls.
+- `src/power_pptx/skill/references/content-embedding.md` — when HTML is
+  the design reference, preserve its visual hierarchy and choose editable
+  native objects, embedded SVG/browser visuals, or faithful static capture.
+  `compose.from_html` captures slide-sized HTML sections as pictures; it
+  does not turn arbitrary CSS into editable PowerPoint shapes.
 - `src/power_pptx/skill/references/*.md` — deep dives per topic
   (`space-aware-authoring.md`, `geometry-and-arrows.md`, `charts.md`,
   `design.md`, `theme.md`, `animations.md`, `transitions.md`, `effects.md`,
@@ -68,7 +73,7 @@ src/power_pptx/        # the library (importable package)
   parts/               # package parts (slide, chart, image, media, diagram, ...)
   enum/                # MSO_* / PP_* enumerations
   design/              # post-fork design system: tokens, style, layout (Grid/Stack), recipes, components, figures
-  compose/             # from_spec (dict/JSON → deck), import_slide, apply_template
+  compose/             # from_spec, from_html (HTML sections → pictures), import_slide, apply_template
   diagrams.py          # native-shape diagram recipes (pipeline, hub_and_spoke, cycle, ...)
   animation.py         # Entrance/Exit/Emphasis/MotionPath, SlideAnimations
   theme.py             # theme reader/writer (palette + fonts)
@@ -85,10 +90,19 @@ tests/                 # pytest unit tests, mirroring src module layout; plus sc
 features/              # Gherkin acceptance tests (run via behave)
 examples/              # real_world/, showcase/, starter_pack/, playground/, stress_test/
 spec/                  # ISO/IEC 29500 OOXML spec material + XSD schemas
+
 docs/                  # Sphinx documentation (user/, dev/, api/)
 typings/               # type stubs (used by pyright strict mode)
 lab/                   # experimental, undisciplined code (excluded from lint)
 ```
+
+Installed validation lives in `src/power_pptx/validation.py`, with packaged
+XSDs in `src/power_pptx/schemas/`. The test schema helper re-exports it. Keep
+packaged XSDs identical to `spec/ISO-IEC-29500-4/xsd/`. Use `power-pptx review`
+for complete PDF/PNG/contact-sheet/reference/validation bundles without tests/.
+`examples/authoring_workflows/` exercises native components, hybrid annotations,
+typography, and Plotly browser export. The skill's `authoring-workflows.md`
+documents contracts; keep the packaged and `.claude` skill copies synchronized.
 
 ## Development workflows
 
@@ -146,6 +160,14 @@ A PR must keep all of these green:
 3. **examples-build** — `python examples/real_world/build_all.py` smoke-builds
    all ten real-world decks end-to-end (proves the public surface didn't regress).
 4. **schema-validation** — `pytest tests/schema` against bundled OOXML XSDs.
+5. **html-embedding** — real Chromium HTML/SVG capture tests and the
+   captured/native companion decks in `examples/html_embedding/`.
+6. **quality** — repository-wide Ruff correctness rules, full Ruff checks
+   on maintained modules, `pyright --project pyright-ci.json`, and release
+   gate unit tests. Optional renderer dependencies are installed in this job.
+7. **modern-gallery** — builds, validates, round-trips, and renders all 32
+   modern example slides, then uploads previews and the manifest for review.
+8. **render-integration** — exercises the real LibreOffice/Poppler pipeline.
 
 Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
 `qodana_code_quality.yml`.

@@ -8,6 +8,8 @@ Composition
 
 .. autofunction:: from_spec
 
+.. autofunction:: from_html
+
 .. autofunction:: import_slide
 
 .. autofunction:: apply_template

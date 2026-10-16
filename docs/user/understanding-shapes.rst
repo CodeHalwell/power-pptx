@@ -48,10 +48,10 @@ line/connector
    very handy.
 
 content part
-   I actually have only the vaguest notion of what these are. It has something
-   to do with embedding "foreign" XML like SVG in with the presentation. I'm
-   pretty sure PowerPoint itself doesn't do anything with these. My strategy
-   is to ignore them. Working good so far.
+   An extension mechanism for external XML content. Existing content-part
+   elements are preserved when reading presentations. SVG authoring uses
+   picture shapes with SVG media and a PNG companion instead; see
+   :ref:`content-embedding` for SVG and styled HTML workflows.
 
 As for real-life shapes, there are these nine types:
 

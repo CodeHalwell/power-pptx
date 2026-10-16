@@ -1,9 +1,21 @@
 # Slide thumbnails (Phase 10)
 
+For a complete review bundle, prefer `power-pptx review deck.pptx --out-dir review`.
+It produces PDF, all slide PNGs, contact sheets, validation, optional reference
+differences, and a local gallery. Batch inputs are supported. Read
+`authoring-workflows.md` for setup, options, and the required visual inspection.
+
 `power_pptx.render` shells out to LibreOffice to rasterise slides as PNGs.
 This is for review tooling, dashboards, and CI artifacts — it does not
 require Microsoft PowerPoint or an Office license, but `soffice` must
 be on `$PATH` (or you can point at a custom binary).
+
+Each call converts in a private workspace with its own LibreOffice profile.
+It is safe to reuse `out_dir`: returned paths contain only the current
+render's requested slides, even when the new deck has fewer slides. Existing
+unrelated files are preserved; PNGs with the same output names are replaced.
+The saved input deck, intermediate PDF, and profile are removed after the
+call. `return_bytes=True` returns bytes without writing to `out_dir`.
 
 ## Convenience methods
 

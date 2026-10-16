@@ -10,13 +10,49 @@ distributed on PyPI as `power-pptx` but imported as `import power_pptx`
 (drop-in compatible). Use it for every PowerPoint generation /
 mutation task.
 
+## Design direction
+
+Aim for the visual quality of a well-designed web page or product interface:
+strong type, intentional whitespace, useful hierarchy, and varied compositions.
+Read **`references/modern-slide-design.md`** for modern deck requests or when
+the user supplies a styled HTML/React reference. Build a visual direction before
+choosing recipes. The repository's `examples/modern_gallery/` demonstrates eight
+native, hybrid, and captured directions, with a builder that renders every page.
+
+Read **`references/authoring-workflows.md`** for measured native components,
+annotated HTML import, constrained typography, Plotly browser export, and the
+installed `power-pptx review` command. Use these public APIs instead of writing
+layout or validation glue in every deck generator.
+
+## Working from styled HTML or SVG
+
+A well-styled HTML document is a useful visual specification for a deck.
+Read **`references/content-embedding.md`** when the input is HTML, a web
+layout, SVG, Mermaid/D3 output, or a request to reproduce a web design.
+Preserve its typography, spacing, palette, and composition. For editable
+decks, rebuild headings, body copy, cards, tables, and charts with native
+PowerPoint objects and embed complex illustrations as SVG/PNG. For faithful
+static reproduction, `power_pptx.compose.from_html(...)` captures one
+`[data-slide]` section per slide. A hybrid of native text and captured
+visuals is often useful. State which parts are editable in the delivery.
+
+`from_html(..., mode="hybrid")` imports explicit `data-pptx="text|chart|table"`
+regions as editable foreground objects; `data-pptx="capture"` captures complex
+regions separately. Read the annotation contract before using it. Unmarked CSS
+stays in the background image; unsupported native styling must use capture.
+
+Use a fixed slide canvas, wait for fonts/images/application readiness, and
+inspect the rendered result. HTML captures are pictures; the slide linter
+cannot inspect their internal text. Avoid stretching a long webpage onto
+one slide. SVG stays vector in modern Office and includes a PNG fallback.
+
 ## The headline: space-aware authoring
 
 The single biggest reason this fork exists is to make programmatic
 decks **physically correct**: text doesn't overflow its container,
 shapes don't sit off the slide, and elements that overlap do so on
-purpose. Three layered tools — used together — catch ~all real-world
-issues:
+purpose. Three layered tools catch many common layout errors; rendering and
+visual review complete the quality check:
 
 1. **`TextFrame.fit_text(...)`** measures with Pillow font metrics
    and bakes a fitting size into the XML *before* save.
@@ -142,6 +178,8 @@ That whole sheet fits on one screen — it's the working set.
 - The user wants **3D** primitives (bevels / extrusion) or **SmartArt
   text substitution**
 - The user wants **native SVG embedding** with PNG fallback
+- The user supplies **styled HTML as a design reference**, or wants HTML
+  sections / web diagrams embedded in slides (`content-embedding.md`)
 
 ## Install
 
@@ -160,6 +198,8 @@ collections. Read just the file you need — they're self-contained.
 
 | File | What it covers |
 |---|---|
+| `references/modern-slide-design.md` | **Visual direction and review.** Web-style compositions, native/hybrid/capture choices, typography, UI layouts, charts, and an all-slide visual pass. |
+| `references/content-embedding.md` | **HTML/SVG authoring guide.** Preserve an HTML design as editable native objects, a faithful captured deck via `compose.from_html`, or a hybrid. Local assets, CSS selectors, readiness, fitting, SVG compatibility, and visual verification. |
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
 | `references/geometry-and-arrows.md` | `BBox` value object (`columns`/`rows`/`split_h`/`grid`), `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
 | `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
@@ -220,15 +260,17 @@ from power_pptx import (
    real dimensions (or a region you hand them), so you can't
    accidentally walk off the right edge, and there's no column
    arithmetic to get wrong.
-6. **Prefer recipes for whole-slide layouts** when the user wants a
-   "good enough" pitch deck; drop down to direct `add_shape` /
-   `add_textbox` only when the recipes don't fit.
+6. **Choose composition before recipes.** Use a recipe when it fits the
+   content and visual direction. Combine custom native layouts and embedded
+   visuals for a designed deck; vary the composition across the narrative.
 7. **Save once at the end** — build the deck in memory, then call
    `prs.save(...)`. Don't open and re-save inside loops.
 8. **For released-version constraints**: pin `power-pptx>=2.8.0`
    when generating requirements files — that's the minimum that
    ships the `BBox`, `add_text`, `add_arrow`, `diagrams`, and
-   `audit` surface used in this skill.
+   `audit` surface used in this skill. HTML section composition additionally
+   requires a build exposing `power_pptx.compose.from_html`; confirm that
+   API exists when working with a pinned older installation.
 
 ## A space-aware mini-template
 
