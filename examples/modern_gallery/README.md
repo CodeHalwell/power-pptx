@@ -11,7 +11,7 @@ They use real power-pptx APIs and include their HTML/SVG sources.
 | Relay | Editable native | Dark chart, gradient, code, status pill, progress bar, arrows |
 | Fieldwork | Editable native + SVG | Serif display type, vector art, quote, timeline |
 | Lumen | Hybrid | Matplotlib SVG confidence band, HTML panel, native text, cross-deck import |
-| Current | Hybrid | Plotly Sankey captured through HTML, native doughnut and merged table |
+| Current | Hybrid | Plotly browser SVG Sankey, native doughnut and merged table |
 | Aster | Captured HTML | Glass, radial gradients, layered interface, SVG network |
 | Daily | Captured HTML | SVG packaging, rotations, drop shadows, asymmetric CSS grid |
 | Offgrid | Captured HTML | Large display type, clip paths, SVG star, scripted canvas |
@@ -50,9 +50,8 @@ resizing. This catches material rendering changes; it does not measure design
 quality. `REVIEW.md` starts as **pending** so a new build never claims a reviewer
 has approved its appearance.
 
-The source copies in the artifact are for reference; run validation from a full
-repository checkout because it uses the bundled test schemas. Generated output
-is ignored by git. Native typography requires the named fonts on the machine
+The schema validator ships in the installed package; no test checkout is needed.
+Generated output is ignored by git. Native typography requires the named fonts on the machine
 opening the deck; the examples do not embed fonts.
 
 ## Broad feature probes
