@@ -18,6 +18,8 @@ refs #
 - [ ] `pytest --cov=power_pptx tests` passes locally.
 - [ ] `behave --stop` passes locally.
 - [ ] No new `pyright` errors.
+- [ ] If this PR is a release: bump `__version__`, sync the site version, and
+  move pending history entries into the matching dated release section.
 
 ## Test notes
 

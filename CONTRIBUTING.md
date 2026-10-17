@@ -114,6 +114,30 @@ ruff check src tests
 ruff format src tests
 ```
 
+## Preparing a release
+
+Merging a feature PR does not itself publish a release. The release workflow
+reads `__version__` from `src/power_pptx/__init__.py`; if its `vX.Y.Z` tag
+already exists, the workflow succeeds without creating or publishing anything.
+Rerunning it with the same version has the same result.
+
+Prepare a release PR against `master`:
+
+1. Set `__version__` to a new version and sync `SITE.version` in
+   `site/src/lib/site.ts`.
+2. Move the pending `HISTORY.rst` entries into a dated `X.Y.Z (YYYY-MM-DD)`
+   section, leaving `Unreleased` ready for future changes. The workflow extracts
+   its release notes from that exact version heading.
+3. Build the sdist and wheel with `python -m build` and check them with
+   `python -m twine check dist/*`. Confirm the distribution metadata uses the
+   new version and the matching tag does not already exist.
+4. Merge after PR checks pass. The merge starts default-branch CI; the release
+   workflow waits for that exact commit's CI before creating its tag/release.
+   The resulting publish workflow then builds and uploads that tagged code.
+
+Check the release job's tag decision and the publish job's build/upload steps,
+as a successful no-op workflow does not mean a new package was published.
+
 ## Pull-request expectations
 
 Per `ROADMAP.md`, PRs should be small. Each public-API surface should
