@@ -17,6 +17,14 @@ installs the ``pptx`` import name) is also present in the environment.
 Unreleased
 ++++++++++
 
+
+2.13.0 (2026-10-17)
++++++++++++++++++++
+
+Modern web-style slide authoring, from styled HTML to editable native
+components and annotated hybrid decks. Adds constrained typography, browser
+figure export, and an installed all-slide review workflow.
+
 Added
 .....
 
