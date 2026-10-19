@@ -18,6 +18,57 @@ Unreleased
 ++++++++++
 
 
+2.14.0 (2026-10-19)
++++++++++++++++++++
+
+Measurement you can trust in a container: bundled fonts, tracked and weighted
+type, ragged-edge checks, measured tables, render font folders, and
+byte-identical output. Addresses issue #54.
+
+Added
+.....
+
+* ``power_pptx.text.register_font_dir(path)`` and the ``POWER_PPTX_FONT_DIRS``
+  environment variable add font folders that are searched before the system
+  folders, so ``strict_fonts=True`` works without installing fonts. Each style
+  is looked up separately, so bold text measures with the bold file.
+  ``register_font_family(...)`` maps explicit files per style and weight.
+* ``TextBlock`` gains ``letter_spacing``, ``weight`` (``"medium"``,
+  ``"semibold"``, ``100``–``900``) and ``case`` (``"upper"``/``"lower"``). All
+  three are measured during preflight and written to the drawn runs. Medium and
+  SemiBold faces are matched on their OS/2 weight class and written by their
+  legacy family name so PowerPoint selects them. ``find_font_file`` and
+  ``measure_text`` accept ``weight=``; ``measure_text`` and ``TextFitter``
+  accept ``letter_spacing``.
+* ``Column(fill_last=True)`` gives a stretched column's spare height to its
+  last child. Preflight emits ``LayoutWarning`` (also in
+  ``LayoutResult.warnings``) when a stretched column would end short under a
+  filled or bordered last child.
+* New ``RaggedEdge`` lint rule (WARNING) flags a filled rounded panel that ends
+  more than 1.5pt above the bottom edge its neighbouring panels share, with
+  nothing beneath it.
+* ``DataTable`` native component: row heights measured from cell text, relative
+  column widths, per-column alignment, and ``max_lines`` with optional
+  ellipsis truncation. ``power_pptx.text.truncate_text`` exposes the
+  truncation on its own.
+* ``render_slides``, ``render_slide_thumbnails`` and ``render_slide_thumbnail``
+  accept ``font_dirs=``; ``power-pptx review`` accepts ``--font-dir`` (and
+  ``review_presentation(font_dirs=...)``). Extra and registered folders reach
+  LibreOffice through a temporary ``fonts.conf`` for the ``soffice`` process
+  only, fixing serif fallbacks for user-installed fonts on macOS.
+* ``SOURCE_DATE_EPOCH`` pins zip entry times, default core properties and the
+  core properties of embedded chart workbooks, so builds of the same input are
+  byte-identical.
+
+Development
+...........
+
+* Small OFL-licensed test fonts (Outfit, Tektur) live in ``tests/fonts`` for
+  measurement, weight and rendering tests.
+* ``AGENTS.md`` replaces ``CLAUDE.md`` as the assistant guide; ``CLAUDE.md``
+  now imports it.
+
+
 2.13.0 (2026-10-17)
 +++++++++++++++++++
 

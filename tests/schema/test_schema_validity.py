@@ -555,7 +555,40 @@ def _deck_svg_embedding() -> bytes:
     return _saved(prs)
 
 
+def _deck_native_typography() -> bytes:
+    from pathlib import Path
+
+    from power_pptx import BBox
+    from power_pptx.design import Column, DataTable, TextBlock
+
+    font = str(Path(__file__).parents[1] / "fonts" / "Tektur-Medium.ttf")
+    prs = Presentation()
+    s = _blank_slide(prs)
+    Column(
+        [
+            TextBlock(
+                "Active customers",
+                font="Tektur",
+                font_file=font,
+                weight="medium",
+                letter_spacing=Pt(1.4),
+                case="upper",
+                size_pt=9,
+                min_size_pt=9,
+            ),
+            DataTable(
+                [["Region", "Revenue"], ["EMEA", "A long note that will be cut"]],
+                max_lines=1,
+                truncate=True,
+            ),
+        ],
+        fill_last=True,
+    ).render(s, BBox(Inches(0.5), Inches(0.5), Inches(5), Inches(3)))
+    return _saved(prs)
+
+
 _DECK_BUILDERS = {
+    "native_typography": _deck_native_typography,
     "svg_embedding": _deck_svg_embedding,
     "blank": _deck_blank,
     "group_fill": _deck_group_fill,

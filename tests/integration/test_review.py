@@ -108,3 +108,40 @@ def test_cli_accepts_declarative_sources(tmp_path, suffix):
     assert report["validation"]["schema_checked"]
     reopened = Presentation(target / "presentation.pptx")
     assert reopened.slides[0].shapes.title.text == "A declarative source"
+
+
+def test_cli_font_dir_registers_and_renders_bundled_fonts(tmp_path):
+    from pathlib import Path
+
+    from power_pptx.text import clear_registered_fonts
+
+    fonts = Path(__file__).parents[1] / "fonts"
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_text(
+        Inches(1), Inches(1), Inches(6), Inches(1), text="Bundled font", font="Tektur"
+    )
+    source = tmp_path / "deck.pptx"
+    prs.save(source)
+    target = tmp_path / "review"
+    try:
+        assert (
+            main(
+                [
+                    str(source),
+                    "--out-dir",
+                    str(target),
+                    "--dpi",
+                    "36",
+                    "--font-policy",
+                    "error",
+                    "--font-dir",
+                    str(fonts),
+                ]
+            )
+            == 0
+        )
+    finally:
+        clear_registered_fonts()
+    report = json.loads((target / "manifest.json").read_text())
+    assert report["passed"]

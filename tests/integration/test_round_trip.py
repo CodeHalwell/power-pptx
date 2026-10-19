@@ -31,6 +31,20 @@ class DescribeRoundTrip:
         slide.shapes.title.text_frame.text = "Round-trip"
         assert_round_trip(prs)
 
+    def it_round_trips_native_typography_and_tables(self):
+        from power_pptx import BBox
+        from power_pptx.design import Column, DataTable, TextBlock
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        Column(
+            [
+                TextBlock("Eyebrow", letter_spacing=Pt(1.4), case="upper", size_pt=9, min_size_pt=9),
+                DataTable([["Region", "Revenue"], ["EMEA", "£4.2m"]], max_lines=1, truncate=True),
+            ]
+        ).render(slide, BBox(Inches(0.5), Inches(0.5), Inches(5), Inches(3)))
+        assert_round_trip(prs)
+
     def it_round_trips_a_deck_with_an_autoshape(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])

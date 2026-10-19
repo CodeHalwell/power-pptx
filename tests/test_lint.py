@@ -2259,3 +2259,75 @@ class DescribeAllowanceCleanupOnGroupDelete:
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
         assert codes, "a real collision must not be suppressed by a stale member id"
+
+
+class DescribeRaggedEdgeCheck:
+    """Side-by-side filled panels should end on one bottom line."""
+
+    @staticmethod
+    def _panel(slide, left, top, width, height):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height)
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        return shape
+
+    @staticmethod
+    def _ragged(slide):
+        return [i for i in slide.lint().issues if i.code == "RaggedEdge"]
+
+    def it_flags_a_panel_that_ends_short_of_its_neighbour(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 4, 5)
+        self._panel(slide, 5, 1, 4, 2)
+        short = self._panel(slide, 5, 3.25, 4, 2)
+
+        issues = self._ragged(slide)
+
+        assert [i.shapes for i in issues] == [(short,)]
+        assert issues[0].severity is LintSeverity.WARNING
+        assert issues[0].gap_emu == Inches(0.75)
+        assert issues[0].to_dict()["gap_emu"] == Inches(0.75)
+
+    def it_tolerates_sub_point_differences(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 4, 5)
+        right = self._panel(slide, 5, 1, 4, 5)
+        right.height = right.height - Pt(1)
+
+        assert self._ragged(slide) == []
+
+    def it_ignores_a_panel_with_something_beneath_it(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 4, 5)
+        self._panel(slide, 5, 1, 4, 3)
+        slide.shapes.add_textbox(Inches(5), Inches(4.5), Inches(4), Inches(0.5))
+
+        assert self._ragged(slide) == []
+
+    def it_ignores_nested_panels(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 9, 5)
+        self._panel(slide, 1, 1.5, 3, 1)
+
+        assert self._ragged(slide) == []
+
+    def it_ignores_panels_in_a_different_band(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 0.5, 3, 1)
+        self._panel(slide, 5, 3, 4, 3)
+        self._panel(slide, 0.5, 4, 4, 2)
+
+        assert self._ragged(slide) == []
+
+    def it_can_be_disabled_like_any_rule(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 4, 5)
+        self._panel(slide, 5, 1, 4, 2)
+
+        assert not [i for i in slide.lint(disable=["RaggedEdge"]).issues if i.code == "RaggedEdge"]
+        rules = slide.lint().to_sarif()["runs"][0]["tool"]["driver"]["rules"]
+        assert any(rule["id"] == "RaggedEdge" for rule in rules)

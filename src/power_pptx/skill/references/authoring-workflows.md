@@ -50,6 +50,77 @@ The builder receives `(slide, bbox)` and draws inside that box. Its behavior
 is outside tree preflight; validate the result and avoid side effects on failure.
 Design-token palette keys work for colors; the body token supplies a default font.
 
+## Bundled fonts that measure the same everywhere
+
+Ship brand fonts next to the code and register the folder once, before any
+measurement. No system install, Dockerfile step, or CI copy is needed, and
+`strict_fonts=True` behaves the same on every machine:
+
+```python
+from pathlib import Path
+from power_pptx.text import register_font_dir, register_font_family
+
+register_font_dir(Path(__file__).parent / "assets" / "fonts")
+# or, outside Python: POWER_PPTX_FONT_DIRS=assets/fonts (os.pathsep-separated)
+
+# Optional: pin exact files when name tables don't match the deck's family
+register_font_family("Inter", regular="fonts/Inter-Regular.ttf",
+                     bold="fonts/Inter-Bold.ttf",
+                     weights={"medium": "fonts/Inter-Medium.ttf"})
+```
+
+Registered folders and families take precedence over system fonts. Each style
+is looked up separately, so a bold `TextBlock` measures with the bold file.
+Registered folders are also handed to LibreOffice by `render_slides` and
+`power-pptx review`. Avoid `TextBlock(font_file=...)` for multi-style text:
+one file then measures every style.
+
+## Tracked labels, weights, and case
+
+```python
+TextBlock("Active customers", font="Inter", size_pt=9, min_size_pt=9,
+          max_lines=1, case="upper", letter_spacing=Pt(1.4), weight="semibold")
+```
+
+`letter_spacing` (a length) is included in measurement and written to every
+run, so a tracked eyebrow that no longer fits raises `LayoutOverflowError`
+instead of overflowing silently. `case="upper"|"lower"` transforms the text
+before measuring and drawing. `weight` takes `"thin"` … `"black"` or `100`–`900`.
+Regular and bold are written as the family plus the bold flag. Other weights
+need their static face file (variable fonts aren't read). They are measured
+with that face and written by its legacy family name, e.g. `"Inter SemiBold"`,
+which is how PowerPoint selects them. Without the face, `strict_fonts=True`
+raises. Otherwise the nearest regular/bold face is measured and drawn, and the
+block is listed in `result.estimated_fonts`. `bold=True` with another weight is
+an error.
+
+## Bottom edges that line up
+
+`Row([Card(...), Column([Card(...), Card(...)])])` stretches the column to the
+row's height. Unless a child takes the spare height, it sits under the last
+card and the two sides end at different heights. Preflight warns
+(`LayoutWarning`, also listed in `result.warnings`). Fix it with
+`Column([...], fill_last=True)`, or `grow=1` on the last child. `slide.lint()`
+reports the same problem on any slide as `RaggedEdge`: a filled rounded panel
+that ends more than 1.5pt above the panels beside it, with nothing beneath it.
+
+## Measured tables
+
+```python
+from power_pptx.design import DataTable
+DataTable([["Region", "Revenue", "Note"], ["EMEA", "£4.2m", long_note]],
+          columns=[1, 1, 2], align=["left", "right", "left"],
+          font="Inter", size_pt=11, max_lines=1, truncate=True, name="revenue")
+```
+
+Row heights are measured from the cell text with the header bold, so the table
+never grows past its slot. `max_lines` caps each cell. With `truncate=True`,
+over-long cells end in an ellipsis; without it they raise `LayoutOverflowError`.
+`columns` gives relative widths. Header and body colours, fills and borders are
+keyword options; the table takes its measured height at the top of its region.
+For one-off text, `power_pptx.text.truncate_text(text, width, max_lines=1,
+size_pt=..., font_family=...)` returns the shortened string.
+
 ## Typography without indiscriminate shrinking
 
 ```python
@@ -174,6 +245,20 @@ Existing unrelated files remain, so consume the manifest instead of globbing.
 
 Python equivalents: `power_pptx.validation.validate_presentation(prs)` and
 `power_pptx.review.review_presentation(prs, out_dir="review")`.
+
+`--font-dir assets/fonts` (repeatable; `font_dirs=` in Python) registers a
+folder for the font checks and points LibreOffice at it. Without it, a font
+that isn't in a system folder previews in a fallback face. This is common on
+macOS, where LibreOffice's bundled fontconfig doesn't search `~/Library/Fonts`.
+Folders already registered with `register_font_dir` are passed through
+automatically.
+
+## Reproducible builds
+
+Set `SOURCE_DATE_EPOCH` (seconds since 1970) and two builds of the same input
+are byte-identical. It pins zip entry times, the default package core
+properties, and the created/modified dates inside embedded chart workbooks.
+Use it for content-hash caching and for diffing generated decks.
 
 **Inspect every rendered slide**, including full-resolution images where type
 is small. Check wrapping, clipping, contrast, composition, native chart/table

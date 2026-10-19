@@ -9,20 +9,74 @@ from struct import calcsize, error as struct_error, unpack_from
 from power_pptx.util import lazyproperty
 
 
+#: Environment variable holding extra font directories (``os.pathsep``
+#: separated). They are searched with :func:`register_font_dir` folders and
+#: take precedence over the operating-system font folders.
+FONT_DIRS_ENV = "POWER_PPTX_FONT_DIRS"
+
+#: CSS-style numeric weights and the face names conventionally used for them.
+WEIGHT_NAMES = {
+    100: "Thin",
+    200: "ExtraLight",
+    300: "Light",
+    400: "Regular",
+    500: "Medium",
+    600: "SemiBold",
+    700: "Bold",
+    800: "ExtraBold",
+    900: "Black",
+}
+_WEIGHT_ALIASES = {name.lower(): weight for weight, name in WEIGHT_NAMES.items()}
+_WEIGHT_ALIASES.update({"normal": 400, "demibold": 600, "heavy": 900})
+
+_registered_dirs: list[str] = []
+# Explicit per-style files from register_font_family(), keyed like the
+# installed-font index; they win over anything found by scanning folders.
+_registered_files: dict[tuple[str, bool, bool], str] = {}
+_registered_faces: dict[tuple[str, int, bool], str] = {}
+
+
 class FontFiles(object):
     """A class-based singleton serving as a lazy cache for system font details."""
 
     _font_files = None
+    _font_faces = None
 
     @classmethod
     def find(cls, family_name: str, is_bold: bool, is_italic: bool) -> str:
         """Return the absolute path to an installed OpenType font.
 
         File is matched by `family_name` and the styles `is_bold` and `is_italic`.
+        Files registered with :func:`register_font_family` win, then folders from
+        :func:`register_font_dir` / ``POWER_PPTX_FONT_DIRS``, then system folders.
         """
+        key = (family_name, is_bold, is_italic)
+        if key in _registered_files:
+            return _registered_files[key]
         if cls._font_files is None:
             cls._font_files = cls._installed_fonts()
-        return cls._font_files[(family_name, is_bold, is_italic)]
+        return cls._font_files[key]
+
+    @classmethod
+    def find_face(cls, family_name: str, weight: int, is_italic: bool) -> str:
+        """Return the path to the face of `family_name` with numeric `weight`.
+
+        Matches the typographic family (name ID 16, e.g. ``Inter``) or the legacy
+        family (name ID 1, e.g. ``Inter Medium``) against the OS/2 weight class.
+        Raises |KeyError| when no such face is available.
+        """
+        key = (family_name, weight, is_italic)
+        if key in _registered_faces:
+            return _registered_faces[key]
+        if cls._font_faces is None:
+            cls._font_faces = cls._installed_faces()
+        return cls._font_faces[key]
+
+    @classmethod
+    def clear_cache(cls):
+        """Forget scanned fonts so the next lookup rescans every font folder."""
+        cls._font_files = None
+        cls._font_faces = None
 
     @classmethod
     def _installed_fonts(cls):
@@ -30,12 +84,43 @@ class FontFiles(object):
         Return a dict mapping a font descriptor to its font file path,
         containing all the font files resident on the current machine. The
         font descriptor is a (family_name, is_bold, is_italic) 3-tuple.
+        Registered folders are scanned last so their files take precedence.
         """
         fonts = {}
-        for d in cls._font_directories():
+        for d in [*cls._font_directories(), *registered_font_dirs()]:
             for key, path in cls._iter_font_files_in(d):
                 fonts[key] = path
         return fonts
+
+    @classmethod
+    def _installed_faces(cls):
+        """Return a ``(family, weight, is_italic) -> path`` index of every font file.
+
+        Each file is indexed under both its typographic and legacy family names.
+        """
+        faces = {}
+        for d in [*cls._font_directories(), *registered_font_dirs()]:
+            for path in cls._iter_font_paths_in(d):
+                try:
+                    with _Font.open(path) as f:
+                        families = {f.family_name, f.typographic_family_name}
+                        weight, italic = f.weight, f.is_italic
+                except (OSError, KeyError, ValueError, struct_error):
+                    continue
+                for family in families:
+                    if isinstance(family, str):
+                        faces[(family, weight, italic)] = path
+        return faces
+
+    @classmethod
+    def _iter_font_paths_in(cls, directory):
+        """Generate the absolute paths of the OpenType font files under *directory*."""
+        if not os.path.isdir(directory):
+            return
+        for root, dirs, files in os.walk(directory):
+            for filename in sorted(files):
+                if os.path.splitext(filename)[1].lower() in (".otf", ".ttf"):
+                    yield os.path.abspath(os.path.join(root, filename))
 
     @classmethod
     def _font_directories(cls):
@@ -164,6 +249,25 @@ class _Font(object):
         except KeyError:
             # some files don't have a head table
             return False
+
+    @property
+    def weight(self):
+        """The OS/2 ``usWeightClass`` (100–900), or 700/400 from the bold flag.
+
+        Out-of-range legacy values are rounded to the nearest hundred.
+        """
+        try:
+            value = self._tables["OS/2"].weight_class
+        except (KeyError, struct_error):
+            value = 0
+        if not 1 <= value <= 1000:
+            return 700 if self.is_bold else 400
+        return min(900, max(100, int(round(value / 100.0)) * 100))
+
+    @property
+    def typographic_family_name(self):
+        """The typographic family name (name ID 16), falling back to the family name."""
+        return self._tables["name"].typographic_family_name or self.family_name
 
     @classmethod
     def open(cls, font_file_path):
@@ -308,6 +412,15 @@ class _HeadTable(_BaseTable):
         return self._fields[12]
 
 
+class _OS2Table(_BaseTable):
+    """The OpenType 'OS/2' table; only the weight class is read."""
+
+    @property
+    def weight_class(self):
+        """The unsigned ``usWeightClass`` field, e.g. 500 for a Medium face."""
+        return self._stream.read_fields(">HhH", self._offset)[2]
+
+
 class _NameTable(_BaseTable):
     """
     An OpenType font table having the tag 'name' and containing the
@@ -332,6 +445,15 @@ class _NameTable(_BaseTable):
 
         # keys for Unicode, Mac, and Windows family name, respectively
         return find_first(self._names, ((0, 1), (1, 1), (3, 1)))
+
+    @property
+    def typographic_family_name(self):
+        """The typographic family name (name ID 16), e.g. 'Inter' for Inter Medium."""
+        for key in ((3, 16), (0, 16), (1, 16)):
+            value = self._names.get(key)
+            if value is not None:
+                return value
+        return None
 
     @staticmethod
     def _decode_name(raw_name, platform_id, encoding_id):
@@ -430,11 +552,138 @@ def _TableFactory(tag, stream, offset, length):
     Return an instance of |Table| appropriate to *tag*, loaded from
     *font_file* with content of *length* starting at *offset*.
     """
-    TableClass = {"head": _HeadTable, "name": _NameTable}.get(tag, _BaseTable)
+    TableClass = {"head": _HeadTable, "name": _NameTable, "OS/2": _OS2Table}.get(tag, _BaseTable)
     return TableClass(tag, stream, offset, length)
 
 
-def find_font_file(family_name: str, bold: bool = False, italic: bool = False) -> str | None:
+def register_font_dir(path: str | os.PathLike[str]) -> None:
+    """Search the fonts under `path` before the operating-system font folders.
+
+    Lets a project measure with fonts it ships next to its code
+    (``assets/fonts/inter/*.ttf``) without installing them system-wide, so
+    ``strict_fonts=True`` works the same on a laptop, in Docker and in CI::
+
+        register_font_dir(Path(__file__).parent / "assets" / "fonts")
+
+    Registered folders are also handed to LibreOffice by
+    :func:`~power_pptx.render.render_slides` and ``power-pptx review``.
+    The ``POWER_PPTX_FONT_DIRS`` environment variable (``os.pathsep``
+    separated) adds folders the same way. Registering a folder twice is a
+    no-op; the font index is rebuilt on the next lookup.
+    """
+    directory = os.path.abspath(os.fspath(path))
+    if not os.path.isdir(directory):
+        raise ValueError(f"Font directory {directory!r} does not exist")
+    if directory not in _registered_dirs:
+        _registered_dirs.append(directory)
+    FontFiles.clear_cache()
+
+
+def register_font_family(
+    family_name: str,
+    *,
+    regular: str | os.PathLike[str] | None = None,
+    bold: str | os.PathLike[str] | None = None,
+    italic: str | os.PathLike[str] | None = None,
+    bold_italic: str | os.PathLike[str] | None = None,
+    weights: dict[int | str, str | os.PathLike[str]] | None = None,
+) -> None:
+    """Map `family_name` styles to explicit font files.
+
+    Use this when file names or name tables don't match the family you
+    write in the deck, or to pin exactly which file measures each style::
+
+        register_font_family(
+            "Inter",
+            regular="fonts/Inter-Regular.ttf",
+            bold="fonts/Inter-Bold.ttf",
+            weights={"medium": "fonts/Inter-Medium.ttf", 600: "fonts/Inter-SemiBold.ttf"},
+        )
+
+    ``weights`` maps upright weights (``100``–``900`` or names such as
+    ``"medium"``) to files. Explicit files take precedence over scanned folders.
+    """
+    if not family_name:
+        raise ValueError("family_name is required")
+    styles = {
+        (False, False): regular,
+        (True, False): bold,
+        (False, True): italic,
+        (True, True): bold_italic,
+    }
+    faces = {resolve_weight(w): f for w, f in (weights or {}).items()}
+    for value in (*styles.values(), *faces.values()):
+        if value is not None and not os.path.isfile(os.fspath(value)):
+            raise ValueError(f"Font file {os.fspath(value)!r} does not exist")
+    for (is_bold, is_italic), value in styles.items():
+        if value is not None:
+            path = os.path.abspath(os.fspath(value))
+            _registered_files[(family_name, is_bold, is_italic)] = path
+            _registered_faces[(family_name, 700 if is_bold else 400, is_italic)] = path
+    for weight, value in faces.items():
+        path = os.path.abspath(os.fspath(value))
+        _registered_faces[(family_name, weight, False)] = path
+        if weight in (400, 700):
+            _registered_files[(family_name, weight == 700, False)] = path
+
+
+def registered_font_dirs() -> tuple[str, ...]:
+    """Return the extra font folders, ``POWER_PPTX_FONT_DIRS`` first.
+
+    Folders named in the environment variable that don't exist are skipped.
+    """
+    env = [
+        os.path.abspath(d)
+        for d in os.environ.get(FONT_DIRS_ENV, "").split(os.pathsep)
+        if d and os.path.isdir(d)
+    ]
+    dirs = list(dict.fromkeys([*env, *_registered_dirs]))
+    for path in [*_registered_files.values(), *_registered_faces.values()]:
+        parent = os.path.dirname(path)
+        if parent not in dirs:
+            dirs.append(parent)
+    return tuple(dirs)
+
+
+def clear_registered_fonts() -> None:
+    """Forget every :func:`register_font_dir` folder and registered family."""
+    _registered_dirs.clear()
+    _registered_files.clear()
+    _registered_faces.clear()
+    FontFiles.clear_cache()
+
+
+def resolve_weight(weight: int | str | None, bold: bool = False) -> int:
+    """Return the numeric weight for `weight`, e.g. ``"semibold"`` → ``600``.
+
+    ``None`` means 700 when `bold` is set and 400 otherwise. Numeric weights
+    must be multiples of 100 between 100 and 900.
+    """
+    if weight is None:
+        return 700 if bold else 400
+    if isinstance(weight, str):
+        key = weight.lower().replace("-", "").replace("_", "").replace(" ", "")
+        if key not in _WEIGHT_ALIASES:
+            raise ValueError(
+                f"Unknown font weight {weight!r}; use one of {sorted(_WEIGHT_ALIASES)}"
+            )
+        value = _WEIGHT_ALIASES[key]
+    elif isinstance(weight, bool) or not isinstance(weight, int) or weight not in WEIGHT_NAMES:
+        raise ValueError("weight must be a multiple of 100 between 100 and 900, or a name")
+    else:
+        value = weight
+    if bold and value != 700:
+        raise ValueError("bold=True conflicts with a non-bold weight; pass only weight")
+    return value
+
+
+def find_font_file(
+    family_name: str,
+    bold: bool = False,
+    italic: bool = False,
+    *,
+    weight: int | str | None = None,
+) -> str | None:
     """Return the path to the installed font file for `family_name`, or None.
 
     The non-raising form of :meth:`FontFiles.find` — useful for deciding, up
@@ -444,10 +693,30 @@ def find_font_file(family_name: str, bold: bool = False, italic: bool = False) -
         path = find_font_file("Inter", bold=True)
         if path is None:
             ...  # brand font missing in this environment
+
+    `weight` (``"medium"``, ``600``, …) selects a face beyond regular and
+    bold, matched on the font's OS/2 weight class. No nearer weight is
+    substituted; ``None`` means that exact face isn't available.
+    """
+    value = resolve_weight(weight, bold)
+    try:
+        if value in (400, 700):
+            return FontFiles.find(family_name, value == 700, italic)
+        return FontFiles.find_face(family_name, value, italic)
+    except (KeyError, OSError):
+        return None
+
+
+def font_face_family(font_file: str) -> str | None:
+    """Return the legacy family name a deck must name to select `font_file`.
+
+    PowerPoint selects Medium or SemiBold faces by their legacy family name
+    (name ID 1), e.g. ``"Inter Medium"``, rather than by a weight attribute.
     """
     try:
-        return FontFiles.find(family_name, bold, italic)
-    except (KeyError, OSError):
+        with _Font.open(font_file) as f:
+            return f.family_name
+    except (OSError, KeyError, ValueError, struct_error):
         return None
 
 

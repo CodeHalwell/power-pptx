@@ -37,15 +37,16 @@ class ReviewReport:
         return [self.directory / path for path in self.manifest["slides"]]
 
 
-def _render(prs, directory, *, dpi, soffice_bin, timeout):
-    from power_pptx.render import _pdf_to_pngs, _resolve_binary, _run_soffice_pdf
+def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
+    from power_pptx.render import _pdf_to_pngs, _resolve_binary, _run_soffice_pdf, _soffice_env
 
     # One PDF conversion provides both the deliverable PDF and every PNG.
     with tempfile.TemporaryDirectory(prefix="pptx-review-render-") as tmp:
         work = Path(tmp)
         deck = work / "presentation.pptx"
         prs.save(deck)
-        result = _run_soffice_pdf(_resolve_binary(soffice_bin), deck, work, timeout)
+        env = _soffice_env(work, font_dirs)
+        result = _run_soffice_pdf(_resolve_binary(soffice_bin), deck, work, timeout, env=env)
         pdf = work / "presentation.pdf"
         if result.returncode or not pdf.is_file():
             raise RuntimeError(
@@ -196,6 +197,7 @@ def review_presentation(
     font_policy: str = "warn",
     fail_on_warnings: bool = False,
     check_schema: bool = True,
+    font_dirs=None,
 ) -> ReviewReport:
     """Validate and render every slide, producing PPTX, PDF, PNGs, and a gallery.
 
@@ -207,6 +209,8 @@ def review_presentation(
     their review artifacts. Invalid options and missing input files raise.
     Input files are never overwritten. Only files from this run appear in the
     manifest/gallery; pre-existing output PNGs cannot count as rendered pages.
+    ``font_dirs`` are registered for font checks and handed to LibreOffice, as
+    are folders already registered with ``register_font_dir``.
     """
     from power_pptx import Presentation
 
@@ -220,6 +224,11 @@ def review_presentation(
         not math.isfinite(max_mean_error) or not 0 <= max_mean_error <= 1
     ):
         raise ValueError("max_mean_error must be between 0 and 1")
+    if font_dirs:
+        from power_pptx.text.fonts import register_font_dir
+
+        for directory in font_dirs:
+            register_font_dir(directory)
     out = Path(out_dir).resolve()
     if (
         isinstance(source, (str, Path))
@@ -270,7 +279,14 @@ def review_presentation(
             manifest["title"] = prs.core_properties.title or "Slide review"
             if not len(prs.slides):
                 raise ValueError("Presentation has no slides")
-            images = _render(prs, stage, dpi=dpi, soffice_bin=soffice_bin, timeout=timeout)
+            images = _render(
+                prs,
+                stage,
+                dpi=dpi,
+                soffice_bin=soffice_bin,
+                timeout=timeout,
+                font_dirs=font_dirs,
+            )
             manifest["slides"] = [p.relative_to(stage).as_posix() for p in images]
             manifest["contact_sheets"] = _contact_sheets(images, stage)
             if reference_html is not None:
@@ -327,7 +343,21 @@ def main(argv=None):
     parser.add_argument("--max-error", type=float)
     parser.add_argument("--font-policy", choices=["warn", "error", "ignore"], default="warn")
     parser.add_argument("--fail-on-warnings", action="store_true")
+    parser.add_argument(
+        "--font-dir",
+        action="append",
+        type=Path,
+        default=[],
+        help="Extra font folder for measurement and rendering (repeatable)",
+    )
     args = parser.parse_args(argv)
+    if args.font_dir:
+        from power_pptx.text.fonts import register_font_dir
+
+        for directory in args.font_dir:
+            if not directory.is_dir():
+                parser.error(f"--font-dir {directory} is not a directory")
+            register_font_dir(directory)
     if len(args.inputs) > 1 and (args.reference_html or args.reference_dir):
         parser.error("Explicit references apply to a single input")
     names = [p.stem for p in args.inputs]

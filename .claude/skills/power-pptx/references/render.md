@@ -49,6 +49,22 @@ paths = render_slide_thumbnails(
 png = render_slide_thumbnail(slide, return_bytes=True)
 ```
 
+### Fonts that aren't in a system folder
+
+```python
+render_slides(prs, out_dir="thumbs", font_dirs=["assets/fonts"])
+```
+
+`font_dirs=` (on `render_slides`, `render_slide_thumbnails` and
+`render_slide_thumbnail`) writes a temporary `fonts.conf` that includes the
+system configuration, the OS font folders and the given folders. It sets
+`FONTCONFIG_FILE` for the `soffice` subprocess only. Folders registered with
+`power_pptx.text.register_font_dir` or `POWER_PPTX_FONT_DIRS` are always
+passed through. Use it when previews show a serif fallback although the PPTX
+names the right font. On macOS that happens to fonts in `~/Library/Fonts`,
+because LibreOffice's bundled fontconfig doesn't search there. Confirm with
+`pdffonts` on the intermediate PDF.
+
 The output resolution is whatever LibreOffice's headless PNG
 converter chooses — there's no `width=` knob. If you need a specific
 size, post-process with Pillow (``Image.open(...).resize(...)``).

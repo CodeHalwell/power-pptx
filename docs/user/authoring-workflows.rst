@@ -47,6 +47,44 @@ Use ``NativeContent(builder, height=Inches(2))`` for a chart/table/custom slot.
 The callable receives ``(slide, bbox)``; its own mutations and errors are outside
 tree preflight. Design tokens supply palette aliases and a default body font.
 
+``TextBlock`` also takes ``letter_spacing`` (a length), ``weight`` (``"medium"``,
+``600``, …) and ``case="upper"|"lower"``. All three are part of preflight
+measurement, so a tracked label that no longer fits raises. Weights other than
+regular and bold are measured with their own face and written by its legacy
+family name (``"Inter Medium"``), which is how PowerPoint selects them.
+
+A column that a row stretches past its content leaves the spare height under
+its last child, so side-by-side cards end at different heights. Preflight warns
+with ``LayoutWarning`` (also in ``result.warnings``). ``Column(fill_last=True)``
+or ``grow`` on the last child fixes it, and ``slide.lint()`` reports the same
+problem on any slide as ``RaggedEdge``.
+
+``DataTable(rows, columns=[...], max_lines=1, truncate=True)`` is a native table
+whose row heights are measured from its text. With ``truncate=True``, cells that
+exceed ``max_lines`` end in an ellipsis instead of raising.
+
+Bundled fonts
+-------------
+
+Register a project's font folder once and measurement, ``strict_fonts=True``,
+``render_slides`` and ``power-pptx review`` all use it, with nothing installed
+system-wide::
+
+    from power_pptx.text import register_font_dir
+    register_font_dir("assets/fonts")   # or POWER_PPTX_FONT_DIRS=assets/fonts
+
+``register_font_family("Inter", regular=..., bold=..., weights={"medium": ...})``
+maps explicit files per style. ``power-pptx review --font-dir assets/fonts`` and
+``render_slides(prs, font_dirs=[...])`` pass extra folders to LibreOffice for
+that run only.
+
+Reproducible builds
+-------------------
+
+With ``SOURCE_DATE_EPOCH`` set, saved decks are byte-identical across builds of
+the same input. Zip entry times, default core properties and embedded chart
+workbook dates all use the pinned time.
+
 Typography constraints
 ----------------------
 
@@ -138,6 +176,8 @@ Each output contains the PPTX, PDF, every slide PNG, contact sheets, gallery,
 checks, round-trip fidelity, layout audit, and explicit native font availability.
 No test checkout is needed. Missing fonts warn by default; ``--font-policy error``
 fails on them. Theme/implicit font availability is outside this inventory.
+``--font-dir assets/fonts`` (repeatable) registers a font folder for these checks
+and hands it to LibreOffice, so previews use the real face instead of a fallback.
 ``--fail-on-warnings`` also gates audit warnings. Failures return a nonzero exit
 and keep available diagnostics; batches continue and create aggregate navigation.
 Only current-run pages enter the manifest, even when old files remain on disk.

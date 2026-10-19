@@ -34,7 +34,7 @@ def _fake_soffice_run(work_dir: Path, *, num_slides=2, exit_code=0, stderr=b""):
     """Drop fake `*.png` files in the work_dir and return a stub CompletedProcess."""
     from subprocess import CompletedProcess
 
-    def _runner(soffice_bin, deck_path, out_dir, timeout):
+    def _runner(soffice_bin, deck_path, out_dir, timeout, env=None):
         if exit_code == 0:
             for i in range(num_slides):
                 (Path(out_dir) / f"slide{i}.png").write_bytes(b"\x89PNG\r\n\x1a\n%d" % i)
@@ -47,7 +47,7 @@ def _fake_soffice_run_with_names(work_dir: Path, names):
     """Variant fake runner that writes specific filenames in a given order."""
     from subprocess import CompletedProcess
 
-    def _runner(soffice_bin, deck_path, out_dir, timeout):
+    def _runner(soffice_bin, deck_path, out_dir, timeout, env=None):
         for n in names:
             (Path(out_dir) / n).write_bytes(b"\x89PNG\r\n\x1a\n")
         return CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
@@ -143,7 +143,7 @@ class DescribeRenderSlideThumbnails:
     def it_passes_the_default_timeout_through(self, tmp_path, two_slide_prs):
         captured = {}
 
-        def _capture(soffice_bin, deck_path, out_dir, timeout):
+        def _capture(soffice_bin, deck_path, out_dir, timeout, env=None):
             captured["timeout"] = timeout
             return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
 
@@ -157,7 +157,7 @@ class DescribeRenderSlideThumbnails:
     def it_honours_custom_soffice_bin(self, tmp_path, two_slide_prs):
         captured = {}
 
-        def _capture(soffice_bin, deck_path, out_dir, timeout):
+        def _capture(soffice_bin, deck_path, out_dir, timeout, env=None):
             captured["bin"] = soffice_bin
             return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
 
@@ -306,7 +306,7 @@ class DescribePdfFallback:
     def _fake_pdf_run(self, work_dir, *, exit_code=0, stderr=b""):
         from subprocess import CompletedProcess
 
-        def _runner(soffice_bin, deck_path, out_dir, timeout):
+        def _runner(soffice_bin, deck_path, out_dir, timeout, env=None):
             if exit_code == 0:
                 (Path(out_dir) / "_render_input.pdf").write_bytes(b"%PDF-1.4\n")
             return CompletedProcess(args=[], returncode=exit_code, stdout=b"", stderr=stderr)
@@ -459,3 +459,72 @@ class DescribeRenderSlideThumbnailCleanup:
         finally:
             # Caller owns this NamedTemporaryFile; clean up after the test.
             path.unlink(missing_ok=True)
+
+
+class DescribeFontDirs:
+    """Extra font folders reach LibreOffice through a private fonts.conf."""
+
+    FONTS = Path(__file__).parent / "fonts"
+
+    @pytest.fixture(autouse=True)
+    def _clean_registry(self, monkeypatch):
+        from power_pptx.text import clear_registered_fonts
+
+        monkeypatch.delenv("POWER_PPTX_FONT_DIRS", raising=False)
+        monkeypatch.delenv("FONTCONFIG_FILE", raising=False)
+        clear_registered_fonts()
+        yield
+        clear_registered_fonts()
+
+    def it_leaves_the_environment_alone_without_extra_folders(self, tmp_path):
+        from power_pptx.render import _soffice_env
+
+        assert _soffice_env(tmp_path) is None
+
+    def it_writes_a_fonts_conf_including_the_system_config(self, tmp_path):
+        from power_pptx.render import _soffice_env
+
+        env = _soffice_env(tmp_path, [self.FONTS])
+
+        conf = Path(env["FONTCONFIG_FILE"]).read_text()
+        assert f"<dir>{self.FONTS}</dir>" in conf
+        assert '<include ignore_missing="yes">/etc/fonts/fonts.conf</include>' in conf
+        assert "<cachedir>" in conf
+
+    def it_includes_an_existing_fontconfig_file(self, tmp_path, monkeypatch):
+        from power_pptx.render import _soffice_env
+
+        monkeypatch.setenv("FONTCONFIG_FILE", "/custom/fonts.conf")
+        conf = Path(_soffice_env(tmp_path, [self.FONTS])["FONTCONFIG_FILE"]).read_text()
+
+        assert '<include ignore_missing="yes">/custom/fonts.conf</include>' in conf
+        assert "/etc/fonts/fonts.conf" not in conf
+
+    def it_passes_registered_folders_through(self, tmp_path):
+        from power_pptx.render import _soffice_env
+        from power_pptx.text import register_font_dir
+
+        register_font_dir(self.FONTS)
+
+        conf = Path(_soffice_env(tmp_path)["FONTCONFIG_FILE"]).read_text()
+        assert f"<dir>{self.FONTS}</dir>" in conf
+
+    def it_rejects_missing_folders(self, tmp_path):
+        from power_pptx.render import _soffice_env
+
+        with pytest.raises(ValueError, match="does not exist"):
+            _soffice_env(tmp_path, [tmp_path / "missing"])
+
+    def it_hands_the_environment_to_soffice(self, tmp_path, two_slide_prs):
+        captured = {}
+
+        def _capture(soffice_bin, deck_path, out_dir, timeout, env=None):
+            captured["env"] = env
+            return _fake_soffice_run(tmp_path)(soffice_bin, deck_path, out_dir, timeout)
+
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice", side_effect=_capture
+        ):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, font_dirs=[self.FONTS])
+
+        assert captured["env"]["FONTCONFIG_FILE"].endswith("fonts.conf")

@@ -78,6 +78,12 @@ Native components
    :members:
 .. autoclass:: NativeContent
    :members:
+.. autoclass:: DataTable
+   :members:
+.. autoclass:: LayoutResult
+   :members:
+.. autoexception:: LayoutOverflowError
+.. autoclass:: LayoutWarning
 .. autoclass:: LayoutResult
    :members:
 .. autoexception:: LayoutOverflowError

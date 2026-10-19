@@ -7,6 +7,7 @@ import posixpath
 import zipfile
 from typing import IO, TYPE_CHECKING, Any, Container, Sequence
 
+from power_pptx._reproducible import zip_date_time
 from power_pptx.exc import PackageNotFoundError
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.oxml import CT_Types, serialize_part_xml
@@ -233,7 +234,15 @@ class _ZipPkgWriter(_PhysPkgWriter):
 
     def write(self, pack_uri: PackURI, blob: bytes) -> None:
         """Write `blob` to zip package with membername corresponding to `pack_uri`."""
-        self._zipf.writestr(pack_uri.membername, blob)
+        date_time = zip_date_time()
+        if date_time is None:
+            self._zipf.writestr(pack_uri.membername, blob)
+            return
+        # SOURCE_DATE_EPOCH pins member times so repeated builds are byte-identical.
+        info = zipfile.ZipInfo(pack_uri.membername, date_time)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o600 << 16
+        self._zipf.writestr(info, blob)
 
     @lazyproperty
     def _zipf(self) -> zipfile.ZipFile:

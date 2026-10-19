@@ -54,3 +54,29 @@ Read-only measurement
    :members:
 
 .. autofunction:: measure_text
+
+.. autofunction:: truncate_text
+
+
+Font lookup and registration
+----------------------------
+
+.. currentmodule:: power_pptx.text.fonts
+
+.. autofunction:: register_font_dir
+
+.. autofunction:: register_font_family
+
+.. autofunction:: registered_font_dirs
+
+.. autofunction:: clear_registered_fonts
+
+.. autofunction:: find_font_file
+
+.. autofunction:: font_face_family
+
+.. autofunction:: resolve_weight
+
+.. autofunction:: font_is_installed
+
+.. autofunction:: installed_font_families

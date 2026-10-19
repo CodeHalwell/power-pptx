@@ -80,11 +80,69 @@ def _save_to_path(prs, path: Path) -> None:
     prs.save(str(path))
 
 
+#: System fontconfig files a generated ``fonts.conf`` includes when
+#: ``FONTCONFIG_FILE`` isn't already set (Linux, then Homebrew on Apple
+#: silicon and Intel). Missing files are ignored by fontconfig.
+_SYSTEM_FONTCONFIG_FILES = (
+    "/etc/fonts/fonts.conf",
+    "/opt/homebrew/etc/fonts/fonts.conf",
+    "/usr/local/etc/fonts/fonts.conf",
+)
+
+
+def _soffice_env(
+    work_dir: Path, font_dirs: Optional[Iterable[Union[str, os.PathLike[str]]]] = None
+) -> Optional[dict]:
+    """Return an environment that points LibreOffice's fontconfig at extra folders.
+
+    Combines *font_dirs* with folders registered through
+    :func:`power_pptx.text.register_font_dir` / ``POWER_PPTX_FONT_DIRS``.
+    Writes a ``fonts.conf`` in *work_dir* that includes the system
+    configuration, the operating-system font folders (LibreOffice's bundled
+    fontconfig on macOS doesn't search ``~/Library/Fonts``) and the extra
+    folders. Returns ``None`` when there is nothing to add, so the subprocess
+    inherits the caller's environment unchanged.
+    """
+    from xml.sax.saxutils import escape
+
+    from power_pptx.text.fonts import FontFiles, registered_font_dirs
+
+    extra: list[str] = []
+    for directory in font_dirs or ():
+        path = os.path.abspath(os.fspath(directory))
+        if not os.path.isdir(path):
+            raise ValueError(f"Font directory {path!r} does not exist")
+        extra.append(path)
+    extra.extend(registered_font_dirs())
+    extra = list(dict.fromkeys(extra))
+    if not extra:
+        return None
+    current = os.environ.get("FONTCONFIG_FILE")
+    includes = [current] if current else list(_SYSTEM_FONTCONFIG_FILES)
+    system_dirs = [
+        d
+        for d in FontFiles._font_directories()  # pyright: ignore[reportPrivateUsage]
+        if os.path.isdir(d)
+    ]
+    conf_dir = work_dir / ".fontconfig"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    lines = ['<?xml version="1.0"?>', '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">', "<fontconfig>"]
+    lines += [f'  <include ignore_missing="yes">{escape(f)}</include>' for f in includes]
+    lines += [f"  <dir>{escape(d)}</dir>" for d in dict.fromkeys([*system_dirs, *extra])]
+    lines += [f"  <cachedir>{escape(str(conf_dir / 'cache'))}</cachedir>", "</fontconfig>"]
+    conf = conf_dir / "fonts.conf"
+    conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env = dict(os.environ)
+    env["FONTCONFIG_FILE"] = str(conf)
+    return env
+
+
 def _run_soffice(
     soffice_bin: str,
     deck_path: Path,
     out_dir: Path,
     timeout: int,
+    env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess:
     """Convert *deck_path* to PNG using ``soffice --convert-to png``.
 
@@ -112,6 +170,7 @@ def _run_soffice(
         capture_output=True,
         check=False,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -120,6 +179,7 @@ def _run_soffice_pdf(
     deck_path: Path,
     out_dir: Path,
     timeout: int,
+    env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess:
     """Convert *deck_path* to PDF using ``soffice --convert-to pdf``.
 
@@ -145,6 +205,7 @@ def _run_soffice_pdf(
         capture_output=True,
         check=False,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -158,6 +219,7 @@ def render_slide_thumbnails(
     return_bytes: bool = False,
     strategy: str = "auto",
     dpi: int = 150,
+    font_dirs: Optional[Sequence[Union[str, os.PathLike[str]]]] = None,
 ) -> Union[List[Path], List[bytes]]:
     """Render slide thumbnails for `prs` via headless LibreOffice.
 
@@ -186,6 +248,11 @@ def render_slide_thumbnails(
     a reasonable balance between fidelity and file size).  Ignored on
     the PNG-only path.
 
+    `font_dirs` lists extra font folders LibreOffice should use, on top of
+    folders registered with :func:`power_pptx.text.register_font_dir` or
+    ``POWER_PPTX_FONT_DIRS`` (which are always passed through). They're set
+    through a temporary ``fonts.conf`` for the ``soffice`` subprocess only.
+
     Raises :class:`ThumbnailRendererUnavailable` when ``soffice`` cannot
     be located, and :class:`ThumbnailRendererError` when the conversion
     completes with no PNG output (typically a corrupted deck or a
@@ -204,12 +271,13 @@ def render_slide_thumbnails(
         work_dir = Path(tmp)
         deck_path = work_dir / "_render_input.pptx"
         _save_to_path(prs, deck_path)
+        env = _soffice_env(work_dir, font_dirs)
 
         png_paths: List[Path] = []
 
         if strategy in ("auto", "png"):
             png_paths = _render_via_png(
-                bin_path, deck_path, work_dir, timeout
+                bin_path, deck_path, work_dir, timeout, env=env
             )
             if strategy == "png" and len(png_paths) != expected_slide_count:
                 raise ThumbnailRendererError(
@@ -230,7 +298,7 @@ def render_slide_thumbnails(
                 with suppress(OSError):
                     stale.unlink()
             png_paths = _render_via_pdf(
-                bin_path, deck_path, work_dir, timeout, dpi=dpi
+                bin_path, deck_path, work_dir, timeout, dpi=dpi, env=env
             )
 
         if not png_paths:
@@ -269,7 +337,7 @@ def render_slide_thumbnails(
 
 
 def _render_via_png(
-    bin_path: str, deck_path: Path, work_dir: Path, timeout: int
+    bin_path: str, deck_path: Path, work_dir: Path, timeout: int, *, env: Optional[dict] = None
 ) -> List[Path]:
     """Run the soffice PNG filter and return the produced PNG paths."""
     # Snapshot any PNGs already in `work_dir` so we can later subtract
@@ -279,7 +347,7 @@ def _render_via_png(
     # `slide_indexes` lookups / out-of-range errors.
     preexisting_pngs = {p.name for p in work_dir.glob("*.png")}
 
-    result = _run_soffice(bin_path, deck_path, work_dir, timeout)
+    result = _run_soffice(bin_path, deck_path, work_dir, timeout, env=env)
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "soffice exited with status %d: %s"
@@ -298,7 +366,13 @@ def _render_via_png(
 
 
 def _render_via_pdf(
-    bin_path: str, deck_path: Path, work_dir: Path, timeout: int, *, dpi: int
+    bin_path: str,
+    deck_path: Path,
+    work_dir: Path,
+    timeout: int,
+    *,
+    dpi: int,
+    env: Optional[dict] = None,
 ) -> List[Path]:
     """Run the soffice PDF filter, then split each PDF page into a PNG.
 
@@ -310,7 +384,7 @@ def _render_via_pdf(
     # get treated as our output.
     preexisting_pdfs = {p.name for p in work_dir.glob("*.pdf")}
 
-    result = _run_soffice_pdf(bin_path, deck_path, work_dir, timeout)
+    result = _run_soffice_pdf(bin_path, deck_path, work_dir, timeout, env=env)
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf exited with status %d: %s"
@@ -450,6 +524,7 @@ def render_slide_thumbnail(
     return_bytes: bool = False,
     strategy: str = "auto",
     dpi: int = 150,
+    font_dirs: Optional[Sequence[Union[str, os.PathLike[str]]]] = None,
 ) -> Union[Path, bytes]:
     """Render a single slide to PNG.
 
@@ -466,7 +541,7 @@ def render_slide_thumbnail(
       directory holding the saved deck is cleaned up; the caller owns
       cleanup of the returned PNG file.
 
-    *strategy* and *dpi* mirror the same arguments on
+    *strategy*, *dpi* and *font_dirs* mirror the same arguments on
     :func:`render_slide_thumbnails`.
     """
     prs = _presentation_for(slide)
@@ -483,6 +558,7 @@ def render_slide_thumbnail(
             return_bytes=True,
             strategy=strategy,
             dpi=dpi,
+            font_dirs=font_dirs,
         )
         return data[0]
 
@@ -497,6 +573,7 @@ def render_slide_thumbnail(
             timeout=timeout,
             strategy=strategy,
             dpi=dpi,
+            font_dirs=font_dirs,
         )
         src = paths[0]
         if out_path is not None:
@@ -525,6 +602,7 @@ def render_slides(
     strategy: str = "auto",
     dpi: int = 150,
     scale: Optional[float] = None,
+    font_dirs: Optional[Sequence[Union[str, os.PathLike[str]]]] = None,
 ) -> Union[List[Path], List[bytes]]:
     """Render slide thumbnails — friendlier wrapper around :func:`render_slide_thumbnails`.
 
@@ -538,6 +616,8 @@ def render_slides(
       output if omitted.
     * ``scale=`` is accepted and translated to ``dpi=`` (``scale=0.5``
       ≙ ``dpi=72``).
+    * ``font_dirs=`` hands extra font folders to LibreOffice (see
+      :func:`render_slide_thumbnails`).
     """
     if scale is not None:
         dpi = max(int(72 * float(scale)), 36)
@@ -569,6 +649,7 @@ def render_slides(
         return_bytes=return_bytes,
         strategy=strategy,
         dpi=dpi,
+        font_dirs=font_dirs,
     )
     if return_bytes or name_template is None:
         return paths

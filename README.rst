@@ -231,6 +231,17 @@ regression test.
   collisions.  Three-tier safety so generated decks look right
   without manual cleanup.
 
+* **Measurement that holds in a container (v2.14)** —
+  ``power_pptx.text.register_font_dir("assets/fonts")`` (or
+  ``POWER_PPTX_FONT_DIRS``) measures with fonts shipped next to your code,
+  with nothing installed system-wide. Native ``TextBlock`` components measure
+  ``letter_spacing``, ``weight`` and ``case``; ``DataTable`` measures row
+  heights and truncates cells; ``Column(fill_last=True)`` and the
+  ``RaggedEdge`` lint rule keep side-by-side cards on one bottom edge.
+  ``render_slides(font_dirs=...)`` / ``power-pptx review --font-dir`` give
+  LibreOffice the same fonts, and ``SOURCE_DATE_EPOCH`` makes builds
+  byte-identical.
+
 * **Geometry and convenience helpers (v2.8)** — first-class
   ``BBox`` value object with ``inset`` / ``split_h`` / ``split_v`` /
   ``grid`` / ``contains`` / ``intersection``.  One-call
