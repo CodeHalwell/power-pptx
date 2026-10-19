@@ -189,3 +189,30 @@ class DescribeTruncateText:
     def it_validates_its_line_budget(self):
         with pytest.raises(ValueError):
             truncate_text("x", Pt(80), max_lines=0)
+
+
+class DescribeTruncateTextFallback:
+    def it_raises_in_strict_mode_for_a_missing_font(self):
+        with pytest.raises(ValueError, match="fallback metrics"):
+            truncate_text("Quarterly revenue", Pt(40), font_family="No Such Font", strict=True)
+
+    def it_warns_when_a_named_font_is_missing(self):
+        from power_pptx.exc import FontMetricsWarning
+
+        with pytest.warns(FontMetricsWarning):
+            truncate_text("Quarterly revenue", Pt(40), font_family="No Such Font")
+
+
+class DescribeDrawingFamily:
+    def it_keeps_a_family_that_matches_the_file(self):
+        from power_pptx.text.fonts import drawing_family
+
+        medium = str(FONTS / "Tektur-Medium.ttf")
+        assert drawing_family("Tektur", medium) == "Tektur"
+        assert drawing_family("Tektur Medium", medium) == "Tektur Medium"
+        assert drawing_family(None, medium) is None
+
+    def it_replaces_an_alias_with_the_files_family(self):
+        from power_pptx.text.fonts import drawing_family
+
+        assert drawing_family("Brand Sans", str(FONTS / "Outfit-Regular.ttf")) == "Outfit"

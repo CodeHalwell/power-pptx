@@ -15,7 +15,13 @@ from power_pptx._color import coerce_color
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.geometry import BBox
-from power_pptx.text.fonts import WEIGHT_NAMES, find_font_file, font_face_family, resolve_weight
+from power_pptx.text.fonts import (
+    WEIGHT_NAMES,
+    drawing_family,
+    find_font_file,
+    font_face_family,
+    resolve_weight,
+)
 from power_pptx.text.layout import TextFitter
 from power_pptx.text.measurement import TextMeasurement, measure_text, truncate_text
 from power_pptx.util import Emu, Pt
@@ -255,6 +261,7 @@ class _TableLayout:
     lines: list[list[tuple[str, ...]]]
     font_size_pt: int
     estimated: bool
+    family: str | None = None
 
 
 @dataclass
@@ -430,15 +437,17 @@ def _table_layout(node, width, context):
                 )
             text = "" if value is None else str(value)
             if node.truncate:
-                text = truncate_text(
-                    text,
-                    Emu(inner),
-                    max_lines=node.max_lines or 1,
-                    size_pt=node.size_pt,
-                    font_family=family,
-                    font_file=path,
-                    bold=bold,
-                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    text = truncate_text(
+                        text,
+                        Emu(inner),
+                        max_lines=node.max_lines or 1,
+                        size_pt=node.size_pt,
+                        font_family=family,
+                        font_file=path,
+                        bold=bold,
+                    )
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -465,7 +474,10 @@ def _table_layout(node, width, context):
             row_height = max(row_height, line * len(m.lines))
         heights.append(row_height + t + b)
         lines.append(row_lines)
-    return _TableLayout(widths, heights, lines, node.size_pt, estimated)
+    regular = find_font_file(lookup)
+    return _TableLayout(
+        widths, heights, lines, node.size_pt, estimated, drawing_family(family, regular)
+    )
 
 
 def _rendered_line_height(font_file, size_pt, line_spacing):
@@ -504,7 +516,8 @@ def _face(node, context):
     weight = resolve_weight(node.weight, node.bold)
     path = node.font_file or find_font_file(lookup, italic=node.italic, weight=weight)
     if weight in (400, 700):
-        return _Face(family, path, family, weight == 700, False)
+        draw = family if node.font_file else drawing_family(family, path)
+        return _Face(family, path, draw, weight == 700, False)
     if path is not None:
         return _Face(family, path, font_face_family(path) or family, False, False)
     if context.strict_fonts:
@@ -805,7 +818,7 @@ def _draw_table(node, plan, slide, context):
             cell.format(
                 fill=context.color(fill) if fill is not None else "none",
                 color=context.color(node.header_color if is_header else node.color),
-                font=context.font(node),
+                font=layout.family,
                 size_pt=layout.font_size_pt,
                 bold=is_header,
                 align=aligns[column],

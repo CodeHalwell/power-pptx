@@ -45,7 +45,8 @@ for issue in report.issues:
 `LayerOrderViolation` carries the declared `layer` name, and its
 `shapes` tuple is `(declaring_shape, layer_shape)`.
 
-`RaggedEdge` (WARNING) flags a filled rounded-rectangle panel whose bottom
+`RaggedEdge` (WARNING) flags a filled rounded-rectangle panel (at least
+0.5" tall, so badges and pills are ignored) whose bottom
 sits more than 1.5pt above the bottom edge shared by the panels beside it,
 with nothing beneath it. `gap_emu` is the shortfall. Panels nested in another
 panel, and panels that don't share vertical space with the lowest panels, are

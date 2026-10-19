@@ -602,6 +602,9 @@ def register_font_family(
 
     ``weights`` maps upright weights (``100``–``900`` or names such as
     ``"medium"``) to files. Explicit files take precedence over scanned folders.
+    When `family_name` is an alias that differs from the files' own family,
+    native components write the files' family into the deck so Office selects
+    the same face that was measured.
     """
     if not family_name:
         raise ValueError("family_name is required")
@@ -705,6 +708,28 @@ def find_font_file(
         return FontFiles.find_face(family_name, value, italic)
     except (KeyError, OSError):
         return None
+
+
+def drawing_family(family_name: str | None, font_file: str | None) -> str | None:
+    """Return the family a deck must name so Office selects `font_file`.
+
+    A family found by scanning folders already matches the file. A name
+    registered with :func:`register_font_family` can be an alias Office has
+    never heard of (``"Brand Sans"`` for ``Outfit-Regular.ttf``); writing the
+    alias would make Office substitute another font, so the file's own family
+    name is returned instead.
+    """
+    if family_name is None or font_file is None:
+        return family_name
+    try:
+        with _Font.open(font_file) as f:
+            names = {f.family_name, f.typographic_family_name}
+            legacy = f.family_name
+    except (OSError, KeyError, ValueError, struct_error):
+        return family_name
+    if family_name in names or not isinstance(legacy, str):
+        return family_name
+    return legacy
 
 
 def font_face_family(font_file: str) -> str | None:

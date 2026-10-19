@@ -291,3 +291,27 @@ class DescribeDataTableRowHeights:
 
         expected = Pt(12 * 1.2 * (ascent + descent) / 1000) + Pt(8)
         assert all(abs(row.height - expected) <= 1 for row in result.shapes[0].table.rows)
+
+
+class DescribeRegisteredAliases:
+    def it_writes_the_files_family_for_an_alias(self, slide):
+        from power_pptx.text import register_font_family
+
+        register_font_family(
+            "Brand Sans",
+            regular=FONTS / "Outfit-Regular.ttf",
+            bold=FONTS / "Outfit-Bold.ttf",
+        )
+        block = Column(
+            [
+                TextBlock("Revenue", font="Brand Sans", bold=True),
+                DataTable([["Region"], ["EMEA"]], font="Brand Sans", name="table"),
+            ]
+        )
+
+        result = block.render(slide, BBox.from_inches(1, 1, 4, 3), strict_fonts=True)
+
+        assert _rpr(result.shapes[0]).name == "Outfit"
+        assert _rpr(result.shapes[0]).bold is True
+        cell = result["table"].table.cell(1, 0)
+        assert cell.text_frame.paragraphs[0].runs[0].font.name == "Outfit"

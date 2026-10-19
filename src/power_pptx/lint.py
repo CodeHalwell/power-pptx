@@ -2239,6 +2239,9 @@ def _check_master_placeholder_collision(
 #: How far above the lowest panel bottom a panel may end before it is ragged.
 _RAGGED_TOLERANCE_EMU = 19050  # 1.5pt
 
+#: Shorter rounded shapes are badges, pills and tags, not peer panels.
+_RAGGED_MIN_PANEL_HEIGHT_EMU = 457200  # 0.5"
+
 
 def _is_filled_panel(shape: BaseShape) -> bool:
     """True for a solid-filled rounded rectangle, the usual card backdrop."""
@@ -2257,14 +2260,19 @@ def _is_filled_panel(shape: BaseShape) -> bool:
 def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
     """Find panels whose bottom sits above the row's shared bottom edge.
 
-    Only top-level panels (not nested inside another panel) are compared. A
+    Only top-level panels (not nested inside another panel) at least 0.5" tall
+    are compared, so badges and pills beside a card are not peers. A
     panel is flagged when it shares vertical space with a panel that reaches
     the lowest panel bottom on the slide, ends more than 1.5pt above it, and
     no other shape sits beneath it within its horizontal band.
     """
     tol = _RAGGED_TOLERANCE_EMU
     boxes = [(s, _shape_bbox(s)) for s in shapes]
-    panels = [(s, b) for s, b in boxes if _is_filled_panel(s)]
+    panels = [
+        (s, b)
+        for s, b in boxes
+        if _is_filled_panel(s) and b[3] - b[1] >= _RAGGED_MIN_PANEL_HEIGHT_EMU
+    ]
     top_level = [
         (s, b)
         for s, b in panels
