@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 from typing import TYPE_CHECKING
@@ -58,7 +59,7 @@ class TextFitter(tuple):
                     continue
                 height = max(
                     _rendered_size("Ty", size, font_file)[1],
-                    int(size * line_spacing * 12700),
+                    int(size * line_spacing * _line_height_em(font_file) * 12700),
                 ) * len(lines)
                 if height <= extents[1]:
                     return size
@@ -193,6 +194,23 @@ class TextFitter(tuple):
                 line, remainder = result
                 lines.append(line)
         return lines
+
+
+@functools.lru_cache(maxsize=None)
+def _line_height_em(font_file):
+    """The font's single-spaced line height (ascent + descent) in ems.
+
+    Percentage line spacing in PowerPoint and LibreOffice scales this, not the
+    point size: 1.2 spacing of an 18pt Outfit line renders about 27pt, not
+    21.6pt. Falls back to 1.2 em without a font file.
+    """
+    if font_file is None:
+        return 1.2
+    try:
+        ascent, descent = ImageFont.truetype(font_file, 1000).getmetrics()
+    except OSError:
+        return 1.2
+    return (ascent + descent) / 1000
 
 
 def _validate_constraints(min_size, max_size, max_lines, line_spacing):
