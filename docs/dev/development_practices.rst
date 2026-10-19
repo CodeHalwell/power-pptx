@@ -5,43 +5,19 @@ Development Practices
 Release procedure
 =================
 
-* merge outstanding feature branch(es) into develop
+Releases are cut automatically when a version bump reaches ``master``:
 
-  + ``$ git checkout develop``
-  + ``$ git merge --no-ff {feature-branch}``
+* in a PR, bump ``__version__`` in ``src/power_pptx/__init__.py``, sync
+  ``SITE.version`` in ``site/src/lib/site.ts``, and move the ``Unreleased``
+  entries in ``HISTORY.rst`` into a dated ``X.Y.Z (YYYY-MM-DD)`` section;
+* check the build with ``python -m build`` and ``python -m twine check dist/*``;
+* merge once CI is green. ``release-on-version-bump.yml`` waits for ``ci.yml``
+  on the merge commit, then tags ``vX.Y.Z`` and creates the GitHub release from
+  the ``HISTORY.rst`` section;
+* ``publish.yml`` then builds the tagged commit and uploads it to PyPI with
+  Trusted Publishing.
 
-* complete release updates
-
-  + update version number in `power_pptx/__init__.py`
-  + update setup.py (shouldn't usually be any changes)
-  + update README.py, in particular, the release history
-  + update doc/index.rst
-  + confirm docs compile without errors
-  + run all tests (behave, nosetests, tox)
-  + create trial distribution (make clean sdist)
-  + ``git commit -m 'Release v0.2.2'``
-  + merge develop into master
-
-    - ``$ git checkout master``
-    - ``$ git merge --no-ff develop``
-
-  + create tag for new version
-
-    - $ ``git tag -a v0.2.5 -m 'Release version 0.2.5'``
-
-* release uploaded to PyPI
-
-  + upload: ``make upload``
-
-* synchronize local repo with github
-
-  + ``$ git push scanny develop``
-  + ``$ git push scanny master``
-  + ``$ git push --tags``
-
-* docs regenerated
-
-  + trigger regeneration of docs on RTD.org
+``CONTRIBUTING.md`` and ``AGENTS.md`` describe the checks and recovery steps.
 
 
 Creating a hand-modified package
