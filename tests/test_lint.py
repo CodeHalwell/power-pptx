@@ -2346,3 +2346,42 @@ class DescribeRaggedEdgeBadges:
             shape.fill.fore_color.rgb = RGBColor(0xED, 0xEA, 0xFF)
 
         assert [i for i in slide.lint().issues if i.code == "RaggedEdge"] == []
+
+
+class DescribeRaggedEdgeRows:
+    @staticmethod
+    def _panel(slide, left, top, width, height):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height)
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        return shape
+
+    @staticmethod
+    def _ragged(slide):
+        return [i for i in slide.lint().issues if i.code == "RaggedEdge"]
+
+    def it_ignores_a_card_that_does_not_start_level_with_the_sidebar(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.3, 0.3, 2.5, 6.9)
+        self._panel(slide, 3.2, 2.0, 4, 2)
+
+        assert self._ragged(slide) == []
+
+    def it_ignores_a_card_far_from_the_tall_panel(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.3, 1, 2, 5)
+        self._panel(slide, 6.5, 1, 3, 2)
+
+        assert self._ragged(slide) == []
+
+    def it_flags_the_last_card_of_a_stack_that_starts_level(self):
+        _, slide = _new_blank_slide()
+        self._panel(slide, 0.5, 1, 4, 5)
+        self._panel(slide, 4.75, 1, 4, 1.5)
+        short = self._panel(slide, 4.75, 2.75, 4, 1.5)
+
+        assert [i.shapes for i in self._ragged(slide)] == [(short,)]
