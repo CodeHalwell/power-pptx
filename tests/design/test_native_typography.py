@@ -315,3 +315,21 @@ class DescribeRegisteredAliases:
         assert _rpr(result.shapes[0]).bold is True
         cell = result["table"].table.cell(1, 0)
         assert cell.text_frame.paragraphs[0].runs[0].font.name == "Outfit"
+
+
+class DescribeAliasWeightFallback:
+    def it_writes_the_files_family_for_a_missing_weight(self, slide):
+        from power_pptx.text import register_font_family
+
+        register_font_family(
+            "Brand Sans",
+            regular=FONTS / "Outfit-Regular.ttf",
+            bold=FONTS / "Outfit-Bold.ttf",
+        )
+
+        result = TextBlock("Revenue", font="Brand Sans", weight="semibold").render(
+            slide, BBox.from_inches(1, 1, 4, 1)
+        )
+
+        assert _rpr(result.shapes[0]).name == "Outfit"
+        assert _rpr(result.shapes[0]).bold is True
