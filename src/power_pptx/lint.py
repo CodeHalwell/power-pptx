@@ -2242,6 +2242,12 @@ _RAGGED_TOLERANCE_EMU = 19050  # 1.5pt
 #: Shorter rounded shapes are badges, pills and tags, not peer panels.
 _RAGGED_MIN_PANEL_HEIGHT_EMU = 457200  # 0.5"
 
+#: Row neighbours sit side by side with at most this horizontal gap.
+_RAGGED_MAX_ROW_GAP_EMU = 914400  # 1"
+
+#: A row's columns start level: their top edges agree within this distance.
+_RAGGED_TOP_TOLERANCE_EMU = 45720  # 0.05"
+
 
 def _is_filled_panel(shape: BaseShape) -> bool:
     """True for a solid-filled rounded rectangle, the usual card backdrop."""
@@ -2261,10 +2267,13 @@ def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
     """Find panels whose bottom sits above the row's shared bottom edge.
 
     Only top-level panels (not nested inside another panel) at least 0.5" tall
-    are compared, so badges and pills beside a card are not peers. A
-    panel is flagged when it shares vertical space with a panel that reaches
-    the lowest panel bottom on the slide, ends more than 1.5pt above it, and
-    no other shape sits beneath it within its horizontal band.
+    are compared, so badges and pills beside a card are not peers. A panel
+    is flagged when it ends more than 1.5pt above the lowest panel bottom on
+    the slide, no other shape sits beneath it within its horizontal band, and
+    it shares a row with a panel that reaches that bottom: the two sit side by
+    side at most 1" apart, and the stack of panels the short one ends starts
+    level with the tall panel's top. Unrelated panels elsewhere on the slide
+    are therefore not compared.
     """
     tol = _RAGGED_TOLERANCE_EMU
     boxes = [(s, _shape_bbox(s)) for s in shapes]
@@ -2287,7 +2296,22 @@ def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
         gap = lowest - bottom
         if gap <= tol:
             continue
-        if not any(a[1] < bottom and a[3] > top for a in anchors):
+        # The column this panel ends: panels stacked above it in its band.
+        column_top = min(
+            o_top
+            for _, (o_left, o_top, o_right, o_bottom) in top_level
+            if o_left < right and o_right > left and o_bottom <= bottom + tol
+        )
+
+        def same_row(anchor, left=left, right=right, column_top=column_top):
+            a_left, a_top, a_right, _ = anchor
+            side_gap = max(a_left - right, left - a_right)
+            return (
+                0 <= side_gap <= _RAGGED_MAX_ROW_GAP_EMU
+                and abs(a_top - column_top) <= _RAGGED_TOP_TOLERANCE_EMU
+            )
+
+        if not any(same_row(a) for a in anchors):
             continue
         beneath = any(
             other is not shape
