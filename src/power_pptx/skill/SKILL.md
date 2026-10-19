@@ -314,6 +314,19 @@ prs.save("out.pptx")
 
 These changes ship after v2.5 and are easy to miss:
 
+- **2.14: bundled fonts and measured typography.**
+  `power_pptx.text.register_font_dir(path)` (or `POWER_PPTX_FONT_DIRS`)
+  makes project-shipped fonts measurable without a system install;
+  `register_font_family(...)` pins per-style files. `TextBlock` gains
+  `letter_spacing=`, `weight=` (`"medium"`, `600`, …) and
+  `case="upper"|"lower"`, all included in preflight measurement.
+  `Column(fill_last=True)` closes ragged bottom edges, which preflight
+  reports as `LayoutWarning` and lint as `RaggedEdge`. `DataTable`
+  measures row heights and can truncate cells with an ellipsis.
+  `render_slides(font_dirs=...)` / `power-pptx review --font-dir`
+  point LibreOffice at extra folders. `SOURCE_DATE_EPOCH` makes saved
+  decks byte-identical. See `references/authoring-workflows.md`.
+
 - **`Chart.recolour(palette)`** is the recommended single entry
   point — auto-dispatches per chart type (per-point on pie /
   doughnut, per-series otherwise). `apply_palette` warns and
@@ -413,8 +426,13 @@ Flagging them up front saves the trial-and-error round.
   cell's anchor and insets belong on the cell, not on its text frame.
 - **Don't** trust `fit_text` when the font isn't installed. The
   measurement falls back to Pillow's default metrics and the result is
-  an estimate — bundle the `.ttf` and pass `font_file=`, or pass
-  `strict=True` so the build fails instead of shipping a guess.
+  an estimate — bundle the font folder and call
+  `power_pptx.text.register_font_dir(...)` (or pass `font_file=` for a
+  single style), and pass `strict=True` so the build fails instead of
+  shipping a guess.
+- **Don't** apply `font.letter_spacing` to native component runs after
+  `render()`. Preflight never saw the tracking, so a label can overflow
+  unnoticed. Pass `TextBlock(letter_spacing=...)` instead.
 
 ## Common pitfalls
 
@@ -426,8 +444,9 @@ Flagging them up front saves the trial-and-error round.
   metrics come from the machine running the build, so a brand face that
   isn't installed (the usual case in a container or CI) is measured with
   Pillow's default font. Check with
-  `power_pptx.text.fonts.font_is_installed(...)`, pass `font_file=` with
-  the real `.ttf`, or use `strict=True`. `slide.lint()` is unaffected —
+  `power_pptx.text.fonts.font_is_installed(...)`, register the project's
+  font folder with `power_pptx.text.register_font_dir(...)`, or use
+  `strict=True`. `slide.lint()` is unaffected —
   its overflow check is font-agnostic — which is why the lint pass is
   worth keeping even when the metrics are exact.
 - **Bare-int sizes in `DesignTokens` typography** are interpreted as
@@ -463,6 +482,11 @@ skill, these paths are useful for source-of-truth lookup:
   `allow_overlap_with`, `layer` / `layer_above` (overlap intent).
 - `src/power_pptx/text/text.py`, `src/power_pptx/text/layout.py` — `fit_text`,
   `TextFitter`, `_best_fit_font_size`.
+- `src/power_pptx/text/fonts.py`, `src/power_pptx/text/measurement.py` —
+  `register_font_dir`, `register_font_family`, `find_font_file(weight=)`,
+  `measure_text`, `truncate_text`.
+- `src/power_pptx/design/containers.py` — native components (`Row`,
+  `Column`, `Card`, `TextBlock`, `DataTable`, `NativeContent`).
 - `src/power_pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
   `MotionPath`, `SlideAnimations`.
 - `src/power_pptx/compose/` — `from_spec`, plus the `import_slide` /

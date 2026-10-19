@@ -36,6 +36,11 @@ Linter
    :show-inheritance:
 
 
+.. autoclass:: RaggedEdge
+   :members:
+   :show-inheritance:
+
+
 .. autoclass:: LintSeverity
    :members:
    :undoc-members:

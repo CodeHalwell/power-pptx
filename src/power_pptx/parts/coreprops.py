@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING
 
+from power_pptx._reproducible import build_time
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.package import XmlPart
 from power_pptx.opc.packuri import PackURI
@@ -33,7 +34,7 @@ class CorePropertiesPart(XmlPart):
         core_props.title = "PowerPoint Presentation"
         core_props.last_modified_by = "python-pptx"
         core_props.revision = 1
-        core_props.modified = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        core_props.modified = build_time()
         return core_props
 
     @property

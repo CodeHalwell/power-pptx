@@ -13,7 +13,9 @@
     "src/power_pptx/design/_html_layers.py",
     "src/power_pptx/validation.py",
     "src/power_pptx/review.py",
-    "src/power_pptx/__main__.py"
+    "src/power_pptx/__main__.py",
+    "src/power_pptx/_reproducible.py",
+    "src/power_pptx/text/fonts.py"
   ],
   "pythonPlatform": "All",
   "pythonVersion": "3.9",

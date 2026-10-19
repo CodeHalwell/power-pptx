@@ -7,6 +7,8 @@ from contextlib import contextmanager
 
 from xlsxwriter import Workbook
 
+from power_pptx._reproducible import source_date_epoch
+
 
 class _BaseWorkbookWriter(object):
     """Base class for workbook writers, providing shared members."""
@@ -32,6 +34,10 @@ class _BaseWorkbookWriter(object):
         *xlsx_file*.
         """
         workbook = Workbook(xlsx_file, {"in_memory": True})
+        pinned = source_date_epoch()
+        if pinned is not None:
+            # XlsxWriter stamps created/modified from the clock otherwise.
+            workbook.set_properties({"created": pinned})
         worksheet = workbook.add_worksheet()
         yield workbook, worksheet
         workbook.close()

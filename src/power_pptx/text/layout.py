@@ -15,9 +15,9 @@ if TYPE_CHECKING:
 class TextFitter(tuple):
     """Value object that knows how to fit text into given rectangular extents."""
 
-    def __new__(cls, line_source, extents, font_file):
+    def __new__(cls, line_source, extents, font_file, letter_spacing=0):
         width, height = extents
-        return tuple.__new__(cls, (line_source, width, height, font_file))
+        return tuple.__new__(cls, (line_source, width, height, font_file, int(letter_spacing)))
 
     @classmethod
     def best_fit_font_size(
@@ -31,6 +31,7 @@ class TextFitter(tuple):
         max_lines: int | None = None,
         preserve_breaks: bool = False,
         line_spacing: float = 1.2,
+        letter_spacing: int = 0,
     ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
@@ -39,9 +40,14 @@ class TextFitter(tuple):
         using font defined in `font_file`.  Returns ``None`` when even 1pt overflows the
         extents — callers are expected to surface that as an error (see
         :meth:`TextFrame._best_fit_font_size`).
+
+        `letter_spacing` is extra tracking in EMU added after every character,
+        matching how PowerPoint applies ``<a:rPr spc>``.
         """
+        if not math.isfinite(letter_spacing):
+            raise ValueError("letter_spacing must be finite")
         line_source = _LineSource(text)
-        text_fitter = cls(line_source, extents, font_file)
+        text_fitter = cls(line_source, extents, font_file, letter_spacing)
         if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, 1.2):
             _validate_constraints(min_size, max_size, max_lines, line_spacing)
             for size in range(int(max_size), min_size - 1, -1):
@@ -92,8 +98,7 @@ class TextFitter(tuple):
             Return |True| if *line* fits in this fitter when rendered at
             *point_size*.
             """
-            cx = _rendered_size(line.text, point_size, self._font_file)[0]
-            return cx <= self._width
+            return self._line_width(line.text, point_size) <= self._width
 
         return predicate
 
@@ -140,6 +145,16 @@ class TextFitter(tuple):
     @property
     def _font_file(self):
         return self[3]
+
+    @property
+    def _letter_spacing(self):
+        return self[4]
+
+    def _line_width(self, text, point_size):
+        """Width of `text` in EMU at `point_size`, including letter spacing."""
+        return _rendered_size(text, point_size, self._font_file)[0] + self._letter_spacing * len(
+            text
+        )
 
     @property
     def _height(self):

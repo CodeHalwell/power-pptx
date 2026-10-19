@@ -45,6 +45,12 @@ for issue in report.issues:
 `LayerOrderViolation` carries the declared `layer` name, and its
 `shapes` tuple is `(declaring_shape, layer_shape)`.
 
+`RaggedEdge` (WARNING) flags a filled rounded-rectangle panel whose bottom
+sits more than 1.5pt above the bottom edge shared by the panels beside it,
+with nothing beneath it. `gap_emu` is the shortfall. Panels nested in another
+panel, and panels that don't share vertical space with the lowest panels, are
+ignored. Native components avoid it with `Column(fill_last=True)` or `grow`.
+
 Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the
 shapes it implicates.
@@ -78,7 +84,8 @@ Reported only, never auto-fixed:
 - **`ShapeCollision`** → auto-nudging would almost always break the
   design. Declare the overlap instead — see below.
 - **`LowContrast`**, **`MinFontSize`**, **`ZOrderAnomaly`**,
-  **`MasterPlaceholderCollision`** → need designer judgment.
+  **`MasterPlaceholderCollision`**, **`RaggedEdge`** → need designer
+  judgment.
 
 `slide.tidy()` is the one-call wrapper: it lints, then applies the safe
 subset (`fix_offslide`, `fix_overflow`, `fix_layer_order` on by default;

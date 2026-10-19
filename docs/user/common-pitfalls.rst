@@ -261,6 +261,10 @@ does not — no particular face was requested — while passing
 first::
 
     # 1. ship the metrics with the build
+    from power_pptx.text import register_font_dir
+    register_font_dir("fonts")          # every style in the folder
+    tf.fit_text("Instrument Serif", max_size=44)
+    # or pin one file for one style
     tf.fit_text("Instrument Serif", max_size=44,
                 font_file="fonts/InstrumentSerif-Regular.ttf")
 

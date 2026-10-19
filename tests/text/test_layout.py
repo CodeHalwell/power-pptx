@@ -36,7 +36,7 @@ class DescribeTextFitter(object):
         font_size = TextFitter.best_fit_font_size("Foobar", extents, max_size, "foobar.ttf")
 
         _LineSource_.assert_called_once_with("Foobar")
-        _init_.assert_called_once_with(line_source_, extents, "foobar.ttf")
+        _init_.assert_called_once_with(line_source_, extents, "foobar.ttf", 0)
         _best_fit_font_size_.assert_called_once_with(ANY, max_size)
         assert font_size == 36
 

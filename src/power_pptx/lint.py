@@ -23,6 +23,8 @@ Issue types:
   should likely have inherited from the layout.
 * ``LayerOrderViolation``      — a shape declares ``layer_above`` but is drawn
   below the layer it claims to sit on top of.
+* ``RaggedEdge``               — a filled panel ends above the bottom edge its
+  neighbouring panels share, with nothing beneath it.
 
 Declaring intentional overlap (so the collision detector stays quiet)::
 
@@ -418,6 +420,25 @@ class MasterPlaceholderCollision(LintIssue):
             shapes=(shape,),
         )
         self.placeholder_idx = placeholder_idx
+
+
+@dataclass
+class RaggedEdge(LintIssue):
+    """A filled panel stops short of the bottom edge its neighbours share."""
+
+    gap_emu: int = 0
+
+    def __init__(self, shape: BaseShape, gap_emu: int):
+        super().__init__(
+            severity=LintSeverity.WARNING,
+            code="RaggedEdge",
+            message=(
+                f"Shape '{shape.name}': bottom edge is {gap_emu / 12700:.1f}pt above "
+                f"the bottom edge of the panels beside it, with nothing beneath it."
+            ),
+            shapes=(shape,),
+        )
+        self.gap_emu = gap_emu
 
 
 class SlideLintReport:
@@ -857,6 +878,7 @@ _RULE_DESCRIPTIONS: dict[str, str] = {
     "LayerOrderViolation": (
         "A shape declares it sits above a layer but is drawn below it."
     ),
+    "RaggedEdge": "A filled panel ends above the bottom edge its neighbouring panels share.",
 }
 
 
@@ -2209,6 +2231,68 @@ def _check_master_placeholder_collision(
     return issues
 
 
+# ---------------------------------------------------------------------------
+# Ragged edge — side-by-side panels that should end on one bottom line, but
+# one stops short with empty space underneath it.
+# ---------------------------------------------------------------------------
+
+#: How far above the lowest panel bottom a panel may end before it is ragged.
+_RAGGED_TOLERANCE_EMU = 19050  # 1.5pt
+
+
+def _is_filled_panel(shape: BaseShape) -> bool:
+    """True for a solid-filled rounded rectangle, the usual card backdrop."""
+    try:
+        from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+
+        if shape.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE:
+            return False
+        if shape.auto_shape_type != MSO_SHAPE.ROUNDED_RECTANGLE:  # type: ignore[attr-defined]
+            return False
+    except Exception:
+        return False
+    return _shape_has_opaque_fill(shape)
+
+
+def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
+    """Find panels whose bottom sits above the row's shared bottom edge.
+
+    Only top-level panels (not nested inside another panel) are compared. A
+    panel is flagged when it shares vertical space with a panel that reaches
+    the lowest panel bottom on the slide, ends more than 1.5pt above it, and
+    no other shape sits beneath it within its horizontal band.
+    """
+    tol = _RAGGED_TOLERANCE_EMU
+    boxes = [(s, _shape_bbox(s)) for s in shapes]
+    panels = [(s, b) for s, b in boxes if _is_filled_panel(s)]
+    top_level = [
+        (s, b)
+        for s, b in panels
+        if not any(o is not s and o_b != b and _bbox_contains(o_b, b) for o, o_b in panels)
+    ]
+    if len(top_level) < 2:
+        return []
+    lowest = max(b[3] for _, b in top_level)
+    anchors = [b for _, b in top_level if lowest - b[3] <= tol]
+    issues: list[LintIssue] = []
+    for shape, (left, top, right, bottom) in top_level:
+        gap = lowest - bottom
+        if gap <= tol:
+            continue
+        if not any(a[1] < bottom and a[3] > top for a in anchors):
+            continue
+        beneath = any(
+            other is not shape
+            and o_top >= bottom - tol
+            and o_left < right
+            and o_right > left
+            for other, (o_left, o_top, o_right, _) in boxes
+        )
+        if not beneath:
+            issues.append(RaggedEdge(shape, gap))
+    return issues
+
+
 def lint_slide(
     slide: Slide,
     *,
@@ -2269,6 +2353,7 @@ def lint_slide(
     issues.extend(_check_z_order_anomalies(shapes))
     issues.extend(_check_layer_order(shapes, bbox_fn=bbox_fn))
     issues.extend(_check_master_placeholder_collision(slide, shapes))
+    issues.extend(_check_ragged_edges(shapes))
 
     # Per-shape opt-out: drop issues whose code is silenced on *every*
     # target shape via ``shape.lint_skip``.  Cross-shape issues
