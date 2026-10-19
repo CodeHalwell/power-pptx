@@ -628,6 +628,8 @@ def register_font_family(
         _registered_faces[(family_name, weight, False)] = path
         if weight in (400, 700):
             _registered_files[(family_name, weight == 700, False)] = path
+    # The files' folders join the scan, so their real family names resolve too.
+    FontFiles.clear_cache()
 
 
 def registered_font_dirs() -> tuple[str, ...]:

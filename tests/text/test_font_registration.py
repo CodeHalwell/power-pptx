@@ -245,3 +245,12 @@ class DescribeRenderedLineHeight:
         assert (
             TextFitter.best_fit_font_size("Revenue", (Pt(400), line - 1), 18, path, **kwargs) < 18
         )
+
+
+class DescribeRegisterFontFamilyCache:
+    def it_rescans_so_the_files_real_family_resolves(self):
+        assert find_font_file("Outfit") is None  # populates the index first
+
+        register_font_family("Brand Sans", regular=FONTS / "Outfit-Regular.ttf")
+
+        assert find_font_file("Outfit") == str(FONTS / "Outfit-Regular.ttf")
