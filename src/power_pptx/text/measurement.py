@@ -88,19 +88,29 @@ def truncate_text(
     italic: bool = False,
     letter_spacing: Length | int = 0,
     ellipsis: str = "…",
+    strict: bool = False,
 ) -> str:
     """Return `text` shortened with `ellipsis` so it wraps to at most `max_lines`.
 
     Text that already fits is returned unchanged. Cutting prefers the last
     whole word that fits; a single over-long word is cut mid-word. Uses the
-    same metrics as :func:`measure_text`. Returns `ellipsis` alone (or an empty
-    string) when not even that fits.
+    same metrics as :func:`measure_text`, including its handling of missing
+    fonts: ``strict`` raises, and a named family that isn't available warns.
+    Returns `ellipsis` alone (or an empty string) when not even that fits.
     """
     if isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 1:
         raise ValueError("max_lines must be a positive integer")
     if width <= 0 or isinstance(size_pt, bool) or not isinstance(size_pt, int) or size_pt < 1:
         raise ValueError("width and integer size_pt must be positive")
     path = font_file or find_font_file(font_family or "Calibri", bold, italic)
+    if path is None:
+        message = (
+            f"Font {font_family or 'Calibri'!r} is unavailable; truncation uses fallback metrics"
+        )
+        if strict:
+            raise ValueError(message)
+        if font_family is not None:
+            warnings.warn(message, FontMetricsWarning, stacklevel=2)
     fitter = TextFitter(_LineSource(text), (width, Emu(1)), path, letter_spacing)
 
     def fits(candidate):

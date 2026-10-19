@@ -2331,3 +2331,18 @@ class DescribeRaggedEdgeCheck:
         assert not [i for i in slide.lint(disable=["RaggedEdge"]).issues if i.code == "RaggedEdge"]
         rules = slide.lint().to_sarif()["runs"][0]["tool"]["driver"]["rules"]
         assert any(rule["id"] == "RaggedEdge" for rule in rules)
+
+
+class DescribeRaggedEdgeBadges:
+    def it_ignores_a_badge_beside_a_taller_card(self):
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        _, slide = _new_blank_slide()
+        for left, height in ((0.5, 3.0), (5.0, 0.35)):
+            shape = slide.shapes.add_shape(
+                MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(1), Inches(3), Inches(height)
+            )
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = RGBColor(0xED, 0xEA, 0xFF)
+
+        assert [i for i in slide.lint().issues if i.code == "RaggedEdge"] == []

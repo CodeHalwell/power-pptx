@@ -71,6 +71,9 @@ register_font_family("Inter", regular="fonts/Inter-Regular.ttf",
 
 Registered folders and families take precedence over system fonts. Each style
 is looked up separately, so a bold `TextBlock` measures with the bold file.
+If a registered name is an alias (`"Brand Sans"` for Outfit files), components
+write the files' own family (`"Outfit"`) into the deck. Otherwise Office, which
+has never heard of the alias, would substitute a different font.
 Registered folders are also handed to LibreOffice by `render_slides` and
 `power-pptx review`. Avoid `TextBlock(font_file=...)` for multi-style text:
 one file then measures every style.
@@ -119,7 +122,9 @@ over-long cells end in an ellipsis; without it they raise `LayoutOverflowError`.
 `columns` gives relative widths. Header and body colours, fills and borders are
 keyword options; the table takes its measured height at the top of its region.
 For one-off text, `power_pptx.text.truncate_text(text, width, max_lines=1,
-size_pt=..., font_family=...)` returns the shortened string.
+size_pt=..., font_family=...)` returns the shortened string. Like
+`measure_text`, it warns when a named font is missing and raises with
+`strict=True`.
 
 ## Typography without indiscriminate shrinking
 
