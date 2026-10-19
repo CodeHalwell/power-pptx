@@ -226,6 +226,7 @@ class DescribeDataTable:
         assert len({row.height for row in frame.table.rows}) == 1
         assert frame.height == sum(row.height for row in frame.table.rows)
         assert frame.table.cell(0, 0).text_frame.paragraphs[0].runs[0].font.bold is True
+        assert all(c.text_frame.word_wrap is False for c in frame.table.iter_cells())
 
     def it_wraps_cells_and_grows_rows_without_a_line_budget(self, slide):
         result = DataTable(ROWS, font="Outfit", columns=[1, 1, 2]).render(
@@ -277,3 +278,16 @@ class DescribeDataTable:
 
         assert not report.schema_violations
         assert not report.roundtrip_changed_parts
+
+
+class DescribeDataTableRowHeights:
+    def it_reserves_the_fonts_own_line_height(self, slide):
+        from PIL import ImageFont
+
+        ascent, descent = ImageFont.truetype(str(FONTS / "Outfit-Regular.ttf"), 1000).getmetrics()
+        table = DataTable([["Region"], ["EMEA"]], header=False, font="Outfit", size_pt=12)
+
+        result = table.render(slide, BBox.from_inches(0.5, 0.5, 6, 4), strict_fonts=True)
+
+        expected = Pt(12 * 1.2 * (ascent + descent) / 1000) + Pt(8)
+        assert all(abs(row.height - expected) <= 1 for row in result.shapes[0].table.rows)
