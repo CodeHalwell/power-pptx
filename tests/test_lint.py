@@ -2385,3 +2385,18 @@ class DescribeRaggedEdgeRows:
         short = self._panel(slide, 4.75, 2.75, 4, 1.5)
 
         assert [i.shapes for i in self._ragged(slide)] == [(short,)]
+
+
+class DescribeRaggedEdgePerRow:
+    def it_judges_each_row_against_its_own_bottom(self):
+        _, slide = _new_blank_slide()
+        panel = DescribeRaggedEdgeRows._panel
+        panel(slide, 0.5, 0.5, 4, 2.5)
+        short = panel(slide, 4.75, 0.5, 4, 1.5)
+        panel(slide, 0.5, 3.5, 4, 3.5)
+        panel(slide, 4.75, 3.5, 4, 3.5)
+
+        issues = [i for i in slide.lint().issues if i.code == "RaggedEdge"]
+
+        assert [i.shapes for i in issues] == [(short,)]
+        assert issues[0].gap_emu == Inches(1)

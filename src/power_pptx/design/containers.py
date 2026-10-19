@@ -528,7 +528,7 @@ def _face(node, context):
     # Draw what was measured: the nearest regular/bold face, flagged as estimated.
     nearest_bold = weight >= 600
     path = find_font_file(lookup, nearest_bold, node.italic)
-    return _Face(family, path, family, nearest_bold, True)
+    return _Face(family, path, drawing_family(family, path), nearest_bold, True)
 
 
 def _text_measure(node, width, height, context):

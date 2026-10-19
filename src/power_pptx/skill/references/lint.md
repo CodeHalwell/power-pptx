@@ -46,11 +46,12 @@ for issue in report.issues:
 `shapes` tuple is `(declaring_shape, layer_shape)`.
 
 `RaggedEdge` (WARNING) flags a filled rounded-rectangle panel (at least
-0.5" tall, so badges and pills are ignored) whose bottom
-sits more than 1.5pt above the bottom edge shared by the panels beside it,
-with nothing beneath it. `gap_emu` is the shortfall. The two must form a row:
-side by side, at most 1" apart, with the short panel's stack starting level
-with the tall panel's top. Panels nested in another panel are ignored. Native components avoid it with `Column(fill_last=True)` or `grow`.
+0.5" tall, so badges and pills are ignored) that ends more than 1.5pt above
+the bottom of its own row, with nothing placed in the gap. Its row is the
+panels beside it, at most 1" away, whose tops are level with the top of the
+stack it ends; each row is judged on its own. `gap_emu` is the shortfall.
+Panels nested in another panel are ignored. Native components avoid it with
+`Column(fill_last=True)` or `grow`.
 
 Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the

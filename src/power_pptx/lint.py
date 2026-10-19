@@ -2264,16 +2264,15 @@ def _is_filled_panel(shape: BaseShape) -> bool:
 
 
 def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
-    """Find panels whose bottom sits above the row's shared bottom edge.
+    """Find panels whose bottom sits above the bottom edge of their own row.
 
     Only top-level panels (not nested inside another panel) at least 0.5" tall
-    are compared, so badges and pills beside a card are not peers. A panel
-    is flagged when it ends more than 1.5pt above the lowest panel bottom on
-    the slide, no other shape sits beneath it within its horizontal band, and
-    it shares a row with a panel that reaches that bottom: the two sit side by
-    side at most 1" apart, and the stack of panels the short one ends starts
-    level with the tall panel's top. Unrelated panels elsewhere on the slide
-    are therefore not compared.
+    are compared, so badges and pills beside a card are not peers. A panel's
+    row is the panels beside it, at most 1" away, whose tops are level with
+    the top of the stack the panel ends. The panel is flagged when it ends more
+    than 1.5pt above the lowest of those neighbours and no other shape starts in
+    the gap between its bottom and that row bottom. Each row is judged on its
+    own, so another row above or below does not hide a ragged one.
     """
     tol = _RAGGED_TOLERANCE_EMU
     boxes = [(s, _shape_bbox(s)) for s in shapes]
@@ -2287,35 +2286,31 @@ def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
         for s, b in panels
         if not any(o is not s and o_b != b and _bbox_contains(o_b, b) for o, o_b in panels)
     ]
-    if len(top_level) < 2:
-        return []
-    lowest = max(b[3] for _, b in top_level)
-    anchors = [b for _, b in top_level if lowest - b[3] <= tol]
     issues: list[LintIssue] = []
     for shape, (left, top, right, bottom) in top_level:
-        gap = lowest - bottom
-        if gap <= tol:
-            continue
         # The column this panel ends: panels stacked above it in its band.
         column_top = min(
             o_top
             for _, (o_left, o_top, o_right, o_bottom) in top_level
             if o_left < right and o_right > left and o_bottom <= bottom + tol
         )
-
-        def same_row(anchor, left=left, right=right, column_top=column_top):
-            a_left, a_top, a_right, _ = anchor
-            side_gap = max(a_left - right, left - a_right)
-            return (
-                0 <= side_gap <= _RAGGED_MAX_ROW_GAP_EMU
-                and abs(a_top - column_top) <= _RAGGED_TOP_TOLERANCE_EMU
-            )
-
-        if not any(same_row(a) for a in anchors):
+        row_bottoms = [
+            n_bottom
+            for other, (n_left, n_top, n_right, n_bottom) in top_level
+            if other is not shape
+            and 0 <= max(n_left - right, left - n_right) <= _RAGGED_MAX_ROW_GAP_EMU
+            and abs(n_top - column_top) <= _RAGGED_TOP_TOLERANCE_EMU
+        ]
+        if not row_bottoms:
             continue
+        row_bottom = max(row_bottoms)
+        gap = row_bottom - bottom
+        if gap <= tol:
+            continue
+        # Something placed in the gap (a caption, a button) fills the row.
         beneath = any(
             other is not shape
-            and o_top >= bottom - tol
+            and bottom - tol <= o_top < row_bottom
             and o_left < right
             and o_right > left
             for other, (o_left, o_top, o_right, _) in boxes
