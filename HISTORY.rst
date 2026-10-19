@@ -60,6 +60,16 @@ Added
   core properties of embedded chart workbooks, so builds of the same input are
   byte-identical.
 
+Fixed
+.....
+
+* ``measure_text``, native ``TextBlock`` measurement and constrained
+  ``fit_text`` (``min_size``, ``max_lines``, ``line_spacing``, …) reserve the
+  font's own line height. Percentage spacing scales ascent + descent, not the
+  point size, so multi-line text in fonts taller than 1.2 em (Outfit is 1.26 em)
+  was under-reserved and could run past its box. The unconstrained ``fit_text``
+  path is unchanged.
+
 Development
 ...........
 

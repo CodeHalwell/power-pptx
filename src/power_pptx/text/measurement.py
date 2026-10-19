@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from power_pptx.exc import FontMetricsWarning
 from power_pptx.text.fonts import find_font_file
-from power_pptx.text.layout import TextFitter, _LineSource, _rendered_size
+from power_pptx.text.layout import TextFitter, _line_height_em, _LineSource, _rendered_size
 from power_pptx.util import Emu, Length
 
 
@@ -65,7 +65,11 @@ def measure_text(
     if lines is None:
         raise ValueError("A word does not fit at size_pt; widen the box or reduce the font size")
     sizes = [fitter._line_width(line, size_pt) for line in lines]
-    leading = max(_rendered_size("Ty", size_pt, path)[1], round(size_pt * line_spacing * 12700))
+    # Percentage spacing scales the font's own line height, not the point size.
+    leading = max(
+        _rendered_size("Ty", size_pt, path)[1],
+        round(size_pt * line_spacing * _line_height_em(path) * 12700),
+    )
     return TextMeasurement(
         tuple(lines),
         Emu(max(sizes, default=0)),

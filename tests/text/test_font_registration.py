@@ -216,3 +216,32 @@ class DescribeDrawingFamily:
         from power_pptx.text.fonts import drawing_family
 
         assert drawing_family("Brand Sans", str(FONTS / "Outfit-Regular.ttf")) == "Outfit"
+
+
+class DescribeRenderedLineHeight:
+    def it_reserves_the_fonts_own_line_height(self):
+        from PIL import ImageFont
+
+        register_font_dir(FONTS)
+        ascent, descent = ImageFont.truetype(str(FONTS / "Outfit-Regular.ttf"), 1000).getmetrics()
+        text = "one two three four five six seven eight"
+
+        m = measure_text(text, Pt(80), size_pt=18, font_family="Outfit", strict=True)
+
+        per_line = round(18 * 1.2 * (ascent + descent) / 1000 * 12700)
+        assert len(m.lines) > 1
+        assert m.height == per_line * len(m.lines)
+
+    def it_uses_the_same_lines_when_fitting(self):
+        from power_pptx.text.layout import TextFitter
+
+        register_font_dir(FONTS)
+        path = str(FONTS / "Outfit-Regular.ttf")
+        line = measure_text("Revenue", Pt(400), size_pt=18, font_family="Outfit").height
+
+        # Room for the measured line fits 18pt; 1 EMU less forces a smaller size.
+        kwargs = {"min_size": 6, "max_lines": 1}
+        assert TextFitter.best_fit_font_size("Revenue", (Pt(400), line), 18, path, **kwargs) == 18
+        assert (
+            TextFitter.best_fit_font_size("Revenue", (Pt(400), line - 1), 18, path, **kwargs) < 18
+        )

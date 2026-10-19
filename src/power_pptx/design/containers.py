@@ -22,7 +22,7 @@ from power_pptx.text.fonts import (
     font_face_family,
     resolve_weight,
 )
-from power_pptx.text.layout import TextFitter
+from power_pptx.text.layout import TextFitter, _line_height_em
 from power_pptx.text.measurement import TextMeasurement, measure_text, truncate_text
 from power_pptx.util import Emu, Pt
 
@@ -481,20 +481,11 @@ def _table_layout(node, width, context):
 
 
 def _rendered_line_height(font_file, size_pt, line_spacing):
-    """EMU per line as table cells render it: percentage spacing scales the
-    font's own line height (ascent + descent), not the point size. Table rows
-    grow to fit, so measuring with the point size alone under-reserves them.
+    """EMU per line as rendered: percentage spacing scales the font's own line
+    height (ascent + descent), not the point size. Table rows grow to fit, so
+    measuring with the point size alone under-reserves them.
     """
-    em = 1.2
-    if font_file is not None:
-        try:
-            from PIL import ImageFont
-
-            ascent, descent = ImageFont.truetype(font_file, 1000).getmetrics()
-            em = (ascent + descent) / 1000
-        except OSError:
-            pass
-    return math.ceil(size_pt * line_spacing * em * 12700)
+    return math.ceil(size_pt * line_spacing * _line_height_em(font_file) * 12700)
 
 
 def _display_text(node):
