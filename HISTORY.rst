@@ -76,7 +76,8 @@ Development
 * Small OFL-licensed test fonts (Outfit, Tektur) live in ``tests/fonts`` for
   measurement, weight and rendering tests.
 * ``AGENTS.md`` replaces ``CLAUDE.md`` as the assistant guide; ``CLAUDE.md``
-  now imports it.
+  now imports it. It and the developer docs describe the automated release
+  and PyPI publishing steps, replacing the upstream manual procedure.
 
 
 2.13.0 (2026-10-17)

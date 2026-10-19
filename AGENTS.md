@@ -203,6 +203,39 @@ Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
   (setuptools reads it dynamically); a version bump can trigger the release
   workflow.
 
+## Releasing and publishing
+
+Releases are automated from `master`; nothing is tagged or uploaded by hand.
+
+1. **Prepare the release in a PR** (it can be the feature PR itself):
+   - Bump `__version__` in `src/power_pptx/__init__.py` (semver: minor for new
+     public API, patch for fixes only).
+   - Set `SITE.version` in `site/src/lib/site.ts` to the same version.
+   - Move the `Unreleased` entries in `HISTORY.rst` into a dated
+     `X.Y.Z (YYYY-MM-DD)` section with a `+` underline, leaving an empty
+     `Unreleased` heading above it. The release notes are extracted from that
+     exact heading, so the version and format must match.
+   - Check the distribution: `python -m build && python -m twine check dist/*`,
+     confirm the metadata version, and confirm `git ls-remote --tags origin
+     vX.Y.Z` returns nothing.
+2. **Merge once CI is green.** The push to `master` runs `ci.yml`.
+3. **`release-on-version-bump.yml`** waits for that commit's `ci.yml` run to
+   pass, then creates the annotated `vX.Y.Z` tag and a GitHub release whose notes
+   come from `HISTORY.rst`. If the tag already exists it succeeds as a no-op.
+4. **`publish.yml`** starts when the release workflow completes. Its guard job
+   publishes only if `v$__version__` points at exactly the built commit, so a
+   later no-op push can never re-publish. It builds with `uv build`, runs
+   `twine check`, and uploads to PyPI with Trusted Publishing (the `pypi`
+   environment; no API token is stored).
+5. **Verify** the release job's tag decision, the publish job's upload step, the
+   GitHub release page, and `pip install power-pptx==X.Y.Z`. A green no-op run
+   does not mean a package was published.
+
+If publishing fails after the tag exists, fix the cause and re-run `publish.yml`
+with `workflow_dispatch` on the tag; `--check-url` skips files already uploaded.
+Never move or delete a published tag. Ship a new patch version instead.
+`qodana` is not part of the release gate; `require-ci.cjs` checks only `ci.yml`.
+
 ## Useful references in-tree
 
 - `README.rst` — overview, install, skill-install instructions.
