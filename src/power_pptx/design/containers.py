@@ -461,10 +461,28 @@ def _table_layout(node, width, context):
                     f"{len(m.lines)} lines; max_lines is {node.max_lines}"
                 )
             row_lines.append(m.lines)
-            row_height = max(row_height, int(m.height))
+            line = _rendered_line_height(path, node.size_pt, node.line_spacing)
+            row_height = max(row_height, line * len(m.lines))
         heights.append(row_height + t + b)
         lines.append(row_lines)
     return _TableLayout(widths, heights, lines, node.size_pt, estimated)
+
+
+def _rendered_line_height(font_file, size_pt, line_spacing):
+    """EMU per line as table cells render it: percentage spacing scales the
+    font's own line height (ascent + descent), not the point size. Table rows
+    grow to fit, so measuring with the point size alone under-reserves them.
+    """
+    em = 1.2
+    if font_file is not None:
+        try:
+            from PIL import ImageFont
+
+            ascent, descent = ImageFont.truetype(font_file, 1000).getmetrics()
+            em = (ascent + descent) / 1000
+        except OSError:
+            pass
+    return math.ceil(size_pt * line_spacing * em * 12700)
 
 
 def _display_text(node):
@@ -793,6 +811,8 @@ def _draw_table(node, plan, slide, context):
                 align=aligns[column],
                 anchor="top",
                 margin=(t / 12700, r / 12700, b / 12700, left_pad / 12700),
+                # Lines are baked; re-wrapping with other metrics would outgrow the row.
+                word_wrap=False,
             )
             for paragraph in cell.text_frame.paragraphs:
                 paragraph.line_spacing = node.line_spacing
