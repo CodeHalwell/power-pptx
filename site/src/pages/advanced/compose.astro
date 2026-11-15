@@ -43,12 +43,52 @@ const specIntent = `{"name": "badge", ..., "lint_group": "kpi-1"}          # n-a
 {"name": "card",  ..., "layer": "card"}                # asserts z-order
 {"name": "badge", ..., "layer_above": "card"}`;
 
+const specError = `from power_pptx.compose import SpecError, from_spec
+
+try:
+    from_spec({"slides": [
+        {"layout": "title", "title": "Q4"},
+        {"layout": "kpi", "title": "KPIs", "kpis": ["ARR"]},
+    ]})
+except SpecError as exc:          # a ValueError subclass
+    exc.path                      # 'slides[1].kpis[0]'
+    print(exc)
+# slides[1].kpis[0]: expected a mapping like {"label": "ARR", "value": "$182M"}; got str 'ARR'`;
+
+const specText = `prs = from_spec({
+    "vars": {"company": "ACME"},           # turns on {{ name }} substitution
+    "slides": [
+        {"layout": "title", "title": "{{company}} review"},
+        {"layout": "bullets", "title": "Plan",
+         "bullets": ["Ship the migration",
+                     {"text": "then backfill history", "level": 1}]},
+        {"layout": "code", "title": "CI step", "interpolate": False,
+         "code": "run: echo \${{ github.sha }}"},     # left exactly as written
+    ],
+})`;
+
+const safe = `prs = from_spec(spec, safe=True, base_dir="/srv/decks/job-42")
+# from_yaml("deck.yml", safe=True, base_dir=...) works the same way
+
+# A path that leaves base_dir is refused before anything is read:
+# SpecError: slides[0].image: path '../../etc/passwd' is outside base_dir
+#   '/srv/decks/job-42'; in safe mode a spec may only read files inside it`;
+
 const snippet0 = `from power_pptx import Presentation
+from power_pptx.compose import import_slide
 
 source = Presentation("template.pptx")
-prs.import_slide(source.slides[2])      # deep-copies slide + related parts`;
+new_slide = prs.import_slide(source.slides[2])      # appended and returned
+new_slide = import_slide(prs, source.slides[2],     # the same, as a function
+                         merge_master="clone")      # "dedupe" (default) | "clone"`;
 
-const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and theme`;
+const snippet1 = `from power_pptx.compose import apply_template
+
+prs.apply_template("corporate.potx")    # masters, layouts and theme
+with open("corporate.potx", "rb") as f:
+    apply_template(prs, f)              # a stream works too...
+apply_template(prs, Presentation("corporate.potx"))   # ...or an open Presentation
+layouts = prs.slide_layouts             # read again: the old ones were replaced`;
 
 ---
 
@@ -65,15 +105,69 @@ const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and
   <h2 id="from-spec">from_spec — JSON authoring</h2>
   <Code code={fromSpec} />
   <p>
-    Legacy and recipe layouts both reject unknown fields with a <code>ValueError</code>
-    identifying the slide and suggesting corrections. For example, <code>subtitel</code>
-    on a title slide suggests <code>subtitle</code>. Named standard layouts such as
-    <code>Title Slide</code> populate the same fields as their aliases.
+    Legacy and recipe layouts both reject unknown fields, suggesting corrections: for example,
+    <code>subtitel</code> on a title slide suggests <code>subtitle</code>. Named standard layouts
+    such as <code>Title Slide</code> populate the same fields as their aliases. With
+    <code>"lint": "raise"</code> in the spec the build fails fast on geometry errors — ideal in CI
+    or agent pipelines where a broken deck is worse than no deck.
   </p>
+
+  <h3 id="spec-errors">Errors that say where</h3>
   <p>
-    With <code>"lint": "raise"</code> in the spec the build fails fast on geometry errors — ideal in
-    CI or agent pipelines where a broken deck is worse than no deck.
+    Values are checked before anything is built, and nothing is silently dropped or mangled. Text
+    fields must be strings (<code>"2026"</code>, not <code>2026</code>); <code>bullets</code> must be
+    a list, not one string; table rows may not be longer than <code>columns</code>; palettes and
+    token sections must exist; a <code>title</code> on a layout with no title placeholder (such as
+    <code>blank</code>) raises rather than vanishing; negative or absurd shape geometry is refused.
+    Every such error is a <code>power_pptx.compose.SpecError</code> — a <code>ValueError</code>, so
+    existing handlers still catch it — whose message starts with the location and whose
+    <code>.path</code> carries it alone, ready to hand back to whatever wrote the spec:
   </p>
+  <Code code={specError} />
+  <p>
+    Missing files, templates that are not presentations and failures inside a recipe are reported
+    the same way, chained from the original exception.
+  </p>
+
+  <h3 id="spec-text">Bullets, headings and variables</h3>
+  <Code code={specText} />
+  <p>
+    A <code>bullets</code> item is a string or <code>{"{"}"text": ..., "level": n{"}"}</code> (0–8);
+    the placeholder layouts indent by level. <code>comparison_layout</code> takes
+    <code>left_heading</code> / <code>right_heading</code> as well as its content.
+    <code>{"{{ name }}"}</code> is substituted only when the spec (or
+    <code>from_spec(spec, vars=...)</code>) supplies <code>vars</code>, so a spec without them keeps
+    its braces; an unknown name raises. When a deck uses variables <em>and</em> shows template
+    syntax, write <code>{"\\{{"}</code> for a literal <code>{"{{"}</code>, or set
+    <code>"interpolate": false</code> on the slide or the whole spec.
+  </p>
+
+  <h3 id="safe">Specs from a model or a user: <code>safe=True</code></h3>
+  <p>
+    A spec is data, and when you did not write it — an LLM produced it, a user uploaded it — build
+    it in safe mode:
+  </p>
+  <Code code={safe} />
+  <ul>
+    <li>
+      Every file the spec names — <code>template</code>, a token <code>yaml</code>,
+      <code>image</code>, a <code>figure</code> path — must resolve inside <code>base_dir</code>
+      after following symbolic links; <code>../</code> and absolute paths elsewhere raise
+      <code>SpecError</code>. <code>base_dir</code> defaults to the working directory, and relative
+      paths resolve against it whether or not <code>safe</code> is set.
+    </li>
+    <li>
+      HTML and Plotly figures are captured with <code>allow_network=False</code>: the page may load
+      <code>data:</code> URLs and its own document, nothing else, and a figure that asks for more
+      fails naming the blocked URLs. A safe spec cannot turn that off.
+    </li>
+    <li>
+      Independently of <code>safe</code>, a spec can never choose the browser executable:
+      <code>browser_path</code> in <code>html_options</code> / <code>plotly_options</code> raises.
+      Set <code>POWER_PPTX_CHROMIUM</code>, or pass <code>browser_path=</code> to the Python
+      functions instead.
+    </li>
+  </ul>
 
   <h2 id="spec-shapes">Free-standing shapes on a spec slide</h2>
   <p>
@@ -107,7 +201,10 @@ const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and
   </table>
   <p>
     Unknown keys are rejected with a did-you-mean hint rather than silently ignored, and every
-    error names the offending entry as <code>slides[i].shapes[j]</code>. This is deliberately
+    error names the offending entry as <code>slides[i].shapes[j]</code> in its message and its
+    <code>SpecError.path</code>. Geometry is checked: sizes cannot be negative, a shape may bleed
+    off the slide but nothing may exceed PowerPoint's 56-inch limit, and <code>NaN</code> or
+    infinity is refused. This is deliberately
     minimal — geometry, type, text, intent. It is not a drawing DSL; reach for the Python API when
     you need fills, effects, or anything structural.
   </p>
@@ -134,14 +231,28 @@ const snippet1 = `prs.apply_template("corporate.potx")    # masters, layouts and
   <p>
     Image renames, layout references and master/theme parts are handled automatically;
     <code>merge_master="dedupe"</code> (the default) reuses an equivalent master in the destination,
-    <code>"clone"</code> always brings a fresh copy.
+    <code>"clone"</code> always brings a fresh copy, and any other value raises
+    <code>ValueError</code>. A picture or media file the destination already holds is reused, so a
+    picture shared by many imported slides is stored once. Only the slide you name is imported: a
+    "jump to slide" link on it is kept when its target is already in the destination (a same-deck
+    import, or a slide imported earlier into the same <code>Presentation</code>) and removed
+    otherwise — import a link's target first. The function form in
+    <code>power_pptx.compose</code> takes the destination first and accepts the
+    <code>Presentation</code> and <code>Slide</code> objects themselves. Within one deck,
+    <code>prs.slides.duplicate(slide)</code> is the placed equivalent; see
+    <a href={withBase("/advanced/slides")}>Slides &amp; Presentations</a>.
   </p>
 
   <h2 id="apply-template">apply_template</h2>
   <Code code={snippet1} />
   <p>
-    Re-points every slide's layout/master/theme at the template's masters (name → type → first
-    layout matching); slide content is preserved and unreferenced old parts are dropped on save.
+    Copies the template's masters, layouts, themes and the pictures they use into the deck, and
+    re-points every slide at them (layout matching by name, then type, then the first layout);
+    slide content is preserved and the old masters are dropped on save. The template can be a
+    path, a file-like object or an open <code>Presentation</code>. <code>SlideMaster</code> and
+    <code>SlideLayout</code> objects fetched before the call belong to the replaced masters, so read
+    <code>prs.slide_layouts</code> again. A template with no slide master — or no layouts, when the
+    deck has slides — raises <code>ValueError</code> and changes nothing.
   </p>
 
   <h2 id="when">When to use which</h2>
