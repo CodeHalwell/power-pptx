@@ -508,8 +508,8 @@ class TextFrame(Subshape):
     ) -> list[_Element]:
         """The paragraph-property elements `p` takes its formatting from, nearest first.
 
-        `inherited` holds the styles inherited at each level already looked up, and gets
-        the paragraph's level added when it is not among them.
+        `inherited` caches `_inherited_paragraph_styles` by level for the paragraphs of
+        this frame.
         """
         pPr = p.pPr
         level = 0 if pPr is None else pPr.lvl

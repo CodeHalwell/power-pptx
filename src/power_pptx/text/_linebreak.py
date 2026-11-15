@@ -134,11 +134,13 @@ _NO_BREAK_BEFORE = frozenset((CL, EX, IS, SY, BA, HY, NS, QU))
 #: Classes a line never ends with: opening punctuation and quotation marks.
 _NO_BREAK_AFTER = frozenset((OP, QU))
 
-#: For each other class, the classes that hold on to it when they come right before it.
+#: For each remaining class, the classes that hold on to it when they come right
+#: before it, so that no line ends between the two.
 _HELD_AFTER = {
     AL: frozenset((AL, NU, PR, PO, IS, CL)),
     B2: frozenset((B2,)),
-    # -- only a currency sign holds on to an East Asian character --
+    # -- Hangul stays together as words; otherwise only a currency sign holds
+    # -- on to the East Asian character after it --
     HG: frozenset((HG, PR)),
     ID: frozenset((PR,)),
     IN: frozenset((AL, ID, HG, IN, NU)),
