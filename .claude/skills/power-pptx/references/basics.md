@@ -80,6 +80,35 @@ Layouts are master-dependent; use `prs.slide_master.slide_layouts` if you
 want to be explicit, or iterate `for L in prs.slide_layouts: print(L.name)`
 to discover what the template ships.
 
+## Removing and duplicating slides
+
+```python
+prs.slides.remove(prs.slides[2])               # PowerPoint's "Delete Slide"
+
+copy = prs.slides.duplicate(slide)             # right after `slide`, returned
+copy = prs.slides.duplicate(slide, index=-1)   # prs.slides[index] is the copy
+copy = prs.slides.duplicate(slide, index=0)    # first in the deck
+
+for slide in list(prs.slides):                 # iterate over a copy to remove
+    if not slide.shapes:
+        prs.slides.remove(slide)
+```
+
+- `remove` also takes the slide out of its section and any custom show,
+  and unlinks every shape or text run that jumped to it (click and hover,
+  on slides, notes, layouts, masters) — the shape keeps its text. Its
+  notes, charts and media no other slide uses are not saved. Never delete
+  through `prs.slides._sldIdLst` + `drop_rel`: that leaves an orphan slide
+  in the package, reached through any link to it.
+- `duplicate` gives the copy its own shapes, notes, chart and chart
+  workbook (edit one, the other is unchanged); pictures and media are
+  shared. Links to other slides are kept; a self-link points at the copy.
+  The copy keeps the original's layout and joins the section of the slide
+  before it.
+- A slide from another deck raises `ValueError` (copy it with
+  `prs.import_slide(slide)`); a non-`Slide` argument raises `TypeError`,
+  and an out-of-range `index` raises `IndexError`.
+
 ## Text boxes
 
 ```python
