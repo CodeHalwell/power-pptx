@@ -903,41 +903,45 @@ def _bullet_items(value: Any, path: str) -> list[tuple[str, int]]:
     if not isinstance(value, (list, tuple)):
         hint = " — wrap it in a list, one string per bullet" if isinstance(value, str) else ""
         raise _spec_error(path, f"expected a list of bullets; got {_describe(value)}{hint}")
-    items: list[tuple[str, int]] = []
-    for index, item in enumerate(value):
-        item_path = f"{path}[{index}]"
-        if isinstance(item, str):
-            items.append((item, 0))
-            continue
-        if not isinstance(item, Mapping):
-            hint = (
-                ' — a nested list is not a sub-list; use {"text": ..., "level": 1}'
-                if isinstance(item, (list, tuple))
-                else ""
-            )
-            raise _spec_error(
-                item_path,
-                'expected a string or a {"text": ..., "level": ...} mapping; '
-                f"got {_describe(item)}{hint}",
-            )
-        unknown = set(item) - set(_BULLET_KEYS)
-        if unknown:
-            raise _spec_error(
-                item_path,
-                f"unknown bullet keys {_format_unknown(unknown, _BULLET_KEYS)}. "
-                f"Valid keys: {list(_BULLET_KEYS)}",
-            )
-        if item.get("text") is None:
-            raise _spec_error(item_path, "a bullet mapping needs a 'text' string")
-        level = item.get("level")
-        level = 0 if level is None else level
-        if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 8:
-            raise _spec_error(
-                f"{item_path}.level",
-                f"expected a whole number from 0 (top level) to 8; got {_describe(level)}",
-            )
-        items.append((_text(item["text"], f"{item_path}.text"), level))
-    return items
+    return [_bullet_item(item, f"{path}[{index}]") for index, item in enumerate(value)]
+
+
+def _bullet_item(item: Any, path: str) -> tuple[str, int]:
+    """Return one bullet — a string or a ``{"text", "level"}`` mapping — as ``(text, level)``."""
+    if isinstance(item, str):
+        return item, 0
+    if not isinstance(item, Mapping):
+        hint = (
+            ' — a nested list is not a sub-list; use {"text": ..., "level": 1}'
+            if isinstance(item, (list, tuple))
+            else ""
+        )
+        raise _spec_error(
+            path,
+            'expected a string or a {"text": ..., "level": ...} mapping; '
+            f"got {_describe(item)}{hint}",
+        )
+    unknown = set(item) - set(_BULLET_KEYS)
+    if unknown:
+        raise _spec_error(
+            path,
+            f"unknown bullet keys {_format_unknown(unknown, _BULLET_KEYS)}. "
+            f"Valid keys: {list(_BULLET_KEYS)}",
+        )
+    if item.get("text") is None:
+        raise _spec_error(path, "a bullet mapping needs a 'text' string")
+    level = _bullet_level(item.get("level"), f"{path}.level")
+    return _text(item["text"], f"{path}.text"), level
+
+
+def _bullet_level(level: Any, path: str) -> int:
+    """Return a bullet's ``level``: 0 (the default, for ``None``) to 8."""
+    level = 0 if level is None else level
+    if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 8:
+        raise _spec_error(
+            path, f"expected a whole number from 0 (top level) to 8; got {_describe(level)}"
+        )
+    return level
 
 
 def _flat_bullets(items: list[tuple[str, int]], path: str) -> list[str]:
