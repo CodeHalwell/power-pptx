@@ -30,7 +30,12 @@ from power_pptx.util import lazyproperty
 if TYPE_CHECKING:
     from power_pptx.animation import SlideAnimations
     from power_pptx.lint import SlideLintReport
-    from power_pptx.oxml.presentation import CT_SlideIdList, CT_SlideMasterIdList
+    from power_pptx.oxml.presentation import (
+        CT_Presentation,
+        CT_SlideId,
+        CT_SlideIdList,
+        CT_SlideMasterIdList,
+    )
     from power_pptx.oxml.slide import (
         CT_CommonSlideData,
         CT_NotesSlide,
@@ -1076,6 +1081,113 @@ class Slides(ParentedElementProxy):
         if sectionLst is None or not sectionLst.section_lst:
             return
         sectionLst.section_lst[-1].add_sldId(slide_id)
+
+    def remove(self, slide: Slide) -> None:
+        """Remove `slide` from the presentation, along with everything only it uses.
+
+        ::
+
+            prs.slides.remove(prs.slides[2])
+
+        Besides taking the slide out of the slide list, this takes it out of
+        its section and of any custom show, and removes every link to it from
+        the rest of the deck: a shape that jumps to it on click
+        (``click_action.target_slide``) or on hover, and a text run whose
+        hyperlink jumps to it, on a slide, its notes, a layout or a master.
+        The shape or run keeps its text and formatting; it just stops being a
+        link. The slide's notes, charts, and the pictures and media no other
+        slide uses are not saved with the deck any more; a picture another
+        slide also shows stays.
+
+        The |Slide| object is detached and should not be used afterwards.
+
+        Raises |ValueError| when `slide` is not in this presentation (it
+        belongs to another deck, or was removed already), and |TypeError|
+        when it is not a |Slide|.
+        """
+        from power_pptx._slide_remover import remove_slide
+
+        self._entry_of(slide, "remove")
+        remove_slide(self.part, slide.part)
+        self._rename_slide_parts()
+
+    def duplicate(self, slide: Slide, index: int | None = None) -> Slide:
+        """Add a copy of `slide` to the presentation and return the copy.
+
+        ::
+
+            copy = prs.slides.duplicate(prs.slides[0])            # right after it
+            copy = prs.slides.duplicate(prs.slides[0], index=-1)  # last in the deck
+
+        The copy goes right after `slide`, unless `index` gives the position
+        it should have in the deck afterwards: ``prs.slides[index]`` is the
+        copy once the call returns, negative values counting from the end.
+
+        The copy is independent of the original: it has its own shapes and
+        text, its own notes, and its own copy of each chart and chart
+        workbook, so editing one slide leaves the other alone. Pictures and
+        media, which cannot be edited in place, are shared rather than stored
+        twice. Links to other slides still lead to the same slides, and a
+        link from `slide` to itself leads to the copy. In a deck with
+        sections the copy joins the section of the slide before it (the
+        original, by default), or of the slide after it when it goes first.
+
+        This is a same-deck :meth:`Presentation.import_slide()
+        <power_pptx.presentation.Presentation.import_slide>`, placed.
+
+        Raises |ValueError| when `slide` is not in this presentation,
+        |TypeError| when it is not a |Slide|, and |IndexError| when `index`
+        is out of range; the deck is unchanged in each case.
+        """
+        from power_pptx._slide_importer import (
+            _import_slide_part,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        entry = self._entry_of(slide, "duplicate")
+        sldId_lst = self._sldIdLst.sldId_lst
+        if index is None:
+            position = sldId_lst.index(entry) + 1
+        else:
+            position = self._normalized_index(index, len(sldId_lst) + 1)
+        old_ids = [sldId.id for sldId in sldId_lst]
+        copy = _import_slide_part(slide.part, self.part)
+        self._place_last_slide(position, old_ids)
+        self._rename_slide_parts()
+        return copy
+
+    def _entry_of(self, slide: Slide, verb: str) -> CT_SlideId:
+        """The `p:sldId` entry listing `slide`, raising unless it is a slide of this deck."""
+        from power_pptx._slide_remover import slide_id_entries
+
+        if not isinstance(slide, Slide):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(
+                "Slides.%s() takes a Slide, got %s; for the slide at position i "
+                "pass prs.slides[i]" % (verb, type(slide).__name__)
+            )
+        return slide_id_entries(self.part, slide.part)[0]
+
+    def _place_last_slide(self, position: int, old_ids: list[int]) -> None:
+        """Move the slide just appended to `position`, and into the section it lands in.
+
+        `old_ids` is the slide order before it was appended. The slide is
+        placed in the section of the slide before it, or after it when it
+        goes first, whatever section appending it put it in.
+        """
+        sldId = self._sldIdLst.sldId_lst[-1]
+        sectionLst = cast("CT_Presentation", self._sldIdLst.getparent()).sectionLst
+        for section in [] if sectionLst is None else sectionLst.section_lst:
+            section.remove_sldId(sldId.id)
+        if position < len(old_ids):
+            self._sldIdLst.sldId_lst[position].addprevious(sldId)
+        self._follow_with_sections(old_ids, moved=frozenset((sldId.id,)))
+
+    def _rename_slide_parts(self) -> None:
+        """Name the slide parts `slide1.xml`, `slide2.xml`, ... in deck order again.
+
+        As reading :attr:`Presentation.slides` does, so a deck saved straight
+        after a removal or a duplication has no gaps or out-of-order names.
+        """
+        self.part.rename_slide_parts([sldId.rId for sldId in self._sldIdLst.sldId_lst])
 
     def get(self, slide_id: int, default: Slide | None = None) -> Slide | None:
         """Return the slide identified by int `slide_id` in this presentation.

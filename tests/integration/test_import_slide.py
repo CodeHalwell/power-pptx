@@ -246,6 +246,20 @@ class Describe_import_slide_dedupe:
 
         assert len(dst.slide_masters) == master_count_before + 1
 
+    def it_keeps_the_own_master_of_a_slide_in_a_same_deck_import(self):
+        # A deck holding two identical masters used to send a same-deck copy
+        # of a slide on the second one to the first, the first fingerprint
+        # match, and so to a different layout.
+        deck = _make_prs_with_text("A")
+        on_second_master = deck.import_slide(deck.slides[0], merge_master="clone")
+        masters_before = len(deck.slide_masters)
+
+        copy = deck.import_slide(on_second_master, merge_master="dedupe")
+
+        assert copy.slide_layout == on_second_master.slide_layout
+        assert copy.slide_layout.slide_master == deck.slide_masters[1]
+        assert len(deck.slide_masters) == masters_before
+
     def it_always_adds_a_master_on_clone_mode(self):
         """merge_master='clone' must always add a new master."""
         src = Presentation()

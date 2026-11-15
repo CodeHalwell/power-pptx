@@ -43,6 +43,7 @@ from power_pptx.text.text import TextFrame
 
 from .unitutil.cxml import element, xml
 from .unitutil.mock import call, class_mock, instance_mock, method_mock, property_mock
+from .unitutil.slide_links import PNG, add_chart, titled_deck
 
 
 class Describe_BaseSlide(object):
@@ -1120,6 +1121,270 @@ class DescribeSlideReorderAndNotes(object):
         prs.save(buf)
         violations = list(iter_schema_violations(buf.getvalue()))
         assert violations == []
+
+
+def _titles(prs) -> list[str]:
+    return [slide.shapes[0].text_frame.text for slide in prs.slides]
+
+
+def _listed_partnames(prs) -> list[str]:
+    """Partnames of the slides in `p:sldIdLst` order, read without `prs.slides` renaming them."""
+    sldIdLst = prs.part._element.sldIdLst
+    return [str(prs.part.related_part(sldId.rId).partname) for sldId in sldIdLst.sldId_lst]
+
+
+class DescribeSlidesRemove(object):
+    """Integration-style suite for `Slides.remove`."""
+
+    def it_removes_the_slide(self):
+        prs = titled_deck("a", "b", "c")
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.remove(prs.slides[1])
+
+        assert _titles(prs) == ["a", "c"]
+        assert [s.slide_id for s in prs.slides] == [ids[0], ids[2]]
+
+    def it_can_remove_every_slide(self):
+        prs = titled_deck("a", "b")
+
+        for slide in list(prs.slides):
+            prs.slides.remove(slide)
+
+        assert len(prs.slides) == 0
+
+    def it_takes_the_slide_out_of_its_section(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        prs.slides.remove(b)
+
+        assert [s.slide_ids for s in prs.sections] == [[a.slide_id], [c.slide_id]]
+
+    def it_removes_links_to_the_slide_but_keeps_the_linking_shape(self):
+        prs = titled_deck("a", "b", "c")
+        a, b, c = prs.slides
+        a.shapes[0].click_action.target_slide = b
+        c.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide = b
+
+        prs.slides.remove(b)
+
+        assert a.shapes[0].click_action.target_slide is None
+        assert c.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide is None
+        assert _titles(prs) == ["a", "c"]
+
+    def it_names_the_remaining_slide_parts_in_order(self):
+        prs = titled_deck("a", "b", "c")
+        slides = prs.slides
+
+        slides.remove(slides[0])
+
+        assert _listed_partnames(prs) == ["/ppt/slides/slide1.xml", "/ppt/slides/slide2.xml"]
+
+    def it_raises_on_a_slide_of_another_presentation(self):
+        prs, other = titled_deck("a"), titled_deck("x")
+
+        with pytest.raises(ValueError, match="belongs to another presentation"):
+            prs.slides.remove(other.slides[0])
+
+        assert _titles(prs) == ["a"]
+        assert _titles(other) == ["x"]
+
+    def it_raises_on_a_slide_it_has_removed_already(self):
+        prs = titled_deck("a", "b")
+        b = prs.slides[1]
+        prs.slides.remove(b)
+
+        with pytest.raises(ValueError, match="already have been removed"):
+            prs.slides.remove(b)
+
+    def it_raises_TypeError_for_an_index(self):
+        prs = titled_deck("a", "b")
+
+        with pytest.raises(TypeError, match=r"pass prs\.slides\[i\]"):
+            prs.slides.remove(0)  # pyright: ignore[reportArgumentType]
+
+        assert len(prs.slides) == 2
+
+
+class DescribeSlidesDuplicate(object):
+    """Integration-style suite for `Slides.duplicate`."""
+
+    def it_inserts_the_copy_after_the_original(self):
+        prs = titled_deck("a", "b", "c")
+
+        copy = prs.slides.duplicate(prs.slides[0])
+
+        assert _titles(prs) == ["a", "a", "b", "c"]
+        assert prs.slides[1] == copy
+        assert len({s.slide_id for s in prs.slides}) == 4
+
+    @pytest.mark.parametrize(
+        ("index", "expected"),
+        [
+            (0, ["b", "a", "b", "c"]),
+            (3, ["a", "b", "c", "b"]),
+            (-1, ["a", "b", "c", "b"]),
+            (-4, ["b", "a", "b", "c"]),
+            (2, ["a", "b", "b", "c"]),
+        ],
+    )
+    def it_inserts_the_copy_where_index_says(self, index, expected):
+        prs = titled_deck("a", "b", "c")
+
+        copy = prs.slides.duplicate(prs.slides[1], index=index)
+
+        assert _titles(prs) == expected
+        assert prs.slides[index] == copy
+
+    @pytest.mark.parametrize("index", [4, -5])
+    def it_raises_IndexError_and_changes_nothing_when_index_is_out_of_range(self, index):
+        prs = titled_deck("a", "b", "c")
+
+        with pytest.raises(IndexError):
+            prs.slides.duplicate(prs.slides[0], index=index)
+
+        assert _titles(prs) == ["a", "b", "c"]
+        assert len(_listed_partnames(prs)) == 3
+
+    def it_raises_on_a_slide_of_another_presentation(self):
+        prs, other = titled_deck("a"), titled_deck("x")
+
+        with pytest.raises(ValueError, match="import_slide"):
+            prs.slides.duplicate(other.slides[0])
+
+        assert _titles(prs) == ["a"]
+
+    def it_raises_TypeError_for_an_index(self):
+        prs = titled_deck("a")
+
+        with pytest.raises(TypeError, match="takes a Slide"):
+            prs.slides.duplicate(0)  # pyright: ignore[reportArgumentType]
+
+    def it_names_the_slide_parts_in_deck_order(self):
+        prs = titled_deck("a", "b", "c")
+        slides = prs.slides
+
+        slides.duplicate(slides[0])
+
+        assert _listed_partnames(prs) == ["/ppt/slides/slide%d.xml" % n for n in (1, 2, 3, 4)]
+        assert [s.shapes[0].text_frame.text for s in slides] == ["a", "a", "b", "c"]
+
+    def it_makes_a_copy_whose_text_is_its_own(self):
+        prs = titled_deck("a", "b")
+        original = prs.slides[0]
+
+        copy = prs.slides.duplicate(original)
+        copy.shapes[0].text_frame.text = "edited"
+
+        assert original.shapes[0].text_frame.text == "a"
+        assert copy.shapes[0]._element is not original.shapes[0]._element
+
+    def it_gives_the_copy_its_own_chart_and_workbook(self):
+        from power_pptx.chart.data import CategoryChartData
+
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        chart = add_chart(original)
+
+        copy = prs.slides.duplicate(original)
+        copy_chart = copy.shapes[1].chart
+        new_data = CategoryChartData()
+        new_data.categories = ["a", "b"]
+        new_data.add_series("s", (7, 9))
+        copy_chart.replace_data(new_data)
+
+        assert copy_chart.part is not chart.part
+        assert copy_chart.part.chart_workbook.xlsx_part is not chart.part.chart_workbook.xlsx_part
+        assert list(chart.plots[0].series[0].values) == [1.0, 2.0]
+        assert list(copy_chart.plots[0].series[0].values) == [7.0, 9.0]
+
+    def it_shares_pictures_rather_than_storing_them_twice(self):
+        import io
+
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        original.shapes.add_picture(io.BytesIO(PNG), 0, 0)
+
+        copy = prs.slides.duplicate(original)
+
+        def image_of(slide):
+            return slide.part.related_part(slide.shapes[1]._element.blip_rId)
+
+        assert image_of(copy) is image_of(original)
+
+    def it_copies_the_notes(self):
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        original.notes = "thank the sponsors"
+
+        copy = prs.slides.duplicate(original)
+        copy.notes = "thank the team"
+
+        assert original.notes == "thank the sponsors"
+        assert copy.notes == "thank the team"
+        assert copy.notes_slide.part is not original.notes_slide.part
+
+    def it_keeps_links_to_other_slides_and_points_a_self_link_at_the_copy(self):
+        prs = titled_deck("a", "b")
+        a, b = prs.slides
+        a.shapes[0].click_action.target_slide = b
+        run = a.shapes[0].text_frame.paragraphs[0].runs[0]
+        run.hyperlink.target_slide = a
+
+        copy = prs.slides.duplicate(a)
+
+        assert copy.shapes[0].click_action.target_slide == b
+        assert copy.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide == copy
+
+    def it_uses_the_layout_of_the_original(self):
+        prs = titled_deck("a")
+        # -- a same-deck import with merge_master="clone" leaves the deck with two
+        # -- identical masters; a slide on the second one must stay on it --
+        on_second_master = prs.import_slide(prs.slides[0], merge_master="clone")
+
+        copy = prs.slides.duplicate(on_second_master)
+
+        assert copy.slide_layout == on_second_master.slide_layout
+        assert copy.slide_layout != prs.slides[0].slide_layout
+
+    def it_puts_the_copy_in_the_section_of_the_original(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        copy = prs.slides.duplicate(b)
+
+        assert [s.slide_ids for s in prs.sections] == [
+            [a.slide_id, b.slide_id, copy.slide_id],
+            [c.slide_id],
+        ]
+
+    def and_before_an_empty_last_section_too(self):
+        prs = titled_deck("a", "b")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Empty")
+        a, b = prs.slides
+
+        copy = prs.slides.duplicate(b)
+
+        assert [s.slide_ids for s in prs.sections] == [[a.slide_id, b.slide_id, copy.slide_id], []]
+
+    def it_puts_a_copy_placed_first_in_the_first_section(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        copy = prs.slides.duplicate(c, index=0)
+
+        assert [s.slide_ids for s in prs.sections] == [
+            [copy.slide_id, a.slide_id, b.slide_id],
+            [c.slide_id],
+        ]
 
 
 class DescribeSlideLayout(object):

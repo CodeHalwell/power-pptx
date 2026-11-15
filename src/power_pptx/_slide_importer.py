@@ -557,9 +557,17 @@ class _SlideImporter:
         return self._clone_master_with_layout(src_master_part, src_layout_part)
 
     def _find_matching_master(self, src_master_part: SlideMasterPart) -> SlideMasterPart | None:
-        """Return a destination master part whose fingerprint matches src_master_part, or None."""
+        """Return a destination master part whose fingerprint matches src_master_part, or None.
+
+        In a same-deck import that is the source master itself, even when an
+        earlier master of the deck is identical to it: the copy keeps the
+        master, and so the layout, of the slide it was copied from.
+        """
+        dst_masters = list(self._copier.iter_dst_masters())
+        if any(dst_master_part is src_master_part for dst_master_part in dst_masters):
+            return src_master_part
         src_fp = _master_fingerprint(src_master_part)
-        for dst_master_part in self._copier.iter_dst_masters():
+        for dst_master_part in dst_masters:
             if _master_fingerprint(dst_master_part) == src_fp:
                 return dst_master_part
         return None
