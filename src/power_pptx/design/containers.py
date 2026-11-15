@@ -942,7 +942,7 @@ def _add_panel(node, bbox, slide, context):
 
 
 def _draw_data_table(plan, slide, context, result):
-    result.shapes.append(_draw_table(plan.node, plan, slide, context))
+    result.shapes.append(_add_table(plan, slide, context))
     if plan.table.estimated:
         result.estimated_fonts.append(plan.node.name or "DataTable")
 
@@ -953,8 +953,9 @@ def _draw_native(plan, slide, context, result):
     result.shapes.extend(list(slide.shapes)[before:])
 
 
-def _draw_table(node, plan, slide, context):
-    layout, bbox = plan.table, plan.bbox
+def _add_table(plan, slide, context):
+    """A native table with the planned column widths, row heights and cell lines."""
+    node, layout, bbox = plan.node, plan.table, plan.bbox
     count = len(layout.widths)
     frame = slide.shapes.add_table(
         len(node.rows),
@@ -971,31 +972,39 @@ def _draw_table(node, plan, slide, context):
     for row, height in zip(table.rows, layout.heights):
         row.height = Emu(height)
     t, r, b, left_pad = _insets(node.cell_padding)
+    margin = (t / 12700, r / 12700, b / 12700, left_pad / 12700)
     aligns = _column_aligns(node, count)
     for row_index, row_lines in enumerate(layout.lines):
         is_header = node.header and row_index == 0
         for column, lines in enumerate(row_lines):
             cell = table.cell(row_index, column)
             cell.text = "\v".join(lines)
-            fill = node.header_fill if is_header else node.fill
-            cell.format(
-                fill=context.color(fill) if fill is not None else "none",
-                color=context.color(node.header_color if is_header else node.color),
-                font=layout.family,
-                size_pt=layout.font_size_pt,
-                bold=is_header,
-                align=aligns[column],
-                anchor="top",
-                margin=(t / 12700, r / 12700, b / 12700, left_pad / 12700),
-                # Lines are baked; re-wrapping with other metrics would outgrow the row.
-                word_wrap=False,
+            _format_cell(
+                cell, node, layout, context, header=is_header, align=aligns[column], margin=margin
             )
-            for paragraph in cell.text_frame.paragraphs:
-                paragraph.line_spacing = node.line_spacing
-                paragraph.space_before = paragraph.space_after = Pt(0)
-            if node.border is not None:
-                cell.borders.outer(Pt(0.75), context.color(node.border))
     return frame
+
+
+def _format_cell(cell, node, layout, context, *, header, align, margin):
+    """Style a header or body cell so its baked lines render as measured."""
+    fill = node.header_fill if header else node.fill
+    cell.format(
+        fill=context.color(fill) if fill is not None else "none",
+        color=context.color(node.header_color if header else node.color),
+        font=layout.family,
+        size_pt=layout.font_size_pt,
+        bold=header,
+        align=align,
+        anchor="top",
+        margin=margin,
+        # Lines are baked; re-wrapping with other metrics would outgrow the row.
+        word_wrap=False,
+    )
+    for paragraph in cell.text_frame.paragraphs:
+        paragraph.line_spacing = node.line_spacing
+        paragraph.space_before = paragraph.space_after = Pt(0)
+    if node.border is not None:
+        cell.borders.outer(Pt(0.75), context.color(node.border))
 
 
 # -- kinds of node -----------------------------------------------------------
