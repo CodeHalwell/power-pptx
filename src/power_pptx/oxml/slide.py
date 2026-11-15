@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from power_pptx.oxml import parse_from_template, parse_xml
 from power_pptx.oxml.dml.fill import CT_GradientFillProperties
@@ -50,7 +50,7 @@ class CT_Background(BaseOxmlElement):
 
     def add_noFill_bgPr(self):
         """Return a new `p:bgPr` element with noFill properties."""
-        xml = "<p:bgPr %s>\n" "  <a:noFill/>\n" "  <a:effectLst/>\n" "</p:bgPr>" % nsdecls("a", "p")
+        xml = "<p:bgPr %s>\n  <a:noFill/>\n  <a:effectLst/>\n</p:bgPr>" % nsdecls("a", "p")
         bgPr = cast(CT_BackgroundProperties, parse_xml(xml))
         self._insert_bgPr(bgPr)
         return bgPr
@@ -332,15 +332,11 @@ class CT_SlideTransition(BaseOxmlElement):
 
         The transition-kind element is the first child whose tag is not a
         sound-action or extension-list element; that gives us the right
-        answer for both standard ``p:`` transitions and PowerPoint-2010+
-        ``p14:`` transitions without enumerating every known kind.
+        answer for standard ``p:`` transitions and for the extension kinds
+        later PowerPoint versions add in their own namespaces (``p14:``,
+        ``p15:``, ``p159:``) without enumerating every known kind.
         """
-        for child in self:
-            local = child.tag.rsplit("}", 1)[-1]
-            if local in ("sndAc", "extLst"):
-                continue
-            return child
-        return None
+        return _transition_kind_child(self)
 
 
 class CT_SlideTiming(BaseOxmlElement):
@@ -390,27 +386,41 @@ class CT_TLMediaNodeVideo(BaseOxmlElement):
 
 
 # ---------------------------------------------------------------------------
-# Markup-Compatibility (mc:AlternateContent) wrapping for p14 transitions
+# Markup-Compatibility (mc:AlternateContent) wrapping for extension transitions
 # ---------------------------------------------------------------------------
 #
-# PowerPoint-2010+ transitions (morph, vortex, switch, …) live in the ``p14``
-# namespace.  ``CT_SlideTransition`` (the schema for ``<p:transition>``) only
-# admits the standard ``p:`` kind elements in its choice, so a bare
-# ``<p14:morph/>`` child is schema-invalid and Microsoft PowerPoint reports the
-# deck as needing repair.  PowerPoint instead wraps the whole ``<p:transition>``
-# in ``<mc:AlternateContent>``: an ``<mc:Choice Requires="p14">`` carrying the
-# p14 transition, plus an ``<mc:Fallback>`` carrying a plain (kind-less)
-# ``<p:transition>`` for pre-2010 viewers.
+# Transitions added after PowerPoint 2007 live in Microsoft extension
+# namespaces: ``p14`` (2010: vortex, switch, prism, …), ``p15`` (2013:
+# ``<p15:prstTrans prst="airplane"/>`` and friends) and ``p159`` (2016: morph).
+# ``CT_SlideTransition`` (the schema for ``<p:transition>``) only admits the
+# standard ``p:`` kind elements in its choice, so a bare ``<p14:vortex/>``
+# child is schema-invalid and Microsoft PowerPoint reports the deck as needing
+# repair.  PowerPoint instead wraps the whole ``<p:transition>`` in
+# ``<mc:AlternateContent>``: an ``<mc:Choice Requires="…">`` carrying the
+# extension transition, plus an ``<mc:Fallback>`` carrying an ISO-pure
+# ``<p:transition>`` for viewers that do not understand the extension.
 #
 # We keep the in-memory model as a plain ``<p:transition>`` (so the
 # ``slide.transition`` accessors stay simple) and translate to/from the
 # AlternateContent form only at the serialization boundary — see
 # ``power_pptx.parts.slide.BaseSlidePart``.
+#
+# A wrapper read from a file is not ours to rewrite: its fallback is whatever
+# the authoring application chose, and it may use extensions this library
+# knows nothing about.  So on load the original ``<mc:AlternateContent>`` stays
+# in the tree, right after a working copy of its transition; on save the
+# original is written back untouched unless the working copy was changed in
+# the meantime, in which case a fresh wrapper is generated from it.
 
 _MC_URI = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _P14_URI = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+_P15_URI = "http://schemas.microsoft.com/office/powerpoint/2012/main"
 _P159_URI = "http://schemas.microsoft.com/office/powerpoint/2015/09/main"
 _P_URI = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+# -- the prefix each extension namespace is conventionally bound to; used for
+# -- the `Requires` token when the kind element does not carry a prefix itself
+_EXTENSION_PREFIXES = {_P14_URI: "p14", _P15_URI: "p15", _P159_URI: "p159"}
 
 
 def _mc(tag: str) -> str:
@@ -421,143 +431,314 @@ def _p_tag(tag: str) -> str:
     return "{%s}%s" % (_P_URI, tag)
 
 
+def _namespace_uri(name: str) -> "str | None":
+    """Namespace URI of the Clark-notation *name*, or |None| if it has none."""
+    return name[1:].split("}", 1)[0] if name.startswith("{") else None
+
+
 def _transition_kind_child(transition):
     """Return the kind child of a ``<p:transition>`` (skipping sndAc/extLst)."""
     for child in transition:
-        local = child.tag.rsplit("}", 1)[-1]
-        if local in ("sndAc", "extLst"):
+        tag = child.tag
+        if not isinstance(tag, str):  # -- comment or processing instruction --
+            continue
+        if tag in (_p_tag("sndAc"), _p_tag("extLst")):
             continue
         return child
     return None
 
 
 def _extension_kind_uri(transition) -> "str | None":
-    """The Microsoft-extension namespace URI of the transition kind, or |None|.
+    """The extension-namespace URI of the transition kind, or |None|.
 
-    Returns ``_P159_URI`` for a 2016+ kind (morph), ``_P14_URI`` for a 2010+
-    kind (flythrough, vortex, …), and |None| for a classic ``p:`` kind or a
-    kind-less transition.
+    Any kind outside the ``p:`` namespace is an extension, whichever namespace
+    it comes from: ``p14`` (flythrough, vortex, …), ``p15`` (prstTrans),
+    ``p159`` (morph) or one that did not exist when this was written.  |None|
+    for a classic ``p:`` kind or a kind-less transition.
     """
     kind = _transition_kind_child(transition)
     if kind is None:
         return None
-    for uri in (_P159_URI, _P14_URI):
-        if kind.tag.startswith("{%s}" % uri):
-            return uri
-    return None
+    uri = _namespace_uri(kind.tag)
+    return None if uri in (None, _P_URI) else uri
 
 
-def _has_p14_attr(transition) -> bool:
-    """True when *transition* carries any PowerPoint-2010 (p14) attribute.
+def _has_extension_attr(transition) -> bool:
+    """True when *transition* carries an attribute from an extension namespace.
 
-    The most common one is ``p14:dur`` (millisecond duration). Like the
-    extension *kind* elements, a p14 attribute is only schema-valid inside an
+    The usual one is ``p14:dur`` (millisecond duration). Like the extension
+    *kind* elements, such an attribute is only schema-valid inside an
     ``<mc:Choice>`` — a bare ``<p:transition p14:dur="…">`` is rejected by
     Microsoft PowerPoint (it reports the deck as needing repair).
     """
-    p14 = "{%s}" % _P14_URI
-    return any(name.startswith(p14) for name in transition.attrib)
+    return any(_namespace_uri(name) is not None for name in transition.attrib)
 
 
 def _needs_mc_wrap(transition) -> bool:
     """True when *transition* must be wrapped in ``<mc:AlternateContent>``.
 
-    That is whenever it holds *any* extension content — a p14/p159 kind child
-    (flythrough, morph, …) or a p14 attribute (e.g. ``p14:dur``).
+    That is whenever it holds *any* extension content — a kind child from
+    outside the ``p:`` namespace (flythrough, prstTrans, morph, …) or an
+    extension attribute (e.g. ``p14:dur``).
     """
-    return _extension_kind_uri(transition) is not None or _has_p14_attr(transition)
+    return _extension_kind_uri(transition) is not None or _has_extension_attr(transition)
+
+
+def _wrapped_transition(ac):
+    """The ``<p:transition>`` in the first ``<mc:Choice>`` of *ac* holding one, or |None|."""
+    for choice in ac.findall(_mc("Choice")):
+        transition = choice.find(_p_tag("transition"))
+        if transition is not None:
+            return transition
+    return None
+
+
+def _transition_wrappers(root) -> list:
+    """The ``<mc:AlternateContent>`` children of *root* that wrap a transition."""
+    return [
+        ac for ac in root.findall(_mc("AlternateContent")) if _wrapped_transition(ac) is not None
+    ]
+
+
+def _same_markup(a, b) -> bool:
+    """True when elements *a* and *b* serialize to the same canonical XML."""
+    from lxml import etree
+
+    def canonical(element) -> bytes:
+        return etree.tostring(element, method="c14n", exclusive=True, with_tail=False)
+
+    return canonical(a) == canonical(b)
+
+
+def _wrapper_is_sound(ac: Any) -> bool:
+    """True when the transition wrapper *ac* can be written back as it was read.
+
+    A wrapper is kept verbatim unless it is one of the known-broken forms, all
+    of which are repaired by regenerating it from the transition it wraps:
+
+    * the kind is a ``p14:morph`` — morph belongs to the ``p159`` namespace
+      (earlier power-pptx releases wrote it in ``p14``);
+    * the ``Requires`` of the choice does not name the namespace of its
+      extension kind (earlier releases wrote ``Requires="p14"`` around a
+      ``p15`` kind);
+    * the fallback transition holds extension content, which defeats its
+      purpose (earlier releases copied a ``p15`` kind into it).
+    """
+    if not _wrapped_kind_is_sound(_wrapped_transition(ac)):
+        return False
+    return not any(
+        _holds_extension_content(fb_transition)
+        for fallback in ac.findall(_mc("Fallback"))
+        for fb_transition in fallback.findall(_p_tag("transition"))
+    )
+
+
+def _wrapped_kind_is_sound(transition: Any) -> bool:
+    """False when the kind of the wrapped *transition* is one a broken wrapper has.
+
+    That is a ``p14:morph``, or an extension kind whose namespace the
+    ``Requires`` of the enclosing ``<mc:Choice>`` does not name.
+    """
+    kind = _transition_kind_child(transition)
+    if kind is None:
+        return True
+    if kind.tag == "{%s}morph" % _P14_URI:
+        return False
+    kind_uri = _extension_kind_uri(transition)
+    if kind_uri is None:
+        return True
+    choice = transition.getparent()
+    prefixes = (choice.get("Requires") or "").split()
+    return kind_uri in {choice.nsmap.get(prefix) for prefix in prefixes}
+
+
+def _holds_extension_content(transition: Any) -> bool:
+    """True when *transition* has an extension attribute or a child outside the ``p:`` namespace."""
+    return _has_extension_attr(transition) or any(
+        isinstance(child.tag, str) and _namespace_uri(child.tag) != _P_URI for child in transition
+    )
 
 
 def slide_has_p14_transition(root) -> bool:
-    """True when *root* (sld/sldLayout/sldMaster) holds a transition needing the
-    ``mc:AlternateContent`` wrapper (a p14 kind child or a p14 attribute)."""
-    return any(_needs_mc_wrap(t) for t in root.findall(_p_tag("transition")))
+    """True when the transition of *root* (sld/sldLayout/sldMaster) needs work on save.
+
+    That is when it holds a bare transition needing the ``mc:AlternateContent``
+    wrapper (an extension kind child or an extension attribute), or a wrapper
+    kept from load that has to be reconciled with its working copy.
+    """
+    if any(_needs_mc_wrap(t) for t in root.findall(_p_tag("transition"))):
+        return True
+    return bool(_transition_wrappers(root))
 
 
-def wrap_p14_transitions(root) -> None:
-    """In-place: wrap each bare p14 ``<p:transition>`` in ``<mc:AlternateContent>``.
+def remove_transition_wrappers(root) -> None:
+    """In-place: drop each transition wrapper kept from load.
 
-    Called on a *copy* of the element at serialization time so the live tree
-    keeps its plain ``<p:transition>`` for the high-level accessors.
+    Called when the transition is removed, so the original wrapper does not
+    linger in the tree after the transition it described is gone.
+    """
+    for ac in _transition_wrappers(root):
+        root.remove(ac)
+
+
+def _reusable_fallback(original, kind):
+    """The fallback ``<p:transition>`` of *original* if it still fits *kind*, else |None|.
+
+    It fits when *original* wraps a transition of the very same kind, so the
+    fallback the authoring application wrote for it still applies.
+    """
+    if original is None or not _wrapper_is_sound(original):
+        return None
+    original_kind = _transition_kind_child(_wrapped_transition(original))
+    if original_kind is None or not _same_markup(original_kind, kind):
+        return None
+    fallback = original.find(_mc("Fallback"))
+    return None if fallback is None else fallback.find(_p_tag("transition"))
+
+
+def _new_wrapper(transition: Any, original: Any) -> tuple[Any, Any]:
+    """Return a new `(mc:AlternateContent, mc:Choice)` pair to wrap *transition*.
+
+    *original* is the wrapper *transition* was loaded from, or |None|.  The
+    caller moves *transition* into the returned ``<mc:Choice>``.
+    """
+    from lxml import etree
+
+    _heal_legacy_morph(transition)
+    kind = _transition_kind_child(transition)
+    ext_uri = _extension_kind_uri(transition)
+    requires, choice_nsmap = _choice_requirement(kind, ext_uri)
+
+    ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
+    choice = etree.SubElement(ac, _mc("Choice"), nsmap=choice_nsmap)
+    choice.set("Requires", requires)
+
+    # Match PowerPoint: <p159:morph option="byObject"/> when option is unset.
+    if kind is not None and kind.tag == "{%s}morph" % _P159_URI and kind.get("option") is None:
+        kind.set("option", "byObject")
+
+    # The fallback transition keeps the plain timing attributes and must stay
+    # ISO-pure: an extension attribute or element never goes into it.
+    fallback = etree.SubElement(ac, _mc("Fallback"))
+    fb = etree.SubElement(fallback, _p_tag("transition"))
+    for name, value in transition.attrib.items():
+        if _namespace_uri(name) is None:
+            fb.set(name, value)
+    if kind is not None:
+        _add_fallback_kind(fb, kind, ext_uri, original)
+    return ac, choice
+
+
+def _heal_legacy_morph(transition: Any) -> None:
+    """Retag a ``p14:morph`` kind of *transition* into the ``p159`` namespace it belongs to.
+
+    That heals decks written by earlier power-pptx releases (and any other
+    producer) that emitted morph in the p14 namespace, so a plain load → save
+    round-trip repairs the file.
+    """
+    from lxml import etree
+
+    legacy_morph = _transition_kind_child(transition)
+    if legacy_morph is None or legacy_morph.tag != "{%s}morph" % _P14_URI:
+        return
+    healed = etree.Element("{%s}morph" % _P159_URI, nsmap={"p159": _P159_URI})
+    for attr_name, attr_value in legacy_morph.attrib.items():
+        healed.set(attr_name, attr_value)
+    transition.replace(legacy_morph, healed)
+
+
+def _choice_requirement(kind: Any, ext_uri: "str | None") -> "tuple[str, dict[str, str]]":
+    """The ``Requires`` of the ``<mc:Choice>`` around kind *kind*, and the namespaces it declares.
+
+    `Requires` names the namespace a consumer must understand to take the
+    choice: that of the extension kind, whichever it is — a `p159:morph`
+    needs "p159", a `p15:prstTrans` needs "p15".  Requiring only "p14"
+    there would hand the element to a PowerPoint 2010 that cannot read it,
+    which is exactly the repair-dialog class of failure.  A classic kind
+    that merely carries a p14 attribute (`p14:dur`) requires "p14".
+    """
+    if kind is None or ext_uri is None:
+        return "p14", {"p14": _P14_URI}
+    requires = kind.prefix or _EXTENSION_PREFIXES.get(ext_uri, "ext")
+    choice_nsmap = {requires: ext_uri}
+    choice_nsmap.setdefault("p14", _P14_URI)
+    return requires, choice_nsmap
+
+
+def _add_fallback_kind(fb: Any, kind: Any, ext_uri: "str | None", original: Any) -> None:
+    """Give the fallback transition *fb* the kind standing in for *kind*.
+
+    *ext_uri* is the namespace of *kind* when it is an extension kind, and
+    *original* the wrapper the transition was loaded from, or |None|.
     """
     import copy
 
     from lxml import etree
 
-    p14 = "{%s}" % _P14_URI
+    original_fb = _reusable_fallback(original, kind)
+    if original_fb is not None:
+        # Same kind as when the deck was read (only its timing changed):
+        # keep the downgrade the authoring application chose for it.
+        for child in original_fb:
+            fb.append(copy.deepcopy(child))
+    elif ext_uri is None:
+        # A *classic* (p:) kind — e.g. a fade carrying only a p14:dur — is
+        # preserved so older viewers still get the transition.
+        fb.append(copy.deepcopy(kind))
+    else:
+        # Extension kinds have no classic equivalent; PowerPoint's own
+        # fallback for them is a plain fade.
+        etree.SubElement(fb, _p_tag("fade"))
+
+
+def wrap_p14_transitions(root) -> None:
+    """In-place: put each extension ``<p:transition>`` in ``<mc:AlternateContent>``.
+
+    Called on a *copy* of the element at serialization time so the live tree
+    keeps its plain ``<p:transition>`` for the high-level accessors.
+
+    A transition that still matches the wrapper it was loaded from gets that
+    wrapper back unchanged; any other transition holding extension content
+    gets a newly generated one.
+    """
+    originals = _transition_wrappers(root)
     for transition in list(root.findall(_p_tag("transition"))):
+        original = originals[0] if originals else None
+        if original is not None and _same_markup(transition, _wrapped_transition(original)):
+            originals.remove(original)
+            root.remove(original)
+            root.replace(transition, original)
+            continue
         if not _needs_mc_wrap(transition):
             continue
-        idx = list(root).index(transition)
-
-        # Heal decks written by earlier power-pptx releases (and any other
-        # producer) that emitted morph in the p14 namespace: retag to p159 so
-        # a plain load → save round-trip repairs the file.
-        legacy_morph = _transition_kind_child(transition)
-        if legacy_morph is not None and legacy_morph.tag == "{%s}morph" % _P14_URI:
-            healed = etree.Element("{%s}morph" % _P159_URI, nsmap={"p159": _P159_URI})
-            for attr_name, attr_value in legacy_morph.attrib.items():
-                healed.set(attr_name, attr_value)
-            transition.replace(legacy_morph, healed)
-
-        ext_uri = _extension_kind_uri(transition)
-
-        # Morph is a 2015/09 (p159) element per MS-PPTX, so its Choice must
-        # require "p159" — every modern PowerPoint understands p14, and an
-        # undefined `p14:morph` inside the selected branch is exactly the
-        # repair-dialog class of failure.  The 2010 kinds (and a p14
-        # attribute on a classic kind) require "p14".
-        if ext_uri == _P159_URI:
-            requires, choice_nsmap = "p159", {"p159": _P159_URI, "p14": _P14_URI}
-        else:
-            requires, choice_nsmap = "p14", {"p14": _P14_URI}
-
-        ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
-        choice = etree.SubElement(ac, _mc("Choice"), nsmap=choice_nsmap)
-        choice.set("Requires", requires)
-
-        # Match PowerPoint: <p159:morph option="byObject"/> when option is unset.
-        kind = _transition_kind_child(transition)
-        if kind is not None and kind.tag == "{%s}morph" % _P159_URI and kind.get("option") is None:
-            kind.set("option", "byObject")
-
-        # Fallback transition keeps the non-p14 timing attributes.  When the
-        # kind is a *classic* (p:) element — e.g. a fade carrying only a p14:dur
-        # — preserve it in the fallback so pre-2010 viewers still get the
-        # transition.  Extension kinds (morph, vortex, …) have no classic
-        # equivalent; PowerPoint's own fallback for them is a plain fade, and
-        # an extension element must never leak into the ISO-pure fallback.
-        fallback = etree.SubElement(ac, _mc("Fallback"))
-        fb = etree.SubElement(fallback, _p_tag("transition"))
-        for name, value in transition.attrib.items():
-            if not name.startswith(p14):
-                fb.set(name, value)
-        if kind is not None:
-            if ext_uri is None:
-                fb.append(copy.deepcopy(kind))
-            else:
-                etree.SubElement(fb, _p_tag("fade"))
-
-        # Move the original extension transition under <mc:Choice> and drop
-        # it into the tree where it used to live.
+        ac, choice = _new_wrapper(transition, original)
+        # Move the extension transition under <mc:Choice> and drop the
+        # wrapper into the tree where the transition used to live.
+        idx = root.index(transition)
         choice.append(transition)
         root.insert(idx, ac)
+    # -- whatever is left wraps a transition that was since changed or removed --
+    for stale in originals:
+        root.remove(stale)
 
 
 def unwrap_p14_transitions(root) -> None:
     """In-place inverse of :func:`wrap_p14_transitions` (called on load).
 
-    Replaces any ``<mc:AlternateContent>`` direct child of *root* that wraps a
-    transition with the plain ``<p:transition>`` from its ``<mc:Choice>`` so the
-    high-level accessors see a normal transition element.
+    Gives *root* a plain ``<p:transition>`` child for each
+    ``<mc:AlternateContent>`` child that wraps a transition, so the high-level
+    accessors see a normal transition element.  The wrapper itself stays in
+    the tree, right after that working copy, to be written back as it was
+    unless the copy is changed.  A wrapper in one of the known-broken forms
+    (see :func:`_wrapper_is_sound`) is discarded so that it is regenerated.
     """
-    for ac in list(root.findall(_mc("AlternateContent"))):
-        choice = ac.find(_mc("Choice"))
-        if choice is None:
-            continue
-        transition = choice.find(_p_tag("transition"))
-        if transition is None:
-            continue
-        idx = list(root).index(ac)
-        root.remove(ac)
-        root.insert(idx, transition)
+    import copy
+
+    for ac in _transition_wrappers(root):
+        transition = _wrapped_transition(ac)
+        idx = root.index(ac)
+        if _wrapper_is_sound(ac):
+            root.insert(idx, copy.deepcopy(transition))
+        else:
+            root.remove(ac)
+            root.insert(idx, transition)

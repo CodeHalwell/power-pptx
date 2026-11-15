@@ -43,9 +43,9 @@ group shape
 line/connector
    Lines are different from auto shapes because, well, they're linear. Some
    lines can be connected to other shapes and stay connected when the other
-   shape is moved. These aren't supported yet either so I don't know much more
-   about them. I'd better get to these soon though, they seem like they'd be
-   very handy.
+   shape is moved. ``shapes.add_connector()`` adds one, and
+   ``shapes.add_arrow(start=..., end=...)`` adds a connector with an
+   arrowhead, routed between two shapes.
 
 content part
    An extension mechanism for external XML content. Existing content-part
@@ -64,7 +64,9 @@ As for real-life shapes, there are these nine types:
 * picture -- as described above
 * table -- that row and column thing
 * chart -- pie chart, line chart, etc.
-* smart art -- not supported yet, although preserved if present
+* smart art -- preserved if present; its text can be read and replaced
+  through ``slide.smart_art`` (see :ref:`smart_art_api`), but it cannot be
+  created
 * media clip -- video or audio
 
 

@@ -84,9 +84,6 @@ Native components
    :members:
 .. autoexception:: LayoutOverflowError
 .. autoclass:: LayoutWarning
-.. autoclass:: LayoutResult
-   :members:
-.. autoexception:: LayoutOverflowError
 
 
 Recipes
@@ -99,6 +96,68 @@ Recipes
 .. autofunction:: kpi_slide
 .. autofunction:: quote_slide
 .. autofunction:: image_hero_slide
+.. autofunction:: section_divider
+.. autofunction:: chart_slide
+.. autofunction:: table_slide
+.. autofunction:: code_slide
+.. autofunction:: timeline_slide
+.. autofunction:: comparison_slide
+.. autofunction:: figure_slide
+
+
+Shape-level components
+----------------------
+
+These are also importable from the top-level :mod:`power_pptx` package.
+
+.. currentmodule:: power_pptx.design.components
+
+.. autofunction:: add_kpi_card
+.. autofunction:: add_progress_bar
+.. autofunction:: add_gauge
+.. autofunction:: add_status_pill
+.. autofunction:: add_stat_strip
+.. autofunction:: add_article_card
+
+.. autoclass:: KpiCard
+   :members:
+.. autoclass:: ProgressBar
+   :members:
+.. autoclass:: Gauge
+   :members:
+.. autoclass:: StatusPill
+   :members:
+.. autoclass:: StatStrip
+   :members:
+.. autoclass:: ArticleCard
+   :members:
+
+
+Diagram recipes
+---------------
+
+.. automodule:: power_pptx.diagrams
+   :no-members:
+
+.. currentmodule:: power_pptx.diagrams
+
+.. autofunction:: horizontal_pipeline
+.. autofunction:: vertical_pipeline
+.. autofunction:: hub_and_spoke
+.. autofunction:: cycle
+.. autofunction:: decision_tree
+.. autofunction:: comparison_columns
+
+.. autoclass:: PipelineResult
+   :members:
+.. autoclass:: HubAndSpokeResult
+   :members:
+.. autoclass:: CycleResult
+   :members:
+.. autoclass:: DecisionTreeResult
+   :members:
+.. autoclass:: ColumnsResult
+   :members:
 
 
 Content embedding

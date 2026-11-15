@@ -5,6 +5,8 @@ The base exception class is PythonPptxError.
 
 from __future__ import annotations
 
+import zipfile
+
 
 class PythonPptxError(Exception):
     """Generic error class."""
@@ -14,6 +16,27 @@ class PackageNotFoundError(PythonPptxError):
     """
     Raised when a package cannot be found at the specified path.
     """
+
+
+class InvalidPackageError(PackageNotFoundError, zipfile.BadZipFile, KeyError):
+    """Raised when a file is found but is not a package this library can read.
+
+    That covers input that is not a zip archive at all (plain text, a legacy
+    ``.ppt``, a password-protected file) and an archive that lacks something
+    every package must have (``[Content_Types].xml``, ``_rels/.rels``, a main
+    presentation part, a content type for one of its parts) or contains
+    something none may (a DTD in an XML part).
+
+    These faults used to surface as :class:`PackageNotFoundError`,
+    :class:`zipfile.BadZipFile` or :class:`KeyError`, depending on the fault
+    and on whether the package was given as a path or as a stream.  This
+    class derives from all three, so existing ``except`` clauses keep
+    working; new code can catch this one.
+    """
+
+    def __str__(self) -> str:
+        # -- KeyError.__str__ would show the repr() of the message --
+        return Exception.__str__(self)
 
 
 class InvalidXmlError(PythonPptxError):

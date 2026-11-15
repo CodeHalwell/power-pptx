@@ -178,8 +178,10 @@ a particular chart type, like column or line. This distinction is needed for
 charts that combine more than one type, like a line chart appearing on top of
 a column chart. A chart like this would have two plot objects, one for the
 series appearing as columns and the other for the lines. Most charts only
-have a single plot and |pp| doesn't yet support creating multi-plot charts,
-but you can access multiple plots on a chart that already has them.
+have a single plot. |pp| doesn't yet support creating charts that combine
+chart types, but you can access multiple plots on a chart that already has
+them, and moving a series onto a secondary value axis (see
+:ref:`charts-advanced`) gives it a plot of its own, of the same type.
 
 In the Microsoft API, the name *ChartGroup* is used for this object. I found
 that term confusing for a long time while I was learning about MS Office

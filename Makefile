@@ -8,7 +8,7 @@ help:
 	@echo "  build        generate both sdist and wheel suitable for upload to PyPI"
 	@echo "  clean        delete intermediate work product and start fresh"
 	@echo "  cleandocs    delete cached HTML documentation and start fresh"
-	@echo "  coverage     run nosetests with coverage"
+	@echo "  coverage     run the unit tests with coverage"
 	@echo "  docs         build HTML documentation using Sphinx (incremental)"
 	@echo "  opendocs     open local HTML documentation in browser"
 	@echo "  test-upload  upload distribution to TestPyPI"
@@ -36,7 +36,7 @@ cleandocs:
 
 .PHONY: coverage
 coverage:
-	py.test --cov-report term-missing --cov=power_pptx --cov=tests
+	pytest --cov-report term-missing --cov=power_pptx tests
 
 .PHONY: docs
 docs:

@@ -11,6 +11,7 @@ import pytest
 from power_pptx.chart.data import ChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_CONNECTOR, PP_PLACEHOLDER, PROG_ID
+from power_pptx.geometry import BBox
 from power_pptx.media import SPEAKER_IMAGE_BYTES, Video
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.shapes.groupshape import CT_GroupShape
@@ -51,6 +52,7 @@ from power_pptx.shapes.shapetree import (
     _MoviePicElementCreator,
     _NotesSlideShapeFactory,
     _OleObjectElementCreator,
+    _resolve_endpoint,
     _SlidePlaceholderFactory,
 )
 from power_pptx.slide import SlideLayout, SlideMaster
@@ -118,12 +120,12 @@ class Describe_BaseShapes(object):
 
     def it_can_iterate_over_the_shapes_it_contains(self, iter_fixture):
         shapes, expected_shapes, BaseShapeFactory_, calls = iter_fixture
-        assert [s for s in shapes] == expected_shapes
+        assert list(shapes) == expected_shapes
         assert BaseShapeFactory_.call_args_list == calls
 
     def it_iterates_shape_elements_to_help__iter__(self, iter_elms_fixture):
         shapes, expected_elms = iter_elms_fixture
-        assert [e for e in shapes._iter_member_elms()] == expected_elms
+        assert list(shapes._iter_member_elms()) == expected_elms
 
     def it_supports_indexed_access(self, getitem_fixture):
         shapes, idx, BaseShapeFactory_, sp, shape_ = getitem_fixture
@@ -188,7 +190,7 @@ class Describe_BaseShapes(object):
             "chart,idx=42,orient=vert,sz=half}),p:spPr)"
         )
         placeholder_.element = element(
-            "p:sp/p:nvSpPr/p:nvPr/p:ph{type=chart,idx=42,orient=vert,sz=half" "}"
+            "p:sp/p:nvSpPr/p:nvPr/p:ph{type=chart,idx=42,orient=vert,sz=half}"
         )
         return shapes, placeholder_, expected_xml
 
@@ -239,7 +241,7 @@ class Describe_BaseShapes(object):
             ("p:spTree/p:nvSpPr/(p:cNvPr{id=foo},p:cNvPr{id=2})", 3),
             ("p:spTree/p:nvSpPr/(p:cNvPr{id=1fo},p:cNvPr{id=2})", 3),
             (
-                "p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=1},p:" "cNvPr{id=1},p:cNvPr{id=4})",
+                "p:spTree/p:nvSpPr/(p:cNvPr{id=1},p:cNvPr{id=1},p:cNvPr{id=1},p:cNvPr{id=4})",
                 5,
             ),
         ]
@@ -264,7 +266,7 @@ class Describe_BaseShapes(object):
     )
     def ph_name_fixture(self, request):
         ph_type, sp_id, orient, expected_name = request.param
-        spTree = element("p:spTree/(p:cNvPr{name=Title 1},p:cNvPr{name=Table Placeholder " "3})")
+        spTree = element("p:spTree/(p:cNvPr{name=Title 1},p:cNvPr{name=Table Placeholder 3})")
         shapes = SlideShapes(spTree, None)
         return shapes, ph_type, sp_id, orient, expected_name
 
@@ -582,7 +584,8 @@ class Describe_BaseGroupShapes(object):
             'a:fontRef idx="minor">\n        <a:schemeClr val="lt1"/>\n     '
             " </a:fontRef>\n    </p:style>\n    <p:txBody>\n      <a:bodyPr "
             'rtlCol="0" anchor="ctr"/>\n      <a:lstStyle/>\n      <a:p>\n  '
-            '      <a:pPr algn="ctr"/>\n        <a:endParaRPr lang="en-US"/>\n      </a:p>\n    </p:txBody>\n  </p'
+            '      <a:pPr algn="ctr"/>\n        <a:endParaRPr lang="en-US"/>\n'
+            "      </a:p>\n    </p:txBody>\n  </p"
             ":sp>\n</p:spTree>"
         )
         return shapes, autoshape_type_, x, y, cx, cy, expected_xml
@@ -980,7 +983,7 @@ class DescribeSlidePlaceholders(object):
         placeholders, SlideShapeFactory_ = iter_fixture[:2]
         expected_calls, expected_values = iter_fixture[2:]
 
-        ps = [p for p in placeholders]
+        ps = list(placeholders)
 
         assert SlideShapeFactory_.call_args_list == expected_calls
         assert ps == expected_values
@@ -1395,7 +1398,9 @@ class DescribeSlideShapes(object):
 
     @pytest.fixture
     def _MoviePicElementCreator_(self, request):
-        return class_mock(request, "power_pptx.shapes.shapetree._MoviePicElementCreator", autospec=True)
+        return class_mock(
+            request, "power_pptx.shapes.shapetree._MoviePicElementCreator", autospec=True
+        )
 
     @pytest.fixture
     def _next_shape_id_prop_(self, request, shape_id_):
@@ -1824,7 +1829,15 @@ class Describe_MoviePicElementCreator(object):
     ):
         BytesIO_ = class_mock(request, "power_pptx.shapes.shapetree.io.BytesIO")
         movie_pic_element_creator = _MoviePicElementCreator(
-            None, None, None, None, None, None, None, "image.png", None  # type: ignore
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "image.png",
+            None,  # type: ignore
         )
 
         image_file = movie_pic_element_creator._poster_frame_image_file
@@ -1836,9 +1849,19 @@ class Describe_MoviePicElementCreator(object):
         self, request: pytest.FixtureRequest
     ):
         stream_ = instance_mock(request, io.BytesIO)
-        BytesIO_ = class_mock(request, "power_pptx.shapes.shapetree.io.BytesIO", return_value=stream_)
+        BytesIO_ = class_mock(
+            request, "power_pptx.shapes.shapetree.io.BytesIO", return_value=stream_
+        )
         movie_pic_element_creator = _MoviePicElementCreator(
-            None, None, None, None, None, None, None, None, None  # type: ignore
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,  # type: ignore
         )
 
         image_file = movie_pic_element_creator._poster_frame_image_file
@@ -2163,14 +2186,14 @@ class Describe_OleObjectElementCreator(object):
         )
 
     @pytest.mark.parametrize(
-        "cx_arg, prog_id, expected_value",
-        (
+        ("cx_arg", "prog_id", "expected_value"),
+        [
             (Emu(999999), None, Emu(999999)),
             (None, PROG_ID.DOCX, Emu(965200)),
             (None, PROG_ID.PPTX, Emu(965200)),
             (None, PROG_ID.XLSX, Emu(965200)),
             (None, "Foo.Bar.6", Emu(965200)),
-        ),
+        ],
     )
     def it_determines_the_shape_width_to_help(self, cx_arg, prog_id, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2179,14 +2202,14 @@ class Describe_OleObjectElementCreator(object):
         assert element_creator._cx == expected_value
 
     @pytest.mark.parametrize(
-        "cy_arg, prog_id, expected_value",
-        (
+        ("cy_arg", "prog_id", "expected_value"),
+        [
             (Emu(666666), None, Emu(666666)),
             (None, PROG_ID.DOCX, Emu(609600)),
             (None, PROG_ID.PPTX, Emu(609600)),
             (None, PROG_ID.XLSX, Emu(609600)),
             (None, "Foo.Bar.6", Emu(609600)),
-        ),
+        ],
     )
     def it_determines_the_shape_height_to_help(self, cy_arg, prog_id, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2195,11 +2218,11 @@ class Describe_OleObjectElementCreator(object):
         assert element_creator._cy == expected_value
 
     @pytest.mark.parametrize(
-        "icon_height_arg, expected_value",
-        (
+        ("icon_height_arg", "expected_value"),
+        [
             (Emu(666666), Emu(666666)),
             (None, Emu(609600)),
-        ),
+        ],
     )
     def it_determines_the_icon_height_to_help(self, icon_height_arg, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2208,14 +2231,14 @@ class Describe_OleObjectElementCreator(object):
         assert element_creator._icon_height == expected_value
 
     @pytest.mark.parametrize(
-        "icon_file_arg, prog_id, expected_value",
-        (
+        ("icon_file_arg", "prog_id", "expected_value"),
+        [
             ("user-icon.png", PROG_ID.XLSX, "user-icon.png"),
             (None, "Foo.Bar.18", "generic-icon.emf"),
             (None, PROG_ID.DOCX, "docx-icon.emf"),
             (None, PROG_ID.PPTX, "pptx-icon.emf"),
             (None, PROG_ID.XLSX, "xlsx-icon.emf"),
-        ),
+        ],
     )
     def it_resolves_the_icon_image_file_to_help(self, icon_file_arg, prog_id, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2244,8 +2267,8 @@ class Describe_OleObjectElementCreator(object):
         assert rId == "rId16"
 
     @pytest.mark.parametrize(
-        "icon_width_arg, expected_value",
-        ((Emu(666666), Emu(666666)), (None, Emu(965200))),
+        ("icon_width_arg", "expected_value"),
+        [(Emu(666666), Emu(666666)), (None, Emu(965200))],
     )
     def it_determines_the_icon_width_to_help(self, icon_width_arg, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2281,13 +2304,13 @@ class Describe_OleObjectElementCreator(object):
         assert rId == "rId14"
 
     @pytest.mark.parametrize(
-        "prog_id_arg, expected_value",
-        (
+        ("prog_id_arg", "expected_value"),
+        [
             (PROG_ID.DOCX, "Word.Document.12"),
             (PROG_ID.PPTX, "PowerPoint.Show.12"),
             (PROG_ID.XLSX, "Excel.Sheet.12"),
             ("Something.Else.42", "Something.Else.42"),
-        ),
+        ],
     )
     def it_resolves_the_progId_str_to_help(self, prog_id_arg, expected_value):
         element_creator = _OleObjectElementCreator(
@@ -2357,3 +2380,74 @@ class Describe_NotesSlideShapeFactory(object):
     @pytest.fixture
     def shapes_(self, request):
         return instance_mock(request, _BaseShapes)
+
+
+class Describe_resolve_endpoint:
+    """`_resolve_endpoint()` turns an arrow endpoint into the point the line meets."""
+
+    @pytest.mark.parametrize(
+        ("opposite", "expected"),
+        [
+            ((Inches(9), Inches(2.5)), (Inches(4), Inches(2.5))),
+            ((Inches(3), Inches(0)), (Inches(3), Inches(2))),
+            (BBox.from_inches(0, 2, 1, 1), (Inches(2), Inches(2.5))),
+            (BBox.from_inches(2.5, 6, 1, 1), (Inches(3), Inches(3))),
+            # -- no usable opposite: a tie at the box's own centre goes right --
+            (None, (Inches(4), Inches(2.5))),
+            ("junk", (Inches(4), Inches(2.5))),
+        ],
+    )
+    def it_meets_a_box_at_the_edge_facing_the_other_end(self, opposite, expected):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=opposite, side="auto", inset_emu=0)
+
+        assert point == expected
+
+    def it_faces_the_centre_of_a_shape_at_the_other_end(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        other = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(2, 6, 2, 1))
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=other, side=None, inset_emu=0)
+
+        assert point == (Inches(3), Inches(3))
+
+    @pytest.mark.parametrize(
+        ("side", "expected"),
+        [
+            (None, (Inches(3.9), Inches(2.5))),
+            ("right", (Inches(3.9), Inches(2.5))),
+            ("left", (Inches(2.1), Inches(2.5))),
+            ("top", (Inches(3), Inches(2.1))),
+            ("bottom", (Inches(3), Inches(2.9))),
+        ],
+    )
+    def it_pulls_the_point_on_the_chosen_edge_inward_by_the_inset(self, side, expected):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=None, side=side, inset_emu=Inches(0.1))
+
+        assert point == expected
+
+    def it_rejects_an_unknown_side(self):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        with pytest.raises(ValueError, match="side must be 'top'/'right'/'bottom'/'left'/'auto'"):
+            _resolve_endpoint(box, opposite=None, side="diagonal", inset_emu=0)
+
+    @pytest.mark.parametrize("point", [(1, 2), [Inches(1), Inches(2)]])
+    def it_passes_a_point_through(self, point):
+        assert _resolve_endpoint(point, opposite=None, side="top", inset_emu=99) == (
+            int(point[0]),
+            int(point[1]),
+        )
+
+    @pytest.mark.parametrize("target", ["junk", (1, 2, 3), None])
+    def it_rejects_anything_else(self, target):
+        with pytest.raises(TypeError, match="arrow endpoint must be"):
+            _resolve_endpoint(target, opposite=None, side="auto", inset_emu=0)

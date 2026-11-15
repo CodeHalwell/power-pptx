@@ -127,9 +127,7 @@ class DescribePresentation(object):
         for slide_ in slides_:
             assert slide_.transition.kind == MSO_TRANSITION_TYPE.FADE
 
-    def it_treats_an_explicit_NONE_transition_as_a_per_slide_override(
-        self, set_transition_fixture
-    ):
+    def it_treats_an_explicit_NONE_transition_as_a_per_slide_override(self, set_transition_fixture):
         # Regression for Copilot review on PR #27: an explicit
         # ``<p:transition/>`` element reads back as
         # ``MSO_TRANSITION_TYPE.NONE``, which is meaningfully different
@@ -145,6 +143,61 @@ class DescribePresentation(object):
         assert slides_[0].transition.kind == MSO_TRANSITION_TYPE.FADE
         assert slides_[1].transition.kind == MSO_TRANSITION_TYPE.NONE
         assert slides_[2].transition.kind == MSO_TRANSITION_TYPE.FADE
+
+    @pytest.mark.parametrize(
+        "timing",
+        [
+            {"advance_on_click": True, "advance_after": 8000},
+            {"duration": 400},
+            {"advance_on_click": False},
+        ],
+    )
+    def it_applies_a_kind_after_a_timing_only_call(self, set_transition_fixture, timing):
+        # A kind-less `<p:transition>` left by a timing-only call used to read
+        # back as an explicit "no transition", so the kind was silently
+        # skipped on every slide.
+        prs, slides_, _kind = set_transition_fixture
+        prs.set_transition(**timing)
+
+        prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE)
+
+        for slide_ in slides_:
+            assert slide_.transition.kind == MSO_TRANSITION_TYPE.FADE
+            for name, value in timing.items():
+                assert getattr(slide_.transition, name) == value
+
+    def it_applies_a_kind_after_a_timing_setting_was_set_and_cleared(self, set_transition_fixture):
+        prs, slides_, _kind = set_transition_fixture
+        prs.set_transition(advance_on_click=True)
+        prs.set_transition(advance_on_click=None)
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE)
+
+        assert [s.transition.kind for s in slides_] == [MSO_TRANSITION_TYPE.FADE] * 3
+
+    def it_preserves_a_per_slide_kind_it_has_no_member_for(self, set_transition_fixture):
+        # A PowerPoint 2013+ kind reads back as `None`, but it is still the
+        # choice made for that slide and must not be clobbered.
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls, qn
+
+        prs, slides_, _kind = set_transition_fixture
+        slides_[1]._element._insert_transition(
+            parse_xml(
+                '<p:transition %s><p15:prstTrans prst="airplane"/></p:transition>'
+                % nsdecls("p", "p15")
+            )
+        )
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE)
+
+        assert slides_[0].transition.kind == MSO_TRANSITION_TYPE.FADE
+        assert slides_[1]._element.transition.kind_element.tag == qn("p15:prstTrans")
+        assert slides_[2].transition.kind == MSO_TRANSITION_TYPE.FADE
+
+        prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)
+
+        assert slides_[1].transition.kind == MSO_TRANSITION_TYPE.FADE
 
     # fixtures -------------------------------------------------------
 
@@ -292,7 +345,9 @@ class DescribePresentation(object):
 
     @pytest.fixture
     def SlideMasters_(self, request, slide_masters_):
-        return class_mock(request, "power_pptx.presentation.SlideMasters", return_value=slide_masters_)
+        return class_mock(
+            request, "power_pptx.presentation.SlideMasters", return_value=slide_masters_
+        )
 
     @pytest.fixture
     def slide_master_(self, request):

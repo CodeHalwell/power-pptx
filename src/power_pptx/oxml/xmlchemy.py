@@ -100,9 +100,7 @@ class XmlString(str):
             return False
         if close != close_2:
             return False
-        if text != text_2:
-            return False
-        return True
+        return text == text_2
 
     def _parse_line(self, line: str):
         """Return front, attrs, close, text 4-tuple result of parsing XML element string `line`."""
@@ -447,7 +445,7 @@ class Choice(_BaseChildElement):
             return child
 
         get_or_change_to_child.__doc__ = (
-            "Return the ``<%s>`` child, replacing any other group element if" " found."
+            "Return the ``<%s>`` child, replacing any other group element if found."
         ) % self._nsptagname
         self._add_to_class(self._get_or_change_to_method_name, get_or_change_to_child)
 
@@ -456,10 +454,7 @@ class Choice(_BaseChildElement):
         """
         Calculate property name from tag name, e.g. a:schemeClr -> schemeClr.
         """
-        if ":" in self._nsptagname:
-            start = self._nsptagname.index(":") + 1
-        else:
-            start = 0
+        start = self._nsptagname.index(":") + 1 if ":" in self._nsptagname else 0
         return self._nsptagname[start:]
 
     @lazyproperty

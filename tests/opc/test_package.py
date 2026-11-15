@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from power_pptx.exc import InvalidPackageError
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -27,6 +28,7 @@ from power_pptx.opc.package import (
     _Relationships,
 )
 from power_pptx.opc.packuri import PACKAGE_URI, PackURI
+from power_pptx.opc.serialized import PackageReader
 from power_pptx.oxml import parse_xml
 from power_pptx.parts.presentation import PresentationPart
 
@@ -224,7 +226,7 @@ class DescribeOpcPackage:
         assert presentation_part is presentation_part_
 
     @pytest.mark.parametrize(
-        "ns, expected_n", (((), 1), ((1,), 2), ((1, 2), 3), ((2, 4), 3), ((1, 4), 3))
+        ("ns", "expected_n"), [((), 1), ((1,), 2), ((1, 2), 3), ((2, 4), 3), ((1, 4), 3)]
     )
     def it_can_find_the_next_available_partname(self, request, ns, expected_n):
         tmpl = "/x%d.xml"
@@ -255,6 +257,46 @@ class DescribeOpcPackage:
         package.save("prs.pptx")
 
         PackageWriter_.write.assert_called_once_with("prs.pptx", relationships_, parts_)
+
+    def it_gives_parts_that_share_a_partname_one_each_before_writing(
+        self, request, _rels_prop_, relationships_
+    ):
+        """Two parts under one partname would be written as two zip members of one name."""
+        parts = [
+            Part(PackURI("/ppt/slides/slide1.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/media/my%20logo.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/my%20logo.png"), CT.PNG, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), CT.PML_SLIDE, None),
+            # -- OPC part names are case-insensitive: these two are one name to PowerPoint --
+            Part(PackURI("/ppt/media/Image1.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/image1.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/image2.png"), CT.PNG, None),
+        ]
+        _rels_prop_.return_value = relationships_
+        method_mock(request, OpcPackage, "iter_parts", return_value=iter(parts))
+        PackageWriter_ = class_mock(request, "power_pptx.opc.package.PackageWriter")
+        package = OpcPackage(None)
+
+        package.save("prs.pptx")
+
+        PackageWriter_.write.assert_called_once_with("prs.pptx", relationships_, tuple(parts))
+        partnames = [part.partname for part in parts]
+        assert partnames == [
+            "/ppt/slides/slide1.xml",
+            "/ppt/slides/slide2.xml",
+            "/ppt/slides/slide4.xml",
+            "/ppt/media/my%20logo.png",
+            "/ppt/media/my%20logo1.png",
+            "/ppt/slides/slide5.xml",
+            "/ppt/slides/slide3.xml",
+            "/ppt/media/Image1.png",
+            "/ppt/media/image3.png",
+            "/ppt/media/image2.png",
+        ]
+        assert all(isinstance(partname, PackURI) for partname in partnames)
 
     def it_loads_the_pkg_file_to_help(self, request, _rels_prop_, relationships_):
         _PackageLoader_ = class_mock(request, "power_pptx.opc.package._PackageLoader")
@@ -333,6 +375,57 @@ class Describe_PackageLoader:
             part_.load_rels_from_xml.assert_called_once_with(rels_[part_.partname], parts_)
         assert pkg_xml_rels is rels_["/"]
         assert parts is parts_
+
+    def it_closes_the_package_reader_when_loading_is_done(self, request, _xml_rels_prop_):
+        package_reader_ = instance_mock(request, PackageReader)
+        PackageReader_ = class_mock(
+            request, "power_pptx.opc.package.PackageReader", return_value=package_reader_
+        )
+        property_mock(request, _PackageLoader, "_parts", return_value={})
+        _xml_rels_prop_.return_value = {"/": "pkg-rels"}
+        package_loader = _PackageLoader("prs.pptx", None)
+        assert package_loader._package_reader is package_reader_
+
+        package_loader._load()
+
+        PackageReader_.assert_called_once_with("prs.pptx")
+        package_reader_.close.assert_called_once_with()
+
+    def and_it_closes_the_package_reader_when_loading_fails(self, request, _xml_rels_prop_):
+        package_reader_ = instance_mock(request, PackageReader)
+        class_mock(request, "power_pptx.opc.package.PackageReader", return_value=package_reader_)
+        property_mock(request, _PackageLoader, "_parts", side_effect=InvalidPackageError("bad"))
+        package_loader = _PackageLoader("prs.pptx", None)
+        assert package_loader._package_reader is package_reader_
+
+        with pytest.raises(InvalidPackageError):
+            package_loader._load()
+
+        package_reader_.close.assert_called_once_with()
+
+    def it_walks_a_relationship_chain_deeper_than_the_recursion_limit(self, request):
+        import sys
+
+        depth = sys.getrecursionlimit() + 50
+
+        def rels_for(_, partname):
+            if partname == "/":
+                target = "c0.xml"
+            else:
+                n = int(partname[2:-4])
+                if n + 1 == depth:
+                    return CT_Relationships.new()
+                target = "c%d.xml" % (n + 1)
+            rels = CT_Relationships.new()
+            rels.add_rel("rId1", "http://rel/next", target)
+            return rels
+
+        method_mock(request, _PackageLoader, "_xml_rels_for", side_effect=rels_for)
+        package_loader = _PackageLoader(None, None)
+
+        xml_rels = package_loader._xml_rels
+
+        assert list(xml_rels) == ["/"] + ["/c%d.xml" % n for n in range(depth)]
 
     def it_loads_the_xml_relationships_from_the_package_to_help(self, request):
         pkg_xml_rels = parse_xml(snippet_bytes("package-rels-xml"))
@@ -464,7 +557,9 @@ class DescribeXmlPart:
         partname = PackURI("/ppt/slides/slide1.xml")
         element_ = element("p:sld")
         package_ = instance_mock(request, OpcPackage)
-        parse_xml_ = function_mock(request, "power_pptx.opc.package.parse_xml", return_value=element_)
+        parse_xml_ = function_mock(
+            request, "power_pptx.opc.package.parse_xml", return_value=element_
+        )
         _init_ = initializer_mock(request, XmlPart)
 
         part = XmlPart.load(partname, CT.PML_SLIDE, package_, b"blob")
@@ -516,9 +611,11 @@ class DescribePartFactory:
         partname = PackURI("/ppt/slides/slide7.xml")
         original = PartFactory.part_type_for.get(CT.PML_SLIDE)
         request.addfinalizer(
-            lambda: PartFactory.part_type_for.__setitem__(CT.PML_SLIDE, original)
-            if original is not None
-            else PartFactory.part_type_for.pop(CT.PML_SLIDE, None)
+            lambda: (
+                PartFactory.part_type_for.__setitem__(CT.PML_SLIDE, original)
+                if original is not None
+                else PartFactory.part_type_for.pop(CT.PML_SLIDE, None)
+            )
         )
         PartFactory.part_type_for[CT.PML_SLIDE] = SlidePart_
 
@@ -575,13 +672,13 @@ class Describe_ContentTypeMap:
         )
 
     @pytest.mark.parametrize(
-        "partname, expected_value",
-        (
+        ("partname", "expected_value"),
+        [
             ("/docProps/core.xml", CT.OPC_CORE_PROPERTIES),
             ("/ppt/presentation.xml", CT.PML_PRESENTATION_MAIN),
             ("/PPT/Presentation.XML", CT.PML_PRESENTATION_MAIN),
             ("/ppt/viewprops.xml", CT.PML_VIEW_PROPS),
-        ),
+        ],
     )
     def it_matches_an_override_on_case_insensitive_partname(
         self, content_type_map, partname, expected_value
@@ -589,12 +686,12 @@ class Describe_ContentTypeMap:
         assert content_type_map[PackURI(partname)] == expected_value
 
     @pytest.mark.parametrize(
-        "partname, expected_value",
-        (
+        ("partname", "expected_value"),
+        [
             ("/foo/bar.xml", CT.XML),
             ("/FOO/BAR.Rels", CT.OPC_RELATIONSHIPS),
             ("/foo/bar.jpeg", CT.JPEG),
-        ),
+        ],
     )
     def it_falls_back_to_case_insensitive_extension_default_match(
         self, content_type_map, partname, expected_value
@@ -605,7 +702,7 @@ class Describe_ContentTypeMap:
         with pytest.raises(KeyError) as e:
             content_type_map[PackURI("/!blat/rhumba.1x&")]
         assert str(e.value) == (
-            "\"no content-type for partname '/!blat/rhumba.1x&' " 'in [Content_Types].xml"'
+            "\"no content-type for partname '/!blat/rhumba.1x&' in [Content_Types].xml\""
         )
 
     def it_raises_TypeError_on_key_not_instance_of_PackURI(self, content_type_map):
@@ -623,7 +720,7 @@ class Describe_ContentTypeMap:
 class Describe_Relationships:
     """Unit-test suite for `power_pptx.opc.package._Relationships` objects."""
 
-    @pytest.mark.parametrize("rId, expected_value", (("rId1", True), ("rId2", False)))
+    @pytest.mark.parametrize(("rId", "expected_value"), [("rId1", True), ("rId2", False)])
     def it_knows_whether_it_contains_a_relationship_with_rId(
         self, _rels_prop_, rId, expected_value
     ):
@@ -641,7 +738,7 @@ class Describe_Relationships:
         assert str(e.value) == "\"no relationship with key 'rId6'\""
 
     def it_can_iterate_the_rIds_of_the_relationships_it_contains(self, request, _rels_prop_):
-        rels_ = set(instance_mock(request, _Relationship) for n in range(5))
+        rels_ = {instance_mock(request, _Relationship) for n in range(5)}
         _rels_prop_.return_value = {"rId%d" % (i + 1): r for i, r in enumerate(rels_)}
         relationships = _Relationships(None)
 
@@ -716,6 +813,26 @@ class Describe_Relationships:
             call("/ppt/slides", xml_rels[1], parts),
         ]
         assert relationships._rels == {"rId1": rels_[0], "rId2": rels_[1]}
+
+    def it_does_not_look_for_a_part_behind_an_external_rel_in_any_letter_case(self, part_):
+        xml_rels = parse_xml(
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://rel/link" Target="https://a.example/x"'
+            ' TargetMode="external"/>'
+            '<Relationship Id="rId2" Type="http://rel/part" Target="../slideLayouts/gone.xml"/>'
+            '<Relationship Id="rId3" Type="http://rel/part"'
+            ' Target="../slideLayouts/slideLayout1.xml"/>'
+            "</Relationships>"
+        )
+        parts = {PackURI("/ppt/slideLayouts/slideLayout1.xml"): part_}
+        relationships = _Relationships("/ppt/slides")
+
+        relationships.load_from_xml("/ppt/slides", xml_rels, parts)
+
+        assert sorted(relationships) == ["rId1", "rId3"]
+        assert relationships["rId1"].is_external
+        assert relationships["rId1"].target_ref == "https://a.example/x"
+        assert relationships["rId3"].target_part is part_
 
     def it_can_find_a_part_with_reltype(self, _rels_by_reltype_prop_, relationship_, part_):
         relationship_.target_part = part_
@@ -833,14 +950,14 @@ class Describe_Relationships:
         assert rId == "rId9"
 
     @pytest.mark.parametrize(
-        "target_ref, is_external, expected_value",
-        (
+        ("target_ref", "is_external", "expected_value"),
+        [
             ("http://url", True, "rId1"),
             ("part_1", False, "rId2"),
             ("http://foo", True, "rId3"),
             ("part_2", False, "rId4"),
             ("http://bar", True, None),
-        ),
+        ],
     )
     def it_can_get_a_matching_relationship_to_help(
         self, request, _rels_by_reltype_prop_, target_ref, is_external, expected_value
@@ -878,18 +995,18 @@ class Describe_Relationships:
         assert relationships._get_matching(RT.HYPERLINK, "http://url", True) is None
 
     @pytest.mark.parametrize(
-        "rIds, expected_value",
-        (
+        ("rIds", "expected_value"),
+        [
             ((), "rId1"),
             (("rId1",), "rId2"),
             (("rId1", "rId2"), "rId3"),
             (("rId1", "rId4"), "rId3"),
             (("rId1", "rId4", "rId6"), "rId3"),
             (("rId1", "rId2", "rId6"), "rId4"),
-        ),
+        ],
     )
     def it_finds_the_next_rId_to_help(self, _rels_prop_, rIds, expected_value):
-        _rels_prop_.return_value = {rId: None for rId in rIds}
+        _rels_prop_.return_value = dict.fromkeys(rIds)
         relationships = _Relationships(None)
 
         assert relationships._next_rId == expected_value
@@ -948,6 +1065,37 @@ class Describe_Relationships:
 class Describe_Relationship:
     """Unit-test suite for `power_pptx.opc.package._Relationship` objects."""
 
+    @pytest.mark.parametrize(
+        ("target_mode_attr", "expected_mode", "expected_external"),
+        [
+            ("", RTM.INTERNAL, False),
+            (' TargetMode="Internal"', RTM.INTERNAL, False),
+            (' TargetMode="internal"', RTM.INTERNAL, False),
+            (' TargetMode="External"', RTM.EXTERNAL, True),
+            (' TargetMode="external"', RTM.EXTERNAL, True),
+            (' TargetMode="EXTERNAL"', RTM.EXTERNAL, True),
+        ],
+    )
+    def it_reads_the_target_mode_without_regard_to_case(
+        self, part_, target_mode_attr, expected_mode, expected_external
+    ):
+        """Some tools write `TargetMode="external"`; read as internal, the URL became a
+        partname that is not in the package and loading raised KeyError."""
+        rel_elm = parse_xml(
+            '<Relationship xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
+            ' Id="rId7" Type="http://rel/type" Target="slides/slide7.xml"%s/>' % target_mode_attr
+        )
+        parts = {PackURI("/ppt/slides/slide7.xml"): part_}
+
+        relationship = _Relationship.from_xml("/ppt", rel_elm, parts)
+
+        assert relationship.is_external is expected_external
+        assert relationship._target_mode == expected_mode
+        if expected_external:
+            assert relationship.target_ref == "slides/slide7.xml"
+        else:
+            assert relationship.target_part is part_
+
     def it_can_construct_from_xml(self, request, part_):
         _init_ = initializer_mock(request, _Relationship)
         rel_elm = instance_mock(
@@ -966,8 +1114,8 @@ class Describe_Relationship:
         assert isinstance(relationship, _Relationship)
 
     @pytest.mark.parametrize(
-        "target_mode, expected_value",
-        ((RTM.INTERNAL, False), (RTM.EXTERNAL, True), (None, False)),
+        ("target_mode", "expected_value"),
+        [(RTM.INTERNAL, False), (RTM.EXTERNAL, True), (None, False)],
     )
     def it_knows_whether_it_is_external(self, target_mode, expected_value):
         relationship = _Relationship(None, None, None, target_mode, None)
@@ -990,7 +1138,7 @@ class Describe_Relationship:
         with pytest.raises(ValueError) as e:
             relationship.target_part
         assert str(e.value) == (
-            "`.target_part` property on _Relationship is undefined when " "target-mode is external"
+            "`.target_part` property on _Relationship is undefined when target-mode is external"
         )
 
     def it_knows_its_target_partname(self, part_):
@@ -999,6 +1147,19 @@ class Describe_Relationship:
 
         assert relationship.target_partname == "/ppt/slideLayouts/slideLayout4.xml"
 
+    def and_it_follows_its_target_part_when_that_part_is_renamed(self):
+        """A remembered target would be written to the .rels file for a part that has since
+        been saved under another name (slide parts are renumbered on first `prs.slides`)."""
+        part = Part(PackURI("/ppt/slides/slide3.xml"), CT.PML_SLIDE, None)
+        relationship = _Relationship("/ppt", "rId7", RT.SLIDE, RTM.INTERNAL, part)
+        assert relationship.target_partname == "/ppt/slides/slide3.xml"
+        assert relationship.target_ref == "slides/slide3.xml"
+
+        part.partname = PackURI("/ppt/slides/slide2.xml")
+
+        assert relationship.target_partname == "/ppt/slides/slide2.xml"
+        assert relationship.target_ref == "slides/slide2.xml"
+
     def but_it_raises_ValueError_on_target_partname_for_external_rel(self):
         relationship = _Relationship(None, None, None, RTM.EXTERNAL, None)
 
@@ -1006,8 +1167,7 @@ class Describe_Relationship:
             relationship.target_partname
 
         assert str(e.value) == (
-            "`.target_partname` property on _Relationship is undefined when "
-            "target-mode is external"
+            "`.target_partname` property on _Relationship is undefined when target-mode is external"
         )
 
     def it_knows_the_target_uri_for_an_external_rel(self):

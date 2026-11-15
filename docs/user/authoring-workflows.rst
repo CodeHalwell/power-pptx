@@ -74,7 +74,11 @@ system-wide::
     register_font_dir("assets/fonts")   # or POWER_PPTX_FONT_DIRS=assets/fonts
 
 ``register_font_family("Inter", regular=..., bold=..., weights={"medium": ...})``
-maps explicit files per style. ``power-pptx review --font-dir assets/fonts`` and
+maps explicit files per style; only those files are registered, not their
+folder. Family names match case-insensitively and in any language a font names
+itself, faces inside ``.ttc`` collections are found, and a changed
+``POWER_PPTX_FONT_DIRS`` applies on the next lookup.
+``power-pptx review --font-dir assets/fonts`` and
 ``render_slides(prs, font_dirs=[...])`` pass extra folders to LibreOffice for
 that run only.
 
@@ -83,7 +87,8 @@ Reproducible builds
 
 With ``SOURCE_DATE_EPOCH`` set, saved decks are byte-identical across builds of
 the same input. Zip entry times, default core properties and embedded chart
-workbook dates all use the pinned time.
+workbook dates all use the pinned time, and section ids, random GUIDs otherwise,
+are derived from each section's name and position.
 
 Typography constraints
 ----------------------
@@ -91,7 +96,12 @@ Typography constraints
 ``text_frame.fit_text`` accepts ``min_size``, ``max_lines``,
 ``preserve_breaks``, and ``line_spacing``. A failed fit leaves formatting
 unchanged. ``preserve_breaks=True`` forbids additional wrapping, preserving
-authored lines and blank lines. ``power_pptx.text.measure_text`` returns
+authored lines and blank lines. The fit measures the formatting the frame keeps:
+paragraph line spacing and the space between paragraphs, capitals and letter
+spacing, including what a placeholder inherits from its layout and master.
+Lines break where PowerPoint and LibreOffice break them: at spaces, after
+hyphens and long-path slashes, and between Chinese, Japanese and Korean
+characters. ``power_pptx.text.measure_text`` returns
 read-only measured lines, dimensions, size, font path, and fallback status.
 Use installed fonts with ``strict=True``; metric files do not embed fonts in
 the presentation. See the text API reference for complete signatures.
@@ -109,6 +119,9 @@ full-slide capture. Hybrid requires contain fitting and installed native fonts.
 * ``data-pptx="chart"`` requires ``data-pptx-chart`` JSON with a type,
   categories, and named series. Supported types are column, bar, line, area,
   pie, and doughnut. Native styling is minimal; data is editable in a workbook.
+  A background colour, border, gradient or radius on the chart region itself
+  is rejected — the native chart has no fill of its own — so put the card on
+  an unmarked parent.
 * ``data-pptx="table"`` belongs on a table and creates editable cells, merges,
   row/column dimensions, basic fonts, fills, padding, and borders.
 * ``data-pptx="capture"`` captures a complex visual as an independent PNG.
@@ -174,13 +187,29 @@ mean pixel error a gate; comparisons are otherwise advisory.
 Each output contains the PPTX, PDF, every slide PNG, contact sheets, gallery,
 ``manifest.json``, and ``REVIEW.md``. Validation covers bundled XSD/package
 checks, round-trip fidelity, layout audit, and explicit native font availability.
+Besides the XSDs (``ppt/presProps.xml`` included), the package checks report
+what PowerPoint would offer to repair: dangling relationships, parts missing
+from ``[Content_Types].xml``, id-list entries (``p:sldId``, ``p:sldLayoutId``,
+…) whose relationship is of the wrong type, duplicate shape ids, animation
+targets that name no shape on their slide, and parts that declare a DTD.
+Parts are parsed without resolving entities or using the network.
+The round-trip check opens and saves the deck and compares each part's content,
+relationships and content type, so decks written by PowerPoint or other tools
+pass as long as nothing is lost or altered.
 No test checkout is needed. Missing fonts warn by default; ``--font-policy error``
 fails on them. Theme/implicit font availability is outside this inventory.
 ``--font-dir assets/fonts`` (repeatable) registers a font folder for these checks
 and hands it to LibreOffice, so previews use the real face instead of a fallback.
-``--fail-on-warnings`` also gates audit warnings. Failures return a nonzero exit
-and keep available diagnostics; batches continue and create aggregate navigation.
-Only current-run pages enter the manifest, even when old files remain on disk.
+``--fail-on-warnings`` also gates audit warnings. ``--mode capture|hybrid`` and
+``--selector`` (default ``[data-slide]``) control how HTML inputs become slides,
+``--dpi`` (default 120) the PNG resolution, and ``--soffice-bin`` /
+``--browser-path`` name the LibreOffice and Chromium programs to run.
+The command exits 0 when every input passes, 1 when any fails, and 2 for a
+usage error. A failed review keeps the diagnostics it has; a batch continues
+past it and creates aggregate navigation.
+Reusing an output directory replaces the previous review: its slide PNGs,
+contact sheets, PDF and reference/difference images are removed first, and
+files the review does not write are left alone.
 
 Python callers can use ``validate_presentation(prs)`` from
 ``power_pptx.validation`` and ``review_presentation(prs, out_dir="review")``

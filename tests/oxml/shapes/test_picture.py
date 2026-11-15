@@ -12,13 +12,13 @@ class DescribeCT_Picture(object):
     """Unit-test suite for `power_pptx.oxml.shapes.picture.CT_Picture` objects."""
 
     @pytest.mark.parametrize(
-        "desc, xml_desc",
-        (
+        ("desc", "xml_desc"),
+        [
             ("kittens.jpg", "kittens.jpg"),
             ("bits&bobs.png", "bits&amp;bobs.png"),
             ("img&.png", "img&amp;.png"),
             ("im<ag>e.png", "im&lt;ag&gt;e.png"),
-        ),
+        ],
     )
     def it_can_create_a_new_pic_element(self, desc, xml_desc):
         """`desc` attr (often filename) is XML-escaped to handle special characters.

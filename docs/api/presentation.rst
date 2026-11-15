@@ -48,6 +48,18 @@ of their containing object.
    :undoc-members:
 
 
+``SlideShowSettings`` objects
+-----------------------------
+
+The slide-show settings of a presentation are accessed using its
+:attr:`~power_pptx.presentation.Presentation.slide_show` property. See
+:ref:`slide-show-settings` in the user guide for a walk-through.
+
+.. autoclass:: power_pptx.slide_show.SlideShowSettings()
+   :members:
+   :member-order: bysource
+
+
 |CoreProperties| objects
 -------------------------
 

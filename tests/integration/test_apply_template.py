@@ -10,7 +10,6 @@ import pytest
 from power_pptx import Presentation
 from power_pptx.util import Inches
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -36,6 +35,17 @@ def _as_stream(prs: Presentation) -> io.BytesIO:
 
 def _round_trip(prs: Presentation) -> Presentation:
     return Presentation(_as_stream(prs))
+
+
+def _package_members(prs: Presentation) -> dict[str, bytes]:
+    """Every part of *prs* as saved, by name.
+
+    Comparing members rather than the zip's bytes keeps a comparison of two
+    saves from failing when they straddle a tick of the zip's two-second
+    timestamp clock.
+    """
+    with zipfile.ZipFile(_as_stream(prs)) as package:
+        return {name: package.read(name) for name in package.namelist()}
 
 
 def _all_text(prs: Presentation) -> list[str]:
@@ -90,7 +100,8 @@ class Describe_apply_template_happy_path:
         template = Presentation()
         template.slides.add_slide(template.slide_layouts[0])
 
-        before_master_count = len(deck.slide_masters)
+        # -- read the masters first, so the cached collection is the one updated --
+        assert len(deck.slide_masters) == 1
         deck.apply_template(_as_stream(template))
         after_master_count = len(deck.slide_masters)
 
@@ -132,6 +143,102 @@ class Describe_apply_template_fallback:
         assert len(deck2.slides) == 2
 
 
+def _deck_on_layout(index: int, *, name: str | None = None, type_: str | None = None):
+    """A one-slide deck on layout *index*, that layout renamed and retyped as given.
+
+    A *type_* of ``""`` removes the layout's ``type`` attribute.
+    """
+    deck = Presentation()
+    layout = deck.slide_layouts[index]
+    if name is not None:
+        layout._element.cSld.set("name", name)
+    if type_ == "":
+        del layout._element.attrib["type"]
+    elif type_ is not None:
+        layout._element.set("type", type_)
+    deck.slides.add_slide(layout).shapes.add_textbox(
+        Inches(1), Inches(1), Inches(2), Inches(1)
+    ).text_frame.text = "kept"
+    return deck
+
+
+def _layout_relationships(slide) -> list[str]:
+    from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    return [rId for rId, rel in slide.part.rels.items() if rel.reltype == RT.SLIDE_LAYOUT]
+
+
+class Describe_apply_template_layout_matching:
+    """Each slide moves to the template layout of its layout's name, else type, else the first."""
+
+    def it_matches_a_layout_by_name_first(self):
+        # -- "Blank" by name, although the type says "Title Only" --
+        deck = _deck_on_layout(5, name="Blank", type_="titleOnly")
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Blank"
+
+    def it_matches_a_layout_by_type_when_no_name_matches(self):
+        deck = _deck_on_layout(5, name="House style: headline only")
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Only"
+        assert len(_layout_relationships(deck.slides[0])) == 1
+
+    @pytest.mark.parametrize("type_", ["tbl", ""])
+    def it_falls_back_to_the_first_layout_when_neither_matches(self, type_):
+        deck = _deck_on_layout(5, name="House style: headline only", type_=type_)
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Slide"
+        assert _all_text(_round_trip(deck)) == ["kept"]
+
+    def it_finds_the_layout_relationship_among_the_slides_others(self):
+        # -- the layout relationship need not be the slide's first --
+        from lxml import etree
+
+        deck = _deck_on_layout(5, name="House style: headline only")
+        rels_name = "ppt/slides/_rels/slide1.xml.rels"
+        out = io.BytesIO()
+        with zipfile.ZipFile(_as_stream(deck)) as zin, zipfile.ZipFile(out, "w") as zout:
+            for name in zin.namelist():
+                data = zin.read(name)
+                if name == rels_name:
+                    rels = etree.fromstring(data)
+                    link = etree.Element(
+                        "{%s}Relationship" % etree.QName(rels).namespace,
+                        Id="rId90",
+                        Type="http://example.com/link",
+                        Target="http://example.com/",
+                        TargetMode="External",
+                    )
+                    rels.insert(0, link)
+                    data = etree.tostring(rels)
+                zout.writestr(name, data)
+        reopened = Presentation(io.BytesIO(out.getvalue()))
+        assert list(reopened.slides[0].part.rels)[0] == "rId90"
+
+        reopened.apply_template(_as_stream(Presentation()))
+
+        assert reopened.slides[0].slide_layout.name == "Title Only"
+        assert "rId90" in reopened.slides[0].part.rels
+        assert len(_layout_relationships(reopened.slides[0])) == 1
+
+    def it_gives_a_slide_without_a_layout_the_first_one(self):
+        deck = _deck_on_layout(1)
+        slide_part = deck.slides[0].part
+        (rId,) = _layout_relationships(deck.slides[0])
+        slide_part.rels.pop(rId)
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Slide"
+        assert len(_layout_relationships(deck.slides[0])) == 1
+
+
 # ---------------------------------------------------------------------------
 # Old masters removed
 # ---------------------------------------------------------------------------
@@ -141,7 +248,8 @@ class Describe_apply_template_old_masters:
     def it_removes_old_master_parts_from_the_saved_package(self):
         """After apply_template the old master/layout/theme XML should not appear."""
         # Give the original deck a uniquely identifiable theme
-        import io as _io, zipfile as _zf
+        import io as _io
+        import zipfile as _zf
 
         deck = _make_deck("slide")
         buf = _io.BytesIO()
@@ -173,3 +281,230 @@ class Describe_apply_template_old_masters:
         assert b"ORIGINAL_MARKER_THEME" not in all_xml, (
             "Old theme XML was retained in saved package after apply_template."
         )
+
+
+# ---------------------------------------------------------------------------
+# Master / layout wiring of the applied template
+# ---------------------------------------------------------------------------
+
+_RED_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+    "0049454e44ae426082"
+)
+_OTHER_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600"
+    "00001f15c4890000000d49444154789c626001000000ffff030000"
+    "060005a5f5e2bd0000000049454e44ae426082"
+)
+
+
+def _add_picture_to(owner, prs, png_bytes: bytes) -> None:
+    """Put a picture on a slide master or layout (neither has `add_picture()`)."""
+    from copy import deepcopy
+
+    from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    scratch = prs.slides.add_slide(prs.slide_layouts[6])
+    pic = scratch.shapes.add_picture(
+        io.BytesIO(png_bytes), Inches(0.2), Inches(0.2), Inches(1), Inches(1)
+    )
+    image_part = scratch.part.related_part(pic._element.blip_rId)
+    rId = owner.part.relate_to(image_part, RT.IMAGE)
+    pic_el = deepcopy(pic._element)
+    pic_el.blipFill.blip.rEmbed = rId
+    pic_el.nvPicPr.cNvPr.id = 1 + max(int(v) for v in owner._element.xpath("//p:cNvPr/@id"))
+    owner.shapes._spTree.append(pic_el)
+    # -- the scratch slide was only a way to get a p:pic element --
+    sldIdLst = prs.slides._sldIdLst
+    sldId = sldIdLst[-1]
+    prs.part.drop_rel(sldId.rId)
+    sldIdLst.remove(sldId)
+
+
+def _branded_template() -> io.BytesIO:
+    """A template with one picture on its master and another on a layout."""
+    template = Presentation()
+    _add_picture_to(template.slide_master, template, _RED_PNG)
+    _add_picture_to(template.slide_layouts[1], template, _OTHER_PNG)
+    return _as_stream(template)
+
+
+def _picture_blobs(shapes) -> list[bytes]:
+    return [shape.image.blob for shape in shapes if hasattr(shape, "image")]
+
+
+class Describe_apply_template_master_wiring:
+    """Regression: the cloned master kept the template's `p:sldLayoutIdLst`.
+
+    Its relationships were rebuilt theme-first, so every layout id was off by
+    one: the first resolved to the theme part and the deck could neither be
+    used in the same session nor reopened and iterated.
+    """
+
+    def it_leaves_the_deck_usable_in_the_same_session(self):
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[1])
+        template = _as_stream(Presentation())
+
+        deck.apply_template(template)
+
+        assert deck.slide_layouts[1].name == "Title and Content"
+        assert [layout.name for layout in deck.slide_layouts] == [
+            layout.name for layout in Presentation().slide_layouts
+        ]
+        assert deck.slide_master.name == Presentation().slide_master.name
+        assert deck.theme is not None
+        new_slide = deck.slides.add_slide(deck.slide_layouts[1])
+        assert new_slide.slide_layout.name == "Title and Content"
+        assert len(deck.slides) == 2
+
+    def it_keeps_slide_masters_obtained_earlier_in_step(self):
+        # `prs.slide_masters` is cached on the Presentation object; it must
+        # see the template's masters, not a detached list of dropped rIds.
+        deck = _make_deck("A", "B")
+        masters = deck.slide_masters
+        assert len(masters) == 1
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slide_masters is masters
+        assert len(masters) == 1
+        assert masters[0].part.partname.startswith("/ppt/slideMasters/")
+        assert len(masters[0].slide_layouts) == 11
+        for slide in deck.slides:
+            assert slide.slide_layout.slide_master == masters[0]
+
+    def it_points_every_layout_id_at_a_layout_in_the_saved_package(self):
+        import re
+
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[1])
+        deck.apply_template(_as_stream(Presentation()))
+
+        with zipfile.ZipFile(_as_stream(deck)) as z:
+            names = z.namelist()
+            masters = [n for n in names if re.fullmatch(r"ppt/slideMasters/slideMaster\d+\.xml", n)]
+            assert len(masters) == 1
+            master_xml = z.read(masters[0]).decode()
+            rels_xml = z.read(
+                masters[0].replace("slideMasters/", "slideMasters/_rels/") + ".rels"
+            ).decode()
+            presentation_rels = z.read("ppt/_rels/presentation.xml.rels").decode()
+
+        targets = {}
+        for relationship in re.findall(r"<Relationship [^>]*>", rels_xml):
+            rId = re.search(r'Id="([^"]+)"', relationship).group(1)
+            targets[rId] = re.search(r'Target="([^"]+)"', relationship).group(1)
+        layout_rIds = re.findall(r'<p:sldLayoutId [^>]*r:id="(rId\d+)"', master_xml)
+        assert len(layout_rIds) == 11
+        assert len(set(layout_rIds)) == 11
+        for rId in layout_rIds:
+            assert "slideLayouts/slideLayout" in targets[rId], (rId, targets.get(rId))
+        # -- exactly one theme reaches the package, through the slide master,
+        # -- and the presentation's own theme relationship names that one --
+        master_themes = [t for t in targets.values() if "theme/" in t]
+        assert len(master_themes) == 1
+        theme_name = master_themes[0].rsplit("/", 1)[1]
+        assert 'Target="theme/%s"' % theme_name in presentation_rels
+        assert [n for n in names if re.fullmatch(r"ppt/theme/theme\d+\.xml", n)] == [
+            "ppt/theme/%s" % theme_name
+        ]
+
+    def it_reopens_with_iterable_layouts_and_accepts_a_new_slide(self):
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[1])
+        deck.apply_template(_as_stream(Presentation()))
+
+        reopened = _round_trip(deck)
+
+        assert len(reopened.slide_masters) == 1
+        assert len(reopened.slide_layouts) == 11
+        for layout in reopened.slide_layouts:
+            assert layout.part.partname.startswith("/ppt/slideLayouts/")
+            assert layout.slide_master == reopened.slide_master
+        assert reopened.slides[0].slide_layout.name == "Title and Content"
+        slide = reopened.slides.add_slide(reopened.slide_layouts[0])
+        assert slide.slide_layout.name == "Title Slide"
+        again = _round_trip(reopened)
+        assert len(again.slides) == 2
+
+    def it_gives_the_new_masters_and_layouts_unique_ids(self):
+        deck = _make_deck("A")
+        deck.apply_template(_as_stream(Presentation()))
+
+        ids = list(deck.part._element.xpath("p:sldMasterIdLst/p:sldMasterId/@id"))
+        for master in deck.slide_masters:
+            ids += list(master._element.xpath("p:sldLayoutIdLst/p:sldLayoutId/@id"))
+
+        assert len(ids) == 12
+        assert len(set(ids)) == len(ids)
+        assert all(int(i) >= 2147483648 for i in ids)
+
+    def it_copies_pictures_on_the_template_master_and_layouts(self):
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[1])
+
+        deck.apply_template(_branded_template())
+
+        assert _picture_blobs(deck.slide_master.shapes) == [_RED_PNG]
+        assert _picture_blobs(deck.slide_layouts[1].shapes) == [_OTHER_PNG]
+
+        reopened = _round_trip(deck)
+        assert _picture_blobs(reopened.slide_master.shapes) == [_RED_PNG]
+        assert _picture_blobs(reopened.slide_layouts[1].shapes) == [_OTHER_PNG]
+        assert _picture_blobs(reopened.slides[0].slide_layout.shapes) == [_OTHER_PNG]
+        with zipfile.ZipFile(_as_stream(deck)) as z:
+            media = sorted(n for n in z.namelist() if n.startswith("ppt/media/"))
+        assert len(media) == 2
+
+    def it_can_be_applied_again(self):
+        deck = _make_deck("A", "B")
+        deck.apply_template(_as_stream(Presentation()))
+        deck.apply_template(_branded_template())
+
+        reopened = _round_trip(deck)
+
+        assert len(reopened.slide_masters) == 1
+        assert len(reopened.slide_layouts) == 11
+        assert _picture_blobs(reopened.slide_master.shapes) == [_RED_PNG]
+        assert _all_text(reopened) == ["A", "B"]
+
+    def it_accepts_an_open_presentation_as_the_template(self):
+        deck = _make_deck("A")
+        template = Presentation(_branded_template())
+
+        deck.apply_template(template)
+
+        assert _picture_blobs(_round_trip(deck).slide_master.shapes) == [_RED_PNG]
+        # -- the template deck itself is left alone --
+        assert len(template.slide_masters) == 1
+        assert _picture_blobs(template.slide_master.shapes) == [_RED_PNG]
+
+    def but_it_changes_nothing_when_the_template_has_no_layouts(self):
+        deck = _make_deck("A")
+        before = _package_members(deck)
+        template = Presentation()
+        master = template.slide_master
+        for layout in list(master.slide_layouts):
+            master.slide_layouts.remove(layout)
+        assert len(template.slide_layouts) == 0
+
+        with pytest.raises(ValueError, match="no slide layouts"):
+            deck.apply_template(_as_stream(template))
+
+        assert _package_members(deck) == before
+        assert deck.slides[0].slide_layout.name == "Title Slide"
+
+    def it_survives_save_open_save_unchanged(self):
+        from .round_trip import assert_round_trip
+
+        deck = _make_deck("A", "B")
+        deck.apply_template(_branded_template())
+
+        assert_round_trip(deck)
+        # -- and with `prs.slides` touched after the reopen, which renames
+        # -- slide parts into sequence --
+        reopened = _round_trip(deck)
+        assert len(reopened.slides) == 2
+        assert_round_trip(reopened)

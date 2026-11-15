@@ -37,6 +37,12 @@ calling ``apply_quick_layout`` twice.
 ``has_minor_gridlines``         bool — value-axis minor gridlines.
 ==============================  ==========================================
 
+The keys are flat: there are no nested ``"category_axis"`` /
+``"value_axis"`` sections, and the gridline keys always apply to the value
+axis.  A key not in the table raises :class:`ValueError` (or, for a keyword
+override, :class:`TypeError`) naming the closest valid keys, so a typo is
+not silently ignored.
+
 Charts without a category axis (e.g. pie charts) silently skip the
 category-axis keys; same for value-axis keys on charts without a value
 axis.  This matches how PowerPoint's gallery degrades.
@@ -158,16 +164,15 @@ def apply_quick_layout(chart, layout, **overrides) -> None:
             has_major_gridlines=False,
         )
 
-    Unknown override keys raise :class:`TypeError`.
+    Unknown keys are rejected before the chart is touched: in a dict spec
+    with :class:`ValueError`, as keyword overrides with :class:`TypeError`.
+    The message names the closest valid keys.
     """
     spec = _resolve_layout(layout)
     if overrides:
         unknown = set(overrides) - _VALID_SPEC_KEYS
         if unknown:
-            raise TypeError(
-                "unknown quick-layout override(s): %s; valid keys: %s"
-                % (sorted(unknown), sorted(_VALID_SPEC_KEYS))
-            )
+            raise TypeError(_unknown_keys_message("override(s)", unknown))
         spec.update(overrides)
     _apply_title(chart, spec)
     _apply_legend(chart, spec)
@@ -192,19 +197,55 @@ _VALID_SPEC_KEYS = frozenset(
 )
 
 
+#: hints for keys people reach for that the flat spec format does not have
+_KEY_HINTS = {
+    "category_axis": (
+        "category-axis settings are flat keys: 'has_category_axis_title', "
+        "'category_axis_title_text'"
+    ),
+    "value_axis": (
+        "value-axis settings are flat keys: 'has_value_axis_title', "
+        "'value_axis_title_text', 'has_major_gridlines', 'has_minor_gridlines'"
+    ),
+    "legend": "legend settings are flat keys: 'has_legend', 'legend_position', 'legend_in_layout'",
+    "title": "use 'has_title' and 'title_text'",
+    "tick_labels": "tick labels are not part of a quick layout; set "
+    "chart.value_axis.tick_labels directly",
+}
+
+
+def _unknown_keys_message(what: str, unknown) -> str:
+    """Describe `unknown` spec keys, with the likeliest intended key for each."""
+    import difflib
+
+    parts = []
+    for key in sorted(unknown, key=str):
+        hint = _KEY_HINTS.get(key) if isinstance(key, str) else None
+        if hint is None and isinstance(key, str):
+            close = difflib.get_close_matches(key, _VALID_SPEC_KEYS, n=2)
+            if close:
+                hint = "did you mean %s?" % " or ".join(repr(c) for c in close)
+        parts.append("%r (%s)" % (key, hint) if hint else repr(key))
+    return "unknown quick-layout %s: %s. Valid keys: %s" % (
+        what,
+        ", ".join(parts),
+        ", ".join(sorted(_VALID_SPEC_KEYS)),
+    )
+
+
 def _resolve_layout(layout) -> dict[str, Any]:
     if isinstance(layout, Mapping):
-        return dict(layout)
+        spec = dict(layout)
+        unknown = set(spec) - _VALID_SPEC_KEYS
+        if unknown:
+            raise ValueError(_unknown_keys_message("key(s)", unknown))
+        return spec
     if isinstance(layout, str):
         try:
             return dict(QUICK_LAYOUTS[layout])
         except KeyError:
-            raise ValueError(
-                "unknown quick layout %r; choose from %r" % (layout, layout_names())
-            )
-    raise TypeError(
-        "layout must be a name or spec mapping, got %s" % type(layout).__name__
-    )
+            raise ValueError("unknown quick layout %r; choose from %r" % (layout, layout_names()))
+    raise TypeError("layout must be a name or spec mapping, got %s" % type(layout).__name__)
 
 
 def _apply_title(chart, spec: Mapping[str, Any]) -> None:
@@ -254,13 +295,11 @@ def _coerce_legend_position(value: Any) -> XL_LEGEND_POSITION:
             return XL_LEGEND_POSITION(value)
         except ValueError:
             raise ValueError(
-                "legend_position int %r is not a valid XL_LEGEND_POSITION "
-                "value" % value
+                "legend_position int %r is not a valid XL_LEGEND_POSITION value" % value
             ) from None
     raise TypeError(
         "legend_position must be an XL_LEGEND_POSITION member, int value, "
-        "or string name (one of %s); got %r"
-        % (sorted(_LEGEND_POSITION_NAMES), value)
+        "or string name (one of %s); got %r" % (sorted(_LEGEND_POSITION_NAMES), value)
     )
 
 

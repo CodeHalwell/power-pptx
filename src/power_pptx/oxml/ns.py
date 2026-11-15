@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 # -- Maps namespace prefix to namespace name for all known PowerPoint XML namespaces --
 _nsmap = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",

@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request supersedes the run in progress.
+# Runs on master are never cancelled: the release workflow waits for the
+# CI result of the exact commit it is about to tag.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
 
   quality:
@@ -21,26 +28,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install '.[embedding]' -r requirements-quality.txt
-      - name: Check correctness rules throughout the source and tests
-        run: ruff check --select E9,F63,F7,F82 src tests
-      - name: Check maintained authoring and validation modules
-        run: >-
-          ruff check src/power_pptx/audit.py src/power_pptx/render.py
-          src/power_pptx/compose/from_spec.py src/power_pptx/text/layout.py
-          src/power_pptx/text/text.py src/power_pptx/lint.py
-          tests/test_reliability.py tests/integration/test_render_libreoffice.py
-          src/power_pptx/design/figures.py src/power_pptx/design/_html.py
-          src/power_pptx/compose/from_html.py src/power_pptx/_svg.py
-          tests/design/test_html_capture.py tests/integration/test_html_embedding.py
-          src/power_pptx/design/containers.py src/power_pptx/text/measurement.py
-          src/power_pptx/compose/_hybrid.py src/power_pptx/design/_html_layers.py
-          src/power_pptx/validation.py src/power_pptx/review.py src/power_pptx/_schema.py
-          src/power_pptx/__main__.py tests/design/test_containers.py
-          tests/text/test_constraints.py tests/test_validation.py
-          tests/integration/test_hybrid_html.py tests/integration/test_review.py
-          src/power_pptx/_reproducible.py src/power_pptx/text/__init__.py
-          tests/text/test_font_registration.py tests/design/test_native_typography.py
-          tests/test_reproducible.py
+      - name: Lint the source and tests with the full rule set
+        run: ruff check src tests
+      - name: Check the source and tests are formatted
+        run: ruff format --check src tests
+      - name: Keep every function's cognitive complexity at 15 or less
+        run: complexipy
       - name: Check public entry point types
         run: pyright --project pyright-ci.json
       - name: Check release gate behavior
@@ -114,14 +107,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      # Let every interpreter report, so one failure shows whether it is
+      # version-specific.
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.txt
       - name: Display Python version
         run: python -c "import sys; print(sys.version)"
       - name: Install test dependencies
@@ -132,6 +132,41 @@ jobs:
         run: pytest --cov=power_pptx --cov-report term-missing tests
       - name: Acceptance tests with behave
         run: behave --stop
+
+  lowest-deps:
+    # Install the oldest dependency versions pyproject.toml allows, on the
+    # oldest supported Python, and run the suites against them.  Without
+    # this the declared floors drift: they once named releases that could
+    # not even be installed on a supported interpreter.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Create a Python 3.10 environment
+        run: uv venv --python 3.10
+      - name: Install the package at its minimum dependency versions
+        run: uv pip install --resolution lowest-direct .
+      - name: Install the test tools without upgrading the runtime dependencies
+        run: uv pip install -r requirements-test.txt
+      - name: Show what was resolved
+        run: uv pip list
+      - name: Test with pytest
+        run: .venv/bin/python -m pytest -q tests
+      - name: Acceptance tests with behave
+        run: .venv/bin/behave --stop
+
+  docs:
+    # Build the Sphinx documentation with warnings as errors, as Read the
+    # Docs is configured to.  The build had been failing there unnoticed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-docs.txt
+      - name: Build the documentation
+        run: python -m sphinx -b html -W --keep-going docs "$RUNNER_TEMP/docs-html"
 
   examples-lint:
     # Static-check examples/ for unused imports / undefined names so

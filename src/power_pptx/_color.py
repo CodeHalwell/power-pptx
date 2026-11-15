@@ -43,8 +43,7 @@ def coerce_color(value: Any) -> RGBColor:
         s = value.lstrip("#")
         if len(s) != 6:
             raise ValueError(
-                "color hex string must be 6 digits "
-                "(e.g. '#3C2F80' or '3C2F80'); got %r" % value
+                "color hex string must be 6 digits (e.g. '#3C2F80' or '3C2F80'); got %r" % value
             )
         try:
             return RGBColor.from_hex(s)
@@ -59,10 +58,7 @@ def coerce_color(value: Any) -> RGBColor:
         # True)`` doesn't silently resolve to ``RGBColor(1, 0, 1)``.
         for c in value:
             if not isinstance(c, int) or isinstance(c, bool):
-                raise TypeError(
-                    "color 3-tuple must contain ints in [0, 255]; got %r"
-                    % (value,)
-                )
+                raise TypeError("color 3-tuple must contain ints in [0, 255]; got %r" % (value,))
         return RGBColor(value[0], value[1], value[2])
     raise TypeError(
         "expected a color-like value (RGBColor, '#RRGGBB' hex string, "

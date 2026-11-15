@@ -15,10 +15,13 @@
     "src/power_pptx/review.py",
     "src/power_pptx/__main__.py",
     "src/power_pptx/_reproducible.py",
-    "src/power_pptx/text/fonts.py"
+    "src/power_pptx/text/fonts.py",
+    "src/power_pptx/lint_cli.py",
+    "src/power_pptx/slide_show.py",
+    "src/power_pptx/parts/presprops.py"
   ],
   "pythonPlatform": "All",
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.10",
   "stubPath": "./typings",
   "typeCheckingMode": "basic"
 }

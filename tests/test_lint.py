@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import io
+import math
+import os
+import random
 
 import pytest
 
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
+from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.lint import (
+    _LEGACY_LINT_GROUP_ATTR,
+    _LINT_EXT_URI,
     LayerOrderViolation,
     LintSeverity,
     LowContrast,
@@ -20,12 +26,10 @@ from power_pptx.lint import (
     ShapeCollision,
     ShapeCollisionShadow,
     SlideLintReport,
+    TextOverflow,
     ZOrderAnomaly,
-    _LEGACY_LINT_GROUP_ATTR,
-    _LINT_EXT_URI,
     _contrast_ratio,
     _find_lint_ext,
-    _write_lint_group,
 )
 from power_pptx.util import Emu, Inches, Pt
 
@@ -161,7 +165,8 @@ class DescribeSlideLintGroupBatch:
         a, b = _add_overlapping_rects(slide, 2)
         slide.lint_group("kpi", a, b)
         slide.lint_group(None, a, b)
-        assert a.lint_group is None and b.lint_group is None
+        assert a.lint_group is None
+        assert b.lint_group is None
 
     def it_accepts_zero_shapes_as_a_no_op(self):
         _, slide = _new_blank_slide()
@@ -203,6 +208,27 @@ class DescribeSlideDesignGroup:
             a = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(1), Inches(1))
             a.lint_group = "manual"
         assert a.lint_group == "manual"
+
+    def it_tags_exactly_the_shapes_added_when_no_references_are_kept(self):
+        # Shapes created and dropped without being held in a variable, on a
+        # layout whose placeholders already sit in the tree: the identity of
+        # each shape must not depend on Python object addresses.
+        import gc
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])  # Title and Content
+        slide.shapes.title.text = "Q4 Review"
+        gc.collect()
+        for n in (1, 2):
+            with slide.design_group(f"kpi-card-{n}"):
+                slide.shapes.add_shape(5, Inches(n * 3), Inches(2), Inches(2), Inches(2))
+                slide.shapes.add_shape(1, Inches(n * 3), Inches(2), Inches(2), Inches(0.1))
+                slide.shapes.add_textbox(Inches(n * 3), Inches(2.5), Inches(2), Inches(1))
+            gc.collect()
+
+        tags = [shape.lint_group for shape in slide.shapes]
+
+        assert tags == [None, None] + ["kpi-card-1"] * 3 + ["kpi-card-2"] * 3
 
     def it_rejects_an_empty_or_None_name(self):
         _, slide = _new_blank_slide()
@@ -370,14 +396,10 @@ class DescribeShapeLintSkip:
         tb.text_frame.paragraphs[0].text = "tiny"
         tb.text_frame.paragraphs[0].runs[0].font.size = Pt(7)
         # Baseline: warning fires.
-        assert any(
-            i.code == "MinFontSize" for i in slide.lint().issues
-        )
+        assert any(i.code == "MinFontSize" for i in slide.lint().issues)
         # Opt-out silences it.
         tb.lint_skip = {"MinFontSize"}
-        assert not any(
-            i.code == "MinFontSize" for i in slide.lint().issues
-        )
+        assert not any(i.code == "MinFontSize" for i in slide.lint().issues)
 
     def it_keeps_collisions_when_only_one_shape_opts_out(self):
         # Cross-shape issues only drop when *both* shapes opt out.
@@ -418,24 +440,18 @@ class DescribeOffGridDrift:
         _, slide = _new_blank_slide()
         # Four shapes at exactly Inches(6).
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
         # One drift offender ~0.07" off the column — must exceed the
         # tight tolerance (0.05" after IMPROVEMENT_PLAN.md item 10) but
         # stay under the loose tolerance (0.10").
-        drift = slide.shapes.add_shape(
-            1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5)
-        )
+        drift = slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
         return slide, drift
 
     def it_flags_a_shape_off_a_dominant_column(self):
         slide, drift = self._column_with_drift()
         issues = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
         # Shape proxies compare by underlying element, not identity.
-        assert any(
-            i.shapes[0] == drift and i.axis == "left" for i in issues
-        )
+        assert any(i.shapes[0] == drift and i.axis == "left" for i in issues)
 
     def it_does_not_flag_small_drift_within_tight_tolerance(self):
         # Regression for IMPROVEMENT_PLAN.md item 10: a drift of ~0.033"
@@ -444,16 +460,10 @@ class DescribeOffGridDrift:
         # on basically every section header.
         _, slide = _new_blank_slide()
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(0.6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
+            slide.shapes.add_shape(1, Inches(0.6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
         # 0.02" off the column — well inside the new 0.05" tolerance.
-        slide.shapes.add_shape(
-            1, Inches(0.62), Inches(5), Inches(1), Inches(0.5)
-        )
-        assert [
-            i for i in slide.lint().issues if isinstance(i, OffGridDrift)
-        ] == []
+        slide.shapes.add_shape(1, Inches(0.62), Inches(5), Inches(1), Inches(0.5))
+        assert [i for i in slide.lint().issues if isinstance(i, OffGridDrift)] == []
 
     def it_does_not_flag_shapes_when_there_are_no_3plus_clusters(self):
         _, slide = _new_blank_slide()
@@ -466,13 +476,11 @@ class DescribeOffGridDrift:
         slide, drift = self._column_with_drift()
         before = int(drift.left)
         report = slide.lint()
-        fixes = report.auto_fix()
+        fixes = report.auto_fix(fix_grid_drift=True)
         assert any("Snapped" in f for f in fixes)
         assert int(drift.left) == int(Inches(6))
         # And the issue is gone on a fresh lint pass.
-        assert [
-            i for i in slide.lint().issues if isinstance(i, OffGridDrift)
-        ] == []
+        assert [i for i in slide.lint().issues if isinstance(i, OffGridDrift)] == []
         assert before != int(drift.left)
 
     def it_refreshes_report_issues_after_auto_fix(self):
@@ -481,7 +489,7 @@ class DescribeOffGridDrift:
         slide, drift = self._column_with_drift()
         report = slide.lint()
         assert any(isinstance(i, OffGridDrift) for i in report.issues)
-        report.auto_fix()
+        report.auto_fix(fix_grid_drift=True)
         assert [i for i in report.issues if isinstance(i, OffGridDrift)] == []
 
     def it_does_not_refresh_report_issues_on_dry_run(self):
@@ -517,14 +525,9 @@ class DescribeSetParagraphDefaults:
         tf.set_paragraph_defaults(font_name="Inter", size=Pt(14), color="#222222")
 
         # Theme colour preserved on run 0.
-        assert (
-            tf.paragraphs[0].runs[0].font.color.theme_color
-            == MSO_THEME_COLOR.ACCENT_1
-        )
+        assert tf.paragraphs[0].runs[0].font.color.theme_color == MSO_THEME_COLOR.ACCENT_1
         # Default colour applied on the unset run.
-        assert tf.paragraphs[1].runs[0].font.color.rgb == RGBColor(
-            0x22, 0x22, 0x22
-        )
+        assert tf.paragraphs[1].runs[0].font.color.rgb == RGBColor(0x22, 0x22, 0x22)
         # And the font name was filled in everywhere.
         assert tf.paragraphs[0].runs[0].font.name == "Inter"
         assert tf.paragraphs[1].runs[0].font.name == "Inter"
@@ -575,9 +578,7 @@ class DescribeAutoFixTextOverflow:
         assert any("TEXT_TO_FIT_SHAPE" in f for f in fixes)
         assert box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         # And the issue is gone after the fix.
-        assert [
-            i for i in report.issues if isinstance(i, TextOverflow)
-        ] == []
+        assert [i for i in report.issues if isinstance(i, TextOverflow)] == []
 
     def it_skips_frames_that_already_set_auto_size(self):
         from power_pptx.enum.text import MSO_AUTO_SIZE
@@ -658,9 +659,7 @@ class DescribeZOrderAnomaly:
         big.fill.solid()
         big.fill.fore_color.rgb = RGBColor(0, 0, 255)
         issues = [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]
-        assert any(
-            i.shapes[0] == big and i.shapes[1] == small for i in issues
-        )
+        assert any(i.shapes[0] == big and i.shapes[1] == small for i in issues)
 
     def it_does_not_flag_when_container_is_drawn_first(self):
         _, slide = _new_blank_slide()
@@ -695,10 +694,7 @@ class DescribeMasterPlaceholderCollision:
             layout_title.width,
             layout_title.height,
         )
-        issues = [
-            i for i in slide.lint().issues
-            if isinstance(i, MasterPlaceholderCollision)
-        ]
+        issues = [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)]
         assert len(issues) == 1
         assert issues[0].placeholder_idx == 0
 
@@ -706,10 +702,7 @@ class DescribeMasterPlaceholderCollision:
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         # Slide already inherits the title; no extra textbox added.
-        assert [
-            i for i in slide.lint().issues
-            if isinstance(i, MasterPlaceholderCollision)
-        ] == []
+        assert [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)] == []
 
 
 class DescribeReportSummary:
@@ -792,9 +785,7 @@ class DescribeEffectBleedGeometry:
         # raw bbox and stays quiet.
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)  # 1" blur
         off = [i for i in slide.lint().issues if isinstance(i, OffSlide)]
         assert off == []
@@ -802,9 +793,7 @@ class DescribeEffectBleedGeometry:
     def it_fires_OffSlideShadow_when_bleed_enabled(self):
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)
         report = slide.lint(include_effect_bleed=True)
         bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
@@ -836,8 +825,8 @@ class DescribeEffectBleedGeometry:
         # Charts / tables (GraphicFrame) expose ``shape.shadow == None``
         # since 2.1.1 — the bleed helper must handle that gracefully
         # and fall back to the raw bbox.
-        from power_pptx.shapes.base import BaseShape
         from power_pptx.lint import _effective_bbox, _shape_bbox
+        from power_pptx.shapes.base import BaseShape
 
         class _FakeGraphicFrame:
             name = "tbl"
@@ -857,9 +846,7 @@ class DescribeEffectBleedGeometry:
         # beyond the … edge" wording, since the raw bbox is on-slide.
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)
         report = slide.lint(include_effect_bleed=True)
         bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
@@ -892,23 +879,19 @@ class DescribeEffectBleedGeometry:
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
         # Bleed-only OffSlide on shape A.
-        a = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(0.5), Inches(2), Inches(2)
-        )
+        a = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(0.5), Inches(2), Inches(2))
         a.shadow.blur_radius = Emu(914400)
         # Off-grid drift offender (auto-fixable) so a fix actually fires
-        # and triggers the refresh.
+        # and triggers the refresh.  (It used to sit 30000 EMU off the
+        # column, inside the tight tolerance, so no fix fired at all.)
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
-        slide.shapes.add_shape(
-            1, Inches(6) + 30000, Inches(5), Inches(1), Inches(0.5)
-        )
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
+        slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
 
         report = slide.lint(include_effect_bleed=True)
         assert any(isinstance(i, OffSlideShadow) for i in report.issues)
-        report.auto_fix()  # snaps the drift offender; triggers refresh
+        # snaps the drift offender; triggers refresh
+        assert report.auto_fix(fix_grid_drift=True)
         # Bleed-only OffSlideShadow must survive the refresh.
         assert any(isinstance(i, OffSlideShadow) for i in report.issues)
 
@@ -916,14 +899,10 @@ class DescribeEffectBleedGeometry:
         _, slide = _new_blank_slide()
         slide_w, slide_h = self._slide_dims(slide)
         # Shape A: bleed-only OffSlide (raw bbox inside, shadow past edge).
-        a = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        a = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         a.shadow.blur_radius = Emu(914400)
         # Shape B: real OffSlide (raw bbox already past the bottom edge).
-        b = slide.shapes.add_shape(
-            1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2)
-        )
+        slide.shapes.add_shape(1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2))
         # Skip the bleed-only variant on the bleed shape.
         a.lint_skip = {"OffSlideShadow"}
         report = slide.lint(include_effect_bleed=True)
@@ -1118,10 +1097,7 @@ class DescribeSarifExport:
         assert off_slide["level"] == "error"
         assert off_slide["message"]["text"]
         # Locations name the offending shape.
-        names = [
-            loc["logicalLocations"][0]["name"]
-            for loc in off_slide["locations"]
-        ]
+        names = [loc["logicalLocations"][0]["name"] for loc in off_slide["locations"]]
         assert "Rectangle 1" in names
 
     def it_derives_rules_from_the_issue_codes(self):
@@ -1131,9 +1107,7 @@ class DescribeSarifExport:
 
         rules = report.to_sarif()["runs"][0]["tool"]["driver"]["rules"]
         rule_ids = {r["id"] for r in rules}
-        result_rule_ids = {
-            r["ruleId"] for r in report.to_sarif()["runs"][0]["results"]
-        }
+        result_rule_ids = {r["ruleId"] for r in report.to_sarif()["runs"][0]["results"]}
         # Every result references a declared rule.
         assert result_rule_ids <= rule_ids
 
@@ -1218,9 +1192,7 @@ class DescribeBaselineDiff:
         new_issues = current.diff(baseline)
         # Only the new shape's issues appear; the pre-existing one does not.
         assert new_issues
-        new_shape_names = {
-            s.name for issue in new_issues for s in issue.shapes
-        }
+        new_shape_names = {s.name for issue in new_issues for s in issue.shapes}
         assert new_shape_names == {"second-off-slide"}
 
     def it_ignores_issues_that_only_moved(self):
@@ -2085,9 +2057,7 @@ class DescribeCrossSlideOverlapAllowance:
 
         s1, p, _, _, _ = self._two_slides()
         group = s1.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(1), Inches(1), Inches(1), Inches(1)
-        )
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
 
         p.allow_overlap_with(inner)
 
@@ -2126,9 +2096,7 @@ class DescribeAllowanceCleanupOnDelete:
         from power_pptx.util import Inches
 
         _, slide, a, b = self._overlapping_pair()
-        other = slide.shapes.add_textbox(
-            Inches(6), Inches(1), Inches(1), Inches(1)
-        )
+        other = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(1), Inches(1))
         a.allow_overlap_with(other)
 
         b.delete()
@@ -2140,9 +2108,7 @@ class DescribeAllowanceCleanupOnDelete:
 
         _, slide, _, b = self._overlapping_pair()
         group = slide.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(1), Inches(1), Inches(1), Inches(1)
-        )
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
         inner.allow_overlap_with(b)
 
         b.delete()
@@ -2165,9 +2131,7 @@ class DescribeAllowanceCleanupOnDelete:
         slide = Presentation(buf).slides[0]
 
         # The allocator recycles the freed id for the next shape added.
-        newcomer = slide.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        newcomer = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         assert newcomer.shape_id == deleted_id
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
@@ -2189,9 +2153,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
         group = slide.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        inner = group.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         a.allow_overlap_with(inner)
         return prs, slide, a, group, inner
 
@@ -2212,9 +2174,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
         outer = slide.shapes.add_group_shape()
         middle = outer.shapes.add_group_shape()
-        deep = middle.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(2), Inches(1)
-        )
+        deep = middle.shapes.add_textbox(Inches(2), Inches(1), Inches(2), Inches(1))
         a.allow_overlap_with(deep)
 
         outer.delete()
@@ -2225,9 +2185,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         from power_pptx.util import Inches
 
         _, slide, a, group, _ = self._slide_with_grouped_shape()
-        survivor = slide.shapes.add_textbox(
-            Inches(6), Inches(1), Inches(1), Inches(1)
-        )
+        survivor = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(1), Inches(1))
         a.allow_overlap_with(survivor)
 
         group.delete()
@@ -2252,9 +2210,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         # Burn the group's own freed id first so the next shape lands on
         # the member id that used to be allowed.
         slide.shapes.add_textbox(Inches(7), Inches(4), Inches(0.5), Inches(0.5))
-        newcomer = slide.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        newcomer = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         assert newcomer.shape_id == stale_id
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
@@ -2400,3 +2356,1690 @@ class DescribeRaggedEdgePerRow:
 
         assert [i.shapes for i in issues] == [(short,)]
         assert issues[0].gap_emu == Inches(1)
+
+
+class DescribeLintScaling:
+    """Linting a busy slide must not do per-pair work for shapes that never touch.
+
+    These count calls rather than time anything, so a loaded machine cannot
+    make them flaky: the number of shapes is doubled and the work must double
+    with it, not quadruple.
+    """
+
+    @staticmethod
+    def _grid(count, coloured=False):
+        """`count` small text boxes laid out in rows of 20, none overlapping."""
+        _, slide = _new_blank_slide()
+        for n in range(count):
+            left, top = Inches(0.2 + (n % 20) * 0.45), Inches(0.2 + (n // 20) * 0.3)
+            box = slide.shapes.add_textbox(left, top, Inches(0.4), Inches(0.25))
+            box.text_frame.text = "ab"
+            run = box.text_frame.paragraphs[0].runs[0]
+            run.font.size = Pt(6)
+            if coloured:
+                run.font.color.rgb = RGBColor(0x22, 0x22, 0x22)
+        return slide
+
+    @staticmethod
+    def _count_calls(monkeypatch, name):
+        import power_pptx.lint as lint_module
+
+        calls = []
+        original = getattr(lint_module, name)
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(lint_module, name, counting)
+        return calls
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_reads_each_shapes_lint_metadata_once(self, monkeypatch, count):
+        slide = self._grid(count)
+        calls = self._count_calls(monkeypatch, "_shape_cNvPr")
+
+        slide.lint()
+
+        assert len(calls) == count
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_measures_each_shapes_box_once(self, monkeypatch, count):
+        slide = self._grid(count, coloured=True)
+        calls = self._count_calls(monkeypatch, "_shape_frame")
+
+        slide.lint()
+
+        # One per shape, plus the layout's three footer placeholders.
+        assert len(calls) == count + 3
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_only_scores_pairs_of_shapes_that_overlap(self, monkeypatch, count):
+        slide = self._grid(count)
+        overlapping = slide.shapes.add_shape(1, Inches(0.2), Inches(0.2), Inches(0.5), Inches(0.5))
+        calls = self._count_calls(monkeypatch, "_bbox_overlap")
+
+        collisions = _collisions(slide)
+
+        # The rectangle covers four boxes of the grid; nothing else touches.
+        assert len(calls) == 4
+        assert [c.shapes[1] for c in collisions] == [overlapping] * 4
+
+    def it_finds_the_same_pairs_as_comparing_every_pair(self):
+        from power_pptx.lint import _bbox_overlap, _overlapping_pairs
+
+        rng = random.Random(7)
+        boxes = []
+        for _ in range(120):
+            left, top = rng.randrange(0, 900), rng.randrange(0, 700)
+            boxes.append((left, top, left + rng.randrange(0, 200), top + rng.randrange(0, 150)))
+
+        brute_force = [
+            (i, j)
+            for i in range(len(boxes))
+            for j in range(i + 1, len(boxes))
+            if _bbox_overlap(boxes[i], boxes[j])[0] > 0
+        ]
+
+        assert _overlapping_pairs(boxes) == brute_force
+
+    def it_does_not_evaluate_a_disabled_rule(self, monkeypatch):
+        import power_pptx.lint as lint_module
+
+        slide = self._grid(8, coloured=True)
+
+        def must_not_run(*args, **kwargs):
+            raise AssertionError("a disabled rule was evaluated")
+
+        monkeypatch.setattr(lint_module, "_check_low_contrast", must_not_run)
+        monkeypatch.setattr(lint_module, "_check_collisions", must_not_run)
+        monkeypatch.setattr(lint_module, "_check_text_overflow", must_not_run)
+
+        report = slide.lint(
+            disable=["LowContrast", "ShapeCollision", "ShapeCollisionShadow", "TextOverflow"]
+        )
+
+        assert {i.code for i in report.issues} == {"MinFontSize"}
+
+    def it_does_not_evaluate_rules_below_min_severity(self, monkeypatch):
+        import power_pptx.lint as lint_module
+
+        slide = self._grid(8, coloured=True)
+
+        def must_not_run(*args, **kwargs):
+            raise AssertionError("a rule that cannot reach min_severity was evaluated")
+
+        for name in (
+            "_check_min_font_size",
+            "_check_low_contrast",
+            "_check_collisions",
+            "_check_off_grid_drift",
+            "_check_z_order_anomalies",
+            "_check_ragged_edges",
+        ):
+            monkeypatch.setattr(lint_module, name, must_not_run)
+
+        assert slide.lint(min_severity="error").issues == []
+
+
+# ---------------------------------------------------------------------------
+# TextOverflow measurement
+# ---------------------------------------------------------------------------
+
+_FONTS_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+
+_SENTENCE = "Revenue grew faster than forecast across every region this quarter"
+
+
+@pytest.fixture
+def outfit():
+    """Measure with the bundled Outfit face, whatever fonts the machine has."""
+    from power_pptx.text import clear_registered_fonts, register_font_dir
+
+    clear_registered_fonts()
+    register_font_dir(_FONTS_DIR)
+    yield "Outfit"
+    clear_registered_fonts()
+
+
+def _overflows(slide):
+    return [i for i in slide.lint().issues if isinstance(i, TextOverflow)]
+
+
+def _fixed_textbox(slide, left=1, top=1, width=4, height=1):
+    """A wrapping text box whose size is fixed (no auto-size)."""
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    box.text_frame.word_wrap = True
+    box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    return box
+
+
+def _set_font(text_frame, family, size_pt=None):
+    for paragraph in text_frame.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = family
+            if size_pt is not None:
+                run.font.size = Pt(size_pt)
+
+
+class DescribeTextOverflowAgreesWithFitText:
+    """A frame ``fit_text`` has sized fits, and lint must say so."""
+
+    def it_does_not_flag_frames_fit_text_has_sized(self, outfit):
+        rng = random.Random(1)
+        words = ["revenue", "growth", "margin", "outlook", "customer", "retention"]
+        words += ["pipeline", "forecast", "quarterly", "regional", "platform", "adoption"]
+        fitted = 0
+        for _ in range(12):
+            _, slide = _new_blank_slide()
+            box = slide.shapes.add_textbox(
+                Inches(1), Inches(1), Inches(rng.uniform(2, 6)), Inches(rng.uniform(0.6, 3))
+            )
+            box.text_frame.word_wrap = True
+            box.text_frame.text = " ".join(rng.choice(words) for _ in range(rng.randint(6, 60)))
+            try:
+                box.text_frame.fit_text(font_family=outfit, max_size=40)
+            except ValueError:
+                continue
+            fitted += 1
+
+            assert _overflows(slide) == []
+
+        assert fitted >= 8
+
+    def it_agrees_when_fit_text_also_sets_the_line_spacing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1.5))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        box.text_frame.fit_text(font_family=outfit, max_size=40, line_spacing=1.0)
+
+        assert _overflows(slide) == []
+
+    def it_leaves_the_fitted_frame_alone_when_tidying(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        box.text_frame.fit_text(font_family=outfit, max_size=60)
+        before = box.text_frame.paragraphs[0].runs[0].font.size
+
+        fixes = slide.tidy()
+
+        assert fixes == []
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.NONE
+        assert box.text_frame.paragraphs[0].runs[0].font.size == before
+
+    def it_agrees_with_a_box_sized_by_measure_text(self, outfit):
+        # measure_text, and the native components built on it, size boxes with
+        # the same line model lint applies, so a box the engine sized is never
+        # reported, and one line more than it was sized for always is.
+        from power_pptx.text import measure_text
+
+        text = "Revenue grew faster than forecast"
+        m = measure_text(text, Inches(2.5), size_pt=20, font_family=outfit, line_spacing=1.2)
+        assert len(m.lines) == 2
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2.5), m.height)
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        for side in ("left", "top", "right", "bottom"):
+            setattr(box.text_frame, f"margin_{side}", 0)
+        box.text_frame.text = text
+        box.text_frame.paragraphs[0].line_spacing = 1.2
+        _set_font(box.text_frame, outfit, 20)
+
+        assert _overflows(slide) == []
+
+        box.text_frame.text = text + " in every region"
+        _set_font(box.text_frame, outfit, 20)
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_fonts_own_line_height_in_a_table_cell(self, outfit):
+        # In a table cell a line is the taller of 1.2 em and the font's own
+        # ascent plus descent, as the engine measures it with in_table=True.
+        # Outfit's own line height is about 1.26 em.
+        import power_pptx.lint as lint_module
+        from power_pptx.text.fonts import find_font_file
+
+        font_file = find_font_file(outfit, False, False)
+
+        assert lint_module._line_em(font_file) == pytest.approx(1.2)
+        assert lint_module._line_em(font_file, in_table=True) > 1.25
+
+    def it_still_flags_the_same_text_one_size_too_large(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        size = box.text_frame.fit_text(font_family=outfit, max_size=60)
+        _set_font(box.text_frame, outfit, size + 2)
+
+        assert len(_overflows(slide)) == 1
+
+
+class DescribeTextOverflowMeasurement:
+    """Each run is measured at its effective size and typeface."""
+
+    def it_measures_every_run_not_just_the_first(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        paragraph = box.text_frame.paragraphs[0]
+        note = paragraph.add_run()
+        note.text = "Note: "
+        note.font.size = Pt(8)
+        note.font.name = outfit
+        body = paragraph.add_run()
+        body.text = _SENTENCE
+        body.font.size = Pt(40)
+        body.font.name = outfit
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.ERROR
+        assert issues[0].ratio > 3
+
+    def it_measures_every_paragraph_not_just_the_first(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        text_frame = box.text_frame
+        text_frame.text = "Eyebrow"
+        _set_font(text_frame, outfit, 9)
+        run = text_frame.add_paragraph().add_run()
+        run.text = "Revenue grew faster than forecast across every region"
+        run.font.size = Pt(36)
+        run.font.name = outfit
+
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_size_set_on_the_paragraph_font(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        box.text_frame.paragraphs[0].font.size = Pt(40)
+        box.text_frame.paragraphs[0].font.name = outfit
+
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_size_a_placeholder_inherits(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
+        title = slide.shapes.title
+        title.text_frame.text = " ".join([_SENTENCE] * 3)
+        title.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+
+        # 44pt inherited from the master title style: several lines too many.
+        issues = _overflows(slide)
+
+        assert [i.shapes for i in issues] == [(title,)]
+        assert issues[0].ratio > 2
+
+    def it_wraps_text_that_has_no_spaces(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = (
+            "四半期の売上高は、すべての地域で予測を上回るペースで成長しました。"
+            "企業向け更新と高いサービス付帯率が牽引しました。"
+        )
+        _set_font(box.text_frame, outfit, 18)
+
+        # 58 full-width characters at 18pt need four lines; three fit.
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].ratio == pytest.approx(4 / 3, rel=0.02)
+
+    def it_breaks_an_overlong_word_instead_of_calling_it_unfittable(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=2)
+        box.text_frame.text = "https://example.com/reports/2026/q4/regional-performance"
+        _set_font(box.text_frame, outfit, 14)
+
+        assert _overflows(slide) == []
+
+    def it_looks_inside_groups(self, outfit):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        _set_font(box.text_frame, outfit, 24)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].shapes[0].name == box.name
+        assert issues[0].severity == LintSeverity.ERROR
+
+    def it_reports_a_table_row_too_short_for_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(0.8))
+        cell = frame.table.cell(1, 0)
+        cell.text = " ".join([_SENTENCE] * 3)
+        _set_font(cell.text_frame, outfit, 18)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].shapes == (frame,)
+        assert (issues[0].row, issues[0].col) == (1, 0)
+        # Rows grow to fit when rendered, so this is stale geometry, not lost text.
+        assert issues[0].severity == LintSeverity.WARNING
+        assert "row 1" in issues[0].message
+
+    def it_respects_the_text_frame_insets(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=1)
+        box.text_frame.text = "Revenue grew faster than forecast across every region"
+        _set_font(box.text_frame, outfit, 18)
+        assert _overflows(slide) == []
+
+        box.text_frame.margin_top = box.text_frame.margin_bottom = Inches(0.25)
+
+        assert len(_overflows(slide)) == 1
+
+    def it_respects_exact_line_spacing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=6, height=1)
+        box.text_frame.text = "One\nTwo\nThree"
+        _set_font(box.text_frame, outfit, 12)
+        assert _overflows(slide) == []
+
+        for paragraph in box.text_frame.paragraphs:
+            paragraph.line_spacing = Pt(30)
+
+        issues = _overflows(slide)
+        assert len(issues) == 1
+        assert issues[0].overflow_pt == pytest.approx(90 - 64.8, abs=0.5)
+
+    def it_reports_a_line_too_wide_when_word_wrap_is_off(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=2, height=1)
+        box.text_frame.word_wrap = False
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, outfit, 18)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].dimension == "width"
+        assert issues[0].ratio > 2
+
+    def it_does_not_flag_a_short_uppercase_label(self, outfit):
+        _, slide = _new_blank_slide()
+        pill = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1.3), Inches(0.3))
+        pill.text_frame.text = "MOST POPULAR"
+        _set_font(pill.text_frame, outfit, 9)
+
+        assert _overflows(slide) == []
+
+    def it_measures_an_uninstalled_font_without_warning(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = " ".join([_SENTENCE] * 4)
+        _set_font(box.text_frame, "No Such Typeface", 24)
+
+        # pytest turns warnings into errors: a FontMetricsWarning would fail here.
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].estimated is True
+        assert "'No Such Typeface' is not installed" in issues[0].message
+
+    def it_says_how_far_the_text_overflows(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=6, height=1)
+        box.text_frame.text = "One\nTwo\nThree\nFour"
+        _set_font(box.text_frame, outfit, 20)
+
+        issue = _overflows(slide)[0]
+
+        # Four 24pt lines in a 64.8pt frame (1in less the 0.05in insets).
+        assert issue.dimension == "height"
+        assert issue.ratio == pytest.approx(96 / 64.8, rel=0.01)
+        assert issue.overflow_pt == pytest.approx(96 - 64.8, abs=0.5)
+        assert issue.to_dict()["overflow_pt"] == issue.overflow_pt
+
+
+def _long_text(sentences=3):
+    return " ".join([_SENTENCE] * sentences)
+
+
+def _codes(issues):
+    return sorted((i.code, i.severity.value) for i in issues)
+
+
+class DescribeTextOverflowOnAutoSizeFrames:
+    """``add_text`` / ``add_textbox`` write ``<a:spAutoFit/>`` and resize nothing.
+
+    The stored box is stale until a renderer lays the text out, so lint has to
+    measure these frames and check the box they will really occupy.
+    """
+
+    def it_reports_a_default_text_box_that_will_grow_off_the_slide(self, outfit):
+        from power_pptx import BBox
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_text(
+            BBox.from_inches(1, 6.4, 3, 0.6), text=_long_text(), size_pt=24, font=outfit
+        )
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+
+        issues = slide.lint().issues
+
+        # The overflow itself is repaired by the renderer (warning); the box
+        # it grows into crossing the slide edge is not (error).
+        assert _codes(issues) == [("OffSlide", "error"), ("TextOverflow", "warning")]
+        off_slide = next(i for i in issues if isinstance(i, OffSlide))
+        assert off_slide.side == "bottom"
+        overflow = next(i for i in issues if isinstance(i, TextOverflow))
+        assert overflow.auto_size == "SHAPE_TO_FIT_TEXT"
+
+    def it_grows_the_box_down_from_a_top_anchor(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 18)
+        below = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(3), Inches(1))
+
+        issues = slide.lint().issues
+
+        # Stored boxes do not touch; the grown text box covers the rectangle.
+        assert int(box.top) + int(box.height) < int(below.top)
+        collisions = [i for i in issues if isinstance(i, ShapeCollision)]
+        assert [c.shapes for c in collisions] == [(box, below)]
+        assert not any(isinstance(i, OffSlide) for i in issues)
+
+    def it_grows_a_bottom_anchored_box_upwards(self, outfit):
+        from power_pptx.enum.text import MSO_ANCHOR
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.vertical_anchor = MSO_ANCHOR.BOTTOM
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 18)
+
+        sides = [i.side for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+        assert sides == ["top"]
+
+    def it_reports_a_line_that_will_grow_past_the_edge_with_wrap_off(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, outfit, 24)
+        assert box.text_frame.word_wrap is False
+
+        issues = slide.lint().issues
+
+        assert _codes(issues) == [("OffSlide", "error"), ("TextOverflow", "warning")]
+        assert next(i for i in issues if isinstance(i, TextOverflow)).dimension == "width"
+
+    def it_does_not_report_a_box_that_already_fits(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "Short"
+        _set_font(box.text_frame, outfit, 18)
+
+        assert slide.lint().issues == []
+
+    def it_warns_when_shrink_on_overflow_has_not_shrunk_anything(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text()
+        _set_font(box.text_frame, outfit, 24)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.WARNING
+        assert issues[0].auto_size == "TEXT_TO_FIT_SHAPE"
+
+    def it_measures_at_the_font_scale_a_shrunk_frame_stores(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        assert len(_overflows(slide)) == 1
+        norm = box.text_frame._bodyPr.normAutofit
+
+        norm.set("fontScale", "55000")
+
+        assert _overflows(slide) == []
+
+    def it_reports_a_title_placeholder_that_inherits_shrink_on_overflow(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
+        title = slide.shapes.title
+        title.text_frame.text = _long_text()
+
+        issues = _overflows(slide)
+
+        # The master's title bodyPr carries <a:normAutofit/>.
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.WARNING
+        assert issues[0].auto_size == "TEXT_TO_FIT_SHAPE"
+
+    def it_does_not_fail_lint_on_save_for_an_overflow_the_renderer_repairs(self, outfit, tmp_path):
+        prs, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 18)
+        assert _overflows(slide)[0].severity == LintSeverity.WARNING
+        prs.lint_on_save = "raise"
+
+        prs.save(str(tmp_path / "deck.pptx"))
+
+
+def _assert_fits(slide):
+    assert _overflows(slide) == []
+
+
+class DescribeAutoFixTextOverflowFitsTheText:
+    """``auto_fix`` leaves text that fits, and never a state lint cannot see."""
+
+    def it_stores_the_font_scale_that_makes_the_text_fit(self, outfit):
+        from power_pptx.lint import _measure_text_body, _shape_text_target, _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        assert box.text_frame.auto_size is None
+        report = slide.lint()
+
+        fixes = report.auto_fix()
+
+        assert len(fixes) == 1
+        assert "font scale" in fixes[0]
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        scale = box.text_frame._bodyPr.normAutofit.get("fontScale")
+        assert scale is not None
+        assert 25000 <= int(scale) < 100000
+        assert [i for i in report.issues if isinstance(i, TextOverflow)] == []
+        # Measured at the stored scale, the text really does fit the frame.
+        env = _TextEnv(slide)
+        target = _shape_text_target(env, box)
+        measure = _measure_text_body(
+            env, target.tx_body, target.body, target.levels, target.width, target.height
+        )
+        assert measure.text_h <= measure.avail_h
+
+    def it_does_not_leave_a_bare_shrink_setting_that_shrinks_nothing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+
+        slide.tidy()
+
+        assert box.text_frame._bodyPr.normAutofit.get("fontScale") is not None
+        _assert_fits(slide)
+
+    def it_reduces_the_sizes_of_a_frame_set_to_no_autofit(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=4, height=1.5)
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 28)
+
+        fixes = slide.tidy()
+
+        assert "Reduced the font sizes" in fixes[0]
+        # The author's explicit "no auto-fit" is kept; the sizes changed.
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.NONE
+        size = box.text_frame.paragraphs[0].runs[0].font.size
+        assert size < Pt(28)
+        _assert_fits(slide)
+
+    def it_resizes_a_shape_set_to_fit_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 18)
+
+        fixes = slide.tidy()
+
+        assert fixes[0].startswith("Resized 'TextBox 1' to fit its text")
+        assert box.height > Inches(0.5)
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+        assert slide.lint().issues == []
+
+    def it_resizes_then_moves_a_box_that_grows_off_the_slide(self, outfit):
+        from power_pptx import BBox
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_text(
+            BBox.from_inches(1, 6.4, 3, 0.6), text=_long_text(), size_pt=18, font=outfit
+        )
+
+        slide.tidy()
+
+        assert int(box.top) + int(box.height) <= int(Inches(7.5))
+        assert slide.lint().issues == []
+
+    def it_grows_a_table_row_to_fit_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(0.8))
+        cell = frame.table.cell(1, 0)
+        cell.text = _long_text(2)
+        _set_font(cell.text_frame, outfit, 14)
+        before = frame.table.rows[1].height
+
+        fixes = slide.tidy()
+
+        assert fixes[0].startswith("Grew row 1")
+        assert frame.table.rows[1].height > before
+        assert frame.height == sum(row.height for row in frame.table.rows)
+        _assert_fits(slide)
+
+    def it_leaves_text_alone_that_would_have_to_become_illegible(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=1, height=0.3)
+        box.text_frame.text = _long_text(4)
+        _set_font(box.text_frame, outfit, 24)
+        before = box._element.xml
+
+        fixes = slide.tidy()
+
+        assert fixes == []
+        assert box._element.xml == before
+        assert len(_overflows(slide)) == 1
+
+    def it_previews_without_changing_anything(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        before = slide._element.xml
+
+        fixes = slide.lint().auto_fix(dry_run=True)
+
+        assert len(fixes) == 1
+        assert slide._element.xml == before
+
+
+def _off_slide_sides(slide):
+    return sorted(i.side for i in slide.lint().issues if isinstance(i, OffSlide))
+
+
+def _inches(shape):
+    return tuple(
+        round(int(v) / 914400, 3) for v in (shape.left, shape.top, shape.width, shape.height)
+    )
+
+
+class DescribeRotatedGeometry:
+    """A rotated shape covers its rotated extent, not its stored frame."""
+
+    def it_does_not_report_a_rotated_shape_that_is_on_the_slide(self):
+        _, slide = _new_blank_slide()
+        # Stored frame starts an inch left of the slide; turned 90° the bar
+        # covers x 0.25"–0.75", y 1.75"–4.75".
+        bar = slide.shapes.add_shape(1, Inches(-1), Inches(3), Inches(3), Inches(0.5))
+        bar.rotation = 90
+
+        assert _off_slide_sides(slide) == []
+        assert slide.tidy() == []
+        assert _inches(bar) == (-1.0, 3.0, 3.0, 0.5)
+
+    def it_reports_a_rotated_shape_whose_extent_leaves_the_slide(self):
+        _, slide = _new_blank_slide()
+        # Centre (5", 6.9"); turned 90° it spans y 4.9"–8.9", past the 7.5" edge.
+        bar = slide.shapes.add_shape(1, Inches(3), Inches(6.5), Inches(4), Inches(0.8))
+        bar.rotation = 90
+
+        assert _off_slide_sides(slide) == ["bottom"]
+
+    def it_moves_a_rotated_shape_by_its_rotated_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(8.5), Inches(3), Inches(3), Inches(0.5))
+        bar.rotation = 90  # covers x 9.75"–10.25"
+
+        slide.tidy()
+
+        # Moved a quarter inch, not the 1.5" the unrotated frame suggests.
+        assert _inches(bar) == (8.25, 3.0, 3.0, 0.5)
+        assert _off_slide_sides(slide) == []
+
+    def it_uses_the_extent_of_an_arbitrary_angle(self):
+        from power_pptx.lint import _rotated_extent
+
+        box = _rotated_extent((0, 0, 400, 200), 45)
+
+        half_diagonal = 300 / math.sqrt(2)
+        assert box == (
+            math.floor(200 - half_diagonal),
+            math.floor(100 - half_diagonal),
+            math.ceil(200 + half_diagonal),
+            math.ceil(100 + half_diagonal),
+        )
+
+    def it_finds_collisions_with_the_rotated_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(4), Inches(0.5))
+        bar.rotation = 90  # covers x 2.75"–3.25", y 1.25"–5.25"
+        above = slide.shapes.add_shape(1, Inches(2.5), Inches(1), Inches(1), Inches(1))
+
+        collisions = _collisions(slide)
+
+        assert [c.shapes for c in collisions] == [(bar, above)]
+
+
+class DescribeOffSlideShrinkKeepsProportions:
+    """A picture or group larger than the slide is scaled, not squashed."""
+
+    @staticmethod
+    def _png(width, height):
+        from PIL import Image
+
+        data = io.BytesIO()
+        Image.new("RGB", (width, height), "#336699").save(data, format="PNG")
+        data.seek(0)
+        return data
+
+    def it_scales_a_picture_proportionally(self):
+        _, slide = _new_blank_slide()
+        picture = slide.shapes.add_picture(self._png(1600, 400), Inches(-1), Inches(1), Inches(14))
+        assert picture.width / picture.height == pytest.approx(4.0)
+
+        slide.tidy()
+
+        assert int(picture.width) <= int(Inches(10))
+        assert picture.width / picture.height == pytest.approx(4.0, rel=1e-4)
+        assert _off_slide_sides(slide) == []
+
+    def it_scales_a_group_proportionally(self):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        group.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        group.shapes.add_shape(1, Inches(9), Inches(1), Inches(3), Inches(1))
+        aspect = group.width / group.height
+
+        slide.tidy()
+
+        assert int(group.width) <= int(Inches(10))
+        assert group.width / group.height == pytest.approx(aspect, rel=1e-4)
+        assert _off_slide_sides(slide) == []
+
+    def it_still_shortens_only_the_long_axis_of_a_plain_shape(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(50), Inches(2))
+
+        slide.tidy()
+
+        assert _inches(bar) == (0.0, 1.0, 10.0, 2.0)
+
+
+class DescribeGridSnapping:
+    """Grid snapping must not pull shapes off an alignment they really have."""
+
+    @staticmethod
+    def _bar_chart():
+        """Eight bars on one 5" baseline whose tops step 0.04" apart."""
+        _, slide = _new_blank_slide()
+        bars = []
+        for n, value in enumerate(range(41, 49)):
+            height = Inches(value * 0.04)
+            bar = slide.shapes.add_shape(1, Inches(1 + n), Inches(5) - height, Inches(0.6), height)
+            bars.append(bar)
+        return slide, bars
+
+    def it_does_not_chain_a_staircase_of_edges_into_one_grid_line(self):
+        from power_pptx.lint import _cluster_edges
+
+        steps = [int(Inches(3) + n * Inches(0.04)) for n in range(8)]
+
+        clusters = _cluster_edges(steps, int(Inches(0.05)))
+
+        assert max(n for _, n in clusters) == 2
+
+    def it_leaves_bars_that_share_a_baseline_alone(self):
+        slide, bars = self._bar_chart()
+        before = [(_inches(bar)) for bar in bars]
+
+        drift = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
+        slide.tidy(fix_grid_drift=True)
+
+        assert drift == []
+        assert [_inches(bar) for bar in bars] == before
+
+    def it_skips_a_shape_whose_opposite_edge_is_on_a_grid_line(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(1), Inches(0.5 + n), Inches(2), Inches(0.5))
+        # Left edge 0.07" off the column, but right-aligned with the others.
+        label = slide.shapes.add_shape(
+            1, Inches(1) + 64000, Inches(5), Inches(2) - 64000, Inches(0.5)
+        )
+
+        drift = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
+
+        assert label not in [i.shapes[0] for i in drift]
+
+    def it_does_not_snap_by_default_just_as_tidy_does_not(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + n), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
+        report = slide.lint()
+        assert any(isinstance(i, OffGridDrift) for i in report.issues)
+
+        fixes = report.auto_fix()
+
+        assert fixes == []
+        assert int(drifted.left) == int(Inches(6)) + 64000
+        assert report.auto_fix(fix_grid_drift=True)
+        assert int(drifted.left) == int(Inches(6))
+
+
+class DescribeConnectorCollisions:
+    """A connector collides with what its line runs into, not its bounding box."""
+
+    def it_ignores_a_shape_the_diagonal_passes_well_clear_of(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        slide.shapes.add_shape(1, Inches(6), Inches(4), Inches(2), Inches(1))
+        slide.shapes.add_shape(1, Inches(4.5), Inches(1), Inches(1.2), Inches(1.3))
+        # From A's bottom-right to B's top-left; 0.7" below C at C's left edge.
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(2), Inches(6), Inches(4)
+        )
+
+        assert _collisions(slide) == []
+
+    def it_reports_a_shape_the_line_runs_through(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(4), Inches(2.5), Inches(1), Inches(1))
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(2), Inches(6), Inches(4)
+        )
+
+        assert [c.shapes for c in _collisions(slide)] == [(box, line)]
+
+    def it_follows_the_flip_of_a_connector_drawn_right_to_left(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        # Rising line from (3", 4") to (6", 2"): clear of a box at its top-left
+        # corner, through one in the middle.
+        corner = slide.shapes.add_shape(1, Inches(3), Inches(2), Inches(0.8), Inches(0.8))
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(4), Inches(6), Inches(2)
+        )
+
+        assert _collisions(slide) == []
+
+        middle = slide.shapes.add_shape(1, Inches(4.25), Inches(2.75), Inches(0.5), Inches(0.5))
+
+        assert [c.shapes for c in _collisions(slide)] == [(line, middle)]
+        assert corner.name not in {s.name for c in _collisions(slide) for s in c.shapes}
+
+    def it_ignores_connectors_whose_lines_do_not_cross(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(4)
+        )
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(2), Inches(1), Inches(5), Inches(4)
+        )
+
+        assert _collisions(slide) == []
+
+
+class DescribeZOrderAnomalyIntent:
+    def it_ignores_a_translucent_scrim_over_a_photo(self):
+        _, slide = _new_blank_slide()
+        photo = slide.shapes.add_picture(
+            DescribeOffSlideShrinkKeepsProportions._png(400, 300),
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
+        )
+        scrim = slide.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(6), Inches(4))
+        scrim.fill.solid()
+        scrim.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        scrim.fill.fore_color.alpha = 0.35
+
+        anomalies = [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]
+
+        assert anomalies == []
+        assert photo.name
+
+    def it_honours_a_shared_lint_group(self):
+        _, slide = _new_blank_slide()
+        small = slide.shapes.add_textbox(Inches(2), Inches(2), Inches(1), Inches(1))
+        small.text_frame.text = "under"
+        cover = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
+        cover.fill.solid()
+        cover.fill.fore_color.rgb = RGBColor(0, 0, 255)
+        assert any(isinstance(i, ZOrderAnomaly) for i in slide.lint().issues)
+
+        slide.lint_group("hero", small, cover)
+
+        assert not any(isinstance(i, ZOrderAnomaly) for i in slide.lint().issues)
+
+
+class DescribeLintIsReadOnly:
+    def it_does_not_change_the_deck(self):
+        from tests.test_accessibility import foreign_deck, slide_snapshot
+
+        prs, before = foreign_deck()
+
+        for slide in prs.slides:
+            slide.lint()
+            slide.lint(include_effect_bleed=True)
+
+        assert slide_snapshot(prs) == before
+
+    def it_does_not_change_the_deck_when_previewing_fixes(self):
+        from tests.test_accessibility import foreign_deck, slide_snapshot
+
+        prs, before = foreign_deck()
+        slide = prs.slides[0]
+        slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(3), Inches(1)).text = " ".join(
+            [_SENTENCE] * 3
+        )
+        before = slide_snapshot(prs)
+
+        assert slide.lint().auto_fix(dry_run=True)
+        assert slide_snapshot(prs) == before
+
+
+class DescribeMalformedGeometry:
+    def it_reports_a_negative_width_instead_of_crashing(self):
+        _, slide = _new_blank_slide()
+        panel = slide.shapes.add_shape(5, Inches(1), Inches(1), Inches(3), Inches(2))
+        panel.fill.solid()
+        panel.fill.fore_color.rgb = RGBColor(0x20, 0x40, 0x60)
+        slide.shapes.add_shape(5, Inches(5), Inches(1), Inches(3), Inches(3)).fill.solid()
+        panel._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+
+        issues = slide.lint().issues
+
+        geometry = [i for i in issues if i.code == "InvalidGeometry"]
+        assert [(i.shapes[0].name, i.dimension) for i in geometry] == [(panel.name, "width")]
+        assert geometry[0].severity == LintSeverity.ERROR
+        assert geometry[0].value_emu == -int(Inches(3))
+        assert slide.tidy() == []
+
+
+# ---------------------------------------------------------------------------
+# Characterisation: behaviour on the less travelled paths of the linter
+# ---------------------------------------------------------------------------
+
+
+def _style(size=18.0, spacing=0.0, caps=False):
+    from power_pptx.lint import _RunStyle
+
+    return _RunStyle(size=size, font_file=None, spacing=spacing, caps=caps, line_em=1.2)
+
+
+def _qn(tag):
+    from power_pptx.oxml.ns import qn
+
+    return qn(tag)
+
+
+def _measure(slide, shape):
+    from power_pptx.lint import _measure_text_body, _shape_text_target, _TextEnv
+
+    env = _TextEnv(slide)
+    target = _shape_text_target(env, shape)
+    return _measure_text_body(
+        env, target.tx_body, target.body, target.levels, target.width, target.height
+    )
+
+
+class _Unreadable:
+    """A shape-like object whose every attribute read fails."""
+
+    def __getattr__(self, name):
+        raise RuntimeError(name)
+
+
+class DescribeConnectorPathGeometry:
+    def it_routes_an_elbow_connector_through_its_adjustment_point(self):
+        from lxml import etree
+
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        elbow = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(1), Inches(5), Inches(3)
+        )
+        geom = elbow._element.spPr.find(_qn("a:prstGeom"))
+        etree.SubElement(geom.find(_qn("a:avLst")), _qn("a:gd"), name="adj1", fmla="val 25000")
+
+        path = _connector_path(elbow)
+
+        one, two, three, five = (int(Inches(v)) for v in (1, 2, 3, 5))
+        assert path == [
+            ((one, one), (two, one)),
+            ((two, one), (two, three)),
+            ((two, three), (five, three)),
+        ]
+
+    def it_takes_the_midpoint_when_the_adjustment_is_unreadable(self):
+        from lxml import etree
+
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        curve = slide.shapes.add_connector(
+            MSO_CONNECTOR.CURVE, Inches(5), Inches(1), Inches(1), Inches(3)
+        )
+        geom = curve._element.spPr.find(_qn("a:prstGeom"))
+        etree.SubElement(geom.find(_qn("a:avLst")), _qn("a:gd"), name="adj1", fmla="val x")
+
+        path = _connector_path(curve)
+
+        assert [start for start, _ in path] == [
+            (int(Inches(5)), int(Inches(1))),
+            (int(Inches(3)), int(Inches(1))),
+            (int(Inches(3)), int(Inches(3))),
+        ]
+
+    def it_draws_a_two_segment_bend(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        bend = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(3), Inches(4), Inches(1)
+        )
+        bend._element.spPr.find(_qn("a:prstGeom")).set("prst", "bentConnector2")
+
+        path = _connector_path(bend)
+
+        one, three, four = (int(Inches(v)) for v in (1, 3, 4))
+        assert path == [((one, three), (four, three)), ((four, three), (four, one))]
+
+    def but_it_has_no_path_for_an_unknown_bend_or_a_rotated_connector(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        odd = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        odd._element.spPr.find(_qn("a:prstGeom")).set("prst", "bentConnector4")
+        turned = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        turned.rotation = 30
+
+        assert _connector_path(odd) is None
+        assert _connector_path(turned) is None
+
+    def and_it_has_no_path_for_a_negative_extent_or_an_unreadable_shape(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        line._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+
+        assert _connector_path(line) is None
+        assert _connector_path(_Unreadable()) is None  # pyright: ignore[reportArgumentType]
+
+
+class DescribeTextLayoutUnits:
+    def it_breaks_on_either_side_of_each_wide_character(self):
+        from power_pptx.lint import _text_atoms
+
+        atoms = _text_atoms([("ab ABC漢字DEF  gh", _style())])
+
+        assert [[text for text, _ in pieces] for _, _, _, pieces in atoms] == [
+            ["ab"],
+            ["ABC"],
+            ["漢"],
+            ["字"],
+            ["DEF"],
+            ["gh"],
+        ]
+        # Only an atom that follows whitespace owes a space before it.
+        spaces = [space for _, _, space, _ in atoms]
+        assert spaces[0] == 0.0
+        assert spaces[1] > 0.0
+        assert spaces[2:5] == [0.0, 0.0, 0.0]
+        assert spaces[5] == spaces[1]
+
+    def it_keeps_a_word_that_changes_style_as_one_atom(self):
+        from power_pptx.lint import _text_atoms
+
+        small, large = _style(10), _style(30)
+
+        atoms = _text_atoms([("Rev", small), ("enue", large), (" up", small)])
+
+        assert [[text for text, _ in pieces] for _, _, _, pieces in atoms] == [
+            ["Rev", "enue"],
+            ["up"],
+        ]
+        assert atoms[0][1] == pytest.approx(36.0)
+
+    def it_measures_a_line_that_cannot_wrap_run_by_run(self):
+        from power_pptx.lint import _ref_space_width, _text_width, _wrap_fragments
+
+        style = _style()
+        space = _ref_space_width(None) * style.size / 100
+
+        lines = _wrap_fragments(
+            [("Alpha", style), ("  ", style), ("beta", style), (" gamma", style)],
+            1.0,
+            1.0,
+            False,
+        )
+
+        expected = _text_width("Alpha", style) + space + _text_width("beta", style)
+        expected += space + _text_width("gamma", style)
+        assert lines == [(pytest.approx(expected), pytest.approx(21.6))]
+
+    def but_a_line_with_no_visible_text_has_no_lines(self):
+        from power_pptx.lint import _wrap_fragments
+
+        assert _wrap_fragments([("   ", _style()), ("", _style())], 1.0, 1.0, False) == []
+        assert _wrap_fragments([("   ", _style())], 100.0, 100.0, True) == []
+
+    def it_measures_an_unwrapped_line_of_whitespace_as_an_empty_line(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=4, height=2)
+        box.text_frame.word_wrap = False
+        box.text_frame.text = "Alpha\v   \vbeta"
+        _set_font(box.text_frame, "Inter", 20)
+
+        measure = _measure(slide, box)
+
+        # The blank line is as tall as the break that ends it, which has the
+        # default 18pt size: _set_font only sizes the runs.
+        assert measure.lines == 3
+        assert measure.text_h == pytest.approx((24 + 21.6 + 24) * 12700)
+
+
+class DescribeTextSourceResolution:
+    def it_uses_the_sizes_a_frames_own_list_style_sets(self):
+        from lxml import etree
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=1)
+        box.text_frame.text = _SENTENCE
+        lst = box._element.txBody.find(_qn("a:lstStyle"))
+        level = etree.SubElement(lst, _qn("a:lvl1pPr"))
+        etree.SubElement(level, _qn("a:defRPr"), sz="4000")
+        assert _overflows(slide) != []
+
+        lst.remove(level)
+
+        assert _overflows(slide) == []
+
+    def it_reads_only_the_frames_own_sources_for_a_shape_it_cannot_ask(self):
+        from power_pptx.lint import _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        env = _TextEnv(slide)
+        tx_body = box._element.txBody
+
+        body_prs, levels = env.sources(_Unreadable(), tx_body)  # pyright: ignore
+
+        assert body_prs == [tx_body.find(_qn("a:bodyPr"))]
+        assert levels == [env.default_style()]
+
+    def it_stops_at_a_base_placeholder_it_cannot_read(self):
+        from power_pptx.lint import _TextEnv
+
+        class Placeholder:
+            is_placeholder = True
+
+            def __init__(self, element):
+                self._element = element
+
+            @property
+            def _base_placeholder(self):
+                raise KeyError("layout placeholder")
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        title = slide.shapes.title
+        title.text_frame.text = "Title"
+        env = _TextEnv(slide)
+
+        _, levels = env.sources(Placeholder(title._element), title._element.txBody)  # pyright: ignore
+
+        assert levels == [env.master_style("title"), env.default_style()]
+
+    def it_skips_a_base_placeholder_that_has_no_text_body(self):
+        from copy import deepcopy
+
+        from power_pptx.lint import _TextEnv
+
+        class Base:
+            is_placeholder = True
+
+            def __init__(self, element, base):
+                self._element = element
+                self._base_placeholder = base
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        title = slide.shapes.title
+        title.text_frame.text = "Title"
+        master_title = title._base_placeholder._base_placeholder
+        bare = deepcopy(title._base_placeholder._element)
+        bare.remove(bare.txBody)
+        shape = Base(title._element, Base(bare, master_title))
+        env = _TextEnv(slide)
+
+        body_prs, levels = env.sources(shape, title._element.txBody)  # pyright: ignore
+
+        assert body_prs == [
+            title._element.txBody.find(_qn("a:bodyPr")),
+            master_title._element.txBody.find(_qn("a:bodyPr")),
+        ]
+        assert levels[-2:] == [env.master_style("title"), env.default_style()]
+
+
+class DescribeUniformTextDetection:
+    def it_treats_a_frame_with_one_whole_point_style_as_fit_text_output(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, "Inter", 18)
+
+        assert _measure(slide, box).uniform == ("Inter", False, False, 18, None)
+
+    @pytest.mark.parametrize("attr", [("spc", "200"), ("cap", "all")])
+    def but_not_one_with_letter_spacing_or_capitals(self, attr):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, "Inter", 18)
+        box.text_frame.paragraphs[0].runs[0]._r.get_or_add_rPr().set(*attr)
+
+        assert _measure(slide, box).uniform is None
+
+
+class DescribeTableRowMeasurementEdges:
+    def it_has_nothing_to_measure_in_a_shape_that_is_not_a_table(self):
+        from power_pptx.chart.data import CategoryChartData
+        from power_pptx.enum.chart import XL_CHART_TYPE
+        from power_pptx.lint import _table_row_needs, _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1), Inches(1))
+        data = CategoryChartData()
+        data.categories = ["a", "b"]
+        data.add_series("s", (1, 2))
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(4), Inches(3), data
+        )
+
+        assert _table_row_needs(_TextEnv(slide), box) == []
+        assert _table_row_needs(_TextEnv(slide), chart) == []
+
+    def it_skips_a_row_whose_height_is_unreadable(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 1, Inches(1), Inches(1), Inches(2), Inches(0.6))
+        for row in range(2):
+            frame.table.cell(row, 0).text = _long_text(2)
+            _set_font(frame.table.cell(row, 0).text_frame, outfit, 14)
+        frame.table._tbl.tr_lst[0].set("h", "tall")
+
+        issues = _overflows(slide)
+
+        assert [(i.row, i.col) for i in issues] == [(1, 0)]
+
+    def it_treats_a_cell_with_unreadable_merge_attributes_as_merged(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 2, Inches(1), Inches(1), Inches(4), Inches(0.3))
+        for col in range(2):
+            frame.table.cell(0, col).text = _long_text(2)
+            _set_font(frame.table.cell(0, col).text_frame, outfit, 14)
+        frame.table.cell(0, 0)._tc.set("gridSpan", "wide")
+
+        issues = _overflows(slide)
+
+        # The unreadable cell is skipped and counts as one grid column.
+        assert [(i.row, i.col) for i in issues] == [(0, 1)]
+
+    def it_finds_the_cell_after_a_horizontal_merge(self, outfit):
+        # -- a merged row still holds an `a:tc` for each column it covers, marked hMerge --
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 3, Inches(1), Inches(1), Inches(6), Inches(0.3))
+        table = frame.table
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 2).text = _long_text(3)
+        _set_font(table.cell(0, 2).text_frame, outfit, 14)
+
+        issues = _overflows(slide)
+
+        assert [(i.row, i.col) for i in issues] == [(0, 2)]
+        slide.tidy()
+        assert _overflows(slide) == []
+
+    @pytest.mark.parametrize("direction", ["rotate90", "rotate270", "stacked"])
+    def it_does_not_measure_text_that_runs_across_the_row(self, outfit, direction):
+        # -- a narrow, tall cell: laid out horizontally its text needs ~11 lines --
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 1, Inches(1), Inches(1), Inches(0.35), Inches(2.5))
+        cell = frame.table.cell(0, 0)
+        cell.text = "Rotated text"
+        _set_font(cell.text_frame, outfit, 24)
+        cell.margin_left = cell.margin_right = Pt(2)
+        assert [(i.row, i.col) for i in _overflows(slide)] == [(0, 0)]
+
+        cell.text_direction = direction
+
+        assert _overflows(slide) == []
+
+
+class DescribeAutoFixWhenTheIssueIsStale:
+    """``auto_fix`` re-measures, so an issue the slide no longer has fixes nothing."""
+
+    @staticmethod
+    def _overflowing_box(slide, outfit):
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _long_text(3)
+        _set_font(box.text_frame, outfit, 24)
+        return box
+
+    def it_leaves_a_frame_whose_text_now_fits(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        assert _codes(report.issues) == [("TextOverflow", "error")]
+        box.text_frame.text = "Short"
+        before = box._element.xml
+
+        assert report.auto_fix() == []
+        assert box._element.xml == before
+
+    def it_leaves_a_frame_whose_text_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        box.text_frame.text = ""
+
+        assert report.auto_fix() == []
+
+    def it_leaves_a_shape_whose_text_frame_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        box._element.remove(box._element.txBody)
+
+        assert report.auto_fix() == []
+
+    def it_leaves_a_table_row_that_now_fits_or_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 1, Inches(1), Inches(1), Inches(3), Inches(0.6))
+        frame.table.cell(1, 0).text = _long_text(3)
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 14)
+        report = slide.lint()
+        assert [i.row for i in report.issues if isinstance(i, TextOverflow)] == [1]
+        frame.table.cell(1, 0).text = "ok"
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 8)
+
+        assert report.auto_fix() == []
+
+        frame.table.cell(1, 0).text = _long_text(3)
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 14)
+        report = slide.lint()
+        assert [i.row for i in report.issues if isinstance(i, TextOverflow)] == [1]
+        tbl = frame.table._tbl
+        tbl.remove(tbl.tr_lst[1])
+
+        assert report.auto_fix() == []
+
+
+class DescribeAutoFixLimits:
+    def it_will_not_bake_a_size_below_one_point(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=0.6)
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 20)
+        tiny = box.text_frame.paragraphs[0].add_run()
+        tiny.text = " fine print"
+        tiny.font.size = Pt(1.5)
+        tiny.font.name = outfit
+        assert "TextOverflow" in {i.code for i in slide.lint().issues}
+        before = box._element.xml
+
+        assert slide.tidy() == []
+        assert box._element.xml == before
+
+    def it_cannot_store_a_font_scale_on_a_frame_without_body_properties(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        tx_body = box._element.txBody
+        tx_body.remove(tx_body.find(_qn("a:bodyPr")))
+        assert _codes(slide.lint().issues) == [("TextOverflow", "error")]
+
+        assert slide.tidy() == []
+
+    def it_does_not_move_a_shape_with_a_negative_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(-1), Inches(1), Inches(3), Inches(1))
+        bar._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+        report = slide.lint()
+        assert {i.code for i in report.issues} == {"InvalidGeometry", "OffSlide"}
+
+        assert report.auto_fix() == []
+        assert int(bar.left) == -int(Inches(1))
+
+    def it_snaps_a_drifted_top_edge_onto_the_grid(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(0.5 + 2 * n), Inches(3), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(8.5), Inches(3) + 70000, Inches(1), Inches(1))
+        report = slide.lint()
+        assert [(i.axis, i.shapes[0]) for i in report.issues if isinstance(i, OffGridDrift)] == [
+            ("top", drifted)
+        ]
+
+        fixes = report.auto_fix(fix_grid_drift=True)
+
+        assert fixes == [
+            f"Snapped '{drifted.name}' top edge from {int(Inches(3)) + 70000} to "
+            f"{int(Inches(3))} EMU (grid)."
+        ]
+        assert int(drifted.top) == int(Inches(3))
+
+    def it_previews_a_grid_snap_without_moving_the_shape(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(0.5 + 2 * n), Inches(3), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(8.5), Inches(3) + 70000, Inches(1), Inches(1))
+
+        fixes = slide.lint().auto_fix(dry_run=True, fix_grid_drift=True)
+
+        assert len(fixes) == 1
+        assert int(drifted.top) == int(Inches(3)) + 70000
+
+
+class DescribeMinFontSizeEdges:
+    def it_ignores_a_shape_it_cannot_read(self):
+        from power_pptx.lint import _check_min_font_size
+
+        assert _check_min_font_size(_Unreadable()) == []  # pyright: ignore[reportArgumentType]
+
+    def it_ignores_runs_without_a_size_of_their_own(self):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "inherits its size"
+        box.text_frame.paragraphs[0].runs[0]._r.get_or_add_rPr().set("sz", "0")
+
+        assert [i for i in slide.lint().issues if isinstance(i, MinFontSize)] == []
+
+
+class DescribeContrastBackdropEdges:
+    @staticmethod
+    def _label(slide, rgb, left=2, top=2):
+        box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(2), Inches(0.5))
+        box.text_frame.text = "Label"
+        box.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(*rgb)
+        return box
+
+    def it_does_not_judge_text_on_its_own_gradient_fill(self):
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        label = self._label(slide, (0xF8, 0xF8, 0xF8))
+        assert [type(i) for i in slide.lint().issues] == [LowContrast]
+
+        label.fill.gradient()
+
+        assert slide.lint().issues == []
+
+    def it_looks_past_a_card_whose_shadow_alone_reaches_the_text(self):
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        card = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(0.9))
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        card.shadow.blur_radius = Pt(40)
+        below = self._label(slide, (0xF8, 0xF8, 0xF8), left=1, top=2.05)
+        beside = self._label(slide, (0xF8, 0xF8, 0xF8), left=4.05, top=1)
+
+        report = slide.lint(include_effect_bleed=True, disable=["ShapeCollisionShadow"])
+
+        assert [(type(i), i.shapes) for i in report.issues] == [
+            (LowContrast, (below,)),
+            (LowContrast, (beside,)),
+        ]
+
+
+class DescribeLintSkipInsideGroups:
+    def it_silences_an_issue_on_a_shape_inside_a_group(self, outfit):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 24)
+        assert len(_overflows(slide)) == 1
+
+        box.lint_skip = {"TextOverflow"}
+
+        assert _overflows(slide) == []
+
+
+class DescribeMinSeverityMember:
+    def it_accepts_a_severity_member_as_the_threshold(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(-1), Inches(1), Inches(1), Inches(1))
+        label = slide.shapes.add_textbox(Inches(5), Inches(5), Inches(2), Inches(1))
+        label.text_frame.text = "x"
+        label.text_frame.paragraphs[0].runs[0].font.size = Pt(6)
+
+        warnings = slide.lint(min_severity=LintSeverity.WARNING).issues
+        errors = slide.lint(min_severity=LintSeverity.ERROR).issues
+
+        assert [i.code for i in warnings] == ["OffSlide", "MinFontSize"]
+        assert [i.code for i in errors] == ["OffSlide"]
+
+
+_HYPHENATED = (
+    "Our state-of-the-art end-to-end platform gives cross-functional teams self-service "
+    "year-over-year reporting with best-in-class customer-facing dashboards"
+)
+_KINSOKU = (
+    "四半期の売上高は、すべての地域で予測を上回るペースで成長しました。「企業向け更新」と"
+    "高いサービス付帯率が牽引しました。ちょっとしたニュースです。"
+)
+
+
+class DescribeTextOverflowBreaksLinesLikeTheEngine:
+    """Lint wraps a line where ``fit_text`` and ``measure_text`` wrap it."""
+
+    @staticmethod
+    def _lines(text, width_in, font, size_pt=18):
+        """``(lint's line count, the engine's)`` for `text` in a frame `width_in` wide."""
+        from power_pptx.text import measure_text
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=width_in, height=6)
+        for side in ("left", "top", "right", "bottom"):
+            setattr(box.text_frame, f"margin_{side}", 0)
+        box.text_frame.text = text
+        _set_font(box.text_frame, font, size_pt)
+        engine = measure_text(
+            text, Inches(width_in), size_pt=size_pt, font_family=font, break_long_words=True
+        )
+        return _measure(slide, box).lines, len(engine.lines)
+
+    @pytest.mark.parametrize("width_in", [1.3, 1.7, 2.1, 2.6, 3.2])
+    def it_breaks_after_a_hyphen(self, outfit, width_in):
+        lint_lines, engine_lines = self._lines(_HYPHENATED, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize("width_in", [1.0, 1.4, 2.0, 2.3])
+    def it_breaks_a_path_that_starts_the_paragraph_after_its_slashes(self, outfit, width_in):
+        url = "https://example.com/reports/2026/q4/regional/summary/index.html"
+
+        lint_lines, engine_lines = self._lines(url, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize(
+        ("text", "width_in"),
+        [
+            ("Full details at https://example.com/reports/2026/q4", 1.5),
+            ("Full details at https://example.com/reports/2026/q4", 2.2),
+            ("Details:\vhttps://example.com/reports/2026/q4/regional/summary", 1.4),
+        ],
+    )
+    def but_it_cuts_a_path_near_a_space_where_the_box_ends(self, outfit, text, width_in):
+        # LibreOffice keeps such a path whole on the next line, cutting it at
+        # the edge of the box rather than after one of its slashes.
+        lint_lines, engine_lines = self._lines(text, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize("width_in", [1.1, 1.9, 2.7, 3.4])
+    def it_keeps_closing_punctuation_off_the_start_of_a_line(self, outfit, width_in):
+        lint_lines, engine_lines = self._lines(_KINSOKU, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    def it_keeps_words_joined_by_a_no_break_space_together(self, outfit):
+        text = " ".join(["Delivered in Q4 2026"] * 6)
+
+        lint_lines, engine_lines = self._lines(text, 2.0, outfit)
+
+        assert lint_lines == engine_lines
+
+    def it_does_not_report_a_frame_fit_text_sized_for_hyphenated_text(self, outfit):
+        flagged = 0
+        for width_in, height_in in [(1.6, 1.2), (2.2, 0.9), (3.0, 1.4), (2.6, 2.0), (1.9, 2.4)]:
+            _, slide = _new_blank_slide()
+            box = slide.shapes.add_textbox(
+                Inches(1), Inches(1), Inches(width_in), Inches(height_in)
+            )
+            box.text_frame.word_wrap = True
+            box.text_frame.text = _HYPHENATED
+            box.text_frame.fit_text(font_family=outfit, max_size=40)
+            flagged += len(_overflows(slide))
+
+        assert flagged == 0

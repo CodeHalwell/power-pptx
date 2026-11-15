@@ -23,22 +23,28 @@ The audit is strictly read-only — it never mutates the deck.
 Issue codes:
 
 * ``MissingAltText``   — a picture or other meaningful shape carries no
-  ``alt_text`` (``<p:cNvPr descr=...>``).  Pictures are ERROR (a screen
-  reader has nothing to announce); other meaningful shapes are WARNING.
+  ``alt_text`` (``<p:cNvPr descr=...>``), or only a file name such as the
+  ``"photo.png"`` ``add_picture`` fills in.  Pictures — including those
+  inserted into a picture placeholder — are ERROR (a screen reader has
+  nothing to announce); other meaningful shapes are WARNING.
 * ``LowContrast``      — text-on-fill contrast is below WCAG AA (4.5:1),
-  reusing the contrast math from :mod:`power_pptx.lint`.
+  judged exactly as :class:`power_pptx.lint.LowContrast` judges it,
+  including text on a filled card drawn beneath it.
 * ``NoSlideTitle``     — a slide has no (non-empty) title, so it has no
   landmark for navigation.
 """
 
 from __future__ import annotations
 
+import contextlib
+import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from power_pptx.api import Presentation
+    from power_pptx.lint import _Backdrops
     from power_pptx.shapes.base import BaseShape
     from power_pptx.slide import Slide
 
@@ -124,6 +130,26 @@ def _shape_type_name(shape: "BaseShape") -> str | None:
     return getattr(st, "name", None)
 
 
+def _content_type_name(shape: "BaseShape") -> str | None:
+    """Like :func:`_shape_type_name`, but sees through a filled placeholder.
+
+    A picture, chart or table inserted into a placeholder reports
+    ``PLACEHOLDER`` as its shape type; what a screen reader has to describe
+    is the picture, chart or table.
+    """
+    from power_pptx.shapes.picture import Picture
+
+    if isinstance(shape, Picture):
+        return "LINKED_PICTURE" if _shape_type_name(shape) == "LINKED_PICTURE" else "PICTURE"
+    type_name = _shape_type_name(shape)
+    if type_name == "PLACEHOLDER":
+        if getattr(shape, "has_chart", False):
+            return "CHART"
+        if getattr(shape, "has_table", False):
+            return "TABLE"
+    return type_name
+
+
 def _iter_shapes_recursive(shapes: Any) -> "Any":
     """Yield every shape, recursing into group members.
 
@@ -136,19 +162,31 @@ def _iter_shapes_recursive(shapes: Any) -> "Any":
     for shape in shapes:
         yield shape
         if _shape_type_name(shape) == "GROUP":
-            try:
+            with contextlib.suppress(Exception):
                 yield from shape.walk()
-            except Exception:
-                pass
+
+
+def _tx_body(shape: "BaseShape"):
+    """The shape's ``<p:txBody>``, or ``None``.
+
+    Read off the element: ``shape.text_frame`` adds an empty text body to a
+    shape that has none, and this audit must not change the deck.
+    """
+    try:
+        if not getattr(shape, "has_text_frame", False):
+            return None
+        return shape._element.txBody  # pyright: ignore[reportPrivateUsage]
+    except Exception:
+        return None
 
 
 def _has_text(shape: "BaseShape") -> bool:
-    try:
-        if not getattr(shape, "has_text_frame", False):
-            return False
-        return bool(shape.text_frame.text.strip())  # type: ignore[attr-defined]
-    except Exception:
+    tx_body = _tx_body(shape)
+    if tx_body is None:
         return False
+    from power_pptx.lint import _has_visible_text
+
+    return _has_visible_text(tx_body)
 
 
 def _slide_has_title(slide: "Slide") -> bool:
@@ -159,89 +197,83 @@ def _slide_has_title(slide: "Slide") -> bool:
         title = None
     if title is None:
         return False
-    try:
-        return bool(title.text_frame.text.strip())
-    except Exception:
-        # A title placeholder exists; without readable text we still
-        # treat the landmark as present (the placeholder is navigable).
+    if _tx_body(title) is None:
+        # A title placeholder exists; without a text body of its own it
+        # still marks the landmark (the placeholder is navigable).
         return True
+    return _has_text(title)
+
+
+#: Alt text that is only a file name — what ``add_picture`` writes when no
+#: description is given — tells a screen-reader user nothing.
+_FILE_NAME_ALT_TEXT = re.compile(
+    r"^(?:.*[/\\])?[^/\\]+\.(?:png|jpe?g|jpe|jfif|gif|bmp|dib|tiff?|svg|emf|wmf|"
+    r"webp|heic|heif|ico|wdp|jxr|avif|mp4|mov|m4v|wmv|avi|mpe?g)$",
+    re.IGNORECASE,
+)
 
 
 def _check_alt_text(slide_idx: int, shape: "BaseShape") -> list[AccessibilityIssue]:
-    """Flag meaningful shapes that carry no alt text."""
-    type_name = _shape_type_name(shape)
+    """Flag meaningful shapes that carry no alt text, or only a file name."""
+    type_name = _content_type_name(shape)
     if type_name is None:
         return []
     if type_name not in _MEANINGFUL_TYPE_NAMES:
         return []
     try:
-        alt = shape.alt_text
+        alt = shape.alt_text.strip()
     except Exception:
         return []
-    if alt.strip():
+    is_file_name = bool(_FILE_NAME_ALT_TEXT.match(alt))
+    if alt and not is_file_name:
         return []
     # A meaningful shape that also exposes its text content is partially
     # self-describing; still flag it, but as a warning either way.
     is_picture = type_name in _PICTURE_TYPE_NAMES
     severity = AccessibilitySeverity.ERROR if is_picture else AccessibilitySeverity.WARNING
     kind = "picture" if is_picture else type_name.replace("_", " ").lower()
+    if is_file_name:
+        message = (
+            f"{kind}'s alt text {alt!r} is a file name, not a description; set "
+            f"shape.alt_text to say what it shows."
+        )
+    else:
+        message = f"{kind} has no alt text; set shape.alt_text for screen readers."
     return [
         AccessibilityIssue(
             slide=slide_idx,
             code="MissingAltText",
-            message=f"{kind} has no alt text; set shape.alt_text for screen readers.",
+            message=message,
             severity=severity,
             shape=shape.name,
         )
     ]
 
 
-def _check_contrast(slide_idx: int, shape: "BaseShape", slide: "Slide") -> list[AccessibilityIssue]:
-    """Flag low text/background contrast, reusing lint's contrast math.
+def _check_contrast(
+    slide_idx: int, shape: "BaseShape", backdrops: "_Backdrops"
+) -> list[AccessibilityIssue]:
+    """Flag low text/background contrast, exactly as the linter judges it.
 
-    Imports the contrast helpers from :mod:`power_pptx.lint` read-only.
-    Skips silently whenever colours can't be resolved (theme colours,
-    gradients, inherited backgrounds) — matching the linter's behaviour.
+    The text colour and the colour behind it are resolved by the same code
+    :class:`~power_pptx.lint.LowContrast` uses — the backdrop in painting
+    order, so text on a dark card is judged against the card — and the
+    audit skips silently whenever colours can't be resolved (theme colours,
+    gradients, inherited backgrounds), as the linter does.
     """
-    try:
-        from power_pptx.lint import (
-            _CONTRAST_THRESHOLD,
-            _contrast_ratio,
-            _resolve_solid_rgb,
-            _slide_background_rgb,
-        )
-    except Exception:
-        return []
+    from power_pptx.lint import _CONTRAST_THRESHOLD, _contrast_ratio, _first_run_rgb
 
-    if not _has_text(shape):
+    tx_body = _tx_body(shape)
+    if tx_body is None or not _has_text(shape):
         return []
-
-    tf = shape.text_frame  # type: ignore[attr-defined]
-    text_rgb = None
     try:
-        for paragraph in tf.paragraphs:
-            for run in paragraph.runs:
-                try:
-                    rgb = run.font.color.rgb
-                except (AttributeError, ValueError):
-                    rgb = None
-                if rgb is not None:
-                    text_rgb = rgb
-                    break
-            if text_rgb is not None:
-                break
+        text_rgb = _first_run_rgb(tx_body)
     except Exception:
         return []
     if text_rgb is None:
         return []
 
-    bg_rgb = None
-    try:
-        bg_rgb = _resolve_solid_rgb(shape.fill)  # type: ignore[attr-defined]
-    except Exception:
-        bg_rgb = None
-    if bg_rgb is None:
-        bg_rgb = _slide_background_rgb(slide)
+    bg_rgb = backdrops.rgb_behind(shape)
     if bg_rgb is None:
         return []
 
@@ -350,10 +382,15 @@ def audit_accessibility(
                 )
             )
 
+        backdrops = None
+        if check_contrast:
+            from power_pptx.lint import _Backdrops
+
+            backdrops = _Backdrops(slide)
         for shape in _iter_shapes_recursive(slide.shapes):
             report.issues.extend(_check_alt_text(idx, shape))
-            if check_contrast:
-                report.issues.extend(_check_contrast(idx, shape, slide))
+            if backdrops is not None:
+                report.issues.extend(_check_contrast(idx, shape, backdrops))
 
     # Order: errors first, then warnings, then info — mirrors lint.
     _order = {

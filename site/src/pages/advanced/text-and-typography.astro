@@ -234,9 +234,11 @@ box.set_text_preserving_format("Real headline from the database")`;
   <p>
     <code>column_count</code> accepts <code>1</code> through <code>16</code> and raises
     <code>ValueError</code> outside that range. Assigning <code>1</code> removes the attribute
-    rather than writing an explicit single column. Columns are laid out by PowerPoint at render
-    time, so the linter and <code>fit_text</code> — which measure the frame as one box — will
-    under-estimate how much text a two-column frame can hold.
+    rather than writing an explicit single column. Columns are laid out by the renderer.
+    <code>slide.lint()</code> follows them — it wraps the text to the column width, gutter
+    included, and lets it run down every column — but <code>fit_text</code> measures the frame
+    as one column the full width of the box, so on a multi-column frame treat its size as an
+    approximation and lint the result.
   </p>
 
   <h2 id="defaults">set_paragraph_defaults: stop styling run by run</h2>

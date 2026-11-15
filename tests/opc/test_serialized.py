@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import stat
 import zipfile
 
 import pytest
 
-from power_pptx.exc import PackageNotFoundError
+from power_pptx.exc import InvalidPackageError, PackageNotFoundError
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.package import Part, _Relationships
 from power_pptx.opc.packuri import CONTENT_TYPES_URI, PackURI
@@ -72,6 +74,20 @@ class DescribePackageReader:
 
         assert package_reader.rels_xml_for(PackURI("/ppt/slides.slide1.xml")) is None
 
+    def it_can_close_the_package_file_once_reading_is_done(self, request: FixtureRequest):
+        phys_pkg_reader_ = instance_mock(request, _PhysPkgReader)
+        _PhysPkgReader_ = class_mock(request, "power_pptx.opc.serialized._PhysPkgReader")
+        _PhysPkgReader_.factory.return_value = phys_pkg_reader_
+        package_reader = PackageReader("prs.pptx")
+
+        # -- nothing has been opened yet, so there is nothing to close (or to open) --
+        package_reader.close()
+        assert _PhysPkgReader_.factory.call_count == 0
+
+        PackURI("/ppt/presentation.xml") in package_reader  # noqa: B015
+        package_reader.close()
+        phys_pkg_reader_.close.assert_called_once_with()
+
     def it_constructs_its_blob_reader_to_help(self, request: FixtureRequest):
         phys_pkg_reader_ = instance_mock(request, _PhysPkgReader)
         _PhysPkgReader_ = class_mock(request, "power_pptx.opc.serialized._PhysPkgReader")
@@ -123,6 +139,32 @@ class DescribePackageWriter:
         _write_content_types_stream_.assert_called_once_with(package_writer, phys_writer_)
         _write_pkg_rels_.assert_called_once_with(package_writer, phys_writer_)
         _write_parts_.assert_called_once_with(package_writer, phys_writer_)
+
+    def but_it_refuses_to_write_two_parts_under_one_partname(self, relationships_: Mock):
+        stream = io.BytesIO()
+        parts = [
+            Part(PackURI("/ppt/slides/slide1.xml"), CT.PML_SLIDE, None, b"<a/>"),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None, b"<b/>"),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None, b"<c/>"),
+        ]
+
+        with pytest.raises(ValueError) as e:
+            PackageWriter.write(stream, relationships_, parts)
+
+        assert str(e.value) == (
+            "cannot write package: more than one part is named '/ppt/slides/slide2.xml'"
+        )
+        # -- nothing was written --
+        assert stream.getvalue() == b""
+
+    def and_it_treats_names_differing_only_in_case_as_the_same(self, relationships_: Mock):
+        parts = [
+            Part(PackURI("/ppt/media/Image1.png"), CT.PNG, None, b"a"),
+            Part(PackURI("/ppt/media/image1.PNG"), CT.PNG, None, b"b"),
+        ]
+
+        with pytest.raises(ValueError, match="more than one part is named"):
+            PackageWriter.write(io.BytesIO(), relationships_, parts)
 
     def it_can_write_a_content_types_stream(
         self, request: FixtureRequest, phys_writer_: Mock, relationships_: Mock, part_: Mock
@@ -225,10 +267,49 @@ class Describe_PhysPkgReader:
         _ZipPkgReader_.assert_called_once_with(pkg_file_path)
         assert phys_reader is zip_pkg_reader_
 
+    def and_it_treats_a_path_object_like_the_str_path_it_stands_for(
+        self, request: FixtureRequest, _ZipPkgReader_: Mock, zip_pkg_reader_: Mock
+    ):
+        import pathlib
+
+        _ZipPkgReader_.return_value = zip_pkg_reader_
+        dir_pkg_reader_ = instance_mock(request, _DirPkgReader)
+        _DirPkgReader_ = class_mock(
+            request, "power_pptx.opc.serialized._DirPkgReader", return_value=dir_pkg_reader_
+        )
+
+        assert _PhysPkgReader.factory(pathlib.Path(test_pptx_path)) is zip_pkg_reader_
+        assert _PhysPkgReader.factory(pathlib.Path(dir_pkg_path)) is dir_pkg_reader_
+
+        # -- the readers get the plain str, as they do for a str path --
+        _ZipPkgReader_.assert_called_once_with(test_pptx_path)
+        _DirPkgReader_.assert_called_once_with(dir_pkg_path)
+
     def but_it_raises_when_pkg_path_is_not_a_package(self):
         with pytest.raises(PackageNotFoundError) as e:
             _PhysPkgReader.factory("foobar")
         assert str(e.value) == "Package not found at 'foobar'"
+
+    def and_it_raises_the_same_for_a_path_object_that_does_not_exist(self):
+        import pathlib
+
+        with pytest.raises(PackageNotFoundError) as e:
+            _PhysPkgReader.factory(pathlib.Path("foobar"))
+        assert str(e.value) == "Package not found at 'foobar'"
+        # -- which is what a path object raised before it was given the same route as str --
+        assert isinstance(e.value, FileNotFoundError)
+        assert not isinstance(e.value, InvalidPackageError)
+
+    def and_it_raises_InvalidPackageError_when_the_file_exists_but_is_not_a_zip(self, tmp_path):
+        path = tmp_path / "notes.pptx"
+        path.write_bytes(b"just some text")
+
+        for pkg_file in (str(path), path):
+            with pytest.raises(InvalidPackageError) as e:
+                _PhysPkgReader.factory(pkg_file)
+            assert str(e.value) == (
+                "file '%s' is not a PowerPoint package (not a zip archive)" % path
+            )
 
     # --- fixture components -------------------------------
 
@@ -284,17 +365,58 @@ class Describe_ZipPkgReader:
             zip_pkg_reader[PackURI("/ppt/foobar.xml")]
         assert str(e.value) == "\"no member '/ppt/foobar.xml' in package\""
 
-    def it_loads_the_package_blobs_on_first_access_to_help(self, zip_pkg_reader: _ZipPkgReader):
-        blobs = zip_pkg_reader._blobs
-        assert len(blobs) == 38
-        assert "/ppt/presentation.xml" in blobs
-        assert "/ppt/_rels/presentation.xml.rels" in blobs
+    def it_indexes_the_package_members_on_first_access_to_help(self, zip_pkg_reader: _ZipPkgReader):
+        members = zip_pkg_reader._members
+        assert len(members) == 38
+        assert "/ppt/presentation.xml" in members
+        assert "/ppt/_rels/presentation.xml.rels" in members
+
+    def it_inflates_a_member_only_when_it_is_asked_for(self, request: FixtureRequest):
+        """Loading every member up front let an unreferenced one exhaust memory."""
+        read_ = method_mock(request, zipfile.ZipFile, "read", return_value=b"blob")
+        zip_pkg_reader = _ZipPkgReader(zip_pkg_path)
+        request.addfinalizer(zip_pkg_reader.close)
+
+        assert PackURI("/ppt/presentation.xml") in zip_pkg_reader
+        assert len(zip_pkg_reader._members) == 38
+        assert read_.call_count == 0
+
+        assert zip_pkg_reader[PackURI("/ppt/presentation.xml")] == b"blob"
+        assert [c.args[1].filename for c in read_.call_args_list] == ["ppt/presentation.xml"]
+
+    def it_raises_InvalidPackageError_when_the_stream_is_not_a_zip(self):
+        zip_pkg_reader = _ZipPkgReader(io.BytesIO(b"this is not a zip archive"))
+
+        with pytest.raises(InvalidPackageError) as e:
+            PackURI("/ppt/presentation.xml") in zip_pkg_reader  # noqa: B015
+        assert str(e.value) == (
+            "the stream provided is not a PowerPoint package (not a zip archive)"
+        )
+
+    def it_closes_the_file_it_opened_but_not_a_stream_it_was_given(self):
+        from_path = _ZipPkgReader(zip_pkg_path)
+        zipf = from_path._zipf
+        assert zipf.fp is not None
+        from_path.close()
+        assert zipf.fp is None
+        from_path.close()  # -- and closing twice is harmless --
+
+        with open(zip_pkg_path, "rb") as stream:
+            from_stream = _ZipPkgReader(stream)
+            assert PackURI("/ppt/presentation.xml") in from_stream
+            from_stream.close()
+            assert not stream.closed
+
+        never_opened = _ZipPkgReader("no-such-file.pptx")
+        never_opened.close()
 
     # --- fixture components -------------------------------
 
     @pytest.fixture
     def zip_pkg_reader(self):
-        return _ZipPkgReader(zip_pkg_path)
+        zip_pkg_reader = _ZipPkgReader(zip_pkg_path)
+        yield zip_pkg_reader
+        zip_pkg_reader.close()
 
 
 class Describe_PhysPkgWriter:
@@ -337,14 +459,144 @@ class Describe_ZipPkgWriter:
 
     def it_provides_access_to_the_open_zip_file_to_help(self, request: FixtureRequest):
         ZipFile_ = class_mock(request, "power_pptx.opc.serialized.zipfile.ZipFile")
-        pkg_writer = _ZipPkgWriter("prs.pptx")
+        stream = io.BytesIO()
+        pkg_writer = _ZipPkgWriter(stream)
 
         zipf = pkg_writer._zipf
 
         ZipFile_.assert_called_once_with(
-            "prs.pptx", "w", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False
+            stream, "w", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False
         )
         assert zipf is ZipFile_.return_value
+
+    def but_it_opens_a_temporary_sibling_file_when_the_package_goes_to_a_path(
+        self, request: FixtureRequest, tmp_path
+    ):
+        """Writing straight to the destination left a truncated file when a save failed."""
+        ZipFile_ = class_mock(request, "power_pptx.opc.serialized.zipfile.ZipFile")
+        path = tmp_path / "prs.pptx"
+        pkg_writer = _ZipPkgWriter(str(path))
+
+        zipf = pkg_writer._zipf
+
+        (target, mode), kwargs = ZipFile_.call_args
+        assert zipf is ZipFile_.return_value
+        assert mode == "w"
+        assert kwargs == {"compression": zipfile.ZIP_DEFLATED, "strict_timestamps": False}
+        assert os.path.dirname(target) == str(tmp_path)
+        assert os.path.basename(target).startswith(".prs.pptx.")
+        assert target.endswith(".tmp")
+        assert os.path.isfile(target)
+        assert not path.exists()
+        # -- an exit on error discards the temporary file --
+        pkg_writer.__exit__(ValueError, ValueError("boom"), None)
+        assert os.listdir(tmp_path) == []
+
+    def it_moves_the_finished_archive_into_place_on_a_clean_exit(self, tmp_path):
+        path = tmp_path / "prs.pptx"
+        path.write_bytes(b"previous contents")
+
+        with _ZipPkgWriter(str(path)) as pkg_writer:
+            pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+            # -- until the context exits, the destination is still the previous file --
+            assert path.read_bytes() == b"previous contents"
+
+        assert os.listdir(tmp_path) == ["prs.pptx"]
+        with zipfile.ZipFile(path) as z:
+            assert z.read("part/name.xml") == b"blob"
+
+    def but_it_leaves_the_destination_untouched_when_the_context_exits_on_an_error(self, tmp_path):
+        path = tmp_path / "prs.pptx"
+        path.write_bytes(b"previous contents")
+        missing = tmp_path / "new.pptx"
+
+        for target in (path, missing):
+            with pytest.raises(RuntimeError, match="boom"):
+                with _ZipPkgWriter(target) as pkg_writer:
+                    pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+                    raise RuntimeError("boom")
+
+        assert path.read_bytes() == b"previous contents"
+        assert not missing.exists()
+        assert os.listdir(tmp_path) == ["prs.pptx"]
+
+    def and_when_the_archive_cannot_be_completed(self, request: FixtureRequest, tmp_path):
+        path = tmp_path / "prs.pptx"
+        path.write_bytes(b"previous contents")
+        method_mock(request, zipfile.ZipFile, "close", side_effect=OSError("disk full"))
+
+        with pytest.raises(OSError, match="disk full"):
+            with _ZipPkgWriter(str(path)) as pkg_writer:
+                pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+
+        assert path.read_bytes() == b"previous contents"
+        assert os.listdir(tmp_path) == ["prs.pptx"]
+
+    def it_keeps_the_permissions_of_a_file_it_replaces(self, tmp_path):
+        if os.name != "posix":
+            pytest.skip("POSIX permission bits")
+        path = tmp_path / "prs.pptx"
+        path.write_bytes(b"previous contents")
+        os.chmod(path, 0o640)
+        new_path = tmp_path / "new.pptx"
+        umask = os.umask(0o027)
+        try:
+            for target in (path, new_path):
+                with _ZipPkgWriter(str(target)) as pkg_writer:
+                    pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+        finally:
+            os.umask(umask)
+
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o640
+        # -- and a new file gets what any newly created file would --
+        assert stat.S_IMODE(os.stat(new_path).st_mode) == 0o666 & ~0o027
+
+    def it_writes_through_a_symlink_to_the_file_it_points_at(self, tmp_path):
+        real = tmp_path / "real.pptx"
+        real.write_bytes(b"previous contents")
+        link = tmp_path / "link.pptx"
+        try:
+            link.symlink_to(real)
+        except (OSError, NotImplementedError):  # pragma: no cover - no symlink privilege
+            pytest.skip("symbolic links are not available here")
+
+        with _ZipPkgWriter(str(link)) as pkg_writer:
+            pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+
+        assert link.is_symlink()
+        assert zipfile.is_zipfile(real)
+        assert sorted(os.listdir(tmp_path)) == ["link.pptx", "real.pptx"]
+
+    def it_writes_in_place_to_a_path_that_is_not_a_regular_file(self):
+        if not os.path.exists("/dev/null"):
+            pytest.skip("needs /dev/null")
+
+        pkg_writer = _ZipPkgWriter("/dev/null")
+
+        assert pkg_writer._write_target() == "/dev/null"
+        assert pkg_writer._temp_path is None
+        with pkg_writer:
+            pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+        assert not os.path.isfile("/dev/null")
+
+    def and_in_place_where_no_sibling_file_can_be_created(self, tmp_path, monkeypatch):
+        path = tmp_path / "prs.pptx"
+        real_open = os.open
+
+        def no_new_files(name, flags, *args, **kwargs):
+            if flags & os.O_EXCL:
+                raise PermissionError(13, "Permission denied", name)
+            return real_open(name, flags, *args, **kwargs)
+
+        monkeypatch.setattr(os, "open", no_new_files)
+
+        pkg_writer = _ZipPkgWriter(str(path))
+        assert pkg_writer._write_target() == str(path)
+        with pkg_writer:
+            pkg_writer.write(PackURI("/part/name.xml"), b"blob")
+
+        assert zipfile.is_zipfile(path)
+        assert os.listdir(tmp_path) == ["prs.pptx"]
 
     # fixtures ---------------------------------------------
 

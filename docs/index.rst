@@ -22,10 +22,13 @@ Feature support
 
 |pp| has the following capabilities:
 
-* Round-trip any Open XML presentation (.pptx file) including all its elements
+* Round-trip any Open XML presentation (.pptx file) including all its
+  elements; open and save templates (.potx) and slide shows (.ppsx) as well
 * Add slides, populate text placeholders, add images, textboxes, tables, auto
   shapes (polygons, flowchart shapes, etc.), and column / bar / line / pie
   charts at arbitrary positions and sizes
+* Remove, duplicate, reorder and hide slides; set the slide size (with limits
+  and fit-to-limits for oversize walls) and the *Set Up Slide Show* options
 * Access and change core document properties such as title and subject
 * Apply visual effects (shadows, glow, soft edges, blur, reflection) and
   alpha-tinted colors via non-mutating proxies on every shape
@@ -34,14 +37,18 @@ Feature support
 * Read and write the active theme's color scheme and major/minor fonts;
   apply a theme imported from a ``.potx``
 * Compose presentations from a JSON spec — including free-standing shapes
-  with declared overlap intent — import slides between decks, and apply a
-  template to existing slides
+  with declared overlap intent, and a safe mode for specs written by a model
+  or a user — import slides between decks, and apply a template to existing
+  slides
+* Fit text to its box before saving with the same font metrics the linter
+  uses, wrapping where PowerPoint and LibreOffice wrap
 * Run a layout linter on each slide to detect text overflow, off-slide
   shapes, and shape collisions; auto-fix clamps off-slide shapes,
-  resolves text overflow, snaps grid drift, and restacks contradicted
-  layer declarations, with ``lint_on_save`` to gate the whole deck
-* Build with a design-token system, opinionated slide recipes, and ``Grid`` /
-  ``Stack`` layout primitives
+  makes overflowing text fit, restacks contradicted layer declarations and,
+  when asked, snaps grid drift, with ``lint_on_save`` to gate the whole deck
+  and a ``power-pptx lint`` command to gate saved decks in CI
+* Build with a design-token system, opinionated slide recipes, diagram
+  recipes, and ``Grid`` / ``Stack`` layout primitives
 * Recolor charts from named palettes and toggle title / legend / axis-label
   / gridline visibility through quick-layout presets
 * Render slide thumbnails through LibreOffice when one is on ``$PATH``

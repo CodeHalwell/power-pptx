@@ -26,21 +26,27 @@ sys.path.insert(0, str(HERE))
 from power_pptx.chart.data import CategoryChartData
 from power_pptx.design.recipes import kpi_slide
 from power_pptx.enum.chart import XL_CHART_TYPE
-from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR
 from power_pptx.util import Inches, Pt
 
 from _brand import OPS as TOKENS, OPS_PALETTE as PALETTE
 from _common import (
     closing_slide,
+    color_delta,
     cover_slide,
     divider,
     eyebrow,
     footer,
+    hairline_below,
     hex_rgb,
     lint_or_die,
     new_deck,
     section_title,
+    shade_cell,
+    status_cell,
     styled_card,
+    table_body_text,
+    table_header_row,
 )
 
 FOOTER = "Operational Excellence  |  FY26 Annual Update  |  Internal"
@@ -178,51 +184,36 @@ def _oee_by_site(prs) -> None:
     table.columns[5].width = Inches(1.7)
     table.columns[6].width = Inches(1.6)
 
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(12)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-
-    status_color = {"G": TOKENS.palette["positive"], "A": "#F59E0B", "R": TOKENS.palette["negative"]}
-    status_label = {"G": "ON TARGET", "A": "WATCH", "R": "BEHIND"}
+    table_header_row(table, rows[0], TOKENS)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
             cell = table.cell(r, c)
             if c == 6:
-                cell.text = status_label[value]
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(status_color[value])
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(11)
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb("#FFFFFF")
-                p.alignment = PP_ALIGN.CENTER
+                status_cell(cell, *SITE_STATUS[value])
             else:
-                cell.text = value
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(11)
-                p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-                if c == 0:
-                    p.font.bold = True
-                if c == 5 and value.startswith("−"):
-                    p.font.color.rgb = hex_rgb(TOKENS.palette["negative"])
-                    p.font.bold = True
-                if c == 5 and value.startswith("+"):
-                    p.font.color.rgb = hex_rgb(TOKENS.palette["positive"])
-                    p.font.bold = True
-                if r % 2 == 0:
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
+                _site_metric_cell(cell, r, c, value)
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            hairline_below(cell)
     footer(slide, FOOTER, "4", TOKENS)
+
+
+#: Site status code -> (label, fill) for the OEE table's status column.
+SITE_STATUS = {
+    "G": ("ON TARGET", TOKENS.palette["positive"]),
+    "A": ("WATCH", "#F59E0B"),
+    "R": ("BEHIND", TOKENS.palette["negative"]),
+}
+
+
+def _site_metric_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold site names, a coloured "vs. Target" delta, zebra-striped rows."""
+    p = table_body_text(cell, value, TOKENS, size=11)
+    if c == 0:
+        p.font.bold = True
+    if c == 5:
+        color_delta(p, value, TOKENS)
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
 
 
 def _quality_progress(prs) -> None:

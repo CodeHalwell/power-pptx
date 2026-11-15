@@ -211,8 +211,7 @@ def _scatter_headline(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "value_axis":    {"has_major_gridlines": True},
-        "category_axis": {"has_major_gridlines": False},
+        "has_major_gridlines": True,   # value axis; flat keys only
     })
 
     cap = slide.shapes.add_textbox(
@@ -405,8 +404,7 @@ def _small_multiples(prs: Presentation) -> None:
             "has_title": True,
             "title_text": name,
             "has_legend": False,
-            "category_axis": {"has_major_gridlines": False},
-            "value_axis":    {"has_major_gridlines": True},
+            "has_major_gridlines": True,   # value axis; flat keys only
         })
 
 

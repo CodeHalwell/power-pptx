@@ -1,21 +1,25 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx.design.tokens import DesignTokens
 
 tokens = DesignTokens.from_dict({      # dict-shaped tokens
-    "palette": {"primary": "#0B5CFF", "ink": "#0D0D0D"},
-    "typography": {"heading": {"family": "Inter", "size": 44.0},
-                   "body": {"family": "Inter", "size": 18.0}},
-    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+    "palette": {"primary": "#0B5CFF", "ink": [13, 13, 13]},   # hex or [r, g, b]
+    "typography": {"heading": {"family": "Inter", "size": 44},   # bare number = pt
+                   "body": {"family": "Inter", "size": 18}},
+    "shadows": {"card": {"blur": 18, "distance": 4, "alpha": 0.18}},  # blur = blur_radius
 })
 tokens = DesignTokens.from_yaml("brand.yaml")   # needs pyyaml
-tokens = DesignTokens.from_pptx("brand.pptx")   # lift palette+fonts from a deck
+tokens = DesignTokens.from_pptx("brand.pptx")   # path, Path, binary file or Presentation
+tokens = tokens.with_overrides({"typography.heading.size": 40})
+tokens = tokens.merge(DesignTokens.from_dict({"palette": {"accent": "#FF6600"}}))
 
 # token namespaces: palette, typography, shadows, radii, spacings
 tokens.palette["accent1"]              # -> RGBColor (pass straight to setters)
-tokens.typography["body"]              # -> TypographyToken (family, size, ...)`;
+tokens.typography["heading"]           # -> TypographyToken (family, size, ...)
+tokens.typography["heading"].size.pt   # 40.0 - lengths are Length objects`;
 
 const s1 = `from power_pptx import Presentation, BBox
 from power_pptx.design.layout import Grid, Stack
@@ -48,7 +52,26 @@ kpi_slide(prs, title="KPIs",
           kpis=[{"label": "ARR", "value": "$4.2M", "delta": +0.08}],
           tokens=tokens)
 quote_slide(prs, quote="Ship it.", attribution="The team", tokens=tokens)
-image_hero_slide(prs, title="Big news", image="hero.png", tokens=tokens)`;
+image_hero_slide(prs, title="Big news", image="hero.png", tokens=tokens)
+
+from power_pptx.design.recipes import (
+    section_divider, chart_slide, table_slide, code_slide,
+    timeline_slide, comparison_slide, figure_slide,
+)
+
+section_divider(prs, title="Part two", eyebrow="Roadmap", progress=(2, 4))
+chart_slide(prs, title="ARR", chart_type="line", categories=["Q1", "Q2", "Q3"],
+            series=[{"name": "ARR", "values": [1.2, None, 2.4]}])   # None = gap
+table_slide(prs, title="Owners", columns=["Region", "Owner"],
+            rows=[["EMEA", "Priya"]], widths=[2, 1])      # relative weights
+code_slide(prs, title="Setup", code="pip install power-pptx",
+           font=None, overflow="truncate")                # or overflow="raise"
+timeline_slide(prs, title="Plan", milestones=[{"label": "Beta", "date": "Q3"},
+                                              {"label": "GA", "date": "Q4"}])
+comparison_slide(prs, title="Before / after", left_heading="Before",
+                 right_heading="After", rows=[{"left": "Manual", "right": "Automated"}])
+figure_slide(prs, title="Adoption", figure="chart.png",
+             fit="contain")                               # | "cover" | "stretch"`;
 
 const s3 = `from power_pptx import (
     add_kpi_card, add_progress_bar, add_gauge,
@@ -78,12 +101,28 @@ add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
 >
   <h2 id="tokens"><code>DesignTokens</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s0} />
+  <p>
+    A bare number in a length field is points; a bare integer of 12700 or more is still EMU, and a
+    <code>Length</code> is kept as given. Unknown typography and shadow keys, and near-miss section
+    names, raise <code>ValueError</code> with a did-you-mean hint. See
+    <a href={withBase("/advanced/design")}>Design System</a>.
+  </p>
 
   <h2 id="layout"><code>Grid</code> / <code>Stack</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s1} />
 
   <h2 id="recipes">Slide recipes <strong class="text-primary">fork</strong></h2>
   <Code code={s2} />
+  <p>
+    Every recipe appends a slide on the Blank layout (or the layout with the fewest placeholders,
+    emptied) and returns it; all take <code>tokens=</code> and <code>transition=</code>. Content
+    that cannot fit at 9pt raises <code>ValueError</code> saying how much fits, and malformed item
+    dicts (<code>kpis</code>, <code>milestones</code>, comparison <code>rows</code>, chart
+    <code>series</code>) raise with a did-you-mean hint; a failed recipe leaves no slide behind.
+    <code>table_slide(widths=)</code> reads bare numbers as relative weights and
+    <code>Length</code> values as exact widths. <code>figure_slide(fit=)</code> defaults to
+    <code>"contain"</code>, keeping the figure's aspect ratio.
+  </p>
 
   <h2 id="components">Shape components &amp; figure adapters <strong class="text-primary">fork</strong></h2>
   <Code code={s3} />

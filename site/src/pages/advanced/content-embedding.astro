@@ -16,6 +16,11 @@ prs = from_html(
     # For asynchronous charts: wait_for_function="window.deckReady === true"
 )
 prs.save("deck.pptx")`;
+const untrusted = `add_html_figure(slide, generated_html, *BBox.from_inches(1, 1, 8, 4.5),
+                allow_network=False)
+# ValueError: HTML capture blocked 1 request(s) because allow_network=False:
+#   https://example.com/logo.png. Inline what the document needs (data: URLs,
+#   <style>, <script>), or capture with allow_network=True if you trust the document.`;
 const element = `from power_pptx import BBox, add_html_figure, add_svg_figure
 
 picture = add_html_figure(
@@ -53,8 +58,31 @@ add_svg_figure(slide, "logo.svg", *BBox.from_inches(0.5, 0.5, 2, 1))`;
   <p>
     The <code>[html]</code> and <code>[svg]</code> extras are also available separately.
     An existing Chromium can be selected with <code>browser_path</code> or
-    <code>POWER_PPTX_CHROMIUM</code>. These APIs are new in this source tree; check availability
-    when using a pinned older package.
+    <code>POWER_PPTX_CHROMIUM</code>; <code>browser_path</code> names a program to run, so never
+    fill it from model or user input (a spec cannot set it at all). <code>from_html</code> needs
+    power-pptx 2.13 or later and <code>allow_network</code> 2.15. The capture functions are
+    synchronous: in an async application call them in a worker thread
+    (<code>await asyncio.to_thread(from_html, ...)</code>); calling one on a thread running an
+    event loop raises an error saying so.
+  </p>
+
+  <h2 id="untrusted">HTML you did not write: <code>allow_network=False</code></h2>
+  <p>
+    Capturing HTML means running it in a browser with whatever network access the process has, so
+    a page could fetch an internal URL in an <code>&lt;iframe&gt;</code> and bake the answer into
+    the slide. When the markup comes from a model, a user or anywhere else you do not control,
+    pass <code>allow_network=False</code> to <code>add_html_figure</code>,
+    <code>add_plotly_figure</code> or <code>from_html</code>:
+  </p>
+  <Code code={untrusted} />
+  <p>
+    The page may then load only <code>data:</code> and <code>blob:</code> URLs and, for a file
+    input, the files in its own directory. Everything else is blocked — including channels request
+    routing cannot see, such as a WebSocket opened from a worker — and the capture raises
+    <code>ValueError</code> listing the blocked URLs rather than producing a picture with pieces
+    missing. Inline what the page needs. <code>from_spec(spec, safe=True)</code> sets this for
+    every figure in a spec. Independently of it, the loopback server used for <code>.html</code>
+    paths never lists directories or follows a link out of the document's directory.
   </p>
   <h2 id="sections">Styled sections into a deck</h2>
   <Code code={deck} />

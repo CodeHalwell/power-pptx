@@ -9,6 +9,8 @@ check that ordinary "does it reopen" tests miss.
 from __future__ import annotations
 
 import io
+import re
+import zipfile
 
 import pytest
 
@@ -55,7 +57,9 @@ def _deck_effects_and_3d() -> bytes:
 
     prs = Presentation()
     s = _blank_slide(prs)
-    sh = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5))
+    sh = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5)
+    )
     sh.fill.solid()
     sh.fill.fore_color.rgb = RGBColor(0x33, 0xA7, 0xFF)
     # geometry-only shadow + glow (must still carry a colour child)
@@ -163,9 +167,14 @@ def _deck_chart_types() -> bytes:
     cat.add_series("S1", (1, 2, 3))
     cat.add_series("S2", (3, 2, 1))
     for ct in (
-        XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.COLUMN_STACKED,
-        XL_CHART_TYPE.BAR_CLUSTERED, XL_CHART_TYPE.LINE, XL_CHART_TYPE.LINE_MARKERS,
-        XL_CHART_TYPE.AREA, XL_CHART_TYPE.AREA_STACKED, XL_CHART_TYPE.RADAR,
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        XL_CHART_TYPE.COLUMN_STACKED,
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        XL_CHART_TYPE.LINE,
+        XL_CHART_TYPE.LINE_MARKERS,
+        XL_CHART_TYPE.AREA,
+        XL_CHART_TYPE.AREA_STACKED,
+        XL_CHART_TYPE.RADAR,
         XL_CHART_TYPE.RADAR_MARKERS,
     ):
         s.shapes.add_chart(ct, Inches(0.5), Inches(0.5), Inches(3), Inches(2), cat)
@@ -261,9 +270,7 @@ def _deck_embedded_font() -> bytes:
 
     from power_pptx.theme import embed_font
 
-    ttf = os.path.join(
-        os.path.dirname(__file__), "..", "test_files", "calibriz.ttf"
-    )
+    ttf = os.path.join(os.path.dirname(__file__), "..", "test_files", "calibriz.ttf")
     if not os.path.isfile(ttf):
         pytest.skip("calibriz.ttf fixture is unavailable")
 
@@ -300,7 +307,9 @@ def _deck_ole_objects() -> bytes:
 
 
 def _deck_picture_washout() -> bytes:
-    # Regression: recolor "washout" must write the required <a:biLevel thresh="…">.
+    # Regression: <a:biLevel> must carry its required thresh="…". That element
+    # is the "black_and_white" recolor; "washout", which used to write it, is
+    # now PowerPoint's <a:lum bright="70000" contrast="-70000"/>.
     png = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
         "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
@@ -310,6 +319,8 @@ def _deck_picture_washout() -> bytes:
     s = _blank_slide(prs)
     pic = s.shapes.add_picture(io.BytesIO(png), Inches(1), Inches(1), Inches(2), Inches(2))
     pic.effects.recolor = "washout"
+    pic2 = s.shapes.add_picture(io.BytesIO(png), Inches(4), Inches(1), Inches(2), Inches(2))
+    pic2.effects.recolor = "black_and_white"
     return _saved(prs)
 
 
@@ -540,18 +551,49 @@ def _deck_lint_relationship_model() -> bytes:
     return _saved(prs)
 
 
+def _deck_lint_text_fixes() -> bytes:
+    """Every kind of XML ``auto_fix()`` writes to make overflowing text fit.
+
+    ``<a:normAutofit fontScale lnSpcReduction>``, run sizes reduced in place
+    (including ``<a:endParaRPr>``), a resized auto-fit shape, and a table row
+    grown to its text.
+    """
+    from power_pptx.enum.text import MSO_AUTO_SIZE
+
+    text = "Revenue grew faster than forecast across every region this quarter " * 3
+    prs = Presentation()
+    s = _blank_slide(prs)
+    shrink = s.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(3), Inches(1))
+    shrink.text_frame.text = text
+    fixed = s.shapes.add_textbox(Inches(4), Inches(0.5), Inches(3), Inches(1))
+    fixed.text_frame.word_wrap = True
+    fixed.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    fixed.text_frame.text = text + "\n\nsecond paragraph"
+    grow = s.shapes.add_textbox(Inches(0.5), Inches(2), Inches(3), Inches(0.5))
+    grow.text_frame.word_wrap = True
+    grow.text_frame.text = text
+    table = s.shapes.add_table(2, 2, Inches(4), Inches(2), Inches(4), Inches(0.8)).table
+    table.cell(1, 1).text = text
+    fixes = s.tidy()
+    assert len(fixes) == 4, fixes
+    return _saved(prs)
+
+
 def _deck_svg_embedding() -> bytes:
     from PIL import Image
 
     prs = Presentation()
     fallback = io.BytesIO()
     Image.new("RGB", (200, 100), "#214b44").save(fallback, format="PNG")
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">'
-           '<rect width="200" height="100" fill="#214b44"/></svg>')
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">'
+        '<rect width="200" height="100" fill="#214b44"/></svg>'
+    )
     for _ in range(2):
         slide = _blank_slide(prs)
-        slide.shapes.add_svg_picture(svg, Inches(1), Inches(1), Inches(4), Inches(2),
-                                     png_fallback=fallback.getvalue())
+        slide.shapes.add_svg_picture(
+            svg, Inches(1), Inches(1), Inches(4), Inches(2), png_fallback=fallback.getvalue()
+        )
     return _saved(prs)
 
 
@@ -614,6 +656,7 @@ _DECK_BUILDERS = {
     "diagrams": _deck_diagrams,
     "ergonomics": _deck_ergonomics,
     "lint_relationship_model": _deck_lint_relationship_model,
+    "lint_text_fixes": _deck_lint_text_fixes,
 }
 
 
@@ -654,6 +697,73 @@ class DescribeGeneratedDeckSchemaValidity:
         dst = Presentation()
         dst.import_slide(src.slides[0])
         assert_schema_valid(_saved(dst))
+
+    def it_validates_an_imported_slide_that_linked_to_another_slide(self):
+        # A slide-jump link is re-pointed when its target is in the
+        # destination and removed otherwise; neither outcome may leave a
+        # dangling r:id or an unregistered (orphan) slide part behind.
+        src = Presentation()
+        a = _blank_slide(src)
+        b = _blank_slide(src)
+        button = a.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        button.text_frame.text = "next"
+        button.click_action.target_slide = b
+
+        link_dropped = Presentation()
+        link_dropped.import_slide(a)
+        assert_schema_valid(_saved(link_dropped))
+
+        link_kept = Presentation()
+        link_kept.import_slide(b)
+        link_kept.import_slide(a)
+        assert_schema_valid(_saved(link_kept))
+
+        same_deck = Presentation(io.BytesIO(_saved(src)))
+        same_deck.import_slide(same_deck.slides[0])
+        assert_schema_valid(_saved(same_deck))
+
+    def it_validates_a_deck_after_apply_template(self):
+        # apply_template must leave every p:sldLayoutId pointing at a layout
+        # (not the theme) and every master/layout picture reference resolved.
+        from copy import deepcopy
+
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+            "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+            "0049454e44ae426082"
+        )
+
+        def add_picture_to(owner, prs):
+            scratch = prs.slides.add_slide(prs.slide_layouts[6])
+            pic = scratch.shapes.add_picture(io.BytesIO(png), 0, 0, Inches(1), Inches(1))
+            image_part = scratch.part.related_part(pic._element.blip_rId)
+            pic_el = deepcopy(pic._element)
+            pic_el.blipFill.blip.rEmbed = owner.part.relate_to(image_part, RT.IMAGE)
+            pic_el.nvPicPr.cNvPr.id = 1 + max(int(v) for v in owner._element.xpath("//p:cNvPr/@id"))
+            owner.shapes._spTree.append(pic_el)
+            sldIdLst = prs.slides._sldIdLst
+            prs.part.drop_rel(sldIdLst[-1].rId)
+            sldIdLst.remove(sldIdLst[-1])
+
+        plain_template = io.BytesIO(_saved(Presentation()))
+        branded = Presentation()
+        add_picture_to(branded.slide_master, branded)
+        add_picture_to(branded.slide_layouts[1], branded)
+        branded_template = io.BytesIO(_saved(branded))
+        assert_schema_valid(branded_template.getvalue())
+
+        for template in (plain_template, branded_template):
+            deck = Presentation()
+            deck.slides.add_slide(deck.slide_layouts[1]).shapes.title.text = "hello"
+            deck.apply_template(template)
+            assert_schema_valid(_saved(deck))
+            # ...and still valid after carrying on authoring, and a reopen.
+            deck.slides.add_slide(deck.slide_layouts[5])
+            reopened = Presentation(io.BytesIO(_saved(deck)))
+            reopened.slides.add_slide(reopened.slide_layouts[0])
+            assert_schema_valid(_saved(reopened))
 
     def it_reports_violations_as_part_message_pairs(self):
         # The validator's own contract: a clean deck yields no violations.
@@ -713,11 +823,7 @@ class DescribeGeneratedDeckSchemaValidity:
         data = _deck_ole_objects()
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             doc = etree.fromstring(zf.read("ppt/slides/slide1.xml"))
-        ids = [
-            el.get("id")
-            for el in doc.iter()
-            if etree.QName(el).localname == "cNvPr"
-        ]
+        ids = [el.get("id") for el in doc.iter() if etree.QName(el).localname == "cNvPr"]
         assert "0" not in ids, ids
         assert len(ids) == len(set(ids)), "duplicate shape ids: %s" % ids
 
@@ -785,8 +891,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "_rels/.rels" and "docProps/core.xml" in msg
-            for part, msg in violations
+            part == "_rels/.rels" and "docProps/core.xml" in msg for part, msg in violations
         ), violations
 
     def it_detects_a_duplicate_zip_member_name(self):
@@ -810,8 +915,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "ppt/slides/slide1.xml" and "more than once" in msg
-            for part, msg in violations
+            part == "ppt/slides/slide1.xml" and "more than once" in msg for part, msg in violations
         ), violations
 
     def it_detects_an_orphan_slide_part(self):
@@ -868,3 +972,462 @@ class DescribeGeneratedDeckSchemaValidity:
             part == "ppt/media/orphan.xyz" and "not declared in [Content_Types].xml" in msg
             for part, msg in violations
         ), violations
+
+
+def _rewritten(blob: bytes, edits) -> bytes:
+    """Return package *blob* with ``edits[name](data)`` applied to the named members."""
+    import zipfile
+
+    out = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(blob)) as zin,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for name in zin.namelist():
+            data = zin.read(name)
+            zout.writestr(name, edits[name](data) if name in edits else data)
+    return out.getvalue()
+
+
+def _with_doctype(doctype: bytes):
+    """Return an edit that puts *doctype* between a part's XML declaration and its root."""
+
+    def edit(data: bytes) -> bytes:
+        declaration, root = data.split(b"?>", 1)
+        return declaration + b"?>" + doctype + root
+
+    return edit
+
+
+_REL_TYPES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+
+
+def _rel_ids(blob: bytes, rels_name: str, rel_type: str) -> "list[str]":
+    """Return the ids of the *rel_type* relationships (``"theme"``, …) in *rels_name*."""
+    import zipfile
+
+    from lxml import etree
+
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        rels = etree.fromstring(zf.read(rels_name))
+    return [rel.get("Id") for rel in rels if rel.get("Type") == _REL_TYPES + rel_type]
+
+
+class DescribeIdListReferences:
+    """An id-list entry must name a relationship of its own kind.
+
+    The XML here is edited by hand: the checks must hold whatever produced
+    the package, and must not depend on the code that used to produce it.
+    """
+
+    MASTER = "ppt/slideMasters/slideMaster1.xml"
+    MASTER_RELS = "ppt/slideMasters/_rels/slideMaster1.xml.rels"
+    PRESENTATION_RELS = "ppt/_rels/presentation.xml.rels"
+
+    def it_detects_a_layout_id_that_resolves_to_the_theme(self):
+        # -- what a master is left with when its relationship ids shift by one --
+        original = _deck_blank()
+        (theme_rid,) = _rel_ids(original, self.MASTER_RELS, "theme")
+        layout_rid = _rel_ids(original, self.MASTER_RELS, "slideLayout")[0]
+
+        def edit(data: bytes) -> bytes:
+            old = b'r:id="%s"/>' % layout_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'r:id="%s"/>' % theme_rid.encode())
+
+        violations = list(iter_schema_violations(_rewritten(original, {self.MASTER: edit})))
+
+        assert violations == [
+            (
+                self.MASTER,
+                "<sldLayoutId> r:id=%r resolves to a relationship of type 'theme', not "
+                "'slideLayout' — PowerPoint repairs an id list that points at the wrong "
+                "kind of part" % theme_rid,
+            )
+        ]
+
+    def it_detects_a_slide_id_that_resolves_to_a_master(self):
+        original = _deck_blank()
+        (slide_rid,) = _rel_ids(original, self.PRESENTATION_RELS, "slide")
+        (master_rid,) = _rel_ids(original, self.PRESENTATION_RELS, "slideMaster")
+
+        def edit(data: bytes) -> bytes:
+            old = b'<p:sldId id="256" r:id="%s"/>' % slide_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'<p:sldId id="256" r:id="%s"/>' % master_rid.encode())
+
+        violations = list(
+            iter_schema_violations(_rewritten(original, {"ppt/presentation.xml": edit}))
+        )
+
+        assert (
+            "ppt/presentation.xml",
+            "<sldId> r:id=%r resolves to a relationship of type 'slideMaster', not 'slide' — "
+            "PowerPoint repairs an id list that points at the wrong kind of part" % master_rid,
+        ) in violations
+
+    def it_leaves_a_missing_relationship_to_the_dangling_reference_check(self):
+        original = _deck_blank()
+        layout_rid = _rel_ids(original, self.MASTER_RELS, "slideLayout")[0]
+
+        def edit(data: bytes) -> bytes:
+            old = b'r:id="%s"/>' % layout_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'r:id="rId999"/>')
+
+        violations = list(iter_schema_violations(_rewritten(original, {self.MASTER: edit})))
+
+        # -- one finding for one defect: there is no relationship to have a type --
+        assert len(violations) == 1
+        assert "dangling id='rId999' on <sldLayoutId>" in violations[0][1]
+
+    def but_it_accepts_the_strict_relationship_namespace(self):
+        # -- ISO "strict" packages spell relationship types under purl.oclc.org --
+        strict = b"http://purl.oclc.org/ooxml/officeDocument/relationships/"
+
+        def edit(data: bytes) -> bytes:
+            assert _REL_TYPES.encode() in data
+            return data.replace(_REL_TYPES.encode(), strict)
+
+        blob = _rewritten(_deck_blank(), {self.MASTER_RELS: edit, self.PRESENTATION_RELS: edit})
+
+        assert list(iter_schema_violations(blob)) == []
+
+
+#: A hand-written "Appear" entrance, as PowerPoint writes it, for the shape
+#: ``{target}``, with a paragraph build for the shape ``{build}``.
+_TIMING = """\
+<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot">\
+<p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" \
+nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst>\
+<p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" fill="hold">\
+<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="5" presetID="1" \
+presetClass="entr" presetSubtype="0" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst>\
+<p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1" fill="hold">\
+<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{target}"/>\
+</p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>\
+<p:to><p:strVal val="visible"/></p:to></p:set><p:animEffect transition="in" filter="fade">\
+<p:cBhvr><p:cTn id="7" dur="500"/><p:tgtEl><p:spTgt spid="{target}"/></p:tgtEl></p:cBhvr>\
+</p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst>\
+</p:cTn></p:par></p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl>\
+<p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0">\
+<p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par>\
+</p:tnLst><p:bldLst><p:bldP spid="{build}" grpId="0"/></p:bldLst></p:timing>"""
+
+
+class DescribeAnimationTargets:
+    """An animation must target a shape that is on its slide.
+
+    The timing XML is written by hand rather than through the animation API,
+    so these hold whatever produced the package.
+    """
+
+    SLIDE = "ppt/slides/slide1.xml"
+
+    def _deck(self, target, build):
+        """Return a saved deck whose slide animates shape *target* and builds *build*.
+
+        The slide holds a rectangle and, nested two groups deep, a diamond.
+        Either argument is ``"rectangle"`` or ``"nested"``, standing for that
+        shape's id, or else the id to write, as a string.
+        """
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = _blank_slide(prs)
+        self.rectangle = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        outer = slide.shapes.add_group_shape()
+        inner = outer.shapes.add_group_shape()
+        self.nested = inner.shapes.add_shape(
+            MSO_SHAPE.DIAMOND, Inches(4), Inches(1), Inches(1), Inches(1)
+        )
+
+        ids = {
+            "rectangle": str(self.rectangle.shape_id),
+            "nested": str(self.nested.shape_id),
+        }
+        timing = _TIMING.format(
+            target=ids.get(target, target), build=ids.get(build, build)
+        ).encode()
+
+        def edit(data: bytes) -> bytes:
+            assert data.count(b"</p:sld>") == 1
+            assert b"<p:timing" not in data
+            return data.replace(b"</p:sld>", timing + b"</p:sld>")
+
+        return _rewritten(_saved(prs), {self.SLIDE: edit})
+
+    def it_accepts_targets_that_are_on_the_slide(self):
+        assert list(iter_schema_violations(self._deck("rectangle", "rectangle"))) == []
+
+    def it_counts_shapes_nested_in_groups(self):
+        assert list(iter_schema_violations(self._deck("nested", "nested"))) == []
+
+    def it_compares_ids_as_numbers(self):
+        blob = self._deck("rectangle", "rectangle")
+        rectangle_id = str(self.rectangle.shape_id).encode()
+
+        def edit(data: bytes) -> bytes:
+            old = b'<p:spTgt spid="%s"/>' % rectangle_id
+            assert old in data
+            return data.replace(old, b'<p:spTgt spid="0%s"/>' % rectangle_id)
+
+        assert list(iter_schema_violations(_rewritten(blob, {self.SLIDE: edit}))) == []
+
+    def it_detects_an_animation_target_that_is_not_on_the_slide(self):
+        violations = list(iter_schema_violations(self._deck("999", "rectangle")))
+
+        # -- reported once, though two behaviours of the effect name the shape --
+        assert violations == [
+            (
+                self.SLIDE,
+                "p:spTgt spid=999 names no shape on this slide — PowerPoint repairs an "
+                "animation whose target shape is missing",
+            )
+        ]
+
+    def it_detects_a_build_entry_whose_shape_is_not_on_the_slide(self):
+        violations = list(iter_schema_violations(self._deck("nested", "4242")))
+
+        assert violations == [
+            (
+                self.SLIDE,
+                "p:bldP spid=4242 names no shape on this slide — PowerPoint repairs an "
+                "animation whose target shape is missing",
+            )
+        ]
+
+    def it_checks_only_slides_that_have_a_timeline(self):
+        # -- no p:timing, nothing to resolve: the common case costs nothing --
+        assert list(iter_schema_violations(_deck_blank())) == []
+
+
+class DescribeUntrustedPackages:
+    """The validator reads a package from anywhere without resolving entities."""
+
+    def it_reports_a_part_that_declares_a_dtd(self):
+        blob = _rewritten(
+            _deck_blank(),
+            {
+                "ppt/slides/slide1.xml": _with_doctype(b"<!DOCTYPE sld>"),
+                "ppt/slides/_rels/slide1.xml.rels": _with_doctype(b"<!DOCTYPE Relationships>"),
+            },
+        )
+
+        violations = list(iter_schema_violations(blob))
+
+        assert sorted(part for part, msg in violations if "declares a DTD" in msg) == [
+            "ppt/slides/_rels/slide1.xml.rels",
+            "ppt/slides/slide1.xml",
+        ]
+
+    def it_does_not_expand_an_entity_into_the_part_it_validates(self, tmp_path):
+        secret = tmp_path / "secret.txt"
+        secret.write_text("TOP-SECRET-MARKER")
+        doctype = (
+            b'<!DOCTYPE sld [<!ENTITY file SYSTEM "' + secret.as_uri().encode() + b'">'
+            b'<!ENTITY text "INTERNAL-ENTITY-TEXT">]>'
+        )
+
+        def edit(data: bytes) -> bytes:
+            # -- character content is not allowed in p:spTree, so an expanded
+            # -- entity would surface in a schema error --
+            assert b"<p:spTree>" in data
+            return _with_doctype(doctype)(data).replace(b"<p:spTree>", b"<p:spTree>&text;&file;")
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+
+        violations = list(iter_schema_violations(blob))
+
+        messages = [msg for part, msg in violations if part == "ppt/slides/slide1.xml"]
+        assert any("declares a DTD" in msg for msg in messages), violations
+        # -- the entities stayed references: the part could not be validated,
+        # -- rather than being validated with their text in place --
+        assert any("could not be validated" in msg for msg in messages), violations
+        assert not any("TOP-SECRET-MARKER" in msg for _, msg in violations)
+        assert not any("Character content" in msg for _, msg in violations)
+
+    def it_does_not_mistake_quoted_doctype_text_for_a_dtd(self):
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:spTree>", b"<p:spTree><!-- <!DOCTYPE x> -->")
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_accepts_comments_and_processing_instructions_in_a_part(self):
+        # -- valid XML that other producers write; these nodes have no QName,
+        # -- which used to stop the validator with a ValueError --
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:spTree>", b"<p:spTree><!-- a comment --><?producer note?>")
+
+        blob = _rewritten(
+            _deck_blank(),
+            {"ppt/slides/slide1.xml": edit, "ppt/slideMasters/slideMaster1.xml": edit},
+        )
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_reads_every_part_with_the_one_hardened_parser(self):
+        from unittest.mock import patch
+
+        from lxml import etree
+
+        from power_pptx import _schema
+
+        blob = _deck_chart()
+        parsers = []
+        real_fromstring = etree.fromstring
+
+        def recording_fromstring(text, parser=None, **kwargs):
+            parsers.append(parser)
+            return real_fromstring(text, parser, **kwargs)
+
+        with patch.object(_schema.etree, "fromstring", recording_fromstring):
+            assert list(iter_schema_violations(blob)) == []
+
+        assert parsers, "expected the validator to parse parts"
+        assert all(parser is _schema._PARSER for parser in parsers)
+
+
+def _truncated(data: bytes) -> bytes:
+    """Return part *data* cut short, so it is no longer well-formed XML."""
+    return data[:-10]
+
+
+class DescribeUnreadableParts:
+    """A part that is not well-formed is reported once, by the check that reads it."""
+
+    SLIDE = "ppt/slides/slide1.xml"
+    SLIDE_RELS = "ppt/slides/_rels/slide1.xml.rels"
+    PRESENTATION_RELS = "ppt/_rels/presentation.xml.rels"
+
+    def it_reports_a_slide_that_is_not_well_formed(self):
+        blob = _rewritten(_deck_picture_washout(), {self.SLIDE: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.SLIDE]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_a_chart_that_is_not_well_formed(self):
+        blob = _rewritten(_deck_chart(), {"ppt/charts/chart1.xml": _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == ["ppt/charts/chart1.xml"]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_a_relationships_part_that_is_not_well_formed(self):
+        # -- and does not then call each reference in the slide dangling --
+        blob = _rewritten(_deck_picture_washout(), {self.SLIDE_RELS: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.SLIDE_RELS]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_unreadable_presentation_relationships_once(self):
+        # -- the orphan-slide check needs them too, and leaves the report to this one --
+        blob = _rewritten(_deck_blank(), {self.PRESENTATION_RELS: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.PRESENTATION_RELS]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_each_unreadable_relationships_part_in_name_order(self):
+        blob = _rewritten(
+            _deck_blank(),
+            {self.SLIDE_RELS: _truncated, "_rels/.rels": _truncated},
+        )
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == ["_rels/.rels", self.SLIDE_RELS]
+
+
+class DescribeRelationshipTargets:
+    """Every internal relationship must name a part that is in the package."""
+
+    SLIDE_RELS = "ppt/slides/_rels/slide1.xml.rels"
+
+    def _with_relationships(self, relationships: bytes) -> bytes:
+        def edit(data: bytes) -> bytes:
+            assert data.count(b"</Relationships>") == 1
+            return data.replace(b"</Relationships>", relationships + b"</Relationships>")
+
+        return _rewritten(_deck_blank(), {self.SLIDE_RELS: edit})
+
+    def it_does_not_look_for_the_target_of_an_external_relationship(self):
+        blob = self._with_relationships(
+            b'<Relationship Id="rId90" Type="http://example.com/link" '
+            b'Target="http://example.com/" TargetMode="External"/>'
+        )
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_resolves_a_target_against_the_folder_of_its_source(self):
+        blob = self._with_relationships(
+            b'<Relationship Id="rId90" Type="http://example.com/image" '
+            b'Target="../media/absent.png"/>'
+            b'<Relationship Id="rId91" Type="http://example.com/image" '
+            b'Target="/ppt/media/absent.png"/>'
+            b'<Relationship Id="rId92" Type="http://example.com/image"/>'
+        )
+
+        assert list(iter_schema_violations(blob)) == [
+            (self.SLIDE_RELS, "relationship rId90 points at missing part 'ppt/media/absent.png'"),
+            (self.SLIDE_RELS, "relationship rId91 points at missing part 'ppt/media/absent.png'"),
+            (self.SLIDE_RELS, "relationship rId92 points at missing part 'ppt/slides'"),
+        ]
+
+    def it_reports_every_dangling_reference_in_a_part_without_relationships(self):
+        blob = _deck_picture_washout()
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            slide = zf.read("ppt/slides/slide1.xml").decode()
+        embeds = re.findall(r'r:embed="([^"]+)"', slide)
+        assert len(embeds) == 2
+
+        out = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(blob)) as zin, zipfile.ZipFile(out, "w") as zout:
+            for name in zin.namelist():
+                if name != self.SLIDE_RELS:
+                    zout.writestr(name, zin.read(name))
+
+        violations = list(iter_schema_violations(out.getvalue()))
+
+        assert violations == [
+            (
+                "ppt/slides/slide1.xml",
+                "dangling embed=%r on <blip> — no such relationship in %s" % (rid, self.SLIDE_RELS),
+            )
+            for rid in embeds
+        ]
+
+
+class DescribeSchemaViolationSources:
+    """The package can be given as bytes, a path or a stream."""
+
+    @pytest.mark.parametrize("kind", ["bytes", "bytearray", "str", "path", "stream"])
+    def it_reports_the_same_violations_whatever_the_source(self, kind, tmp_path):
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:cSld", b"<p:bogus/><p:cSld", 1)
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+        path = tmp_path / "deck.pptx"
+        path.write_bytes(blob)
+        source = {
+            "bytes": blob,
+            "bytearray": bytearray(blob),
+            "str": str(path),
+            "path": path,
+            "stream": io.BytesIO(blob),
+        }[kind]
+
+        violations = list(iter_schema_violations(source))
+
+        assert [part for part, _ in violations] == ["ppt/slides/slide1.xml"]
+        assert "bogus" in violations[0][1]

@@ -223,9 +223,7 @@ class DescribeChart(object):
         assert chart.legend.font.color.rgb == RGBColor(0xFF, 0xAA, 0x00)
         assert chart.plots[0].data_labels.font.color.rgb == RGBColor(0xFF, 0xAA, 0x00)
         title_run_rgbs = [
-            run.font.color.rgb
-            for p in chart.chart_title.text_frame.paragraphs
-            for run in p.runs
+            run.font.color.rgb for p in chart.chart_title.text_frame.paragraphs for run in p.runs
         ]
         assert all(rgb == RGBColor(0xFF, 0xAA, 0x00) for rgb in title_run_rgbs)
 
@@ -415,17 +413,13 @@ class DescribeChart(object):
         # category[0] at the bottom, which is the opposite of natural
         # reading order. add_chart flips this for BAR_* types so the
         # first-fed category renders at the top.
-        chart = _make_chart_with_series(
-            ("S1", "S2"), chart_type=XL_CHART_TYPE.BAR_CLUSTERED
-        )
+        chart = _make_chart_with_series(("S1", "S2"), chart_type=XL_CHART_TYPE.BAR_CLUSTERED)
         assert chart.category_axis.reverse_order is True
 
     def it_does_not_reverse_axis_on_column_charts(self):
         # Column charts read left-to-right and OOXML's default already
         # matches; don't flip those.
-        chart = _make_chart_with_series(
-            ("S1",), chart_type=XL_CHART_TYPE.COLUMN_CLUSTERED
-        )
+        chart = _make_chart_with_series(("S1",), chart_type=XL_CHART_TYPE.COLUMN_CLUSTERED)
         assert chart.category_axis.reverse_order is False
 
     def it_excludes_bar_of_pie_from_horizontal_bar_default(self):
@@ -450,10 +444,7 @@ class DescribeChart(object):
 
         assert chart.font.color.rgb == RGBColor(0xFF, 0xFF, 0xFF)
         assert chart.value_axis.format.line.color.rgb == RGBColor(0x3A, 0x3E, 0x5F)
-        assert (
-            chart.value_axis.major_gridlines.format.line.color.rgb
-            == RGBColor(0x3A, 0x3E, 0x5F)
-        )
+        assert chart.value_axis.major_gridlines.format.line.color.rgb == RGBColor(0x3A, 0x3E, 0x5F)
 
     def it_supports_gradient_fills_per_series_via_ChartFormat(self):
         """Per-series gradient fills are exposed through `ChartFormat.fill`,
@@ -690,7 +681,9 @@ class DescribeChart(object):
 
     @pytest.fixture
     def CategoryAxis_(self, request, category_axis_):
-        return class_mock(request, "power_pptx.chart.chart.CategoryAxis", return_value=category_axis_)
+        return class_mock(
+            request, "power_pptx.chart.chart.CategoryAxis", return_value=category_axis_
+        )
 
     @pytest.fixture
     def category_axis_(self, request):

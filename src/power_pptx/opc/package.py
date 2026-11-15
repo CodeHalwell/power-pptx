@@ -7,12 +7,29 @@ presentations to and from a .pptx file.
 from __future__ import annotations
 
 import collections
-from typing import IO, TYPE_CHECKING, DefaultDict, Iterator, Mapping, Set, cast
+import os
+from typing import (
+    IO,
+    TYPE_CHECKING,
+    Any,
+    DefaultDict,
+    Iterator,
+    Mapping,
+    Sequence,
+    Set,
+    cast,
+)
 
+from power_pptx.exc import InvalidPackageError
 from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.oxml import CT_Relationships, serialize_part_xml
-from power_pptx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
+from power_pptx.opc.packuri import (
+    CONTENT_TYPES_URI,
+    PACKAGE_URI,
+    PackURI,
+    numbered_partname_pieces,
+)
 from power_pptx.opc.serialized import PackageReader, PackageWriter
 from power_pptx.opc.shared import CaseInsensitiveDict
 from power_pptx.oxml import parse_xml
@@ -73,12 +90,16 @@ class OpcPackage(_RelatableMixin):
     file or file-like object containing a package (.pptx file).
     """
 
-    def __init__(self, pkg_file: str | IO[bytes]):
+    def __init__(self, pkg_file: str | os.PathLike[str] | IO[bytes]):
         self._pkg_file = pkg_file
 
     @classmethod
-    def open(cls, pkg_file: str | IO[bytes]) -> Self:
-        """Return an |OpcPackage| instance loaded with the contents of `pkg_file`."""
+    def open(cls, pkg_file: str | os.PathLike[str] | IO[bytes]) -> Self:
+        """Return an |OpcPackage| instance loaded with the contents of `pkg_file`.
+
+        Raises |PackageNotFoundError| when there is no file at a path given, and its subclass
+        |InvalidPackageError| when what is there is not a readable package.
+        """
         return cls(pkg_file)._load()
 
     def drop_rel(self, rId: str) -> None:
@@ -104,8 +125,13 @@ class OpcPackage(_RelatableMixin):
         """
         visited: Set[Part] = set()
 
-        def walk_rels(rels: _Relationships) -> Iterator[_Relationship]:
-            for rel in rels.values():
+        # -- The walk keeps its own stack of partly-consumed relationship collections rather
+        # -- than recursing: a package can chain parts far deeper than the interpreter's
+        # -- recursion limit (each part related only to the next), and that must not raise
+        # -- RecursionError. The order produced is exactly that of the recursive walk.
+        pending: list[Iterator[_Relationship]] = [iter(self._rels.values())]
+        while pending:
+            for rel in pending[-1]:
                 yield rel
                 # --- external items can have no relationships ---
                 if rel.is_external:
@@ -117,10 +143,11 @@ class OpcPackage(_RelatableMixin):
                 if part in visited:
                     continue
                 visited.add(part)
-                # --- recurse into relationships of each unvisited target-part ---
-                yield from walk_rels(part.rels)
-
-        yield from walk_rels(self._rels)
+                # --- descend into relationships of each unvisited target-part ---
+                pending.append(iter(part.rels.values()))
+                break
+            else:
+                pending.pop()
 
     @property
     def main_document_part(self) -> PresentationPart:
@@ -128,7 +155,13 @@ class OpcPackage(_RelatableMixin):
 
         In this case it will be a |Presentation| part.
         """
-        return cast("PresentationPart", self.part_related_by(RT.OFFICE_DOCUMENT))
+        try:
+            return cast("PresentationPart", self.part_related_by(RT.OFFICE_DOCUMENT))
+        except KeyError:
+            raise InvalidPackageError(
+                "package has no main document part: '_rels/.rels' has no officeDocument"
+                " relationship to a part that is present in the package"
+            ) from None
 
     def next_partname(self, tmpl: str) -> PackURI:
         """Return |PackURI| next available partname matching `tmpl`.
@@ -148,12 +181,14 @@ class OpcPackage(_RelatableMixin):
                 return PackURI(candidate_partname)
         raise Exception("ProgrammingError: ran out of candidate_partnames")  # pragma: no cover
 
-    def save(self, pkg_file: str | IO[bytes]) -> None:
+    def save(self, pkg_file: str | os.PathLike[str] | IO[bytes]) -> None:
         """Save this package to `pkg_file`.
 
-        `file` can be either a path to a file (a string) or a file-like object.
+        `file` can be either a path to a file (a string or path object) or a file-like object.
         """
-        PackageWriter.write(pkg_file, self._rels, tuple(self.iter_parts()))
+        parts = tuple(self.iter_parts())
+        _resolve_partname_collisions(parts)
+        PackageWriter.write(pkg_file, self._rels, parts)
 
     def _load(self) -> Self:
         """Return the package after loading all parts and relationships."""
@@ -167,16 +202,75 @@ class OpcPackage(_RelatableMixin):
         return _Relationships(PACKAGE_URI.baseURI)
 
 
+def _resolve_partname_collisions(parts: Sequence[Part]) -> None:
+    """Give each part in `parts` a partname of its own.
+
+    A partname is the part's file name inside the zip, so two parts sharing one would be written
+    as two zip members of the same name: a package that PowerPoint rejects and that loses one of
+    the parts on the next load. Nothing in the object model enforces uniqueness (a partname is
+    just an attribute), so this is checked at the one place it matters, right before writing.
+
+    The first part to claim a name keeps it. A later part with the same name is renamed to the
+    first free numbered sibling (`/ppt/slides/slide2.xml` -> `/ppt/slides/slide7.xml`).
+    Relationships refer to part objects, not names, so they follow the rename.
+
+    Names are compared without regard to case, as OPC requires: `/ppt/media/Image1.png` and
+    `/ppt/media/image1.png` are different zip members but the same part name to PowerPoint.
+    """
+    seen: Set[str] = set()
+    colliding: list[Part] = []
+    for part in parts:
+        key = part.partname.lower()
+        if key in seen:
+            colliding.append(part)
+        else:
+            seen.add(key)
+
+    for part in colliding:
+        prefix, suffix = numbered_partname_pieces(part.partname)
+        n = 1
+        while ("%s%d%s" % (prefix, n, suffix)).lower() in seen:
+            n += 1
+        part.partname = PackURI("%s%d%s" % (prefix, n, suffix))
+        seen.add(part.partname.lower())
+
+
+def _is_external(rel: CT_Relationship) -> bool:
+    """True when relationship element `rel` targets a resource outside the package.
+
+    `TargetMode` is matched without regard to case. The schema spells it "External", but files
+    written by other tools carry "external", and reading that as an internal relationship
+    turns a URL into a (missing) partname.
+    """
+    return rel.targetMode.strip().lower() == RTM.EXTERNAL.lower()
+
+
+def _raise_on_dtd(element: Any, item_name: str) -> None:
+    """Raise |InvalidPackageError| if the XML `element` was parsed from declares a DTD.
+
+    OPC forbids DTD declarations in package XML and PowerPoint refuses such a file. Entity
+    references are deliberately not expanded on parsing, so an XML part that uses an entity
+    declared in its DTD would be written back with the reference but without the declaration:
+    a file that can no longer be opened at all. Better to say so on the way in.
+    """
+    docinfo = element.getroottree().docinfo
+    if docinfo.doctype or docinfo.internalDTD is not None:
+        raise InvalidPackageError(
+            "package item '%s' contains a DTD (<!DOCTYPE ...>), which is not allowed in a"
+            " PowerPoint package" % item_name
+        )
+
+
 class _PackageLoader:
     """Function-object that loads a package from disk (or other store)."""
 
-    def __init__(self, pkg_file: str | IO[bytes], package: Package):
+    def __init__(self, pkg_file: str | os.PathLike[str] | IO[bytes], package: Package):
         self._pkg_file = pkg_file
         self._package = package
 
     @classmethod
     def load(
-        cls, pkg_file: str | IO[bytes], package: Package
+        cls, pkg_file: str | os.PathLike[str] | IO[bytes], package: Package
     ) -> tuple[CT_Relationships, dict[PackURI, Part]]:
         """Return (pkg_xml_rels, parts) pair resulting from loading `pkg_file`.
 
@@ -191,12 +285,19 @@ class _PackageLoader:
 
     def _load(self) -> tuple[CT_Relationships, dict[PackURI, Part]]:
         """Return (pkg_xml_rels, parts) pair resulting from loading pkg_file."""
-        parts, xml_rels = self._parts, self._xml_rels
+        try:
+            parts, xml_rels = self._parts, self._xml_rels
 
-        for partname, part in parts.items():
-            part.load_rels_from_xml(xml_rels[partname], parts)
+            for partname, part in parts.items():
+                part.load_rels_from_xml(xml_rels[partname], parts)
 
-        return xml_rels[PACKAGE_URI], parts
+            return xml_rels[PACKAGE_URI], parts
+        finally:
+            # -- package items are read on demand, so the reader holds the file open until
+            # -- everything has been read; that is now, whether or not it went well --
+            package_reader = self.__dict__.get("_package_reader")
+            if package_reader is not None:
+                package_reader.close()
 
     @lazyproperty
     def _content_types(self) -> _ContentTypeMap:
@@ -204,6 +305,10 @@ class _PackageLoader:
 
         Provides a content-type (MIME-type) for any given partname.
         """
+        if CONTENT_TYPES_URI not in self._package_reader:
+            raise InvalidPackageError(
+                "package has no '[Content_Types].xml'; it is not a PowerPoint package"
+            )
         return _ContentTypeMap.from_xml(self._package_reader[CONTENT_TYPES_URI])
 
     @lazyproperty
@@ -223,18 +328,27 @@ class _PackageLoader:
         package = self._package
         package_reader = self._package_reader
 
-        return {
-            partname: PartFactory(
-                partname,
-                content_types[partname],
-                package,
-                blob=package_reader[partname],
-            )
-            for partname in (p for p in self._xml_rels if p != "/")
-            # -- invalid partnames can arise in some packages; ignore those rather than raise an
-            # -- exception.
-            if partname in package_reader
-        }
+        parts: dict[PackURI, Part] = {}
+        for partname in self._xml_rels:
+            # -- "/" is the package itself. Invalid partnames can arise in some packages;
+            # -- ignore those rather than raise an exception.
+            if partname == "/" or partname not in package_reader:
+                continue
+            try:
+                content_type = content_types[partname]
+            except KeyError:
+                raise InvalidPackageError(
+                    "package part '%s' has no content type in '[Content_Types].xml'"
+                    % partname.membername
+                ) from None
+            part = PartFactory(partname, content_type, package, blob=package_reader[partname])
+            if isinstance(part, XmlPart):
+                _raise_on_dtd(
+                    part._element,  # pyright: ignore[reportPrivateUsage]
+                    partname.membername,
+                )
+            parts[partname] = part
+        return parts
 
     @lazyproperty
     def _xml_rels(self) -> dict[PackURI, CT_Relationships]:
@@ -244,24 +358,30 @@ class _PackageLoader:
         populating their relationships.
         """
         xml_rels: dict[PackURI, CT_Relationships] = {}
-        visited_partnames: Set[PackURI] = set()
 
-        def load_rels(source_partname: PackURI, rels: CT_Relationships):
-            """Populate `xml_rels` dict by traversing relationships depth-first."""
-            xml_rels[source_partname] = rels
-            visited_partnames.add(source_partname)
-            base_uri = source_partname.baseURI
-
-            # --- recursion stops when there are no unvisited partnames in rels ---
-            for rel in rels.relationship_lst:
-                if rel.targetMode == RTM.EXTERNAL:
+        # -- Depth-first, in the order a recursive walk would visit, but with the walk's state
+        # -- kept on an explicit stack: one entry per part being worked through, holding its
+        # -- base URI and the relationships of it not yet looked at. A hostile (or merely
+        # -- odd) package can chain parts thousands deep, each related only to the next, and
+        # -- recursion would die with RecursionError on it.
+        xml_rels[PACKAGE_URI] = pkg_rels = self._xml_rels_for(PACKAGE_URI)
+        pending: list[tuple[str, Iterator[CT_Relationship]]] = [
+            (PACKAGE_URI.baseURI, iter(pkg_rels.relationship_lst))
+        ]
+        while pending:
+            base_uri, rels = pending[-1]
+            for rel in rels:
+                if _is_external(rel):
                     continue
                 target_partname = PackURI.from_rel_ref(base_uri, rel.target_ref)
-                if target_partname in visited_partnames:
+                if target_partname in xml_rels:
                     continue
-                load_rels(target_partname, self._xml_rels_for(target_partname))
+                xml_rels[target_partname] = target_rels = self._xml_rels_for(target_partname)
+                pending.append((target_partname.baseURI, iter(target_rels.relationship_lst)))
+                break
+            else:
+                pending.pop()
 
-        load_rels(PACKAGE_URI, self._xml_rels_for(PACKAGE_URI))
         return xml_rels
 
     def _xml_rels_for(self, partname: PackURI) -> CT_Relationships:
@@ -271,11 +391,17 @@ class _PackageLoader:
         receives an "empty" CT_Relationships object, i.e. containing no `CT_Relationship` objects.
         """
         rels_xml = self._package_reader.rels_xml_for(partname)
-        return (
-            CT_Relationships.new()
-            if rels_xml is None
-            else cast(CT_Relationships, parse_xml(rels_xml))
-        )
+        if rels_xml is None:
+            # -- a part need not have relationships, but a package without any has no main
+            # -- part and so nothing to open --
+            if partname == PACKAGE_URI:
+                raise InvalidPackageError(
+                    "package has no '_rels/.rels'; it is not a PowerPoint package"
+                )
+            return CT_Relationships.new()
+        rels = cast(CT_Relationships, parse_xml(rels_xml))
+        _raise_on_dtd(rels, partname.rels_uri.membername)
+        return rels
 
 
 class Part(_RelatableMixin):
@@ -322,7 +448,7 @@ class Part(_RelatableMixin):
         """
         self._blob = blob
 
-    @lazyproperty
+    @property
     def content_type(self) -> str:
         """Content-type (MIME-type) of this part."""
         return self._content_type
@@ -480,6 +606,7 @@ class _ContentTypeMap:
     def from_xml(cls, content_types_xml: bytes) -> _ContentTypeMap:
         """Return |_ContentTypeMap| instance populated from `content_types_xml`."""
         types_elm = cast("CT_Types", parse_xml(content_types_xml))
+        _raise_on_dtd(types_elm, CONTENT_TYPES_URI.membername)
         # -- note all partnames in [Content_Types].xml are absolute --
         overrides = CaseInsensitiveDict(
             (o.partName.lower(), o.contentType) for o in types_elm.override_lst
@@ -559,7 +686,7 @@ class _Relationships(Mapping[str, "_Relationship"]):
                 # --- a relationship simply by "voiding" its Target value, like making
                 # --- it "/ppt/slides/NULL". Skip any relationships linking to a
                 # --- partname that is not present in the package.
-                if rel_elm.targetMode == RTM.INTERNAL:
+                if not _is_external(rel_elm):
                     partname = PackURI.from_rel_ref(base_uri, rel_elm.target_ref)
                     if partname not in parts:
                         continue
@@ -692,12 +819,12 @@ class _Relationship:
         cls, base_uri: str, rel: CT_Relationship, parts: dict[PackURI, Part]
     ) -> _Relationship:
         """Return |_Relationship| object based on CT_Relationship element `rel`."""
-        target = (
-            rel.target_ref
-            if rel.targetMode == RTM.EXTERNAL
-            else parts[PackURI.from_rel_ref(base_uri, rel.target_ref)]
-        )
-        return cls(base_uri, rel.rId, rel.reltype, rel.targetMode, target)
+        # -- the mode is normalized to its schema spelling here, so `.is_external` holds for
+        # -- a file that wrote "external" and the relationship is saved as "External" --
+        if _is_external(rel):
+            return cls(base_uri, rel.rId, rel.reltype, RTM.EXTERNAL, rel.target_ref)
+        target_part = parts[PackURI.from_rel_ref(base_uri, rel.target_ref)]
+        return cls(base_uri, rel.rId, rel.reltype, RTM.INTERNAL, target_part)
 
     @lazyproperty
     def is_external(self) -> bool:
@@ -727,18 +854,22 @@ class _Relationship:
         """|Part| or subtype referred to by this relationship."""
         if self.is_external:
             raise ValueError(
-                "`.target_part` property on _Relationship is undefined when "
-                "target-mode is external"
+                "`.target_part` property on _Relationship is undefined when target-mode is external"
             )
         assert isinstance(self._target, Part)
         return self._target
 
-    @lazyproperty
+    @property
     def target_partname(self) -> PackURI:
         """|PackURI| instance containing partname targeted by this relationship.
 
         Raises `ValueError` on reference if target_mode is external. Use :attr:`target_mode` to
         check before referencing.
+
+        Read from the target part on each access, never cached: a part can be renamed after this
+        relationship is first serialized (slide parts are renumbered when `prs.slides` is first
+        used), and a remembered name would then be written to the .rels file for a part that is
+        saved under a different one.
         """
         if self.is_external:
             raise ValueError(
@@ -748,12 +879,15 @@ class _Relationship:
         assert isinstance(self._target, Part)
         return self._target.partname
 
-    @lazyproperty
+    @property
     def target_ref(self) -> str:
         """str reference to relationship target.
 
         For internal relationships this is the relative partname, suitable for serialization
         purposes. For an external relationship it is typically a URL.
+
+        Like `.target_partname`, this is computed on each access so it always names the target
+        part as it is called now.
         """
         if self.is_external:
             assert isinstance(self._target, str)

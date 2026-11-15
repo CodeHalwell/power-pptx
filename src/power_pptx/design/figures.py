@@ -93,6 +93,7 @@ def add_plotly_figure(
     backend: str = "auto",
     browser_path: str | os.PathLike[str] | None = None,
     timeout_ms: int = 15000,
+    allow_network: bool = True,
 ) -> "Picture":
     """Render a Plotly ``Figure`` and embed the result on *slide*.
 
@@ -126,19 +127,15 @@ def add_plotly_figure(
     a browser-rendered PNG companion and needs no CairoSVG. Explicit formats
     are respected by both backends. Browser readiness waits for Plotly's
     post-render callback, decoded images, and fonts.
+
+    *allow_network* applies to the browser backend, whose page is
+    self-contained. ``False`` captures it with network access blocked, so a
+    figure that needs a remote resource (map tiles, a logo by URL) fails with
+    a :class:`ValueError` naming the request instead of fetching it — the
+    setting to use for figures built from data you do not control.
     """
-    if backend not in {"auto", "kaleido", "browser"}:
-        raise ValueError("backend must be 'auto', 'kaleido', or 'browser'")
-    if format not in {"auto", "png", "svg"}:
-        raise ValueError("format must be 'auto', 'png', or 'svg'")
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("scale must be finite and positive")
-    for value in (width_px, height_px):
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value <= 0
-        ):
-            raise ValueError("width_px and height_px must be positive integers")
-    failure = None
+    _check_plotly_options(backend, format, scale, width_px, height_px)
+    kaleido_failure = None
     if backend != "browser":
         try:
             blob, fmt = _plotly_to_blob(
@@ -151,52 +148,91 @@ def add_plotly_figure(
         except FigureBackendUnavailable as exc:
             if backend == "kaleido" or not callable(getattr(figure, "to_html", None)):
                 raise
-            failure = exc
+            kaleido_failure = exc
         else:
             return _embed_blob(slide, blob, fmt, left, top, width, height)
-    try:
-        capture, logical_width, logical_height = _plotly_browser_capture(
-            figure,
-            format=format,
-            scale=scale,
-            width_px=width_px,
-            height_px=height_px,
-            browser_path=browser_path,
-            timeout_ms=timeout_ms,
-        )
-    except Exception as exc:
-        if failure is not None:
-            raise FigureBackendUnavailable(
-                f"Plotly export failed with both backends. Kaleido: {failure}. Browser: {exc}"
-            ) from exc
-        if isinstance(exc, (TypeError, ValueError, FigureBackendUnavailable)):
-            raise
-        raise FigureBackendUnavailable(f"Plotly browser export failed: {exc}") from exc
-    if capture.exported is not None:
-        if not capture.exported.startswith("data:image/svg+xml,"):
-            raise FigureBackendUnavailable("Plotly browser did not return an SVG data URL")
-        svg = unquote_to_bytes(capture.exported.partition(",")[2])
-        if width is None and height is None:
-            width = Inches(logical_width / 96)
-            height = Inches(logical_height / 96)
-        return slide.shapes.add_svg_picture(
-            svg,
+    capture, logical_width, logical_height = _plotly_browser_export(
+        figure,
+        kaleido_failure,
+        format=format,
+        scale=scale,
+        width_px=width_px,
+        height_px=height_px,
+        browser_path=browser_path,
+        timeout_ms=timeout_ms,
+        allow_network=allow_network,
+    )
+    if capture.exported is None:
+        return _embed_html_png(
+            slide,
+            capture.png,
             left,
             top,
             width,
             height,
-            png_fallback=capture.png,
+            fit="contain",
+            device_scale_factor=scale,
         )
-    return _embed_html_png(
-        slide,
-        capture.png,
+    svg = _svg_from_data_url(capture.exported)
+    if width is None and height is None:
+        width = Inches(logical_width / 96)
+        height = Inches(logical_height / 96)
+    return slide.shapes.add_svg_picture(
+        svg,
         left,
         top,
         width,
         height,
-        fit="contain",
-        device_scale_factor=scale,
+        png_fallback=capture.png,
     )
+
+
+def _check_plotly_options(
+    backend: str,
+    format: str,
+    scale: float,
+    width_px: Optional[int],
+    height_px: Optional[int],
+) -> None:
+    if backend not in {"auto", "kaleido", "browser"}:
+        raise ValueError("backend must be 'auto', 'kaleido', or 'browser'")
+    if format not in {"auto", "png", "svg"}:
+        raise ValueError("format must be 'auto', 'png', or 'svg'")
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be finite and positive")
+    for value in (width_px, height_px):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        ):
+            raise ValueError("width_px and height_px must be positive integers")
+
+
+def _plotly_browser_export(figure, kaleido_failure, **options):
+    """Capture *figure* with the browser backend, explaining a failure.
+
+    After a Kaleido failure (*kaleido_failure*) the error names both
+    backends. Otherwise a usage error (``TypeError``, ``ValueError``, a
+    missing dependency) passes through and anything else is reported as the
+    browser backend being unavailable.
+    """
+    try:
+        return _plotly_browser_capture(figure, **options)
+    except Exception as exc:
+        if kaleido_failure is not None:
+            raise FigureBackendUnavailable(
+                "Plotly export failed with both backends. "
+                f"Kaleido: {kaleido_failure}. Browser: {exc}"
+            ) from exc
+        if isinstance(exc, (TypeError, ValueError, FigureBackendUnavailable)):
+            raise
+        raise FigureBackendUnavailable(f"Plotly browser export failed: {exc}") from exc
+
+
+def _svg_from_data_url(exported: str) -> bytes:
+    """Decode the ``data:image/svg+xml,...`` URL that the browser export returns."""
+    if not exported.startswith("data:image/svg+xml,"):
+        raise FigureBackendUnavailable("Plotly browser did not return an SVG data URL")
+    return unquote_to_bytes(exported.partition(",")[2])
 
 
 def _plotly_browser_capture(
@@ -208,6 +244,7 @@ def _plotly_browser_capture(
     height_px,
     browser_path,
     timeout_ms,
+    allow_network=True,
 ):
     if not callable(getattr(figure, "to_html", None)):
         raise TypeError("Plotly browser backend requires a Plotly Figure exposing to_html()")
@@ -255,6 +292,7 @@ def _plotly_browser_capture(
         browser_path=browser_path,
         timeout_ms=timeout_ms,
         export_script=export_script,
+        allow_network=allow_network,
     )[0]
     return capture, w, h
 
@@ -416,6 +454,7 @@ def add_html_figure(
     omit_background: bool = False,
     browser_path: str | os.PathLike[str] | None = None,
     fit: str = "contain",
+    allow_network: bool = True,
 ) -> "Picture":
     """Render an HTML snippet to a screenshot via Playwright and embed it.
 
@@ -426,9 +465,16 @@ def add_html_figure(
     image export.
 
     *html* may be raw markup, UTF-8 ``bytes``, or a local ``.html`` path.
-    File inputs preserve relative CSS, font, and image paths. External
-    URLs (``<img src="https://...">``) are loaded as long as the
+    File inputs preserve relative CSS, font, and image paths: the document's
+    directory is served on a loopback port for the duration of the capture —
+    only the files that really live under it, with no directory listings.
+    External URLs (``<img src="https://...">``) are loaded as long as the
     process has network access.
+
+    Rendering HTML means running it. When the markup comes from a model or a
+    user, pass ``allow_network=False``: the page may then load only ``data:``
+    URLs and its own loopback document, and a capture that tries anything
+    else fails with a :class:`ValueError` listing the blocked requests.
 
     *viewport* sizes the headless browser canvas in CSS pixels;
     *device_scale_factor* renders at the equivalent of a retina
@@ -441,7 +487,8 @@ def add_html_figure(
     *wait_for_function* for asynchronous chart/application readiness.
     CSS animations are disabled in the screenshot. *omit_background*
     preserves transparency. *browser_path* (or ``POWER_PPTX_CHROMIUM``)
-    selects an installed Chromium instead of Playwright's managed browser.
+    selects an installed Chromium instead of Playwright's managed browser;
+    it names an executable to run, so never take it from untrusted input.
 
     *fit* is ``"contain"`` (preserve aspect ratio inside the requested box),
     ``"cover"`` (crop to fill it), or ``"stretch"``. Without geometry,
@@ -465,6 +512,7 @@ def add_html_figure(
         wait_for_function=wait_for_function,
         omit_background=omit_background,
         browser_path=browser_path,
+        allow_network=allow_network,
     )
     return _embed_html_png(
         slide,
@@ -490,6 +538,7 @@ def _html_to_png(
     wait_for_function: str | None = None,
     omit_background: bool = False,
     browser_path: str | os.PathLike[str] | None = None,
+    allow_network: bool = True,
 ) -> bytes:
     return capture_html(
         html,
@@ -502,6 +551,7 @@ def _html_to_png(
         wait_for_function=wait_for_function,
         omit_background=omit_background,
         browser_path=browser_path,
+        allow_network=allow_network,
     )[0].png
 
 

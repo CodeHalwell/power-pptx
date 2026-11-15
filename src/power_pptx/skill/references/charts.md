@@ -41,7 +41,8 @@ from power_pptx.chart.data import CategoryChartData
 
 data = CategoryChartData()
 data.categories = ["Q1", "Q2", "Q3", "Q4"]
-data.add_series("FY27", (18.2, 19.6, 21.4, 24.9))
+data.add_series("ARR", (196, 214, 233, 249))
+data.add_series("NDR (%)", (132, 133, 135, 136))
 
 chart.replace_data(data)      # formatting survives; the embedded
                               # worksheet is rewritten to match
@@ -108,8 +109,8 @@ from power_pptx.chart.palettes import (
     resolve_palette,
 )
 
-print(palette_names())                 # → ['modern', 'classic', ...]
-colors = resolve_palette("editorial")  # → list[RGBColor]
+print(palette_names())                 # → ('modern', 'classic', ...)
+colors = resolve_palette("editorial")  # → tuple of RGBColor
 ```
 
 `resolve_palette` is also handy for sharing the same colors with
@@ -137,19 +138,33 @@ chart.apply_quick_layout("minimal")
 chart.apply_quick_layout("dense")
 ```
 
-Custom layouts can be supplied as a dict spec:
+Custom layouts can be supplied as a dict spec. The keys are **flat** —
+there are no nested `"category_axis"` / `"value_axis"` sections:
 
 ```python
 chart.apply_quick_layout({
-    "has_title":       True,
-    "title_text":      "ARR ($M)",
-    "has_legend":      True,
-    "legend_position": "bottom",
-    "category_axis":   {"has_major_gridlines": False},
-    "value_axis":      {"has_major_gridlines": True,
-                        "tick_labels": True},
+    "has_title":             True,
+    "title_text":            "ARR ($M)",
+    "has_legend":            True,
+    "legend_position":       "bottom",
+    "has_value_axis_title":  True,
+    "value_axis_title_text": "$M",
+    "has_major_gridlines":   True,     # value-axis gridlines
+    "has_minor_gridlines":   False,
 })
+
+# or a preset with keyword overrides
+chart.apply_quick_layout("title_legend_bottom", title_text="ARR ($M)")
 ```
+
+All keys: `has_title`, `title_text`, `has_legend`, `legend_position`,
+`legend_in_layout`, `has_category_axis_title`,
+`category_axis_title_text`, `has_value_axis_title`,
+`value_axis_title_text`, `has_major_gridlines`, `has_minor_gridlines`.
+Anything else raises before the chart is touched — `ValueError` in a
+dict, `TypeError` as a keyword — naming the closest valid key. Tick
+labels aren't part of a layout; set `chart.value_axis.tick_labels`
+directly.
 
 Missing keys leave the chart untouched so layouts compose cleanly.
 Charts without category/value axes (e.g. pie) silently skip the
@@ -245,10 +260,29 @@ s.trendlines.add("movingAvg", period=2)      # moving average
 s.error_bars.fixed(0.5)                       # or .percentage(5),
 s.error_bars.standard_deviation(1)            # .standard_error(), .custom(plus, minus)
 
-chart.secondary_value_axis                     # add right-hand value axis
-chart.series[1].axis_group = "secondary"       # move a series onto it
+margin = chart.series[1]
+margin.axis_group = "secondary"                # that series only; adds the axis
+chart.secondary_value_axis.maximum_scale = 1.0 # the right-hand axis
+chart.value_axis.maximum_scale = 500           # still the primary (left) axis
 ```
 
 Trendlines / error bars are available on bar, line, scatter, area, and
 bubble series (not pie/radar). New axis ids stay signed-int32, so
 PowerPoint never prompts to repair the file.
+
+**Dual-axis rules.** `series.axis_group = "secondary"` moves that one
+series: it is split off into its own plot (same chart type, drawn in
+front) because axes belong to a plot, not a series. Other series of the
+same kind moved later join that plot, so two secondary columns still
+cluster side by side.
+
+- Hold on to the series object. `chart.series` lists series plot by
+  plot, so after `chart.series[0].axis_group = "secondary"` index 0 is a
+  *different* series. `chart.plots` gains an entry too.
+- `chart.value_axis` is always the primary axis;
+  `chart.secondary_value_axis` is the right-hand one.
+- You don't need to touch `chart.secondary_value_axis` first — assigning
+  `axis_group` creates it. Accessing it on a chart whose single plot
+  holds several series only adds the (unused) axis; it does not move
+  anything. On a combo chart it still re-points the front-most plot.
+- Moving a series back to `"primary"` is not supported.

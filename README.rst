@@ -9,7 +9,7 @@ power-pptx
 
 .. |PyPI - Python Versions| image:: https://img.shields.io/pypi/pyversions/power-pptx.svg
    :target: https://pypi.org/project/power-pptx/
-   :alt: Python 3.9 – 3.13
+   :alt: Python 3.10 – 3.15
 
 .. |CI| image:: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml/badge.svg
    :target: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml
@@ -28,12 +28,13 @@ power-pptx
 *power-pptx* is the actively-maintained fork of the excellent
 `python-pptx`_ library by `Steve Canny`_, picking up where the upstream's
 1.0.2 release left off. It is a Python library for creating, reading,
-and updating PowerPoint (.pptx) files.
+and updating PowerPoint files: presentations (.pptx), templates (.potx)
+and slide shows (.ppsx).
 
 +----------------+----------------------------------------------------------+
 | **Package**    | ``power-pptx`` on PyPI (imports as ``power_pptx``)       |
 +----------------+----------------------------------------------------------+
-| **Python**     | 3.9 – 3.13                                               |
+| **Python**     | 3.10 – 3.15                                              |
 +----------------+----------------------------------------------------------+
 | **License**    | MIT                                                      |
 +----------------+----------------------------------------------------------+
@@ -62,11 +63,15 @@ don't slide off the edges of the slide. Three layered tools catch many
 common layout errors; rendering and visual review complete the quality check:
 
 1. ``TextFrame.fit_text(...)`` measures with Pillow font metrics and
-   bakes a fitting size into the XML *before* save.
+   bakes a fitting size into the XML *before* save, wrapping where
+   PowerPoint and LibreOffice wrap (including Chinese, Japanese and
+   Korean text).
 2. ``text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` lets
    PowerPoint shrink at render time as a fallback.
-3. ``slide.lint()`` catches what slipped through; ``auto_fix()`` (or
-   the one-call ``slide.tidy()``) nudges off-slide shapes back inside.
+3. ``slide.lint()`` catches what slipped through, measuring text with
+   the same engine; ``auto_fix()`` (or the one-call ``slide.tidy()``)
+   nudges off-slide shapes back inside and makes overflowing text fit.
+   ``power-pptx lint`` runs the same checks on saved decks in CI.
 
 Reach for power-pptx whenever the deck is generated dynamically and
 has to look right without manual cleanup.
@@ -104,6 +109,13 @@ slides and record visual findings. ``examples/authoring_workflows/`` contains
 three complete decks using these APIs; the bundled skill's
 ``authoring-workflows.md`` documents the annotation contract and limitations.
 
+Gate saved decks in CI with the layout linter; the exit status is 1 when an
+issue at or above ``--fail-on`` is found and 2 when a deck cannot be read::
+
+    power-pptx lint build/*.pptx --fail-on warning
+    power-pptx lint deck.pptx --format sarif > lint.sarif
+    power-pptx lint deck.pptx --fix --output tidied.pptx
+
 Installation
 ------------
 
@@ -130,10 +142,11 @@ Optional dependencies:
 * ``cairosvg`` — install only if you want ``add_svg_picture(...)`` to
   auto-rasterise the PNG fallback.
 * ``pyyaml`` — install only if you want ``DesignTokens.from_yaml``.
-* ``soffice`` (LibreOffice) on PATH — required for
-  ``Presentation.render_thumbnails()``.
-* ``pdftoppm`` (Poppler) or ``pypdfium2`` — required for the
-  PDF→PNG split path in the thumbnail renderer.
+* ``soffice`` or ``libreoffice`` (LibreOffice) on PATH — required for
+  ``Presentation.render_thumbnails()`` and ``power-pptx review``.
+* ``pdftoppm`` (Poppler) or ``pypdfium2`` — splits the PDF LibreOffice
+  exports into one PNG per slide.  Every render goes through PDF; without
+  either, only one-slide decks can be rendered.
 * ``pip install 'power-pptx[review]'`` — PDFium for the installed review
   command when Poppler is unavailable; LibreOffice is still required.
 
@@ -156,11 +169,19 @@ Other useful commands::
     # Print the skill source path inside the installed package
     python -m power_pptx.skill path
 
-    # Install into a custom directory
+    # Install into a custom directory (``--target PATH`` and a bare PATH
+    # are equivalent)
     python -m power_pptx.skill install --target /path/to/skills/power-pptx
+    python -m power_pptx.skill install /path/to/skills/power-pptx
 
     # Refuse to overwrite an existing install
     python -m power_pptx.skill install --no-overwrite
+
+The target is the skill's own directory (the one that will hold
+``SKILL.md``), not the ``skills/`` directory around it.  Re-running the
+command replaces a previous install of the skill; a target that is a
+file, or a non-empty directory that is not a power-pptx skill install,
+is left untouched and the command exits with an error.
 
 The skill documents the headline space-aware-authoring workflow, the
 ``BBox`` value object, the one-call ``add_text`` / ``add_arrow``
@@ -231,6 +252,23 @@ regression test.
   collisions.  Three-tier safety so generated decks look right
   without manual cleanup.
 
+* **Slide and deck management (v2.15)** — ``prs.slides.remove(slide)``
+  deletes a slide with its links, section entry and notes;
+  ``prs.slides.duplicate(slide)`` adds an independent copy;
+  ``slide.hidden = True`` hides one from the show.  ``prs.slide_show``
+  holds the *Set Up Slide Show* settings (loop until Esc, kiosk mode,
+  timings); ``prs.set_slide_size(w, h, fit=True)`` fits an LED-wall size
+  inside PowerPoint's 1–56 inch limits.  Templates (``.potx``) and slide
+  shows (``.ppsx``) open and save, and a file that is not a readable
+  package raises ``InvalidPackageError``.
+
+* **Specs you did not write (v2.15)** — ``from_spec(spec, safe=True,
+  base_dir=...)`` keeps every file a spec names inside one folder and
+  captures HTML with the network blocked (``allow_network=False``, also on
+  ``from_html`` and the HTML/Plotly figure adapters).  Bad content raises
+  ``SpecError``, whose message starts with where the value is
+  (``slides[2].kpis[0]: ...``) instead of the slide being dropped or mangled.
+
 * **Measurement that holds in a container (v2.14)** —
   ``power_pptx.text.register_font_dir("assets/fonts")`` (or
   ``POWER_PPTX_FONT_DIRS``) measures with fonts shipped next to your code,
@@ -296,15 +334,17 @@ regression test.
   imported from a ``.potx``.
 
 * **Picture effects** — transparency, brightness, contrast, recolor
-  (grayscale, sepia, washout, duotone); native SVG embedding with
+  (grayscale, sepia, washout, black-and-white, duotone); native SVG embedding with
   PNG fallback.
 
 * **Design-system layer** — ``DesignTokens`` (palette, typography,
   shadows, radii, spacings) loadable from a dict, YAML, or a
   ``.pptx``; a token-resolving ``shape.style`` facade; ``Grid`` /
   ``Stack`` layout primitives; opinionated slide recipes
-  (``title``, ``bullet``, ``kpi``, ``quote``, ``image_hero``); a
-  starter pack of three example token sets.
+  (``title``, ``bullet``, ``kpi``, ``quote``, ``image_hero``,
+  ``section_divider``, ``chart``, ``table``, ``code``, ``timeline``,
+  ``comparison``, ``figure``) that fit their text at build time and raise
+  rather than overflow; a starter pack of three example token sets.
 
 * **Shape-level building blocks** — ``add_kpi_card``,
   ``add_progress_bar``, ``add_gauge``, ``add_status_pill``,

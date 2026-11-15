@@ -14,17 +14,36 @@ prs = from_spec({
     "lint": "raise",
 })
 prs.save("q4.pptx")`;
+
+const safeSpec = `from power_pptx.compose import SpecError, from_spec
+
+try:
+    prs = from_spec(spec_from_model, safe=True, base_dir="/srv/decks/job-42")
+except SpecError as exc:
+    exc.path   # "slides[2].kpis[0]" - where the bad value is
+    str(exc)   # 'slides[2].kpis[0]: expected a mapping like {"label": "ARR", ...'
+    # hand the message back to the model and ask for a corrected spec`;
+
+const lintCli = `power-pptx lint build/*.pptx --format json      # one JSON document
+power-pptx lint deck.pptx --fail-on warning     # stricter gate
+power-pptx lint deck.pptx --fix --output tidied.pptx`;
+
 const snippet0 = `pip install power-pptx
 python -m power_pptx.skill install`;
 
 const snippet1 = `# Print the skill source path inside the installed package
 python -m power_pptx.skill path
 
-# Install into a custom directory
-python -m power_pptx.skill install /path/to/skills/power-pptx
+# Install into another skills directory. TARGET is the skill's own
+# directory (it will hold SKILL.md), not the skills/ folder around it.
+python -m power_pptx.skill install --target /path/to/skills/power-pptx
+python -m power_pptx.skill install /path/to/skills/power-pptx   # same thing
 
-# Refuse to overwrite an existing install
-python -m power_pptx.skill install --no-overwrite`;
+# Fail if anything already exists at the target, even an earlier install
+python -m power_pptx.skill install --no-overwrite
+
+# power-pptx-skill is the same command as an installed script
+power-pptx-skill install`;
 
 ---
 
@@ -35,7 +54,7 @@ python -m power_pptx.skill install --no-overwrite`;
   <p class="lead">
     <code>power-pptx</code> was designed for programmatic generation — and that includes code
     written by AI coding agents. The package ships its own <strong>Claude Code skill</strong>: a
-    curated cheat sheet, sixteen focused reference docs, and an explicit anti-patterns list of the
+    curated cheat sheet, twenty focused reference docs, and an explicit anti-patterns list of the
     mistakes LLMs most commonly make when generating decks.
   </p>
 
@@ -53,6 +72,13 @@ python -m power_pptx.skill install --no-overwrite`;
 
   <h3 id="skill-commands">Skill commands</h3>
   <Code code={snippet1} lang="bash" />
+  <p>
+    Installing again replaces an earlier install of the skill. Anything else at the target is left
+    alone: a directory that is not empty and is not a previous install (the
+    <code>~/.claude/skills</code> folder itself, say, which holds your other skills), a file or a
+    symbolic link makes the command fail with a message, and nothing is deleted. The new copy is
+    built next to the target and moved into place only when it is complete.
+  </p>
 
   <h2 id="what-agent-gets">What your agent gets</h2>
   <table>
@@ -62,20 +88,23 @@ python -m power_pptx.skill install --no-overwrite`;
     <tbody>
       <tr><td><code>space-aware-authoring.md</code></td><td><strong>Read first.</strong> fit_text, auto_size flags, the linter, robust layout patterns</td></tr>
       <tr><td><code>geometry-and-arrows.md</code></td><td>BBox, add_text / add_arrow, hex helpers, replace_with, tidy(), diagram recipes, audit</td></tr>
-      <tr><td><code>basics.md</code></td><td>The upstream 1.0.2 surface: slides, placeholders, shapes, textboxes, tables, pictures, charts</td></tr>
-      <tr><td><code>design.md</code></td><td>DesignTokens, shape.style, Grid/Stack layout, slide recipes, starter pack</td></tr>
+      <tr><td><code>basics.md</code></td><td>The everyday surface: open/save, slide size, adding, removing and duplicating slides, hidden slides, slide-show settings, placeholders, shapes, textboxes, tables, pictures, charts</td></tr>
+      <tr><td><code>modern-slide-design.md</code></td><td>Visual direction for modern decks, and how to work from a styled HTML or React reference</td></tr>
+      <tr><td><code>content-embedding.md</code></td><td>HTML and SVG as design input: native rebuilds, <code>from_html</code> capture, SVG figures, <code>allow_network=False</code></td></tr>
+      <tr><td><code>authoring-workflows.md</code></td><td>Measured native components, bundled fonts, annotated HTML, Plotly browser export, <code>power-pptx review</code></td></tr>
+      <tr><td><code>design.md</code></td><td>DesignTokens and their units, shape.style, Grid/Stack layout, slide recipes and their limits, starter pack</td></tr>
       <tr><td><code>effects.md</code></td><td>Shadow, glow, soft edges, blur, reflection, alpha colours, gradient fills, line ends</td></tr>
       <tr><td><code>animations.md</code></td><td>Entrance/Exit/Emphasis presets, triggers, by-paragraph reveal, motion paths</td></tr>
       <tr><td><code>transitions.md</code></td><td>Per-slide and deck-wide transitions including Morph</td></tr>
-      <tr><td><code>compose.md</code></td><td>from_spec (JSON authoring, incl. free-standing shapes), import_slide, apply_template</td></tr>
+      <tr><td><code>compose.md</code></td><td>from_spec (JSON authoring, <code>SpecError</code>, safe mode, free-standing shapes), import_slide, apply_template</td></tr>
       <tr><td><code>theme.md</code></td><td>Theme palette/font reading and writing, theme-aware colour resolution</td></tr>
       <tr><td><code>charts.md</code></td><td>Chart palettes, quick layouts, per-series gradient/pattern fills</td></tr>
       <tr><td><code>picture-effects.md</code></td><td>Transparency, brightness, contrast, recolor, SVG embedding</td></tr>
       <tr><td><code>tables.md</code></td><td>The inherited table API plus Cell.borders</td></tr>
       <tr><td><code>three-d.md</code></td><td>Bevels and extrusion via shape.three_d</td></tr>
       <tr><td><code>smart-art.md</code></td><td>Text substitution inside SmartArt</td></tr>
-      <tr><td><code>lint.md</code></td><td>slide.lint(), issue types, auto_fix, declaring intentional overlaps, lint_on_save</td></tr>
-      <tr><td><code>render.md</code></td><td>Slide thumbnails via LibreOffice</td></tr>
+      <tr><td><code>lint.md</code></td><td>slide.lint(), issue types, auto_fix, declaring intentional overlaps, lint_on_save, the <code>power-pptx lint</code> command</td></tr>
+      <tr><td><code>render.md</code></td><td>Slide thumbnails via LibreOffice: resolution, file names, fonts, errors</td></tr>
       <tr><td><code>end-to-end-deck.md</code></td><td>A complete worked example with a lint pass before save</td></tr>
     </tbody>
   </table>
@@ -99,7 +128,9 @@ python -m power_pptx.skill install --no-overwrite`;
     <li>
       <strong>Pin the version</strong> in generated requirements files:
       <code>power-pptx&gt;=2.8.0</code> is the minimum that ships the BBox / add_text / add_arrow /
-      diagrams / audit surface.
+      diagrams / audit surface, and <code>power-pptx&gt;=2.15.0</code> the minimum for
+      <code>from_spec(safe=True)</code>, <code>prs.slides.remove()</code> /
+      <code>duplicate()</code> and the <code>power-pptx lint</code> command.
     </li>
   </ul>
 
@@ -152,8 +183,30 @@ python -m power_pptx.skill install --no-overwrite`;
     a deck — with an optional built-in lint gate:
   </p>
   <Code code={jsonSpec} />
+
+  <h3 id="safe-specs">Specs the model wrote: <code>safe=True</code></h3>
+  <p>
+    A spec is data, and one written by a model or uploaded by a user should not be able to read
+    arbitrary files or reach the network. Build it in safe mode: every file it names
+    (<code>template</code>, a token <code>yaml</code>, an <code>image</code>, a
+    <code>figure</code> path) must resolve inside <code>base_dir</code>, and HTML and Plotly
+    figures are captured with network access blocked. A spec can never choose the browser
+    executable, safe mode or not. Every content error is a <code>SpecError</code> — a
+    <code>ValueError</code> — whose message and <code>.path</code> locate the bad value, which is
+    exactly what to hand back to the model:
+  </p>
+  <Code code={safeSpec} />
   <p>
     See <a href={withBase("/advanced/compose")}>Compose &amp; Templates</a> for the full spec
     schema, and <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for the lint gate.
   </p>
+
+  <h2 id="lint-cli">Checking a deck from the shell</h2>
+  <p>
+    When the agent hands back a <code>.pptx</code> rather than Python, <code>power-pptx lint</code>
+    checks it without any code: <code>0</code> means nothing reached the <code>--fail-on</code>
+    level, <code>1</code> that something did, <code>2</code> a usage error or unreadable file. The
+    JSON report is the one to feed back into the agent's next turn.
+  </p>
+  <Code code={lintCli} lang="bash" />
 </DocsLayout>

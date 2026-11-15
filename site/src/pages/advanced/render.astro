@@ -1,20 +1,37 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
 const snippet0 = `from power_pptx import Presentation
 
 prs = Presentation("deck.pptx")
-prs.render_thumbnails(out_dir="thumbs")        # every slide → PNG`;
+paths = prs.render_thumbnails(out_dir="thumbs")    # every slide -> PNG, 150 dpi
+[p.name for p in paths]
+# ['_render_input-page-1.png', '_render_input-page-2.png', '_render_input-page-3.png']
+
+prs.render_thumbnails(out_dir="small", dpi=72)     # a 10" slide is 720 px wide
+png = prs.slides[0].render_thumbnail(return_bytes=True)   # one slide, as bytes`;
 
 const snippet1 = `from power_pptx.render import render_slides
 
-# Selected slides with a name template
+# Selected slides with a name template (the index counts from 0)
 render_slides(
     prs,
     slides=[0, 1, 2],
     out_dir="thumbs",
     name_template="slide-{:02d}.png",
+    scale=2,                      # 144 dpi; overrides dpi=
+    font_dirs=["assets/fonts"],   # fonts LibreOffice should see
 )`;
+
+const snippet2 = `from power_pptx.render import ThumbnailRendererError, ThumbnailRendererUnavailable
+
+try:
+    prs.render_thumbnails(out_dir="thumbs", timeout=60)
+except ThumbnailRendererUnavailable:
+    ...   # no soffice / libreoffice to run
+except ThumbnailRendererError as exc:
+    ...   # LibreOffice failed, timed out, or there is no way to split the PDF`;
 
 ---
 
@@ -29,24 +46,50 @@ render_slides(
 
   <h2 id="requirements">Requirements</h2>
   <ul>
-    <li><code>soffice</code> (LibreOffice) on <code>PATH</code></li>
     <li>
-      <code>pdftoppm</code> (Poppler) <em>or</em> <code>pypdfium2</code> for the PDF→PNG split path
+      <code>soffice</code> (LibreOffice) on <code>PATH</code> — or <code>libreoffice</code>, or a
+      binary named by <code>soffice_bin=</code> or <code>POWER_PPTX_SOFFICE</code>
+    </li>
+    <li>
+      <code>pdftoppm</code> (Poppler) <em>or</em> <code>pypdfium2</code>
+      (<code>pip install 'power-pptx[review]'</code>) to split the rendered PDF into slides
     </li>
   </ul>
   <p>
-    Without them you get <code>ThumbnailRendererUnavailable</code> — catch it to degrade gracefully.
+    Without LibreOffice you get <code>ThumbnailRendererUnavailable</code> — catch it to degrade
+    gracefully. Without a PDF splitter only a one-slide deck can be rendered, through
+    LibreOffice's PNG filter; a longer deck raises <code>ThumbnailRendererError</code> saying what
+    to install.
   </p>
 
   <h2 id="usage">Usage</h2>
   <Code code={snippet0} />
-
   <Code code={snippet1} />
+  <p>
+    Rendering goes through PDF: LibreOffice exports the deck, and each page is rasterised at
+    <code>dpi</code> (150 by default) — for every deck, one-slide decks included.
+    <code>render_slides(scale=...)</code> is the same knob in PDF units, <code>1.0</code> being 72
+    dpi. Files are named <code>_render_input-page-N.png</code>, <code>N</code> counting from 1 and
+    zero-padded to the width of the slide count; pass <code>name_template</code> to
+    <code>render_slides</code> for names of your own. Hidden slides are rendered like any other, so
+    <code>slide_indexes=[n]</code> (or <code>slides=[n]</code>) always means
+    <code>prs.slides[n]</code>; that needs LibreOffice 7.4 or later.
+  </p>
   <p>
     Each call uses a private workspace and LibreOffice profile. Reusing <code>out_dir</code>
     returns only the current render's requested slides, even when the deck gets shorter.
     Unrelated files are preserved; matching output filenames are replaced. Intermediate
     files are cleaned up, and <code>return_bytes=True</code> does not write output files.
+    Folders registered with <code>power_pptx.text.register_font_dir</code> are always handed to
+    LibreOffice, so previews use the real typeface rather than a fallback.
+  </p>
+
+  <h2 id="errors">Errors and timeouts</h2>
+  <Code code={snippet2} />
+  <p>
+    <code>timeout=</code> (seconds, default 120) applies to the LibreOffice conversion and to the
+    PDF split separately. A step that overruns is stopped together with every process LibreOffice
+    started, and <code>ThumbnailRendererError</code> is raised.
   </p>
 
   <h2 id="agent-loop">The agent feedback loop</h2>
@@ -57,6 +100,8 @@ render_slides(
   </ol>
   <p>
     Combined with <code>audit(prs).markdown()</code>, this closes the loop between generation and
-    verification without ever opening PowerPoint.
+    verification without ever opening PowerPoint. For a complete bundle — PDF, every PNG, contact
+    sheets, validation and a gallery — use <code>power-pptx review</code>; see
+    <a href={`${withBase("/advanced/authoring-workflows")}#review`}>Modern Authoring Workflows</a>.
   </p>
 </DocsLayout>

@@ -40,7 +40,7 @@ const snippet3 = `# Accessibility report — 1 slide(s)
 - slide 0 — \`Rectangle 3\`: text-on-fill contrast 1.16:1 is below WCAG AA (4.5:1).
 
 ## MissingAltText (2)
-- slide 0 — \`Picture 1\`: picture has no alt text; set shape.alt_text for screen readers.
+- slide 0 — \`Picture 1\`: picture's alt text 'revenue.png' is a file name, not a description; set shape.alt_text to say what it shows.
 - slide 0 — \`Chart 2\`: chart has no alt text; set shape.alt_text for screen readers.
 
 ## NoSlideTitle (1)
@@ -126,10 +126,9 @@ print(audit(prs).markdown())`;
   <Code code={snippet0} />
   <p>
     Note the first line of output. <code>add_picture()</code> pre-fills <code>descr</code> with the
-    image's <strong>filename</strong> — inherited upstream behaviour. That is enough to satisfy any
-    "does this picture have alt text?" check, including the one below, while telling a listener
-    nothing at all. Treat every inserted picture as needing an explicit description, not as already
-    having one.
+    image's <strong>filename</strong> — inherited upstream behaviour — which tells a listener
+    nothing at all. The audit below treats alt text that is only a file name as missing, so treat
+    every inserted picture as needing an explicit description, not as already having one.
   </p>
   <Code code={snippet1} />
 
@@ -177,7 +176,7 @@ print(audit(prs).markdown())`;
     <tbody>
       <tr>
         <td><code>MissingAltText</code></td>
-        <td>A meaningful shape carries no <code>alt_text</code></td>
+        <td>A meaningful shape carries no <code>alt_text</code>, or only a file name such as the one <code>add_picture</code> writes</td>
         <td><strong>error</strong> for pictures, linked pictures, media and web video (a screen reader has literally nothing to announce); <strong>warning</strong> for charts, tables, diagrams, freeforms and OLE objects</td>
       </tr>
       <tr>
@@ -195,7 +194,8 @@ print(audit(prs).markdown())`;
   <Code code={snippet4} />
   <p>
     The walk recurses into groups, so a picture buried in a <code>GroupShape</code> is still held to
-    the same standard. Shapes whose type cannot be determined are skipped rather than guessed at.
+    the same standard, and a picture inserted into a placeholder is checked like any other.
+    Shapes whose type cannot be determined are skipped rather than guessed at.
     <code>AccessibilitySeverity</code> is a <code>str</code> enum with <code>ERROR</code>,
     <code>WARNING</code> and <code>INFO</code> members — the fourth public name, alongside
     <code>AccessibilityIssue</code>, <code>AccessibilityReport</code> and
@@ -218,12 +218,16 @@ print(audit(prs).markdown())`;
   </p>
   <ul>
     <li>the text colour is the first run in the frame that has an explicit RGB colour;</li>
-    <li>the background is the shape's own fill, falling back to the slide's explicit background;</li>
     <li>
-      <strong>only solid RGB counts.</strong> Theme colours, gradients, pictures and any fill
-      inherited from the layout or master are skipped silently — resolving those correctly means
-      walking the theme and the colour map, and guessing wrong would flood the report with false
-      positives.
+      the backdrop is the shape's own opaque fill; for a shape with no fill — a text box on a card
+      — it is the nearest shape painted beneath that covers it completely with an opaque fill, and
+      with nothing beneath, the slide's explicit background;
+    </li>
+    <li>
+      <strong>only solid RGB counts.</strong> Theme colours, gradients, pictures, translucent or
+      partial covers and any fill inherited from the layout or master are skipped silently —
+      resolving those correctly means walking the theme and the colour map, and guessing wrong
+      would flood the report with false positives.
     </li>
   </ul>
   <p>
@@ -238,8 +242,9 @@ print(audit(prs).markdown())`;
   <p>
     <code>MinFontSize</code> is a lint rule rather than part of the accessibility audit, but it
     belongs to the same conversation: it reports the smallest explicitly-sized run in a shape when
-    that run falls below the <strong>9pt</strong> legibility threshold. Runs with no explicit size
-    (inheriting from the placeholder or the master) are not measured.
+    that run falls below the <strong>9pt</strong> legibility threshold — after any font scale a
+    shrink-on-overflow frame stores, so an 18pt run in a frame shrunk to 50% counts as 9pt. Runs
+    with no explicit size (inheriting from the placeholder or the master) are not measured.
   </p>
   <Code code={snippet5} />
   <p>

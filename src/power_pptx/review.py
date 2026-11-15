@@ -10,9 +10,11 @@ import argparse
 import io
 import json
 import math
+import re
 import shutil
 import sys
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -37,8 +39,64 @@ class ReviewReport:
         return [self.directory / path for path in self.manifest["slides"]]
 
 
+# What a review writes into its output directory, by name. Each run replaces
+# all of it, so nothing an earlier run left (the pages of a longer deck, its
+# reference comparison, the PDF of a render that worked) sits beside the new
+# manifest. Anything else in the directory is the caller's and is kept.
+_RUN_FILES = ("presentation.pptx", "presentation.pdf", "manifest.json", "REVIEW.md", "index.html")
+_RUN_IMAGE_DIRS = ("slides", "references", "differences", "browser-reference")
+_SLIDE_IMAGE = re.compile(r"slide-\d{2,}\.png")
+_CONTACT_SHEET = re.compile(r"contact-\d{2,}\.png")
+
+
+def _clear_previous_run(out, keep=None):
+    """Remove from *out* the files an earlier review wrote there, and nothing else.
+
+    *keep* is a folder this run reads from, such as its reference images. It
+    is left as it is even when it is one of the review's own folders (an
+    earlier run's ``slides/`` passed back in as the reference, say).
+    """
+    if not out.is_dir():
+        return
+    for path in out.iterdir():
+        ours = path.name in _RUN_FILES or _CONTACT_SHEET.fullmatch(path.name)
+        if ours and _is_file_or_link(path):
+            path.unlink()
+    for name in _RUN_IMAGE_DIRS:
+        folder = out / name
+        if _is_image_folder_to_clear(folder, keep):
+            _clear_image_folder(folder)
+
+
+def _is_file_or_link(path):
+    """True for a file, or for a link to anything: what unlinking removes without following."""
+    return path.is_file() or path.is_symlink()
+
+
+def _is_image_folder_to_clear(folder, keep):
+    """True when *folder* is a real folder (not a link to one) and not the folder *keep*."""
+    if folder.is_symlink() or not folder.is_dir():
+        return False
+    return keep is None or folder.resolve() != Path(keep).resolve()
+
+
+def _clear_image_folder(folder):
+    """Remove the slide images a review wrote into *folder*, then *folder* if that empties it."""
+    for path in folder.iterdir():
+        if _SLIDE_IMAGE.fullmatch(path.name) and _is_file_or_link(path):
+            path.unlink()
+    with suppress(OSError):
+        folder.rmdir()  # -- only when nothing of the caller's is left in it --
+
+
 def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
-    from power_pptx.render import _pdf_to_pngs, _resolve_binary, _run_soffice_pdf, _soffice_env
+    from power_pptx.render import (
+        _hidden_slide_indexes,
+        _pdf_to_pngs,
+        _resolve_binary,
+        _run_soffice_pdf,
+        _soffice_env,
+    )
 
     # One PDF conversion provides both the deliverable PDF and every PNG.
     with tempfile.TemporaryDirectory(prefix="pptx-review-render-") as tmp:
@@ -46,13 +104,23 @@ def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
         deck = work / "presentation.pptx"
         prs.save(deck)
         env = _soffice_env(work, font_dirs)
-        result = _run_soffice_pdf(_resolve_binary(soffice_bin), deck, work, timeout, env=env)
+        # -- A review covers every slide of the deck, so hidden slides are
+        # -- exported too; LibreOffice leaves them out unless asked. --
+        hidden = _hidden_slide_indexes(prs)
+        result = _run_soffice_pdf(
+            _resolve_binary(soffice_bin), deck, work, timeout, env=env, hidden_slides=bool(hidden)
+        )
         pdf = work / "presentation.pdf"
         if result.returncode or not pdf.is_file():
             raise RuntimeError(
                 "LibreOffice PDF export failed: " + result.stderr.decode("utf-8", "replace")[:2000]
             )
-        pages = _pdf_to_pngs(pdf, work, dpi=dpi)
+        pages = _pdf_to_pngs(pdf, work, dpi=dpi, timeout=timeout)
+        if hidden and len(pages) == len(prs.slides) - len(hidden):
+            raise RuntimeError(
+                f"LibreOffice left the deck's {len(hidden)} hidden slide(s) out of the PDF; "
+                "version 7.4 or later is needed to review a deck with hidden slides"
+            )
         if len(pages) != len(prs.slides):
             raise RuntimeError(f"Expected {len(prs.slides)} rendered pages; received {len(pages)}")
         shutil.copy2(pdf, directory / "presentation.pdf")
@@ -209,54 +277,36 @@ def review_presentation(
     their review artifacts. Invalid options and missing input files raise.
     Input files are never overwritten. Only files from this run appear in the
     manifest/gallery; pre-existing output PNGs cannot count as rendered pages.
+    When ``out_dir`` is reused, the files an earlier review wrote there are
+    removed first (its slide PNGs, contact sheets, PDF, reference and
+    difference images), so the directory holds exactly this run. Files the
+    review does not write are left alone, and so is ``reference_dir`` when it
+    is one of those folders.
     ``font_dirs`` are registered for font checks and handed to LibreOffice, as
     are folders already registered with ``register_font_dir``.
     """
     from power_pptx import Presentation
 
-    if reference_dir is not None and reference_html is not None:
-        raise ValueError("Choose reference_dir or reference_html")
-    if font_policy not in {"warn", "error", "ignore"}:
-        raise ValueError("font_policy must be warn, error, or ignore")
-    if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi <= 0 or timeout <= 0:
-        raise ValueError("dpi and timeout must be positive")
-    if max_mean_error is not None and (
-        not math.isfinite(max_mean_error) or not 0 <= max_mean_error <= 1
-    ):
-        raise ValueError("max_mean_error must be between 0 and 1")
-    if font_dirs:
-        from power_pptx.text.fonts import register_font_dir
-
-        for directory in font_dirs:
-            register_font_dir(directory)
+    _check_options(
+        reference_dir=reference_dir,
+        reference_html=reference_html,
+        font_policy=font_policy,
+        dpi=dpi,
+        timeout=timeout,
+        max_mean_error=max_mean_error,
+    )
+    _register_font_dirs(font_dirs)
     out = Path(out_dir).resolve()
-    if (
-        isinstance(source, (str, Path))
-        and Path(source).resolve() == (out / "presentation.pptx").resolve()
-    ):
-        raise ValueError("Review output cannot overwrite its input presentation")
-    if reference_dir is not None and not Path(reference_dir).is_dir():
-        raise ValueError("reference_dir must be an existing directory")
+    _check_paths(source, out, reference_dir)
+    # -- remembered because `reference_dir` is repointed for HTML references --
+    given_reference_dir = reference_dir
     data = presentation_bytes(source)
     validation = validate_presentation(
         data, check_schema=check_schema, check_fonts=font_policy != "ignore"
     )
-    errors = list(validation.errors)
-    if validation.schema_violations:
-        errors.append("OOXML schema/package validation failed")
-    if validation.roundtrip_changed_parts:
-        errors.append("Save/reopen round-trip changed package parts")
-    if validation.audit.get("has_errors"):
-        errors.append("Deck audit found errors")
-    if validation.audit.get("empty_slides"):
-        errors.append("Deck contains empty slides")
-    if font_policy == "error" and validation.missing_fonts:
-        errors.append("Missing native fonts: " + ", ".join(validation.missing_fonts))
-    if fail_on_warnings and (
-        validation.missing_fonts
-        or any(i["severity"] != "error" for i in validation.audit.get("lint_issues", []))
-    ):
-        errors.append("Warnings are configured to fail this review")
+    errors = _validation_errors(
+        validation, font_policy=font_policy, fail_on_warnings=fail_on_warnings
+    )
     manifest = {
         "title": "Slide review",
         "slide_count": validation.slide_count,
@@ -290,21 +340,14 @@ def review_presentation(
             manifest["slides"] = [p.relative_to(stage).as_posix() for p in images]
             manifest["contact_sheets"] = _contact_sheets(images, stage)
             if reference_html is not None:
-                from power_pptx.design._html import capture_html
-
-                refs = stage / "browser-reference"
-                refs.mkdir()
-                captures = capture_html(
+                reference_dir = _capture_html_references(
                     reference_html,
+                    stage,
                     selector=selector,
-                    multiple=True,
                     viewport=viewport,
                     browser_path=browser_path,
                     wait_for_function=wait_for_function,
                 )
-                for i, capture in enumerate(captures):
-                    (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
-                reference_dir = refs
             if reference_dir is not None:
                 manifest["comparisons"] = _compare(images, reference_dir, stage, max_mean_error)
                 if any(item["within_tolerance"] is False for item in manifest["comparisons"]):
@@ -321,12 +364,122 @@ def review_presentation(
         _index(stage, manifest)
         out.mkdir(parents=True, exist_ok=True)
         # Copy only this run's staging files. The manifest never discovers
-        # images by globbing an output directory from a previous run.
+        # images by globbing an output directory from a previous run, and the
+        # previous run's own files are removed so the directory matches it.
+        _clear_previous_run(out, keep=given_reference_dir)
         shutil.copytree(stage, out, dirs_exist_ok=True)
     return ReviewReport(out, manifest)
 
 
+def _check_options(*, reference_dir, reference_html, font_policy, dpi, timeout, max_mean_error):
+    """Raise |ValueError| for the first option of a review that is not valid."""
+    if reference_dir is not None and reference_html is not None:
+        raise ValueError("Choose reference_dir or reference_html")
+    if font_policy not in {"warn", "error", "ignore"}:
+        raise ValueError("font_policy must be warn, error, or ignore")
+    if not _is_positive_int(dpi) or timeout <= 0:
+        raise ValueError("dpi and timeout must be positive")
+    if max_mean_error is not None and not _is_fraction(max_mean_error):
+        raise ValueError("max_mean_error must be between 0 and 1")
+
+
+def _is_positive_int(value):
+    """True for an int above zero; `True` is a bool, not a resolution."""
+    return not isinstance(value, bool) and isinstance(value, int) and value > 0
+
+
+def _is_fraction(value):
+    """True for a finite number from 0 to 1."""
+    return math.isfinite(value) and 0 <= value <= 1
+
+
+def _register_font_dirs(font_dirs):
+    """Register *font_dirs* for the font checks (and so for LibreOffice too)."""
+    if not font_dirs:
+        return
+    from power_pptx.text.fonts import register_font_dir
+
+    for directory in font_dirs:
+        register_font_dir(directory)
+
+
+def _check_paths(source, out, reference_dir):
+    """Raise |ValueError| when the review would overwrite *source*, or has no references."""
+    if (
+        isinstance(source, (str, Path))
+        and Path(source).resolve() == (out / "presentation.pptx").resolve()
+    ):
+        raise ValueError("Review output cannot overwrite its input presentation")
+    if reference_dir is not None and not Path(reference_dir).is_dir():
+        raise ValueError("reference_dir must be an existing directory")
+
+
+def _validation_errors(validation, *, font_policy, fail_on_warnings):
+    """Return the review errors that *validation* calls for, in the order they are listed."""
+    errors = list(validation.errors)
+    if validation.schema_violations:
+        errors.append("OOXML schema/package validation failed")
+    if validation.roundtrip_changed_parts:
+        errors.append("Save/reopen round-trip changed package parts")
+    if validation.audit.get("has_errors"):
+        errors.append("Deck audit found errors")
+    if validation.audit.get("empty_slides"):
+        errors.append("Deck contains empty slides")
+    if font_policy == "error" and validation.missing_fonts:
+        errors.append("Missing native fonts: " + ", ".join(validation.missing_fonts))
+    if fail_on_warnings and _has_warnings(validation):
+        errors.append("Warnings are configured to fail this review")
+    return errors
+
+
+def _has_warnings(validation):
+    """True when *validation* found a missing font or a lint issue that is not an error."""
+    return bool(validation.missing_fonts) or any(
+        issue["severity"] != "error" for issue in validation.audit.get("lint_issues", [])
+    )
+
+
+def _capture_html_references(
+    reference_html, stage, *, selector, viewport, browser_path, wait_for_function
+):
+    """Capture each slide of *reference_html* in a browser; return the folder of PNGs."""
+    from power_pptx.design._html import capture_html
+
+    refs = stage / "browser-reference"
+    refs.mkdir()
+    captures = capture_html(
+        reference_html,
+        selector=selector,
+        multiple=True,
+        viewport=viewport,
+        browser_path=browser_path,
+        wait_for_function=wait_for_function,
+    )
+    for i, capture in enumerate(captures):
+        (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
+    return refs
+
+
 def main(argv=None):
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    _register_cli_font_dirs(parser, args.font_dir)
+    if len(args.inputs) > 1 and (args.reference_html or args.reference_dir):
+        parser.error("Explicit references apply to a single input")
+    names = [p.stem for p in args.inputs]
+    if len(set(names)) != len(names):
+        parser.error("Batch inputs must have distinct basenames")
+    results = []
+    for path in args.inputs:
+        target = args.out_dir / path.stem if len(args.inputs) > 1 else args.out_dir
+        _review_input(path, target, args, results)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    if len(args.inputs) > 1:
+        _write_batch_index(args.out_dir, args.inputs, results)
+    return 1 if any(not record["passed"] for record in results) else 0
+
+
+def _build_parser():
     parser = argparse.ArgumentParser(prog="power-pptx review", description=__doc__)
     parser.add_argument(
         "inputs", nargs="+", type=Path, help="PPTX, HTML, JSON, or YAML slide sources"
@@ -350,100 +503,152 @@ def main(argv=None):
         default=[],
         help="Extra font folder for measurement and rendering (repeatable)",
     )
-    args = parser.parse_args(argv)
-    if args.font_dir:
-        from power_pptx.text.fonts import register_font_dir
+    return parser
 
-        for directory in args.font_dir:
-            if not directory.is_dir():
-                parser.error(f"--font-dir {directory} is not a directory")
-            register_font_dir(directory)
-    if len(args.inputs) > 1 and (args.reference_html or args.reference_dir):
-        parser.error("Explicit references apply to a single input")
-    names = [p.stem for p in args.inputs]
-    if len(set(names)) != len(names):
-        parser.error("Batch inputs must have distinct basenames")
-    results = []
-    for path in args.inputs:
-        target = args.out_dir / path.stem if len(args.inputs) > 1 else args.out_dir
-        try:
-            with tempfile.TemporaryDirectory(prefix="pptx-review-source-") as tmp:
-                reference = args.reference_dir
-                source = path
-                suffix = path.suffix.lower()
-                if suffix in {".html", ".htm"}:
-                    from power_pptx.compose import from_html
 
-                    capture_reference = None
-                    if reference is None and args.reference_html is None:
-                        reference = Path(tmp) / "reference"
-                        capture_reference = reference
-                    source = from_html(
-                        path,
-                        mode=args.mode,
-                        browser_path=args.browser_path,
-                        selector=args.selector,
-                        wait_for_function=args.ready,
-                        reference_dir=capture_reference,
-                    )
-                elif suffix in {".json", ".yaml", ".yml"}:
-                    from power_pptx.compose import from_spec, from_yaml
+def _register_cli_font_dirs(parser, font_dirs):
+    """Register each ``--font-dir``, or exit with a usage error at one that is not a folder."""
+    if not font_dirs:
+        return
+    from power_pptx.text.fonts import register_font_dir
 
-                    source = (
-                        from_spec(json.loads(path.read_text(encoding="utf-8")))
-                        if suffix == ".json"
-                        else from_yaml(path)
-                    )
-                elif suffix != ".pptx":
-                    raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
-                report = review_presentation(
-                    source,
-                    out_dir=target,
-                    reference_dir=reference,
-                    reference_html=args.reference_html,
-                    browser_path=args.browser_path,
-                    wait_for_function=args.ready,
-                    selector=args.selector,
-                    dpi=args.dpi,
-                    soffice_bin=args.soffice_bin,
-                    max_mean_error=args.max_error,
-                    font_policy=args.font_policy,
-                    fail_on_warnings=args.fail_on_warnings,
-                )
-                results.append(
-                    {"input": str(path), "passed": not report.has_errors, "directory": str(target)}
-                )
-                print(
-                    f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — "
-                    f"{target / 'index.html'}",
-                    flush=True,
-                )
-        except Exception as exc:
-            failure = {"input": str(path), "passed": False, "error": str(exc)}
-            results.append(failure)
-            target.mkdir(parents=True, exist_ok=True)
-            (target / "manifest.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
-            (target / "index.html").write_text(
-                '<!doctype html><meta charset="utf-8"><title>Review failed</title>'
-                f"<h1>{escape(path.name)}</h1><p>{escape(str(exc))}</p>"
-                '<a href="manifest.json">Failure details</a>',
-                encoding="utf-8",
+    for directory in font_dirs:
+        if not directory.is_dir():
+            parser.error(f"--font-dir {directory} is not a directory")
+        register_font_dir(directory)
+
+
+def _review_input(path, target, args, results):
+    """Review the input *path* into *target*, appending its outcome to *results*.
+
+    A review that fails is recorded with its findings; an input that cannot be
+    reviewed at all is recorded with the reason, which is also written to
+    *target* and reported on standard error.
+    """
+    try:
+        with tempfile.TemporaryDirectory(prefix="pptx-review-source-") as tmp:
+            source, reference = _review_source(path, args, Path(tmp))
+            report = review_presentation(
+                source,
+                out_dir=target,
+                reference_dir=reference,
+                reference_html=args.reference_html,
+                browser_path=args.browser_path,
+                wait_for_function=args.ready,
+                selector=args.selector,
+                dpi=args.dpi,
+                soffice_bin=args.soffice_bin,
+                max_mean_error=args.max_error,
+                font_policy=args.font_policy,
+                fail_on_warnings=args.fail_on_warnings,
             )
-            print(f"{path.name}: FAIL — {exc}", file=sys.stderr, flush=True)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    if len(args.inputs) > 1:
-        (args.out_dir / "batch.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-        cards = "".join(
-            f'<li><a href="{escape(path.stem)}/index.html">{escape(path.name)}</a>: '
-            f"{'PASS' if result['passed'] else 'FAIL'}</li>"
-            for path, result in zip(args.inputs, results)
-        )
-        (args.out_dir / "index.html").write_text(
-            '<!doctype html><meta charset="utf-8"><title>Deck reviews</title>'
-            f'<h1>Deck reviews</h1><ul>{cards}</ul><a href="batch.json">Batch results</a>',
-            encoding="utf-8",
-        )
-    return 1 if any(not record["passed"] for record in results) else 0
+    except Exception as exc:
+        failure = {"input": str(path), "passed": False, "error": str(exc)}
+        results.append(failure)
+        _write_failure(target, path, exc, failure)
+        _say(sys.stderr, f"{path.name}: FAIL — {exc}")
+        return
+    # -- reported outside the try, so a console that cannot print the line
+    # -- does not turn a finished review into a second, failed one --
+    results.append({"input": str(path), "passed": not report.has_errors, "directory": str(target)})
+    _say(
+        sys.stdout,
+        f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — {target / 'index.html'}",
+    )
+
+
+def _say(stream, text):
+    """Write a line to *stream*, escaping what its encoding cannot represent.
+
+    File names and error messages are arbitrary text, and a CI console is
+    not always UTF-8; a review must not fail because its summary line
+    contains a dash.
+    """
+    try:
+        stream.write(text + "\n")
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        stream.write((text + "\n").encode(encoding, "backslashreplace").decode(encoding))
+    stream.flush()
+
+
+def _review_source(path, args, tmp):
+    """Return the deck to review for the input *path*, and the references to compare it with.
+
+    A PPTX is reviewed as it is; HTML and JSON/YAML specs are built into a
+    deck first. *tmp* is a scratch folder that lasts as long as the review.
+    """
+    suffix = path.suffix.lower()
+    if suffix in {".html", ".htm"}:
+        return _deck_from_html(path, args, tmp)
+    if suffix in {".json", ".yaml", ".yml"}:
+        return _deck_from_spec(path, suffix), args.reference_dir
+    if suffix != ".pptx":
+        raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
+    return path, args.reference_dir
+
+
+def _deck_from_html(path, args, tmp):
+    """Build the HTML input *path* into a deck; return it and the references to compare with.
+
+    Without references of its own, the review compares the deck against the
+    browser captures made while building it, saved in *tmp*.
+    """
+    from power_pptx.compose import from_html
+
+    reference = args.reference_dir
+    capture_reference = None
+    if reference is None and args.reference_html is None:
+        reference = tmp / "reference"
+        capture_reference = reference
+    source = from_html(
+        path,
+        mode=args.mode,
+        browser_path=args.browser_path,
+        selector=args.selector,
+        wait_for_function=args.ready,
+        reference_dir=capture_reference,
+    )
+    return source, reference
+
+
+def _deck_from_spec(path, suffix):
+    """Build the JSON or YAML spec at *path* into a deck."""
+    from power_pptx.compose import from_spec, from_yaml
+
+    if suffix == ".json":
+        return from_spec(json.loads(path.read_text(encoding="utf-8")))
+    return from_yaml(path)
+
+
+def _write_failure(target, path, exc, failure):
+    """Write what stopped the input *path* from being reviewed into *target*."""
+    target.mkdir(parents=True, exist_ok=True)
+    # -- Nothing was reviewed, so an earlier review's files stay as they
+    # -- are (the input itself may be among them); only the manifest
+    # -- and index say what happened this time. --
+    (target / "manifest.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+    (target / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>Review failed</title>'
+        f"<h1>{escape(path.name)}</h1><p>{escape(str(exc))}</p>"
+        '<a href="manifest.json">Failure details</a>',
+        encoding="utf-8",
+    )
+
+
+def _write_batch_index(out_dir, inputs, results):
+    """Write the results of reviewing several *inputs*, and a page linking each review."""
+    (out_dir / "batch.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    cards = "".join(
+        f'<li><a href="{escape(path.stem)}/index.html">{escape(path.name)}</a>: '
+        f"{'PASS' if result['passed'] else 'FAIL'}</li>"
+        for path, result in zip(inputs, results)
+    )
+    (out_dir / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>Deck reviews</title>'
+        f'<h1>Deck reviews</h1><ul>{cards}</ul><a href="batch.json">Batch results</a>',
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

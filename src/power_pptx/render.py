@@ -5,29 +5,32 @@ since this library deliberately runs without PowerPoint, the next-best
 practical option is to drive LibreOffice in headless mode.  That's what
 :func:`render_slide_thumbnails` (and the convenience methods on
 :class:`~power_pptx.api.Presentation` and ``Slide``) do: save the deck to a
-temporary file, ask ``soffice --headless --convert-to png`` to render
-each slide, and return the resulting paths (or PNG bytes).
+temporary file, ask headless ``soffice`` to convert it, and return one
+PNG per slide as paths (or PNG bytes).
 
 This is an *optional* feature with no hard dependency: callers must have
-``soffice`` (LibreOffice) on ``PATH``.  When it isn't available the
+LibreOffice installed, found as ``soffice`` or ``libreoffice`` on ``PATH`` or
+named by ``soffice_bin`` / ``POWER_PPTX_SOFFICE``.  When it isn't available the
 functions raise :class:`ThumbnailRendererUnavailable` with an actionable
 hint so the failure mode is obvious.
 
-Two rendering strategies are supported, tried in order:
+Two rendering strategies are supported:
 
-1. ``soffice --convert-to png`` — fast, single subprocess, but stock
-   LibreOffice 7+ only emits the *first* slide of a multi-slide deck
-   when targeting PNG directly.  We accept this output only when the
-   number of PNGs produced matches the slide count.
-
-2. ``soffice --convert-to pdf`` followed by per-page PDF→PNG split —
-   reliable across LibreOffice versions because the PDF export always
-   includes every slide.  The split prefers ``pdftoppm`` (Poppler,
+1. ``soffice --convert-to pdf`` followed by per-page PDF→PNG split —
+   reliable across LibreOffice versions because the PDF export includes
+   every slide (hidden ones when asked, which we do), and the only one
+   that honours ``dpi=``.  The split prefers ``pdftoppm`` (Poppler,
    ubiquitous on Linux/macOS), then ``pypdfium2`` if installed.
 
-Callers can force a specific strategy with ``strategy="png"`` or
-``strategy="pdf"``; the default ``"auto"`` tries PNG first and falls
-back to PDF on a slide-count mismatch.
+2. ``soffice --convert-to png`` — a single subprocess with nothing else
+   to install, but stock LibreOffice 7+ only emits the *first* slide of
+   a multi-slide deck when targeting PNG directly, at a size LibreOffice
+   chooses.  We accept this output only when the number of PNGs
+   produced matches the slide count.
+
+Callers can force a specific strategy with ``strategy="pdf"`` or
+``strategy="png"``; the default ``"auto"`` uses PDF, and PNG only when
+neither ``pdftoppm`` nor ``pypdfium2`` is available to split a PDF.
 
 The shell-out is deliberately quarantined to a single small module so
 the rest of the library never depends on subprocess or LibreOffice.
@@ -35,14 +38,17 @@ the rest of the library never depends on subprocess or LibreOffice.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Union, cast
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Union, cast
 
 if TYPE_CHECKING:
     from power_pptx.presentation import Presentation as _Presentation
@@ -51,9 +57,24 @@ if TYPE_CHECKING:
 DEFAULT_SOFFICE_BIN = "soffice"
 DEFAULT_TIMEOUT_SECONDS = 120
 
+#: Names looked up on ``PATH``, in order, when the caller names no binary.
+#: Some installs provide only ``libreoffice``.
+_SOFFICE_BIN_NAMES = (DEFAULT_SOFFICE_BIN, "libreoffice")
+
+#: Stem of the deck saved for conversion, and so of every PNG made from it.
+_RENDER_STEM = "_render_input"
+
+#: ``--convert-to`` target that makes the PDF export include hidden slides
+#: (``<p:sld show="0">``), which LibreOffice leaves out by default.  The JSON
+#: filter options need LibreOffice 7.4 or later; an older build ignores them
+#: and exports the visible slides only.
+_PDF_WITH_HIDDEN_SLIDES = (
+    'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}'
+)
+
 
 class ThumbnailRendererUnavailable(RuntimeError):
-    """Raised when LibreOffice/soffice is not available on PATH.
+    """Raised when LibreOffice (``soffice`` or ``libreoffice``) cannot be found.
 
     The message includes an install hint so callers can route users to
     a working configuration without grepping documentation.
@@ -61,19 +82,25 @@ class ThumbnailRendererUnavailable(RuntimeError):
 
 
 class ThumbnailRendererError(RuntimeError):
-    """Raised when LibreOffice runs but produces no output (or errors)."""
+    """Raised when LibreOffice runs but produces no output, errors or times out."""
 
 
 def _resolve_binary(binary: Optional[str]) -> str:
-    candidate = binary or os.environ.get("POWER_PPTX_SOFFICE") or DEFAULT_SOFFICE_BIN
-    resolved = shutil.which(candidate)
-    if resolved is None:
-        raise ThumbnailRendererUnavailable(
-            "could not locate %r on PATH; install LibreOffice (provides the "
-            "`soffice` binary) or set POWER_PPTX_SOFFICE to the absolute path "
-            "of a compatible binary." % candidate
-        )
-    return resolved
+    """Return the path of the LibreOffice binary to run.
+
+    *binary*, then ``POWER_PPTX_SOFFICE``, names it explicitly.  Otherwise
+    the first of ``soffice`` and ``libreoffice`` found on ``PATH`` is used.
+    """
+    explicit = binary or os.environ.get("POWER_PPTX_SOFFICE")
+    for candidate in (explicit,) if explicit else _SOFFICE_BIN_NAMES:
+        resolved = shutil.which(candidate)
+        if resolved is not None:
+            return resolved
+    raise ThumbnailRendererUnavailable(
+        "could not locate %r on PATH; install LibreOffice (provides the "
+        "`soffice` binary) or set POWER_PPTX_SOFFICE to the absolute path "
+        "of a compatible binary." % (explicit or DEFAULT_SOFFICE_BIN)
+    )
 
 
 def _save_to_path(prs, path: Path) -> None:
@@ -105,7 +132,7 @@ def _soffice_env(
     """
     from xml.sax.saxutils import escape
 
-    from power_pptx.text.fonts import FontFiles, registered_font_dirs
+    from power_pptx.text.fonts import FontFiles, registered_font_dirs, registered_font_files
 
     extra: list[str] = []
     for directory in font_dirs or ():
@@ -114,6 +141,14 @@ def _soffice_env(
             raise ValueError(f"Font directory {path!r} does not exist")
         extra.append(path)
     extra.extend(registered_font_dirs())
+    files = registered_font_files()
+    if files:
+        # -- register_font_family files, without the rest of their folders --
+        copies = work_dir / ".fontconfig" / "files"
+        copies.mkdir(parents=True, exist_ok=True)
+        for number, font_file in enumerate(files):
+            shutil.copyfile(font_file, copies / f"{number}-{os.path.basename(font_file)}")
+        extra.append(str(copies))
     extra = list(dict.fromkeys(extra))
     if not extra:
         return None
@@ -137,21 +172,69 @@ def _soffice_env(
     return env
 
 
-def _run_soffice(
+def _kill_process_tree(process: "subprocess.Popen[bytes]") -> None:
+    """Stop *process* and every process it started.
+
+    ``soffice`` is only a launcher (a shell script on Linux and macOS,
+    ``soffice.exe`` on Windows) for the real ``soffice.bin``, so killing the
+    one process we started would leave the converter running.
+    """
+    if sys.platform == "win32":
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+    else:
+        # -- the process leads its own group; see `start_new_session` in `_run` --
+        with suppress(OSError):
+            os.killpg(process.pid, signal.SIGKILL)
+    with suppress(OSError):
+        process.kill()
+
+
+def _run(
+    cmd: Sequence[str], *, timeout: float, env: Optional[dict] = None
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run *cmd* to completion and return its result, never leaving it running.
+
+    The command gets its own session, hence its own process group, so the
+    whole group can be stopped when it overruns *timeout* (seconds) or the
+    caller is interrupted.  A timeout raises :class:`ThumbnailRendererError`.
+    """
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(process)
+            raise ThumbnailRendererError(
+                "%s did not finish within %s seconds and was stopped; pass a "
+                "larger timeout= if the deck needs longer to convert."
+                % (Path(cmd[0]).name, timeout)
+            ) from None
+        except BaseException:
+            _kill_process_tree(process)
+            raise
+    return subprocess.CompletedProcess(list(cmd), process.returncode, stdout, stderr)
+
+
+def _soffice_convert(
     soffice_bin: str,
     deck_path: Path,
     out_dir: Path,
-    timeout: int,
-    env: Optional[dict] = None,
-) -> subprocess.CompletedProcess:
-    """Convert *deck_path* to PNG using ``soffice --convert-to png``.
-
-    Stock LibreOffice 7+ writes only the first slide for a multi-slide
-    deck through this filter; older builds (and a handful of forks) write
-    one PNG per slide.  Callers are responsible for verifying the output
-    count matches the slide count and falling back to the PDF path when
-    it doesn't.
-    """
+    timeout: float,
+    env: Optional[dict],
+    target: str,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run ``soffice --convert-to <target>`` on *deck_path*, writing into *out_dir*."""
     cmd = [
         soffice_bin,
         "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
@@ -160,53 +243,115 @@ def _run_soffice(
         "--nologo",
         "--nofirststartwizard",
         "--convert-to",
-        "png",
+        target,
         "--outdir",
         str(out_dir),
         str(deck_path),
     ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env=env,
-    )
+    return _run(cmd, timeout=timeout, env=env)
+
+
+def _run_soffice(
+    soffice_bin: str,
+    deck_path: Path,
+    out_dir: Path,
+    timeout: float,
+    env: Optional[dict] = None,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Convert *deck_path* to PNG using ``soffice --convert-to png``.
+
+    Stock LibreOffice 7+ writes only the first slide for a multi-slide
+    deck through this filter; older builds (and a handful of forks) write
+    one PNG per slide.  Callers are responsible for verifying the output
+    count matches the slide count.
+    """
+    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, "png")
 
 
 def _run_soffice_pdf(
     soffice_bin: str,
     deck_path: Path,
     out_dir: Path,
-    timeout: int,
+    timeout: float,
     env: Optional[dict] = None,
-) -> subprocess.CompletedProcess:
+    *,
+    hidden_slides: bool = False,
+) -> "subprocess.CompletedProcess[bytes]":
     """Convert *deck_path* to PDF using ``soffice --convert-to pdf``.
 
     Unlike the PNG filter, the PDF export reliably contains every slide
     on every LibreOffice version we've tested, which makes it the
-    authoritative source for per-slide thumbnails.
+    authoritative source for per-slide thumbnails.  It leaves hidden
+    slides out unless *hidden_slides* asks for them; pass it only for a
+    deck that has some, so other decks convert exactly as before.
     """
-    cmd = [
-        soffice_bin,
-        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(out_dir),
-        str(deck_path),
+    target = _PDF_WITH_HIDDEN_SLIDES if hidden_slides else "pdf"
+    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, target)
+
+
+def _pdf_rasteriser_available() -> bool:
+    """True when a PDF can be split into PNGs here (``pdftoppm`` or ``pypdfium2``)."""
+    return shutil.which("pdftoppm") is not None or importlib.util.find_spec("pypdfium2") is not None
+
+
+def _output_name(slide_index: int, slide_count: int) -> str:
+    """Return the file name for a slide's PNG: ``_render_input-page-N.png``.
+
+    N is the 1-based slide number, zero-padded to the width of the slide
+    count.  That is what ``pdftoppm`` writes, so a slide's file name depends
+    on the deck alone, not on the pipeline that happened to render it.
+    """
+    return "%s-page-%0*d.png" % (_RENDER_STEM, len(str(slide_count)), slide_index + 1)
+
+
+def _hidden_slide_indexes(prs: "_Presentation") -> List[int]:
+    """Return the 0-based indexes of the slides marked hidden (``show="0"``)."""
+    return [
+        index
+        for index, slide in enumerate(prs.slides)
+        if slide.element.get("show") in ("0", "false")
     ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env=env,
+
+
+def _pages_by_slide(
+    pages: Sequence[Path], slide_count: int, hidden: Sequence[int]
+) -> Dict[int, Path]:
+    """Map rendered *pages*, in deck order, onto 0-based slide indexes.
+
+    Normally there is one page per slide.  A LibreOffice that leaves hidden
+    slides out of its export although asked for them (before 7.4) produces
+    one page per *visible* slide; those are matched to the slides they show,
+    so an index never points at a neighbouring slide's image.  Any other
+    count is an error.
+    """
+    if len(pages) == slide_count:
+        return dict(enumerate(pages))
+    hidden_indexes = set(hidden)
+    visible = [index for index in range(slide_count) if index not in hidden_indexes]
+    if hidden and len(pages) == len(visible):
+        return dict(zip(visible, pages))
+    raise ThumbnailRendererError(
+        "rendering emitted %d PNG(s) for a %d-slide deck" % (len(pages), slide_count)
     )
+
+
+def _select_pages(pages: Dict[int, Path], indexes: Iterable[int], slide_count: int) -> List[Path]:
+    """Return the page for each 0-based slide index in *indexes*, in that order."""
+    selected = []
+    for index in indexes:
+        if index < 0 or index >= slide_count:
+            raise IndexError(
+                "slide index %d out of range for deck with %d slides" % (index, slide_count)
+            )
+        if index not in pages:
+            raise ThumbnailRendererError(
+                "slide %d (index %d) is hidden and this LibreOffice left hidden "
+                "slides out of its export; LibreOffice 7.4 or later includes "
+                "them.  Unhide the slide, or pass slide_indexes= naming only "
+                "visible slides." % (index + 1, index)
+            )
+        selected.append(pages[index])
+    return selected
 
 
 def render_slide_thumbnails(
@@ -231,106 +376,108 @@ def render_slide_thumbnails(
     files are copied and the workspace is removed before returning.
 
     `slide_indexes` is a 0-based list of slide indexes to return; when
-    ``None``, all slides are returned in deck order.
+    ``None``, all slides are returned in deck order.  Hidden slides count
+    and are rendered like any other, so an index always means the slide
+    at that position in ``prs.slides``.
 
     `strategy` controls which LibreOffice export pipeline is used:
 
-    * ``"auto"`` (default) — try ``--convert-to png`` first; if it emits
-      fewer PNGs than the slide count (typical of stock LibreOffice 7+,
-      which only writes the first slide), fall back to PDF + per-page
-      split.
+    * ``"auto"`` (default) — PDF + per-page split.  Only when neither
+      ``pdftoppm`` nor ``pypdfium2`` is available to split a PDF is
+      ``--convert-to png`` used instead; stock LibreOffice 7+ writes just
+      the first slide that way, so it then serves one-slide decks only.
+    * ``"pdf"`` — always go through PDF + per-page split.
     * ``"png"`` — only the PNG path; raises :class:`ThumbnailRendererError`
       when LibreOffice produces fewer than one PNG per slide.
-    * ``"pdf"`` — skip the PNG path entirely and always go through PDF +
-      per-page split.
 
     `dpi` controls the PDF→PNG raster resolution (150 DPI by default —
-    a reasonable balance between fidelity and file size).  Ignored on
-    the PNG-only path.
+    a reasonable balance between fidelity and file size).  The PNG path
+    ignores it and renders at a size LibreOffice chooses.
+
+    Files are named ``_render_input-page-N.png``, N being the 1-based
+    slide number zero-padded to the width of the slide count, whichever
+    strategy rendered them.
 
     `font_dirs` lists extra font folders LibreOffice should use, on top of
     folders registered with :func:`power_pptx.text.register_font_dir` or
     ``POWER_PPTX_FONT_DIRS`` (which are always passed through). They're set
     through a temporary ``fonts.conf`` for the ``soffice`` subprocess only.
 
+    `timeout` is how many seconds each external process (the LibreOffice
+    conversion, then the PDF split) may take.  One that overruns is
+    stopped, along with every process it started.
+
     Raises :class:`ThumbnailRendererUnavailable` when ``soffice`` cannot
     be located, and :class:`ThumbnailRendererError` when the conversion
-    completes with no PNG output (typically a corrupted deck or a
-    LibreOffice version that doesn't ship the PNG filter).
+    times out or completes with no PNG output (typically a corrupted deck
+    or a LibreOffice version that doesn't ship the PNG filter).
     """
     if strategy not in ("auto", "png", "pdf"):
-        raise ValueError(
-            f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}"
-        )
+        raise ValueError(f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}")
 
     bin_path = _resolve_binary(soffice_bin)
 
     expected_slide_count = len(list(prs.slides))
+    hidden = _hidden_slide_indexes(prs)
+    # -- PDF is the pipeline of choice: every slide, at the requested `dpi`.
+    # -- The PNG filter is used unasked only when nothing can split a PDF. --
+    use_pdf = strategy == "pdf" or (strategy == "auto" and _pdf_rasteriser_available())
 
     with tempfile.TemporaryDirectory(prefix="pptx-render-") as tmp:
         work_dir = Path(tmp)
-        deck_path = work_dir / "_render_input.pptx"
+        deck_path = work_dir / (_RENDER_STEM + ".pptx")
         _save_to_path(prs, deck_path)
         env = _soffice_env(work_dir, font_dirs)
 
-        png_paths: List[Path] = []
-
-        if strategy in ("auto", "png"):
-            png_paths = _render_via_png(
-                bin_path, deck_path, work_dir, timeout, env=env
+        if use_pdf:
+            png_paths = _render_via_pdf(
+                bin_path,
+                deck_path,
+                work_dir,
+                timeout,
+                dpi=dpi,
+                env=env,
+                hidden_slides=bool(hidden),
             )
-            if strategy == "png" and len(png_paths) != expected_slide_count:
+        else:
+            png_paths = _render_via_png(bin_path, deck_path, work_dir, timeout, env=env)
+            if len(png_paths) != expected_slide_count:
+                remedy = (
+                    "pass strategy='auto' or 'pdf' to render through PDF instead."
+                    if strategy == "png"
+                    else "install `pdftoppm` (Poppler) or the `pypdfium2` package "
+                    "so the slides can be rendered through PDF instead."
+                )
                 raise ThumbnailRendererError(
                     "soffice --convert-to png emitted %d PNG(s) for a "
                     "%d-slide deck.  Most LibreOffice 7+ builds only write "
-                    "the first slide via the PNG filter; pass "
-                    "strategy='auto' or 'pdf' to use the PDF-split fallback."
-                    % (len(png_paths), expected_slide_count)
+                    "the first slide via the PNG filter; %s"
+                    % (len(png_paths), expected_slide_count, remedy)
                 )
-
-        # Auto-fallback: PNG path didn't produce one image per slide.
-        if strategy == "pdf" or (
-            strategy == "auto" and len(png_paths) != expected_slide_count
-        ):
-            # Clean up partial PNG output from the auto-mode first attempt
-            # so we don't confuse the slide-index lookup.
-            for stale in png_paths:
-                with suppress(OSError):
-                    stale.unlink()
-            png_paths = _render_via_pdf(
-                bin_path, deck_path, work_dir, timeout, dpi=dpi, env=env
-            )
 
         if not png_paths:
             raise ThumbnailRendererError(
-                "no PNG output produced by either the PNG or PDF rendering "
-                "pipeline.  Verify LibreOffice can convert this deck "
-                "(`soffice --convert-to pdf <deck>.pptx`); the PDF-split "
-                "fallback also requires `pdftoppm` (Poppler) or `pypdfium2`."
+                "no PNG output produced by the rendering pipeline.  Verify "
+                "LibreOffice can convert this deck (`soffice --convert-to pdf "
+                "<deck>.pptx`); rendering through PDF also requires "
+                "`pdftoppm` (Poppler) or `pypdfium2`."
             )
 
-        if len(png_paths) != expected_slide_count:
-            raise ThumbnailRendererError(
-                "rendering emitted %d PNG(s) for a %d-slide deck"
-                % (len(png_paths), expected_slide_count)
-            )
-
-        if slide_indexes is not None:
-            wanted = list(slide_indexes)
-            png_paths = _select_indexes(png_paths, wanted)
+        pages = _pages_by_slide(png_paths, expected_slide_count, hidden)
+        wanted = list(range(expected_slide_count) if slide_indexes is None else slide_indexes)
+        png_paths = _select_pages(pages, wanted, expected_slide_count)
 
         if return_bytes:
             return [p.read_bytes() for p in png_paths]
 
         output_dir = (
-            Path(out_dir)
-            if out_dir is not None
-            else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+            Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         paths = []
-        for png_path in png_paths:
-            target = output_dir / png_path.name
+        for index, png_path in zip(wanted, png_paths):
+            # -- named for the slide, not for whatever the pipeline called it --
+            target = output_dir / _output_name(index, expected_slide_count)
             shutil.copy2(png_path, target)
             paths.append(target)
         return paths
@@ -373,28 +520,31 @@ def _render_via_pdf(
     *,
     dpi: int,
     env: Optional[dict] = None,
+    hidden_slides: bool = False,
 ) -> List[Path]:
     """Run the soffice PDF filter, then split each PDF page into a PNG.
 
     Splits prefer the ``pdftoppm`` binary (Poppler) since it's a single
     subprocess and ubiquitous on Linux/macOS; ``pypdfium2`` is the
     pure-Python fallback when callers can't depend on Poppler.
+
+    *hidden_slides* says the deck has hidden slides, which are then exported
+    as well so there is a page for every slide.
     """
     # Snapshot existing PDFs so a stale one in a shared work_dir doesn't
     # get treated as our output.
     preexisting_pdfs = {p.name for p in work_dir.glob("*.pdf")}
 
-    result = _run_soffice_pdf(bin_path, deck_path, work_dir, timeout, env=env)
+    result = _run_soffice_pdf(
+        bin_path, deck_path, work_dir, timeout, env=env, hidden_slides=hidden_slides
+    )
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf exited with status %d: %s"
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
 
-    pdfs = [
-        p for p in work_dir.glob("*.pdf")
-        if p.name not in preexisting_pdfs
-    ]
+    pdfs = [p for p in work_dir.glob("*.pdf") if p.name not in preexisting_pdfs]
     if not pdfs:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf produced no PDF output; "
@@ -403,23 +553,26 @@ def _render_via_pdf(
 
     pdf_path = pdfs[0]
     try:
-        return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi)
+        return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi, timeout=timeout)
     finally:
         with suppress(OSError):
             pdf_path.unlink()
 
 
-def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
+def _pdf_to_pngs(
+    pdf_path: Path, out_dir: Path, *, dpi: int, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> List[Path]:
     """Split a PDF into one PNG per page in *out_dir* and return the paths.
 
     Tries ``pdftoppm`` first (Poppler), then ``pypdfium2``.  Raises
     :class:`ThumbnailRendererError` with an install hint when neither is
     available — the message names both options so the user can pick
-    whichever fits their environment.
+    whichever fits their environment.  *timeout* (seconds) bounds the
+    ``pdftoppm`` process.
     """
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm is not None:
-        return _pdf_to_pngs_via_pdftoppm(pdftoppm, pdf_path, out_dir, dpi=dpi)
+        return _pdf_to_pngs_via_pdftoppm(pdftoppm, pdf_path, out_dir, dpi=dpi, timeout=timeout)
 
     try:
         import pypdfium2  # type: ignore[import-not-found]  # noqa: F401
@@ -434,7 +587,12 @@ def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
 
 
 def _pdf_to_pngs_via_pdftoppm(
-    pdftoppm: str, pdf_path: Path, out_dir: Path, *, dpi: int
+    pdftoppm: str,
+    pdf_path: Path,
+    out_dir: Path,
+    *,
+    dpi: int,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> List[Path]:
     prefix = pdf_path.stem + "-page"
     cmd = [
@@ -445,21 +603,17 @@ def _pdf_to_pngs_via_pdftoppm(
         str(pdf_path),
         str(out_dir / prefix),
     ]
-    result = subprocess.run(cmd, capture_output=True, check=False)
+    result = _run(cmd, timeout=timeout)
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "pdftoppm exited with status %d: %s"
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
-    pages = sorted(
-        out_dir.glob(prefix + "-*.png"), key=_natural_sort_key
-    )
+    pages = sorted(out_dir.glob(prefix + "-*.png"), key=_natural_sort_key)
     return pages
 
 
-def _pdf_to_pngs_via_pypdfium2(
-    pdf_path: Path, out_dir: Path, *, dpi: int
-) -> List[Path]:
+def _pdf_to_pngs_via_pypdfium2(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
     import pypdfium2 as pdfium  # type: ignore[import-not-found]
 
     scale = float(dpi) / 72.0  # pypdfium2 uses 1.0 == 72 DPI
@@ -470,7 +624,9 @@ def _pdf_to_pngs_via_pypdfium2(
         for i in range(len(pdf)):
             page = pdf[i]
             try:
-                bitmap = page.render(scale=scale)
+                # -- pypdfium2 leaves `scale` unannotated with an `int` default,
+                # -- so a checker infers `int`; any real number is accepted --
+                bitmap = page.render(scale=scale)  # pyright: ignore[reportArgumentType]
                 pil_image = bitmap.to_pil()
                 # 1-based numbering matches pdftoppm's convention so the
                 # natural-sort key produces the same order.
@@ -501,18 +657,6 @@ def _natural_sort_key(path: Path):
     """
     parts = _NATURAL_SORT_RE.split(path.name)
     return tuple((int(p) if p.isdigit() else p) for p in parts)
-
-
-def _select_indexes(paths: Sequence[Path], indexes: Iterable[int]) -> List[Path]:
-    selected = []
-    for i in indexes:
-        if i < 0 or i >= len(paths):
-            raise IndexError(
-                "slide index %d out of range for deck with %d slides"
-                % (i, len(paths))
-            )
-        selected.append(paths[i])
-    return selected
 
 
 def render_slide_thumbnail(
@@ -612,10 +756,12 @@ def render_slides(
     * ``slides=`` (cleaner name than ``slide_indexes=``).
     * ``name_template=`` — a ``str.format``-able template like
       ``"slide-{:02d}.png"`` applied to the rendered PNGs.  Index is
-      0-based.  Defaults to LibreOffice's own ``"_render_input-page-NN"``
-      output if omitted.
-    * ``scale=`` is accepted and translated to ``dpi=`` (``scale=0.5``
-      ≙ ``dpi=72``).
+      0-based.  Defaults to the ``"_render_input-page-N.png"`` names of
+      :func:`render_slide_thumbnails` (1-based) if omitted.
+    * ``scale=`` is accepted and translated to ``dpi=``: 1.0 is 72 DPI,
+      one pixel per point, so ``scale=2`` ≙ ``dpi=144`` and ``scale=0.5``
+      ≙ ``dpi=36``, which is also the minimum.  It overrides ``dpi=`` when
+      both are given.
     * ``font_dirs=`` hands extra font folders to LibreOffice (see
       :func:`render_slide_thumbnails`).
     """

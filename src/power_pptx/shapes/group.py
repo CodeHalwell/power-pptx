@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 from power_pptx.dml.effect import (
@@ -215,6 +216,10 @@ class GroupShape(BaseShape):
         not move or resize visually. Z-order is preserved: the promoted shapes
         occupy the group's former slot. The (now empty) group element is removed.
 
+        Animations that targeted the group itself are removed, since the group
+        they would play on no longer exists; animations on its member shapes
+        are unaffected.
+
         Raises ``ValueError`` if the group is rotated or flipped — baking such a
         transform into each child is ambiguous and unsupported; reset rotation
         and flip to zero before ungrouping.
@@ -229,29 +234,10 @@ class GroupShape(BaseShape):
                 "rotation and flip to 0 before ungrouping"
             )
 
-        # Group offset/extent (in the container's coordinate space) and the
-        # group's own child coordinate space (chOff/chExt).
-        off_x = int(self.left) if self.left is not None else 0
-        off_y = int(self.top) if self.top is not None else 0
-        ext_cx = int(self.width) if self.width is not None else 0
-        ext_cy = int(self.height) if self.height is not None else 0
-        chOff, chExt = grpSp.chOff, grpSp.chExt
-        ch_x, ch_y = int(chOff.x or 0), int(chOff.y or 0)
-        ch_cx, ch_cy = int(chExt.cx or 0), int(chExt.cy or 0)
-        sx = (ext_cx / ch_cx) if ch_cx else 1.0
-        sy = (ext_cy / ch_cy) if ch_cy else 1.0
-
         # Pre-compute each child's container-space geometry from its child-space
         # coords before re-parenting (so the read isn't affected by the moves).
-        placements: list[tuple[ShapeElement, int, int, int, int]] = []
-        for elm in grpSp.iter_shape_elms():
-            cx0 = int(elm.x or 0)
-            cy0 = int(elm.y or 0)
-            cw = int(elm.cx or 0)
-            chgt = int(elm.cy or 0)
-            new_x = off_x + round((cx0 - ch_x) * sx)
-            new_y = off_y + round((cy0 - ch_y) * sy)
-            placements.append((elm, new_x, new_y, round(cw * sx), round(chgt * sy)))
+        child_space = _ChildSpace.of(self)
+        placements = [(elm, *child_space.to_container(elm)) for elm in grpSp.iter_shape_elms()]
 
         promoted: list[BaseShape] = []
         for elm, nx, ny, nw, nh in placements:
@@ -261,4 +247,56 @@ class GroupShape(BaseShape):
             promoted.append(self._parent._shape_factory(elm))  # pyright: ignore[reportAttributeAccessIssue]
 
         container.remove(grpSp)
+
+        # The group's own id is gone with it, so whatever in the timing tree
+        # still names that id (an effect on the group, its build entry) would
+        # be left pointing at nothing. Only slides have animations to purge.
+        slide = getattr(self.part, "slide", None)
+        if slide is not None:
+            slide.animations.purge_orphans()
         return promoted
+
+
+@dataclass(frozen=True)
+class _ChildSpace:
+    """A group's child coordinate space, as it is placed in its container's space.
+
+    Child-space point ``(ch_x, ch_y)`` (the group's ``chOff``) lands on the
+    group's offset ``(off_x, off_y)``, and child-space lengths scale by
+    ``(sx, sy)``: the group's extent over its ``chExt``, or 1 where that is 0.
+    """
+
+    off_x: int
+    off_y: int
+    ch_x: int
+    ch_y: int
+    sx: float
+    sy: float
+
+    @classmethod
+    def of(cls, group: GroupShape) -> _ChildSpace:
+        """The child space of `group`."""
+        grpSp = group._grpSp  # pyright: ignore[reportPrivateUsage]
+        off_x = int(group.left) if group.left is not None else 0
+        off_y = int(group.top) if group.top is not None else 0
+        ext_cx = int(group.width) if group.width is not None else 0
+        ext_cy = int(group.height) if group.height is not None else 0
+        chOff, chExt = grpSp.chOff, grpSp.chExt
+        ch_cx, ch_cy = int(chExt.cx or 0), int(chExt.cy or 0)
+        return cls(
+            off_x=off_x,
+            off_y=off_y,
+            ch_x=int(chOff.x or 0),
+            ch_y=int(chOff.y or 0),
+            sx=(ext_cx / ch_cx) if ch_cx else 1.0,
+            sy=(ext_cy / ch_cy) if ch_cy else 1.0,
+        )
+
+    def to_container(self, elm: ShapeElement) -> tuple[int, int, int, int]:
+        """``(x, y, cx, cy)`` of group member `elm` in the container's coordinates."""
+        return (
+            self.off_x + round((int(elm.x or 0) - self.ch_x) * self.sx),
+            self.off_y + round((int(elm.y or 0) - self.ch_y) * self.sy),
+            round(int(elm.cx or 0) * self.sx),
+            round(int(elm.cy or 0) * self.sy),
+        )

@@ -217,6 +217,8 @@ if not cell.borders.bottom.width:      # unset reads Emu(0), never None
 Use `cell.text_direction` for matrix-style or rotated column headers:
 
 ```python
+from power_pptx.enum.text import MSO_ANCHOR
+
 cell.text_direction = "rotate90"    # "horizontal" (default), "rotate90",
 cell.text_direction = "stacked"     # "rotate270", "stacked"
 cell.vertical_anchor = MSO_ANCHOR.MIDDLE   # t / ctr / b within the cell
@@ -239,6 +241,21 @@ table.style = None        # detach (same as table.clear_style())
 ```
 
 Discover valid names via `from power_pptx.table_styles import TABLE_STYLES`.
-An unknown name raises `ValueError` with a "did you mean" suggestion.
-Writing just the style GUID is schema-valid — nothing is added to
-`tableStyles.xml`.
+An unknown name raises `ValueError` with a "did you mean" suggestion, and so
+does a `{...}` string that isn't a GUID (lower-case hex digits are
+upper-cased, as the schema requires). Writing just the style GUID is
+schema-valid — nothing is added to `tableStyles.xml`.
+
+## Fitting cell text: `fit_to_box`
+
+```python
+size = table.fit_to_box(font_family="Inter", max_font_pt=14, min_font_pt=8)
+```
+
+Measures every populated cell the way `TextFrame.fit_text` does — inside the
+cell's own margins, with its line spacing, capitals and letter spacing — and
+applies the smallest size to the whole table. A merged cell is measured across
+all the columns and rows it spans. As with `fit_text`, a named family that
+isn't installed emits `FontMetricsWarning` and `strict=True` raises instead;
+pass `font_file=` to measure with a bundled file. For a single cell,
+`cell.text_frame.fit_text(...)` also measures inside the cell's margins.

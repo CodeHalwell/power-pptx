@@ -36,8 +36,31 @@ Shadow, glow, soft edges, blur, reflection
     shape.reflection.start_alpha = 0.5
     shape.reflection.end_alpha = 0.0
 
+Lengths may be floats, so arithmetic such as ``Pt(8) / 2`` works; the
+value is rounded to whole EMU.  The same holds for the 3-D lengths
+(``three_d.bevel_top.width``, ``extrusion_height``, ``contour_width``)
+and ``line.width``.  A value a setter rejects — a negative radius, an
+alpha above 1.0, a string — raises without touching the shape.
+
 Setting every explicit property to |None| drops the corresponding XML
-element again so the shape inherits the master/theme value.
+element again so the shape inherits the master/theme value.  For the
+effects that carry a colour (outer and inner shadow, glow) that includes
+the colour, if you set one::
+
+    shadow.blur_radius = None
+    shadow.distance = None
+    shadow.direction = None
+    shadow.color = None
+
+``color = None`` on its own forgets a colour you chose, on those effects and
+on ``shape.preset_shadow``.  The schema requires these effects to have a
+colour, so while the effect keeps any other setting its colour returns to the
+default black.
+
+When that removes the last effect on the shape, the ``<a:effectLst>``
+goes too; an empty ``<a:effectLst/>`` would keep overriding the theme.
+A preset shadow is defined by its preset and is removed with
+``shape.preset_shadow.preset = None``.
 
 Removing a shadow: ``shadow.clear()``
 -------------------------------------
@@ -87,7 +110,10 @@ radius on every differently-sized shape.  ``Shape.corner_radius`` reads
 and writes it as a real length instead::
 
     card.corner_radius = Pt(6)
-    card.corner_radius.pt    # -> 6.0
+    card.corner_radius.pt    # -> 5.9997..., on a card 1" on its shorter side
+
+The value is still stored as the fraction, which has five decimal places, so
+it reads back as the nearest radius that fraction can express.
 
 Defined for ``ROUNDED_RECTANGLE``, ``ROUND_1_RECTANGLE``,
 ``ROUND_2_SAME_RECTANGLE`` and ``ROUND_2_DIAG_RECTANGLE``; raises
@@ -121,6 +147,32 @@ stops::
         (1.0, (255, 255, 255)),
     ])
 
+``replace()`` validates every entry first — position in ``[0.0, 1.0]``,
+a real colour — and leaves the existing stops alone if any is rejected.
+
+A linear gradient takes an angle, either through
+``fill.linear_gradient(start, end, angle=...)`` or
+``fill.gradient_angle``.  The angle is measured **counter-clockwise**,
+as in trigonometry, and gives the direction the gradient runs from its
+first stop to its last:
+
+=========  ==============  ======================
+angle      runs            first colour is at the
+=========  ==============  ======================
+``0``      left to right   left
+``90``     bottom to top   bottom
+``180``    right to left   right
+``270``    top to bottom   top
+=========  ==============  ======================
+
+::
+
+    shape.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top to bottom
+
+This is the reverse of the ``ang`` attribute stored in the XML, which
+counts clockwise: ``angle=90`` is written as ``ang="16200000"`` (270
+degrees).
+
 Picture effects
 ---------------
 
@@ -133,8 +185,18 @@ Pictures gain a dedicated ``effects`` accessor that wraps the OOXML
     pic.effects.contrast = 0.05
     pic.effects.set_duotone(RGBColor(0x12, 0x1E, 0x4D), "#A8C0FF")
 
-``set_duotone`` accepts |RGBColor|, hex strings (with or without ``#``),
-or RGB 3-tuples.
+``set_duotone`` accepts |RGBColor|, 6-digit hex strings (with or without
+``#``), or RGB 3-tuples.  Anything else — ``"#FFF"``, ``"red"``,
+``(300, 0, 0)`` — raises and leaves the picture's current recolour in
+place.
+
+``pic.effects.recolor`` selects a preset: ``"grayscale"``, ``"sepia"``,
+``"washout"``, ``"black_and_white"`` or ``"duotone"``; ``None`` clears
+it.  ``"washout"`` is PowerPoint's Washout, a fixed brightness/contrast
+pair (``<a:lum bright="70000" contrast="-70000"/>``), so it reads back
+through ``brightness`` and ``contrast`` and is replaced by assigning
+either.  ``"black_and_white"`` is the hard two-tone split
+(``<a:biLevel>``) that earlier releases wrote for ``"washout"``.
 
 Native SVG
 ----------
@@ -152,12 +214,14 @@ Line ends, caps, joins, compound lines
     from power_pptx.enum.dml import (
         MSO_LINE_CAP_STYLE,
         MSO_LINE_COMPOUND_STYLE,
+        MSO_LINE_END_SIZE,
+        MSO_LINE_END_TYPE,
         MSO_LINE_JOIN_STYLE,
     )
 
     line = shape.line
-    line.head_end.type = "TRIANGLE"
-    line.tail_end.length = "LARGE"
+    line.head_end.type = MSO_LINE_END_TYPE.TRIANGLE
+    line.tail_end.length = MSO_LINE_END_SIZE.LARGE
     line.cap = MSO_LINE_CAP_STYLE.ROUND
     line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE
     line.join = MSO_LINE_JOIN_STYLE.BEVEL

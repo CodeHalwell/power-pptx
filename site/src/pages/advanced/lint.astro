@@ -10,14 +10,46 @@ for slide in prs.slides:
     for issue in report.issues:
         print(issue.severity.value, issue)`;
 
+const snippetOverflow = `from power_pptx.lint import TextOverflow
+
+for issue in slide.lint().issues:
+    if isinstance(issue, TextOverflow):
+        issue.severity       # ERROR for a fixed-size frame, WARNING if it auto-sizes
+        issue.ratio          # 3.0 - the text needs 3x the height available
+        issue.dimension      # "height", or "width" for a line that cannot wrap
+        issue.overflow_pt    # 43.2 - how far it runs past the frame
+        issue.auto_size      # "NONE" | "SHAPE_TO_FIT_TEXT" | "TEXT_TO_FIT_SHAPE" | None
+        issue.estimated      # True when the typeface is not installed here
+        issue.row, issue.col # the cell, for an overflowing table row; else None`;
+
 const snippet1 = `report = slide.lint()
-report.auto_fix()          # mutates: clamps OffSlide, resolves overflow,
+report.auto_fix()          # mutates: clamps OffSlide, makes overflowing text fit,
                            # restacks contradicted layer declarations
+report.auto_fix(dry_run=True)          # describe the fixes, change nothing
+report.auto_fix(fix_grid_drift=True)   # also snap OffGridDrift (off by default)
 
 # One call instead of lint -> fix -> re-lint
 slide.tidy()
 slide.tidy(fix_grid_drift=True)    # opt into grid snapping
 slide.tidy(fix_layer_order=False)  # leave z-order alone`;
+
+const cli = `power-pptx lint deck.pptx                         # report grouped by slide
+power-pptx lint build/*.pptx --fail-on warning    # stricter gate
+power-pptx lint deck.pptx --min-severity warning  # hide info-level issues
+power-pptx lint deck.pptx --format json           # one JSON document
+power-pptx lint deck.pptx --format sarif > lint.sarif   # code scanning
+power-pptx lint deck.pptx --fix --output tidied.pptx    # slide.tidy(), then report
+power-pptx lint deck.pptx --fix --in-place        # overwrite (opt-in only)`;
+
+const cliOut = `$ power-pptx lint deck.pptx
+deck.pptx: 3 issues on 1 of 1 slide (2 errors, 1 warning)
+
+  Slide 1
+    error    OffSlide      Shape 'Off card' extends beyond the right edge of the slide.
+    error    TextOverflow  Shape 'Caption': text needs 3.0× the text frame height (43pt too tall).
+    warning  TextOverflow  Shape 'Body': text needs 3.0× the text frame height (43pt too tall). The shape is set to resize to its text, so it grows when rendered or edited and its stored size is stale.
+$ echo $?
+1`;
 
 const snippet2 = `from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches
@@ -89,6 +121,13 @@ print(report.markdown())`;
 
   <h2 id="lint">slide.lint()</h2>
   <Code code={snippet0} />
+  <p>
+    Linting never changes the deck — nor do <code>audit(prs)</code> and
+    <code>audit_accessibility(prs)</code> — and it scales: 800 text boxes lint in well under a
+    second. <code>slide.lint(disable=[...])</code> and <code>min_severity=</code> skip the rules
+    they rule out instead of running them and discarding the result, so they make linting faster
+    too. Hidden slides are linted like any other.
+  </p>
 
   <h2 id="issues">Issue types</h2>
   <table>
@@ -96,22 +135,84 @@ print(report.markdown())`;
       <tr><th>Type</th><th>Meaning</th><th>Default severity</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds its frame (Pillow metrics)</td><td>warning</td></tr>
-      <tr><td><code>OffSlide</code></td><td>Shape extends past the slide bounds</td><td>error</td></tr>
-      <tr><td><code>ShapeCollision</code></td><td>Unintentional overlap between shapes</td><td>warning</td></tr>
+      <tr><td><code>TextOverflow</code></td><td>Text does not fit its frame or table row, measured with the metrics <code>fit_text</code> uses</td><td>error for a fixed-size frame; warning for an auto-size frame or a table row</td></tr>
+      <tr><td><code>OffSlide</code></td><td>Shape extends past the slide bounds (rotated, and grown to its text)</td><td>error</td></tr>
+      <tr><td><code>ShapeCollision</code></td><td>Unintentional overlap between shapes</td><td>warning; info for a small shape inside a large one, or a near-identical box</td></tr>
       <tr><td><code>LayerOrderViolation</code></td><td>A shape declares <code>layer_above</code> but is drawn <em>below</em> that layer, so it will be hidden</td><td>error</td></tr>
+      <tr><td><code>InvalidGeometry</code></td><td>A shape has a negative width or height, which PowerPoint repairs; it is left out of the other checks</td><td>error</td></tr>
+      <tr><td><code>MinFontSize</code></td><td>A run is set below 9pt (after any stored shrink-on-overflow scale)</td><td>warning</td></tr>
+      <tr><td><code>LowContrast</code></td><td>Text on its backdrop is below WCAG AA, 4.5:1</td><td>warning</td></tr>
+      <tr><td><code>OffGridDrift</code></td><td>An edge sits slightly off a grid line its siblings share</td><td>warning</td></tr>
+      <tr><td><code>ZOrderAnomaly</code></td><td>An opaque filled shape is drawn over a shape it visually contains</td><td>warning</td></tr>
+      <tr><td><code>MasterPlaceholderCollision</code></td><td>A shape redraws an unused layout placeholder instead of filling it</td><td>warning</td></tr>
+      <tr><td><code>RaggedEdge</code></td><td>A filled panel stops short of the bottom edge the panels beside it share</td><td>warning</td></tr>
     </tbody>
   </table>
+  <p>
+    <code>OffSlideShadow</code> and <code>ShapeCollisionShadow</code> are the same checks applied to
+    shadow bleed, reported only with <code>slide.lint(include_effect_bleed=True)</code>. A rotated
+    shape is checked by the area its rotated frame covers, and a connector by the line it is drawn
+    along: it collides only with a shape that line runs into.
+  </p>
+
+  <h3 id="text-overflow">How TextOverflow measures</h3>
+  <p>
+    The linter lays text out with the same font metrics as <code>fit_text</code>: every run at its
+    effective size and typeface (including what a placeholder inherits from its layout and
+    master), wrapped inside the frame's margins where <code>fit_text</code> breaks lines — at
+    spaces, after hyphens, dashes and URL slashes, between East Asian characters — and stacked at
+    the frame's line and paragraph spacing. Text inside groups and table cells is measured too
+    (except a cell whose text is rotated or stacked), and a frame <code>fit_text</code> has sized
+    is never flagged.
+  </p>
+  <Code code={snippetOverflow} />
+  <p>
+    Severity follows who can repair the overflow. A fixed-size frame (<code>NONE</code>, or no
+    setting) spills in every renderer, so it is an error. A frame that resizes to its text — what
+    <code>add_textbox</code> and <code>add_text</code> create — a shrink-on-overflow frame whose
+    stored scale is not enough, and a table row shorter than its text are warnings: a renderer
+    adjusts them when the deck is opened or edited, so <code>lint_on_save = "raise"</code> does not
+    reject them. A box that resizes to its text is checked by <code>OffSlide</code> and
+    <code>ShapeCollision</code> at the size it will grow to, so one that grows off the slide is
+    still an error. When a typeface is not installed on the machine running the linter the
+    figures are estimates: the message says so and <code>estimated</code> is <code>True</code>.
+  </p>
 
   <h2 id="autofix">auto_fix and tidy</h2>
   <Code code={snippet1} />
   <p>
-    Auto-fix handles the issues that need no designer judgment: <code>OffSlide</code> (clamped
-    back on-slide), <code>TextOverflow</code> (flipped to
-    <code>auto_size = TEXT_TO_FIT_SHAPE</code>), <code>OffGridDrift</code> (snapped, opt-in via
-    <code>tidy(fix_grid_drift=True)</code>) and <code>LayerOrderViolation</code> (restacked).
+    Auto-fix handles the issues that need no designer judgment, and returns a one-line
+    description of each change:
+  </p>
+  <ul>
+    <li>
+      <code>OffSlide</code> — moves the shape so the area it covers sits inside the slide,
+      shrinking it first if it is larger than the slide (a picture or group proportionally).
+    </li>
+    <li>
+      <code>TextOverflow</code> — makes the text fit the way the frame's own setting asks, never
+      changing the text itself: a frame with no setting, or shrink-on-overflow, gets the font scale
+      PowerPoint would store when it shrinks text itself; a frame that resizes to its text is
+      resized; a <code>NONE</code> frame keeps its setting and has its font sizes reduced, as
+      <code>fit_text</code> does; a table row is made taller. Text that would have to shrink below
+      a quarter of its size is left alone and stays in the report.
+    </li>
+    <li>
+      <code>LayerOrderViolation</code> — restacks the shape that declared
+      <code>layer_above</code>; geometry is untouched.
+    </li>
+    <li>
+      <code>OffGridDrift</code> — snapped onto the grid line only when you pass
+      <code>fix_grid_drift=True</code>, to <code>auto_fix()</code> or <code>tidy()</code>, because an
+      inferred grid can be wrong.
+    </li>
+  </ul>
+  <p>
     <code>ShapeCollision</code> is deliberately left alone — nudging shapes apart almost always
-    breaks the design. If the overlap was intentional, say so instead.
+    breaks the design. If the overlap was intentional, say so instead. <code>LowContrast</code>,
+    <code>MinFontSize</code>, <code>ZOrderAnomaly</code>, <code>MasterPlaceholderCollision</code>
+    and <code>RaggedEdge</code> need a designer too. After a real (not dry-run) fix,
+    <code>report.issues</code> holds what is left.
   </p>
 
   <h2 id="intentional-overlap">Declaring an intentional overlap</h2>
@@ -191,6 +292,48 @@ print(report.markdown())`;
     <a href={withBase("/advanced/compose")}>Compose &amp; Templates</a>.
   </p>
 
+  <h2 id="cli">From the command line: <code>power-pptx lint</code></h2>
+  <p>
+    The installed <code>power-pptx</code> command checks saved decks without any Python — for a CI
+    job that gates decks another job built, or a deck an agent handed back. It runs
+    <code>slide.lint()</code> on every slide of every deck named:
+  </p>
+  <Code code={cli} lang="bash" />
+  <Code code={cliOut} lang="text" />
+  <table>
+    <thead>
+      <tr><th>Exit status</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>0</code></td><td>No issue at or above the <code>--fail-on</code> level</td></tr>
+      <tr><td><code>1</code></td><td>At least one issue at or above the <code>--fail-on</code> level</td></tr>
+      <tr><td><code>2</code></td><td>A usage error, or a deck that could not be read or written</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      <code>--fail-on {"{error,warning,never}"}</code>, default <code>error</code>. Info-level
+      issues never fail the run. An unreadable deck exits <code>2</code> even with
+      <code>never</code>, and the decks that could be read are still reported.
+    </li>
+    <li>
+      <code>--min-severity {"{info,warning,error}"}</code> drops lower issues from the report
+      <em>and</em> from the exit status.
+    </li>
+    <li>
+      <code>--format json</code> writes one document; each slide entry is that slide's
+      <code>report.to_dict()</code> plus its <code>index</code>, <code>number</code>,
+      <code>title</code> and <code>hidden</code> flag. <code>--format sarif</code> is the linter's
+      SARIF 2.1.0 output with one run per deck, ready for code-scanning upload.
+    </li>
+    <li>
+      <code>--fix</code> applies <code>slide.tidy()</code> and needs <code>--output PATH</code> or
+      <code>--in-place</code>; it never overwrites the input otherwise. With several decks, or a
+      path ending in a separator, <code>--output</code> is a directory. The report and the exit
+      status then describe what is left after fixing.
+    </li>
+  </ul>
+
   <h2 id="audit">Whole-deck audit</h2>
   <Code code={snippet6} />
   <p>The audit aggregates, per deck:</p>
@@ -198,10 +341,16 @@ print(report.markdown())`;
     <li>lint issues across every slide</li>
     <li>broken or missing pictures</li>
     <li>empty slides</li>
-    <li>uncommon-font warnings (fonts recipients are unlikely to have)</li>
+    <li>
+      uncommon-font warnings (fonts recipients are unlikely to have), once per font per slide, for
+      fonts named on runs, paragraphs and table cells and through theme references such as
+      <code>+mn-lt</code>
+    </li>
     <li>oversized-picture warnings (bloat)</li>
   </ul>
   <p>
-    <code>AuditReport.markdown()</code> formats the lot for a chat reply or CI log.
+    <code>AuditReport.markdown()</code> formats the lot for a chat reply or CI log, and
+    <code>to_dict()</code> / <code>to_json()</code> give the same data with a slide index on every
+    lint issue.
   </p>
 </DocsLayout>

@@ -67,9 +67,9 @@ chart.chart_title.format           # ChartFormat (fill / line)
 chart.plots                        # Sequence[_BasePlot], back-most first
 chart.series                       # SeriesCollection across all plots
 
-chart.value_axis                   # ValueAxis
+chart.value_axis                   # ValueAxis - always the primary axis
 chart.category_axis                # CategoryAxis | DateAxis (ValueAxis on XY)
-chart.secondary_value_axis         # ValueAxis; CREATES it on first access
+chart.secondary_value_axis         # ValueAxis on the right; CREATES it on first access
 
 chart.has_legend = True            # False removes the element and its settings
 chart.legend                       # Legend | None
@@ -101,7 +101,7 @@ series.points                      # CategoryPoints / XyPoints / BubblePoints
 # bar, line, scatter, area and bubble series only (fork)
 series.trendlines                  # Trendlines
 series.error_bars                  # ErrorBars
-series.axis_group                  # "primary" | "secondary"
+series.axis_group = "secondary"    # moves this series only, into a plot of its own
 
 # BarSeries
 series.invert_if_negative = True`;
@@ -221,6 +221,7 @@ chart.text_color = "#FFFFFF"       # fork; write-only
 chart.line_color = "#9CA3AF"       # fork; write-only
 
 chart.apply_quick_layout("minimal")          # 10 presets, or a dict spec
+chart.apply_quick_layout("minimal", has_title=True)   # preset + flat overrides
 palettes.palette_names()           # modern, classic, editorial, vibrant, ...
 palettes.resolve_palette("editorial")        # list[RGBColor]
 palettes.CHART_PALETTES            # the mapping itself
@@ -307,7 +308,12 @@ quick_layouts.layout_names()       # title_legend_right, minimal, dense, ...`;
   <p>
     <code>chart.category_axis</code> returns a <code>DateAxis</code> when the categories are dates,
     and the X <code>ValueAxis</code> on scatter/bubble charts. It raises <code>ValueError</code> on
-    chart types with no axes (pie, doughnut), as does <code>secondary_value_axis</code>.
+    chart types with no axes (pie, doughnut), as do <code>value_axis</code> and
+    <code>secondary_value_axis</code>. <code>value_axis</code> is always the primary axis;
+    assigning <code>series.axis_group = "secondary"</code> splits that series into a plot of its
+    own on the secondary axis (later moves join it), and <code>chart.series</code> then lists the
+    series plot by plot. Moving a series back to <code>"primary"</code> raises
+    <code>ValueError</code>.
   </p>
   <Code code={s7} />
 
@@ -369,6 +375,16 @@ quick_layouts.layout_names()       # title_legend_right, minimal, dense, ...`;
 
   <h2 id="palettes">Palettes &amp; quick layouts <strong class="text-primary">fork</strong></h2>
   <Code code={s13} />
+  <p>
+    <code>apply_quick_layout(layout, **overrides)</code> takes a preset name or a dict of flat
+    keys (<code>has_title</code>, <code>title_text</code>, <code>has_legend</code>,
+    <code>legend_position</code>, <code>legend_in_layout</code>,
+    <code>has_category_axis_title</code>, <code>category_axis_title_text</code>,
+    <code>has_value_axis_title</code>, <code>value_axis_title_text</code>,
+    <code>has_major_gridlines</code>, <code>has_minor_gridlines</code>). An unknown key raises
+    before anything changes — <code>ValueError</code> in a dict, <code>TypeError</code> as a
+    keyword — with the closest valid name.
+  </p>
 
   <h2 id="types">Chart types</h2>
   <p>

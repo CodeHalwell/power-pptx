@@ -21,7 +21,7 @@ from power_pptx.design.components import (
 )
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
-from power_pptx.util import Inches
+from power_pptx.util import Inches, Pt
 
 
 @pytest.fixture
@@ -243,9 +243,7 @@ class DescribeAddStatusPill:
         assert isinstance(pill, StatusPill)
         assert pill.pill is not None
         assert pill.label is not None
-        assert (
-            pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
-        )
+        assert pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
 
     def it_honours_explicit_accent(self, slide):
         pill = add_status_pill(
@@ -329,3 +327,163 @@ class DescribeAddArticleCard:
         )
         assert article.cta is not None
         assert isinstance(article.cta, StatusPill)
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: card height, strip capacity, item validation, contrast
+# ---------------------------------------------------------------------------
+
+
+def _wcag_contrast(rgb_a, rgb_b):
+    def luminance(rgb):
+        def channel(value):
+            c = value / 255.0
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+        return 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
+
+    la, lb = luminance(rgb_a), luminance(rgb_b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _kpi(slide, height, tokens=None, **kwargs):
+    return add_kpi_card(
+        slide,
+        left=Inches(1),
+        top=Inches(1),
+        width=Inches(2.5),
+        height=height,
+        label="ARR",
+        value="$182M",
+        delta={"delta": 0.27},
+        tokens=tokens,
+        **kwargs,
+    )
+
+
+class DescribeAddKpiCardHeight:
+    """The inner layout follows the card's `height` instead of a fixed 1.9in stack."""
+
+    @pytest.mark.parametrize("height", [Inches(1.0), Inches(1.2), Inches(1.5)])
+    def it_keeps_the_stack_inside_a_short_card(self, slide, tokens, height):
+        card = _kpi(slide, height, tokens)
+
+        bottom = card.card.top + card.card.height
+        # with height=1.0in the delta box used to end 0.85in below the card
+        for box in (card.value_box, card.label_box, card.delta_box):
+            assert box.top >= card.card.top
+            assert box.top + box.height <= bottom
+        assert card.value_box.top + card.value_box.height <= card.label_box.top
+        assert card.label_box.top + card.label_box.height <= card.delta_box.top
+
+    def it_bakes_readable_sizes_into_a_short_card(self, slide, tokens):
+        card = _kpi(slide, Inches(1.0), tokens)
+
+        sizes = [
+            box.text_frame.paragraphs[0].runs[0].font.size
+            for box in (card.value_box, card.label_box, card.delta_box)
+        ]
+        assert all(size >= Pt(9) for size in sizes)
+        assert sizes[0] < Pt(30)  # the value shrank to its shorter band
+
+    @pytest.mark.parametrize("height", [Inches(1.9), Inches(2.4)])
+    def it_keeps_the_established_layout_at_full_height_and_above(self, slide, tokens, height):
+        card = _kpi(slide, height, tokens)
+
+        top = card.card.top
+        assert card.value_box.top - top == Inches(0.25)
+        assert card.value_box.height == Inches(0.85)
+        assert card.label_box.top - top == Inches(1.10)
+        assert card.label_box.height == Inches(0.4)
+        assert card.delta_box.top - top == Inches(1.50)
+        assert card.delta_box.height == Inches(0.35)
+
+    def it_rejects_a_card_too_short_to_read(self, slide, tokens):
+        before = slide._element.xml
+        with pytest.raises(ValueError, match="height 0.50in is too small.*at least 0.95in"):
+            _kpi(slide, Inches(0.5), tokens)
+        assert slide._element.xml == before
+
+
+class DescribeAddKpiCardContrast:
+    @pytest.mark.parametrize("preset", ["modern_light", "modern_dark", "corporate_navy", "vibrant"])
+    def it_keeps_card_text_readable_under_every_preset(self, slide, preset):
+        card = _kpi(slide, Inches(1.9), DesignTokens.from_preset(preset))
+
+        fill = card.card.fill.fore_color.rgb
+        for box in (card.value_box, card.label_box, card.delta_box):
+            colour = box.text_frame.paragraphs[0].runs[0].font.color.rgb
+            assert _wcag_contrast(colour, fill) >= 4.5
+        assert not [i for i in slide.lint().issues if i.code == "LowContrast"]
+
+
+class DescribeAddStatStripCapacity:
+    def it_rejects_more_items_than_fit(self, slide, tokens):
+        before = slide._element.xml
+        items = [{"label": f"L{i}", "value": str(i)} for i in range(60)]
+
+        # 60 items used to write negative card widths
+        with pytest.raises(ValueError, match="60 items do not fit.*at most 12 fit"):
+            add_stat_strip(
+                slide,
+                left=Inches(0.5),
+                top=Inches(1.5),
+                width=Inches(12),
+                height=Inches(1.9),
+                items=items,
+                tokens=tokens,
+            )
+        assert slide._element.xml == before
+
+    def it_lays_out_the_most_items_that_fit_with_positive_sizes(self, slide, tokens):
+        items = [{"label": f"L{i}", "value": str(i)} for i in range(12)]
+
+        strip = add_stat_strip(
+            slide,
+            left=Inches(0.5),
+            top=Inches(1.5),
+            width=Inches(12),
+            height=Inches(1.9),
+            items=items,
+            tokens=tokens,
+        )
+
+        assert len(strip.cards) == 12
+        assert all(card.card.width >= Inches(0.75) for card in strip.cards)
+
+    def it_rejects_items_with_the_wrong_keys(self, slide, tokens):
+        with pytest.raises(ValueError) as exc:
+            add_stat_strip(
+                slide,
+                left=Inches(1),
+                top=Inches(1),
+                width=Inches(9),
+                height=Inches(1.9),
+                items=[{"label": "ARR", "value": "$182M"}, {"name": "NDR", "val": "131%"}],
+                tokens=tokens,
+            )
+
+        message = str(exc.value)
+        assert message.startswith("add_stat_strip: items[1]")
+        assert "'val' (did you mean 'value'?)" in message
+
+    def it_sets_one_value_size_across_the_strip(self, slide, tokens):
+        items = [
+            {"label": "Short", "value": "9"},
+            {"label": "Long", "value": "$1,234,567,890"},
+            {"label": "Mid", "value": "131%"},
+        ]
+
+        strip = add_stat_strip(
+            slide,
+            left=Inches(1),
+            top=Inches(1),
+            width=Inches(6),
+            height=Inches(1.9),
+            items=items,
+            tokens=tokens,
+        )
+
+        sizes = {c.value_box.text_frame.paragraphs[0].runs[0].font.size for c in strip.cards}
+        assert len(sizes) == 1
+        assert Pt(9) <= sizes.pop() < Pt(30)

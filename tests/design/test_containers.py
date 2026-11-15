@@ -17,6 +17,9 @@ from power_pptx.design import (
     TextBlock,
 )
 from power_pptx.design.tokens import DesignTokens
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.dml import MSO_FILL
+from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches, Pt
 from power_pptx.validation import validate_presentation
 
@@ -166,6 +169,110 @@ def test_cycles_and_shared_instances_are_rejected_before_mutation(slide):
         with pytest.raises(ValueError, match="cycles or reuse"):
             tree.render(slide, BBox.from_inches(1, 1, 6, 3))
         assert slide.element.xml == before
+
+
+def _with_direction(container, direction):
+    container.direction = direction
+    return container
+
+
+@pytest.mark.parametrize(
+    ("tree", "error", "match"),
+    [
+        (Column(["text"]), TypeError, "children must be native Component objects"),
+        (Column([label("A", width=0)]), ValueError, "dimensions must be finite and positive"),
+        (Column([label("A", height=float("nan"))]), ValueError, "dimensions must be finite"),
+        (Column([label("A", grow=-1)]), ValueError, "grow must be finite and non-negative"),
+        (_with_direction(Column([label("A")]), "diagonal"), ValueError, "direction must be"),
+        (Column([label("A")], align="middle"), ValueError, "align must be start, center"),
+        (Column([label("A")], justify="around"), ValueError, "justify must be start, center"),
+        (Card([label("A")], gap=-1), ValueError, "gap and radius must be non-negative"),
+        (Card([label("A")], padding=(1, 2, 3)), ValueError, "a length, a pair, or four lengths"),
+        (Card([label("A")], padding=-1), ValueError, "padding cannot be negative"),
+        (Card([label("A")], border="nope"), ValueError, "6 digits"),
+        (label("A", align="middle"), ValueError, "invalid text align"),
+        (label("A", anchor="center"), ValueError, "invalid text anchor"),
+    ],
+)
+def test_each_invalid_option_is_named_before_any_slide_mutation(slide, tree, error, match):
+    before = slide.element.xml
+    with pytest.raises(error, match=match):
+        tree.render(slide, BBox.from_inches(1, 1, 4, 3))
+    assert slide.element.xml == before
+
+
+def test_an_empty_region_is_rejected(slide):
+    with pytest.raises(LayoutOverflowError, match="positive dimensions"):
+        Column([label("A")]).render(slide, BBox.from_inches(1, 1, 0, 3))
+
+
+def test_a_duplicate_name_is_reported_after_the_nodes_own_dimensions(slide):
+    tree = Card([label("A", name="same"), label("B", name="same", width=-1)])
+    with pytest.raises(ValueError, match="dimensions"):
+        tree.render(slide, BBox.from_inches(1, 1, 4, 3))
+
+
+@pytest.mark.parametrize(
+    ("tree", "match"),
+    [
+        # Padding that leaves exactly nothing inside the region.
+        (Card([label("A")], padding=(Inches(1), Inches(2))), "padding consumes its region"),
+        # A nested container is measured before it is placed.
+        (Column([Card([label("A")], padding=(0, Inches(2)))]), "padding consumes its width"),
+        (
+            Column([label("A", height=Inches(2)), label("B", height=Inches(2))]),
+            "content exceeds its region",
+        ),
+        (
+            Row([label("A", width=Inches(2)), label("B")], gap=Inches(2)),
+            "Row children and gaps exceed available width",
+        ),
+    ],
+)
+def test_layouts_that_cannot_fit_are_reported(slide, tree, match):
+    with pytest.raises(LayoutOverflowError, match=match):
+        tree.render(slide, BBox.from_inches(1, 1, 4, 3))
+
+
+def test_native_content_needs_a_height_to_be_measured(slide):
+    content = NativeContent(lambda target, box: None, height=Inches(1))
+    content.height = None
+    with pytest.raises(TypeError, match="NativeContent requires a height"):
+        Column([content]).render(slide, BBox.from_inches(1, 1, 4, 3))
+
+
+@pytest.mark.parametrize(
+    ("justify", "tops"),
+    [("start", (1, 2)), ("center", (2, 3)), ("end", (3, 4)), ("space-between", (1, 4))],
+)
+def test_justify_places_spare_space_along_the_column(slide, justify, tops):
+    result = Column(
+        [label("A", height=Inches(1), name="a"), label("B", height=Inches(1), name="b")],
+        gap=0,
+        justify=justify,
+    ).render(slide, BBox.from_inches(1, 1, 4, 4))
+    assert (result["a"].top, result["b"].top) == (Inches(tops[0]), Inches(tops[1]))
+
+
+def test_a_row_inside_a_column_is_as_tall_as_its_tallest_child(slide):
+    result = Column(
+        [
+            Row([label("A", height=Inches(1)), label("B", height=Inches(2))], padding=Pt(10)),
+            label("C", name="c"),
+        ],
+        gap=0,
+    ).render(slide, BBox.from_inches(1, 1, 4, 4))
+    assert result["c"].top == Inches(3) + Pt(20)
+
+
+def test_a_border_without_fill_draws_an_unfilled_panel(slide):
+    result = Card([label("A")], fill=None, border="#00FF00", name="card").render(
+        slide, BBox.from_inches(1, 1, 4, 3)
+    )
+    card = result["card"]
+    assert card.fill.type == MSO_FILL.BACKGROUND
+    assert card.line.color.rgb == RGBColor(0x00, 0xFF, 0x00)
+    assert card.auto_shape_type == MSO_SHAPE.ROUNDED_RECTANGLE
 
 
 def test_intrinsic_badge_and_measured_copy_cannot_rewrap_in_office(slide):

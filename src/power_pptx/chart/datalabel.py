@@ -186,8 +186,7 @@ class DataLabels(object):
     def collision_strategy(self, value):
         if value not in ("auto", "shrink", "compact"):
             raise ValueError(
-                "collision_strategy must be 'auto', 'shrink', or 'compact'; "
-                f"got {value!r}"
+                f"collision_strategy must be 'auto', 'shrink', or 'compact'; got {value!r}"
             )
 
         # Step 1 — typography. Always shrink labels.
@@ -295,9 +294,7 @@ class DataLabel(object):
         dLbl = self._dLbl
         if dLbl is None:
             return False
-        if dLbl.xpath("c:tx/c:rich"):
-            return True
-        return False
+        return bool(dLbl.xpath("c:tx/c:rich"))
 
     @has_text_frame.setter
     def has_text_frame(self, value):

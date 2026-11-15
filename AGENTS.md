@@ -16,8 +16,9 @@ needing Microsoft PowerPoint installed.
   it can be installed side-by-side with upstream `python-pptx`). When migrating
   code, replace `pptx` with `power_pptx` in imports.
 - Current version is defined in `src/power_pptx/__init__.py` (`__version__`).
-- Python 3.9–3.13 supported. Runtime deps: `Pillow`, `XlsxWriter`, `lxml`,
-  `typing_extensions`.
+- Python 3.10–3.15 supported. Runtime deps: `Pillow`, `XlsxWriter`, `lxml`,
+  `typing_extensions`. The minimum versions in `pyproject.toml` are the oldest
+  the suite passes on; the `lowest-deps` CI job installs exactly those.
 
 ### Why the fork exists: space-aware authoring
 
@@ -140,9 +141,19 @@ behave --stop                        # Gherkin acceptance tests under features/
 
 ```bash
 ruff check src tests                 # lint (line-length 100; rules in pyproject.toml)
-ruff format src tests                # format
+ruff format src tests                # format (Markdown code blocks are left alone)
+complexipy                           # every function at cognitive complexity <= 15
+pyright --project pyright-ci.json    # the type-checked entry points CI enforces
 pyright                              # strict type-checking on src/power_pptx + tests
 ```
+
+CI fails on any `ruff check` finding, any file `ruff format --check` would
+change, and any function in `src`, `tests` or `examples` whose complexipy
+cognitive complexity is over 15. Keep new functions under the limit by
+extracting well-named helpers, guard clauses or dispatch tables; do not
+add `# complexipy: ignore`. Tool versions are pinned in
+`requirements-quality.txt`; run those versions, since formatting can differ
+between ruff releases.
 
 `docs/`, `lab/`, `spec/`, and `ref/` are excluded from ruff. `lab/` is
 deliberately undisciplined experimental code.
@@ -158,22 +169,29 @@ make docs                            # Sphinx HTML into docs/.build/html
 
 A PR must keep all of these green:
 
-1. **build** — `pytest` (with coverage) + `behave` across Python 3.9–3.13.
+1. **build** — `pytest` (with coverage) + `behave` across Python 3.10–3.15.
+   **lowest-deps** runs both suites on Python 3.10 with exactly the minimum
+   dependency versions `pyproject.toml` declares.
 2. **examples-lint** — `pyflakes examples/` (no unused imports / undefined names).
 3. **examples-build** — `python examples/real_world/build_all.py` smoke-builds
    all ten real-world decks end-to-end (proves the public surface didn't regress).
 4. **schema-validation** — `pytest tests/schema` against bundled OOXML XSDs.
 5. **html-embedding** — real Chromium HTML/SVG capture tests and the
    captured/native companion decks in `examples/html_embedding/`.
-6. **quality** — repository-wide Ruff correctness rules, full Ruff checks
-   on maintained modules, `pyright --project pyright-ci.json`, and release
-   gate unit tests. Optional renderer dependencies are installed in this job.
+6. **quality** — `ruff check` and `ruff format --check` over `src` and
+   `tests`, `complexipy` (cognitive complexity of 15 or less everywhere),
+   `pyright --project pyright-ci.json`, and release gate unit tests.
+   Optional renderer dependencies are installed in this job.
 7. **modern-gallery** — builds, validates, round-trips, and renders all 32
    modern example slides, then uploads previews and the manifest for review.
 8. **render-integration** — exercises the real LibreOffice/Poppler pipeline.
+9. **docs** — builds the Sphinx documentation with warnings treated as errors,
+   as Read the Docs does.
 
 Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
-`qodana_code_quality.yml`.
+`pages.yml` (builds and deploys `site/` to GitHub Pages when it changes on
+`master`), `qodana_code_quality.yml`. Dependabot proposes grouped updates for
+the Actions, Python tooling and site dependencies.
 
 ## Conventions
 

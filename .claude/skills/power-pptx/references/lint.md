@@ -15,7 +15,8 @@ report.has_errors      # bool
 print(report.summary())
 ```
 
-For a whole deck, iterate the slides yourself:
+For a whole deck, iterate the slides yourself (or use `audit(prs)`, or
+the `power-pptx lint` command for a saved file — both below):
 
 ```python
 all_issues = []
@@ -57,8 +58,44 @@ Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the
 shapes it implicates.
 
-`TextOverflow` uses Pillow font metrics and respects margins, vertical
-anchor, line spacing, and `auto_size`.
+`TextOverflow` lays the text out with the same Pillow font metrics
+`fit_text` uses: every run at its effective size and typeface (run, then
+paragraph, then the placeholder / master it inherits from), wrapped inside
+the frame's margins where `fit_text` breaks lines (at spaces, after hyphens
+and dashes, between East Asian characters, at the slashes of a long path)
+and stacked at its line and paragraph spacing. Text in
+groups and table cells is checked too (except a cell whose text is rotated
+or stacked), and a frame `fit_text` has sized is never flagged. `issue.ratio` is how many times the frame the text needs,
+`issue.dimension` is `"height"` (or `"width"` for a line that cannot wrap),
+`issue.overflow_pt` how far it runs past, and `issue.auto_size` the frame's
+setting. When a typeface is not installed the engine's fallback metrics are
+used — no warning is emitted — and `issue.estimated` is `True`.
+
+Severity follows who can repair the overflow:
+
+- a fixed-size frame (`MSO_AUTO_SIZE.NONE`, or no setting) is an
+  **ERROR** — the text spills in every renderer;
+- a `SHAPE_TO_FIT_TEXT` frame (what `add_textbox` / `add_text` create), a
+  `TEXT_TO_FIT_SHAPE` frame whose stored font scale is not enough, and a
+  table row shorter than its text are **WARNING**s — a renderer resizes
+  them when the deck is opened or the text edited, so
+  `lint_on_save="raise"` does not reject them.
+
+`power-pptx` only writes the auto-size flag, so a `SHAPE_TO_FIT_TEXT`
+shape is checked by `OffSlide` and `ShapeCollision` at the size it will
+grow to (down from a top anchor, up from a bottom anchor, both ways from
+the middle). A box that grows off the slide is an `OffSlide` **ERROR**.
+
+Geometry is what a viewer sees: a rotated shape is checked by the area its
+rotated frame covers, and a connector by the line it is drawn along (it
+collides with a shape only if the line runs into it). A shape with a
+negative width or height is reported as `InvalidGeometry` (ERROR; such a
+file needs repair in PowerPoint) and left out of the other checks.
+
+`ZOrderAnomaly` only fires for a fully opaque fill (a translucent scrim
+hides nothing), and the declarations below that mark an overlap as
+intended — a shared `lint_group`, an allowance, a consistent layer pair —
+mark the stacking as intended too.
 
 ## Auto-fix
 
@@ -69,14 +106,27 @@ preview = report.auto_fix(dry_run=True)    # no mutation; returns list[str]
 
 What's currently fixable:
 
-- **`OffSlide`** → translates the shape so it sits inside the slide
-  bounds (shrinking it first if it is larger than the slide). Returns a
-  one-line description of each nudge.
-- **`TextOverflow`** → flips the frame to
-  `MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE` so PowerPoint shrinks the runs at
-  render time. Non-destructive: the text is preserved verbatim.
-- **`OffGridDrift`** → snaps the drifted edge onto the dominant grid
-  line.
+- **`OffSlide`** → moves the shape so the area it covers (rotated, and
+  grown to its text) sits inside the slide. A shape larger than the slide
+  is shrunk first: a picture or group proportionally, anything else along
+  the axis that is too long. Returns a one-line description of each nudge.
+- **`TextOverflow`** → makes the text fit, the way the frame's own setting
+  asks. The text itself is never changed:
+  - no setting, or `TEXT_TO_FIT_SHAPE` → set to `TEXT_TO_FIT_SHAPE` with
+    the font scale (and line-spacing reduction) that fits, the values
+    PowerPoint stores when it shrinks text itself;
+  - `SHAPE_TO_FIT_TEXT` → the shape is resized to its text;
+  - `NONE` → the setting is kept and the font sizes are reduced in place,
+    as `fit_text` does;
+  - a table row → grown to its text.
+
+  Text that would have to shrink below a quarter of its size is left
+  alone and stays in the report.
+- **`OffGridDrift`** → only with `report.auto_fix(fix_grid_drift=True)`:
+  snaps the drifted edge onto the dominant grid line. Off by default
+  (as in `tidy()`), because an inferred grid can be wrong. Shapes whose
+  right or bottom edge already sits on a grid line — bars on a shared
+  baseline — are never flagged.
 - **`LayerOrderViolation`** → restacks the shape that declared
   `layer_above` so the drawing order matches what you declared.
   Geometry is untouched.
@@ -92,6 +142,11 @@ Reported only, never auto-fixed:
 `slide.tidy()` is the one-call wrapper: it lints, then applies the safe
 subset (`fix_offslide`, `fix_overflow`, `fix_layer_order` on by default;
 `fix_grid_drift` off).
+
+`slide.lint()`, `audit(prs)` and `audit_accessibility(prs)` never change
+the deck. `lint(disable=[...])` and `lint(min_severity=...)` skip the
+rules they rule out instead of computing and discarding them, so they
+also make linting faster.
 
 ## Declaring an overlap is intentional
 
@@ -168,8 +223,8 @@ report.to_json()    # same, as a JSON string (indent=2 default)
 
 Each issue is self-describing — it carries `code`, `severity`,
 `message`, the names of the `shapes` involved, and every
-detector-specific field (`OffSlide.side`, `TextOverflow.ratio`, the
-`ShapeCollision` scoring, …):
+detector-specific field (`OffSlide.side`, `TextOverflow.ratio` /
+`overflow_pt` / `auto_size`, the `ShapeCollision` scoring, …):
 
 ```json
 {"code": "OffSlide", "severity": "error",
@@ -209,7 +264,9 @@ prs = from_spec({
 Every `Presentation` has a `lint_on_save` switch, whatever built it:
 
 ```python
-prs = power_pptx.Presentation("deck.pptx")
+from power_pptx import Presentation
+
+prs = Presentation("deck.pptx")
 prs.lint_on_save = "off"      # default — no checks, no cost
 prs.lint_on_save = "warn"     # log error-severity issues, still write the file
 prs.lint_on_save = "raise"    # raise LintError instead of writing the file
@@ -230,16 +287,13 @@ from power_pptx.exc import LintError
 
 prs = build_deck_from_user_input(...)
 
-# 1. Auto-fix what we can, slide by slide
+# 1. Apply the safe fixes, slide by slide
 for slide in prs.slides:
-    report = slide.lint()
-    report.auto_fix()
+    slide.tidy()
 
 # 2. Re-run and bail on any remaining errors
-remaining = []
-for slide in prs.slides:
-    remaining.extend(i for i in slide.lint().issues
-                     if getattr(i, "severity", None) == "error")
+remaining = [i for slide in prs.slides for i in slide.lint().issues
+             if i.severity == "error"]     # LintSeverity is a str enum
 if remaining:
     raise LintError("; ".join(str(i) for i in remaining))
 
@@ -280,5 +334,49 @@ if report.has_errors:                  # picture with no alt text = error
 report.to_dict()                       # JSON-serializable for a CI gate / LLM loop
 ```
 
-Flags: `MissingAltText` (pictures = error), `LowContrast` (below WCAG AA
-4.5:1), `NoSlideTitle` (no title landmark for navigation).
+Flags: `MissingAltText` (pictures = error, including pictures inserted
+into a placeholder; alt text that is only a file name — what
+`add_picture` fills in — counts as missing), `LowContrast` (below WCAG AA
+4.5:1, judged exactly as the linter judges it), `NoSlideTitle` (no title
+landmark for navigation).
+
+## Command line: `power-pptx lint`
+
+Checks saved decks without writing Python — for a CI job that gates
+decks another job built. It runs `slide.lint()` on every slide:
+
+```bash
+power-pptx lint deck.pptx                         # report grouped by slide
+power-pptx lint build/*.pptx --fail-on warning    # stricter gate
+power-pptx lint deck.pptx --min-severity warning  # hide info-level issues
+power-pptx lint deck.pptx --format json           # one JSON document
+power-pptx lint deck.pptx --format sarif > lint.sarif   # code scanning
+power-pptx lint deck.pptx --fix --output tidied.pptx    # slide.tidy(), then report
+power-pptx lint deck.pptx --fix --in-place        # overwrite (opt-in only)
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | no issue at or above `--fail-on` |
+| `1` | at least one issue at or above `--fail-on` |
+| `2` | usage error, or a deck that could not be read or written |
+
+- `--fail-on {error,warning,never}`, default `error`. Info-level
+  issues never fail the run. An unreadable deck exits `2` even with
+  `never`; the decks that could be read are still reported.
+- `--min-severity {info,warning,error}` drops lower issues from the
+  report *and* from the exit-status decision.
+- `--format json`: `{"decks": [...], "counts", "exit_code", ...}`; each
+  slide entry is that slide's `report.to_dict()` plus `index`, `number`,
+  `title`, `hidden` (and `fixes` with `--fix`). An unreadable deck is
+  `{"path", "error"}`.
+- `--format sarif`: the linter's own `lint_report_to_sarif` output, one
+  run per deck, each run tagged with the deck's path
+  (`automationDetails.id`, `properties.deck`).
+- `--fix` applies `slide.tidy()` (and only that — collisions, contrast
+  and the like still need you) and needs `--output PATH` or
+  `--in-place`; it never overwrites the input otherwise. With several
+  decks (or a path ending in `/`, or an existing directory) `--output`
+  is a directory. The report and exit status describe what is *left*
+  after fixing. `--in-place` rewrites a deck only if a fix changed it.
+- Hidden slides are linted too, and marked `(hidden)` in the report.

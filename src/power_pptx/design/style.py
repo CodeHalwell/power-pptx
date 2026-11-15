@@ -19,6 +19,7 @@ work and are the right tool when a caller needs fine-grained control.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from power_pptx.design.tokens import ShadowToken, TypographyToken
@@ -120,6 +121,8 @@ class ShapeStyle:
             shadow.blur_radius = None
             shadow.distance = None
             shadow.direction = None
+            # -- a token's colour/alpha would otherwise keep `<a:outerShdw>` alive
+            shadow.color = None
             return
         if not isinstance(value, ShadowToken):
             value = ShadowToken.from_value(value)
@@ -136,10 +139,8 @@ class ShapeStyle:
             # token didn't set one and the shape's shadow has no color
             # yet, leave alpha alone (the shadow keeps inheriting its
             # color, including its alpha, from the theme).
-            try:
+            with contextlib.suppress(ValueError):
                 shadow.color.alpha = value.alpha
-            except ValueError:
-                pass
 
     # ------------------------------------------------------------------
     # Text color / font (for shapes with text frames)
@@ -147,9 +148,7 @@ class ShapeStyle:
 
     @property
     def text_color(self) -> None:
-        raise AttributeError(
-            "ShapeStyle.text_color is write-only; iterate runs for reads"
-        )
+        raise AttributeError("ShapeStyle.text_color is write-only; iterate runs for reads")
 
     @text_color.setter
     def text_color(self, value: Optional[ColorLike]) -> None:
@@ -173,9 +172,7 @@ class ShapeStyle:
 
     @property
     def font(self) -> None:
-        raise AttributeError(
-            "ShapeStyle.font is write-only; iterate runs for reads"
-        )
+        raise AttributeError("ShapeStyle.font is write-only; iterate runs for reads")
 
     @font.setter
     def font(self, value: TypographyToken) -> None:
@@ -191,16 +188,20 @@ class ShapeStyle:
             return
         for paragraph in text_frame.paragraphs:
             for run in paragraph.runs:
-                font = run.font
-                font.name = value.family
-                if value.size is not None:
-                    font.size = value.size
-                if value.bold is not None:
-                    font.bold = value.bold
-                if value.italic is not None:
-                    font.italic = value.italic
-                if value.color is not None:
-                    font.color.rgb = value.color
+                _apply_typography(run.font, value)
+
+
+def _apply_typography(font, token: TypographyToken) -> None:
+    """Set *token*'s family on *font*, and each other attribute the token sets."""
+    font.name = token.family
+    if token.size is not None:
+        font.size = token.size
+    if token.bold is not None:
+        font.bold = token.bold
+    if token.italic is not None:
+        font.italic = token.italic
+    if token.color is not None:
+        font.color.rgb = token.color
 
 
 def _text_frame(shape: "BaseShape"):

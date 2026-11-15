@@ -249,8 +249,7 @@ def _headline_chart(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "category_axis": {"has_major_gridlines": False},
-        "value_axis":    {"has_major_gridlines": True},
+        "has_major_gridlines": True,   # value axis; flat keys only
     })
 
     # Editorial caption tying chart back to the headline metric.
@@ -314,48 +313,66 @@ def _comparison_table(prs: Presentation) -> None:
 
     # Header band.
     for c, label in enumerate(headers):
-        cell = table.cell(0, c)
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = P["neutral"]
-        cell.text = label
-        p = cell.text_frame.paragraphs[0]
-        p.font.name = "DejaVu Sans"
-        p.font.bold = True
-        p.font.size = Pt(13)
-        p.font.color.rgb = P["on_primary"]
-        p.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.RIGHT
-        cell.borders.bottom.color.rgb = P["primary"]
-        cell.borders.bottom.width = Pt(2.5)
+        _header_cell(table.cell(0, c), c, label)
 
     # Body rows — zebra fill + conditional delta color.
     # Fill *every* cell explicitly so the inherited default-table-style
     # banding doesn't show through on the rows we'd otherwise leave bare.
-    stripe = RGBColor.from_hex("#FAF4EA")
-    white = RGBColor.from_hex("#FFFFFF")
     for r, row in enumerate(rows, start=1):
         zebra = r % 2 == 1
         for c, value in enumerate(row):
-            cell = table.cell(r, c)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = stripe if zebra else white
-            cell.text = value
-            p = cell.text_frame.paragraphs[0]
-            p.font.name = "DejaVu Sans" if c == 0 else "DejaVu Sans Mono"
-            p.font.size = Pt(13)
-            p.font.color.rgb = P["neutral"]
-            p.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.RIGHT
-            cell.borders.bottom.color.rgb = RGBColor.from_hex("#E7DED0")
-            cell.borders.bottom.width = Pt(0.5)
+            _body_cell(table.cell(r, c), c, value, TABLE_STRIPE if zebra else TABLE_WHITE)
 
         # Conditional delta coloring on column 3.
-        delta_cell = table.cell(r, 3)
-        delta_text = row[3]
-        dp = delta_cell.text_frame.paragraphs[0]
-        dp.font.bold = True
-        if delta_text.startswith("−") or delta_text.startswith("-"):
-            dp.font.color.rgb = P["negative"]
-        else:
-            dp.font.color.rgb = P["positive"]
+        _color_delta(table.cell(r, 3), row[3])
+
+
+TABLE_STRIPE = RGBColor.from_hex("#FAF4EA")
+TABLE_WHITE = RGBColor.from_hex("#FFFFFF")
+
+
+def _align_by_column(p, c: int) -> None:
+    """The name column reads left-aligned; the numeric columns line up right."""
+    p.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.RIGHT
+
+
+def _header_cell(cell, c: int, label: str) -> None:
+    """White bold label on the ink band, with a heavy coral rule beneath."""
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = P["neutral"]
+    cell.text = label
+    p = cell.text_frame.paragraphs[0]
+    p.font.name = "DejaVu Sans"
+    p.font.bold = True
+    p.font.size = Pt(13)
+    p.font.color.rgb = P["on_primary"]
+    _align_by_column(p, c)
+    cell.borders.bottom.color.rgb = P["primary"]
+    cell.borders.bottom.width = Pt(2.5)
+
+
+def _body_cell(cell, c: int, value: str, fill: RGBColor) -> None:
+    """Body text on its zebra *fill*; the numeric columns in a monospace face."""
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = fill
+    cell.text = value
+    p = cell.text_frame.paragraphs[0]
+    p.font.name = "DejaVu Sans" if c == 0 else "DejaVu Sans Mono"
+    p.font.size = Pt(13)
+    p.font.color.rgb = P["neutral"]
+    _align_by_column(p, c)
+    cell.borders.bottom.color.rgb = RGBColor.from_hex("#E7DED0")
+    cell.borders.bottom.width = Pt(0.5)
+
+
+def _color_delta(cell, delta_text: str) -> None:
+    """Bold delta: red when it fell, green when it rose."""
+    dp = cell.text_frame.paragraphs[0]
+    dp.font.bold = True
+    if delta_text.startswith("−") or delta_text.startswith("-"):
+        dp.font.color.rgb = P["negative"]
+    else:
+        dp.font.color.rgb = P["positive"]
 
 
 # ----------------------------------------------------------------------

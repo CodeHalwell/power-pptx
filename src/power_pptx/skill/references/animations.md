@@ -1,8 +1,16 @@
 # Animations (Phase 5)
 
 `power_pptx.animation` ships a preset-only API that maps directly onto
-PowerPoint's built-in animation library. All generated XML is valid
-OOXML and round-trips through PowerPoint without loss.
+PowerPoint's built-in animation library. The XML it generates is valid
+against the OOXML schema, survives a save → open → save cycle with this
+library, and imports into LibreOffice as the effect each preset names.
+
+> **Experimental.** That is a guarantee about the file, not about
+> playback in Microsoft PowerPoint, which has not been verified: it has
+> been reported to show animated shapes faint and then snap them into
+> view instead of playing the effect (see the `power_pptx.animation`
+> module docstring). Prefer slide transitions where they serve, and check
+> any animated deck in PowerPoint itself before relying on it.
 
 ## Imports
 
@@ -13,15 +21,20 @@ from power_pptx.util import Inches, Pt
 
 `Trigger` is an alias for `power_pptx.enum.animation.PP_ANIM_TRIGGER`.
 
-## Triggers and delay
+## Triggers, delay and duration
 
-Every preset accepts an optional `trigger` and `delay` (milliseconds):
+Every preset accepts an optional `trigger`, `delay` and (except
+`appear` / `disappear`) `duration`, both in milliseconds:
 
 ```python
 Entrance.fade(slide, shape)                                    # default: ON_CLICK
 Entrance.fly_in(slide, shape, trigger=Trigger.WITH_PREVIOUS)
-Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=500)
+Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=500,
+              duration=750)
 ```
+
+A float time is rounded to the nearest millisecond; a negative one raises
+`ValueError`.
 
 ## Entrance presets
 
@@ -30,7 +43,7 @@ Entrance.appear(slide, shape)
 Entrance.fade(slide, shape)
 Entrance.fly_in(slide, shape, direction="bottom")  # also "top", "left", "right"
 Entrance.float_in(slide, shape)
-Entrance.wipe(slide, shape)
+Entrance.wipe(slide, shape, direction="left")      # also "right", "top", "bottom"
 Entrance.zoom(slide, shape)
 Entrance.wheel(slide, shape)
 Entrance.random_bars(slide, shape)
@@ -41,11 +54,17 @@ Entrance.random_bars(slide, shape)
 ```python
 Exit.disappear(slide, shape)
 Exit.fade(slide, shape)
-Exit.fly_out(slide, shape)
+Exit.fly_out(slide, shape, direction="bottom")     # the edge it leaves by
 Exit.float_out(slide, shape)
-Exit.wipe(slide, shape)
+Exit.wipe(slide, shape, direction="left")
 Exit.zoom(slide, shape)
+Exit.wheel(slide, shape)
+Exit.random_bars(slide, shape)
 ```
+
+`direction` is one of `"bottom"`, `"top"`, `"left"`, `"right"` for the
+presets that have one (fly in/out, wipe); anything else raises
+`ValueError`. Presets without a direction ignore it.
 
 ## Emphasis presets
 
@@ -62,12 +81,21 @@ Reveal a text frame one paragraph at a time, fired by a single click:
 ```python
 body = slide.placeholders[1].text_frame
 Entrance.fade(slide, body, by_paragraph=True)
+
+# Other presets, and easing, go through slide.animations.add_entrance:
+slide.animations.add_entrance("wipe", body, by_paragraph=True,
+                              direction="top", easing="ease_out")
 ```
 
-Supported presets for `by_paragraph=True`: `appear`, `fade`, `wipe`,
-`zoom`, `wheel`, `random_bars`. The first paragraph fires on the
-caller-supplied trigger (or `ON_CLICK`); subsequent paragraphs default
-to `Trigger.AFTER_PREVIOUS`.
+`Entrance.fade` is the only shortcut that takes `by_paragraph`; for
+`appear`, `wipe`, `zoom`, `wheel` and `random_bars` call
+`slide.animations.add_entrance(preset, ...)`, which takes the same
+`trigger` / `delay` / `duration` / `direction`. Other presets raise
+`ValueError`. The first paragraph fires on the caller-supplied trigger
+(or `ON_CLICK`); subsequent paragraphs default to
+`Trigger.AFTER_PREVIOUS`. `direction` (for `wipe`) and `easing`
+(`"linear"`, `"ease_in"`, `"ease_out"`, `"ease_in_out"`, or an
+`(accel, decel)` pair of fractions) apply to every paragraph.
 
 ## Sequencing — chain effects from one click
 
@@ -111,7 +139,9 @@ cluster chains. They can't be combined.
 
 ## Inspecting and clearing animations
 
-`SlideAnimations` is now iterable and supports `len()`:
+`SlideAnimations` is iterable and supports `len()`. It lists every
+effect on the slide, including those authored in PowerPoint (which nests
+them inside its main sequence):
 
 ```python
 print(len(slide.animations))                  # how many entries?
@@ -126,7 +156,9 @@ the slide call `entry.remove()`; to wipe the whole slide call
 `slide.animations.clear()` (returns the count of entries removed).
 
 `slide.animations.purge_orphans()` is the narrower cousin — it only
-removes entries whose target shape has been deleted.
+removes what names a shape no longer on the slide: effects, the play
+controls of a deleted movie, a sequence triggered by clicking it, and its
+build-list entry. `shape.delete()` and `group.ungroup()` run it for you.
 
 ## Motion paths
 
@@ -140,21 +172,37 @@ MotionPath.zigzag(slide, shape, dx=Inches(4), dy=Inches(0),
 MotionPath.spiral(slide, shape, radius=Inches(2),
                   turns=2.5, clockwise=True)
 
-# Pass a raw OOXML motion-path expression
-MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0")
+# Pass a raw OOXML motion-path expression; `E` ends the path
+MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0 E")
+
+# Or an SVG path, mapped from its viewbox onto the slide
+MotionPath.svg(slide, shape, "M 0 0 H 100 V 50", viewbox=(0, 0, 200, 100))
 ```
 
 All preset constructors normalise EMU inputs against the slide
 dimensions before emitting the path attribute, so the *absolute* travel
 distance is preserved across slide sizes.
 
+A raw motion path knows five commands: `M` (move to), `L` (line to),
+`C` (cubic curve to), `Z` (close the loop) and `E` (end), in lower case
+for coordinates relative to the current point. Coordinates are
+fractions of the slide: `(0, 0)` is where the shape starts, `(1, 0)`
+one slide width to its right. `custom` adds the closing `E` if you
+leave it out and raises `ValueError` for anything that is not such a
+path. `svg` accepts the wider SVG set (`M L H V C Q Z`, either case)
+and converts it; arcs (`A`) and smooth curves (`S`, `T`) are not
+supported and raise `ValueError`.
+
 ## Round-trip safety
 
 Animations authored in PowerPoint survive a read–modify–write cycle.
-Generated effects are appended to the existing `<p:tnLst>` timing tree
-without touching pre-existing `<p:par>` nodes:
+Generated effects are appended after the existing ones without touching
+them; on a slide PowerPoint animated, they go into its main sequence,
+nested the way PowerPoint nests its own:
 
 ```python
+from power_pptx import Presentation
+
 prs = Presentation("hand-authored.pptx")
 slide = prs.slides[0]
 Entrance.fade(slide, slide.shapes[0])           # adds, doesn't disturb

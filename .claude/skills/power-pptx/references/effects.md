@@ -25,8 +25,28 @@ shadow.color.rgb   = RGBColor(0, 0, 0)
 shadow.color.alpha = 0.35          # 35% opacity
 ```
 
-To restore inheritance, assign `None` to each property — the
-`<a:outerShdw>` element is dropped when the last attribute goes away.
+Lengths may be floats — `Pt(8) / 2` is fine, it's rounded to whole EMU
+— on every effect, 3-D and `line.width` setter. A value a setter
+rejects (negative radius, alpha above 1.0, a string) leaves the shape
+exactly as it was.
+
+To restore inheritance, assign `None` to each property, the colour
+included:
+
+```python
+shadow.blur_radius = None
+shadow.distance    = None
+shadow.direction   = None
+shadow.color       = None          # only needed if you set a colour
+```
+
+Once nothing explicit is left the `<a:outerShdw>` element is dropped,
+and the `<a:effectLst>` with it if that was its last effect — an empty
+`<a:effectLst/>` would still override the theme. Inner shadow, glow,
+soft edges, blur and reflection clear the same way. A preset shadow is
+defined by its preset, so it is removed with
+`shape.preset_shadow.preset = None`; `preset_shadow.color = None` drops
+only the colour you chose.
 
 ### Removing a shadow entirely: `shadow.clear()`
 
@@ -38,6 +58,8 @@ properties and that inherited shadow is what you're left with: the
 "phantom shadow I never asked for".
 
 ```python
+from power_pptx.enum.shapes import MSO_SHAPE
+
 card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
 card.shadow.clear()          # flat card, guaranteed
 ```
@@ -129,7 +151,7 @@ OOXML stores in `adjustments[0]`:
 
 ```python
 card.corner_radius = Pt(6)
-card.corner_radius.pt        # -> 6.0
+card.corner_radius.pt        # -> 6.0 (to within rounding of the stored fraction)
 ```
 
 Defined for `ROUNDED_RECTANGLE`, `ROUND_1_RECTANGLE`,
@@ -160,15 +182,32 @@ The two-liner most decks want — a multi-stop linear gradient at an
 angle:
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 bar.fill.linear_gradient(
     [("#06D6FE", 0.0), ("#FFFFFF", 0.5), ("#B14AED", 1.0)],
-    angle=45,
+    angle=45,                                              # towards top-right
 )
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is **counter-clockwise**, like an angle in maths, and gives the
+direction the gradient runs from its first stop to its last:
+
+| `angle` | runs | first colour is at the |
+|---|---|---|
+| `0` | left→right | left |
+| `90` | bottom→top | bottom |
+| `180` | right→left | right |
+| `270` / `-90` | top→bottom | top |
+
+This is the reverse of the `ang` attribute in the XML, which counts
+clockwise (`angle=90` is stored as `ang="16200000"`, i.e. 270°). The
+same convention applies to `fill.gradient(angle=…)` and
+`fill.gradient_angle`.
+
+A call that is given a bad stop (position outside `0.0`–`1.0`, a colour
+that isn't one) or a bad angle raises **before** it changes anything, so
+the shape keeps the fill it had. The same holds for
+`gradient_stops.replace()` and `.append()`.
 
 ### Other kinds, and mutable stops
 

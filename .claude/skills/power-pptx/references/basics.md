@@ -8,30 +8,83 @@ It's here so you don't have to leave the skill for boring boilerplate.
 ```python
 from power_pptx import Presentation
 
-prs = Presentation()                     # blank deck, default 16:9
+prs = Presentation()                     # blank deck, 4:3 (10" x 7.5") by default
 prs = Presentation("template.pptx")      # open existing
 prs.save("out.pptx")
 ```
 
-`Presentation(...)` also accepts a binary file-like object — useful for
-HTTP responses or in-memory generation:
+Templates (`.potx`) and slide shows (`.ppsx`) open the same way, and the
+file name given to `save()` decides what is written: `"brand.potx"` saves
+a template, `"show.ppsx"` a slide show, anything else a presentation.
+Saving to a path is atomic — if it fails part-way, an existing file there
+is left untouched.
+
+A file that is not a package this library can read (a legacy `.ppt`, a
+password-protected deck, a truncated download) raises
+`power_pptx.exc.InvalidPackageError`; a path with no file raises
+`PackageNotFoundError`, which `InvalidPackageError` subclasses:
+
+```python
+from power_pptx.exc import PackageNotFoundError
+
+try:
+    prs = Presentation("upload.pptx")
+except PackageNotFoundError as exc:    # missing, or not a readable package
+    print(f"cannot open the deck: {exc}")
+```
+
+`Presentation(...)` also accepts a binary file-like object, and `save()`
+writes to one — useful for HTTP responses or in-memory generation:
 
 ```python
 import io
-buf = io.BytesIO()
-prs.save(buf)
-buf.seek(0)
-return buf.getvalue()
+
+def deck_bytes(prs) -> bytes:
+    buf = io.BytesIO()
+    prs.save(buf)                      # a stream always gets a .pptx
+    return buf.getvalue()
 ```
 
 ## Slide size
 
 ```python
-from power_pptx.util import Inches
+from power_pptx.util import Inches, Pt
 
 prs.slide_width  = Inches(13.333)        # 16:9 widescreen
 prs.slide_height = Inches(7.5)
+
+prs.set_slide_size(Inches(13.333), Inches(7.5))   # both in one call
 ```
+
+### Limits, and sizes that exceed them (LED walls, banners)
+
+A slide is between 1 and 56 inches a side — PowerPoint's limit, exposed
+as `MIN_SLIDE_SIZE` / `MAX_SLIDE_SIZE` in `power_pptx.util`. A video
+wall specified in pixels is usually bigger than that. `fit=True` scales
+the size to the nearest one **in the same proportions** that is allowed,
+and returns the factor so the content can follow:
+
+```python
+# 7680 x 1080 px wall, at 96 px to the inch = 80" x 11.25" -- too wide
+size = prs.set_slide_size(Inches(7680 / 96), Inches(1080 / 96), fit=True)
+size.width.inches, size.height.inches, size.scale     # (56.0, 7.875, 0.7)
+
+px = size.scale * Inches(1) / 96           # one wall pixel, on the slide
+box = slide.shapes.add_textbox(1920 * px, 120 * px, 3840 * px, 400 * px)
+box.text_frame.paragraphs[0].font.size = Pt(160 * size.scale)   # fonts too
+```
+
+- The return value is a `(width, height, scale)` named tuple
+  (`SlideSize`). `scale` is `1.0` when nothing had to change; multiply
+  coordinates and font sizes worked out for the requested size by it.
+- A size that already fits is never enlarged; a too-small one is scaled
+  *up* to the minimum (`scale > 1`).
+- Without `fit=True` an out-of-range size raises `ValueError` naming the
+  dimension and the limits in inches, and changes nothing. Shapes more
+  elongated than 56:1 cannot be fitted at all and raise either way.
+- `fit_slide_size(width, height)` (also in `power_pptx.util`) does the
+  arithmetic without a presentation, e.g. to plan a layout first.
+- Existing shapes, layouts, and masters are not moved or resized.
 
 ## Adding slides
 
@@ -47,6 +100,35 @@ slide.placeholders[1].text = "April 2026"
 Layouts are master-dependent; use `prs.slide_master.slide_layouts` if you
 want to be explicit, or iterate `for L in prs.slide_layouts: print(L.name)`
 to discover what the template ships.
+
+## Removing and duplicating slides
+
+```python
+prs.slides.remove(prs.slides[2])               # PowerPoint's "Delete Slide"
+
+copy = prs.slides.duplicate(slide)             # right after `slide`, returned
+copy = prs.slides.duplicate(slide, index=-1)   # prs.slides[index] is the copy
+copy = prs.slides.duplicate(slide, index=0)    # first in the deck
+
+for slide in list(prs.slides):                 # iterate over a copy to remove
+    if not slide.shapes:
+        prs.slides.remove(slide)
+```
+
+- `remove` also takes the slide out of its section and any custom show,
+  and unlinks every shape or text run that jumped to it (click and hover,
+  on slides, notes, layouts, masters) — the shape keeps its text. Its
+  notes, charts and media no other slide uses are not saved. Never delete
+  through `prs.slides._sldIdLst` + `drop_rel`: that leaves an orphan slide
+  in the package, reached through any link to it.
+- `duplicate` gives the copy its own shapes, notes, chart and chart
+  workbook (edit one, the other is unchanged); pictures and media are
+  shared. Links to other slides are kept; a self-link points at the copy.
+  The copy keeps the original's layout and joins the section of the slide
+  before it.
+- A slide from another deck raises `ValueError` (copy it with
+  `prs.import_slide(slide)`); a non-`Slide` argument raises `TypeError`,
+  and an out-of-range `index` raises `IndexError`.
 
 ## Text boxes
 
@@ -174,11 +256,15 @@ divider.line.color.alpha = 0.08     # 8% opaque hairline
 ### Two-stop linear gradients
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is **counter-clockwise**, like an angle in maths: `0` runs
+left→right, `90` bottom→top, `180` right→left, `270` (or `-90`)
+top→bottom. The first colour sits where the gradient starts, so
+`angle=270` puts it at the top and `angle=90` at the bottom. (This is
+the reverse of the clockwise `ang` in the XML: `angle=90` is stored as
+`ang="16200000"`.)
 
 → **Multi-stop gradients, gradient kinds, mutable stop lists, and the
 full alpha surface live in `effects.md`** — the canonical fills and
@@ -206,6 +292,8 @@ pic = slide.shapes.add_picture("hero.png", Inches(1), Inches(1),
 pic.crop_left = 0.10               # also crop_right/top/bottom
 pic.crop_top  = 0.05
 pic.alt_text  = "Q4 revenue by segment"   # set this; screen readers need it
+                                          # (the file name add_picture writes
+                                          # counts as missing in audits)
 ```
 
 ### Anchored placement
@@ -384,6 +472,9 @@ Both ``/`` (true division → float) and ``//`` (floor division → int)
 work; pick whichever reads more cleanly. The coercion is round-half-
 to-even, so it's unbiased over long expression chains.
 
+Placeholder `left` / `top` / `width` / `height` setters coerce the same
+way (from 2.15.0; earlier releases raised `TypeError` for a float).
+
 ### International & layout text properties
 
 ```python
@@ -419,3 +510,72 @@ print(slide.notes)                # "" when the slide has no notes
 `start_slide_index` claims every slide from that position to the deck
 end. `move` raises `IndexError` out of range; `reorder` raises
 `ValueError` unless given a clean permutation.
+
+Sections follow the new order. A moved slide behaves as if dragged in
+the slide sorter: it stays in its section if it lands next to it, and
+otherwise joins the section of the slide before it (after it, when it
+becomes first) — so `move(5, 0)` puts slide 5 in the first section.
+`reorder` keeps every slide's section when each section stays in one
+piece (a reversed deck reverses its sections too); otherwise the
+slides that kept their relative order keep their sections and the rest
+are placed as `move` would place them. A section can end up empty.
+
+## Running as a slide show
+
+### Slide-show settings (loop, kiosk)
+
+`prs.slide_show` is PowerPoint's *Set Up Slide Show* dialog. The settings
+live in `ppt/presProps.xml` (not `presentation.xml`); there is no need
+to edit that part by hand:
+
+```python
+show = prs.slide_show
+show.loop = True                # "Loop continuously until 'Esc'"
+show.show_type = "kiosk"        # "speaker" (default) | "window" | "kiosk"
+show.use_timings = True         # False = advance manually, ignore timings
+show.show_narration = True      # False = "Show without narration"
+show.show_animation = True      # False = "Show without animation"
+```
+
+A deck that has to run by itself on a display needs three things — the
+loop, a show type, and an advance time on the slides (`loop` alone only
+changes what happens after the last slide):
+
+```python
+from power_pptx.enum.presentation import MSO_TRANSITION
+
+prs.slide_show.loop = True
+prs.slide_show.show_type = "kiosk"        # full screen, a click does not advance
+prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # ms per slide
+```
+
+- The advance time belongs to each slide's transition. Name a transition
+  kind with it (`CUT` for no visible effect): LibreOffice ignores the
+  advance time of a slide whose transition has no kind.
+- `show_type` takes a string or a `PP_SLIDE_SHOW_TYPE` member
+  (`from power_pptx.enum.slide_show import PP_SLIDE_SHOW_TYPE`) and always
+  reads back as a member (`SPEAKER`, `WINDOW`, `KIOSK`). The bools take
+  `True`/`False` only — `show.loop = "false"` raises `TypeError`.
+- PowerPoint always loops a kiosk show; set `loop` too so other viewers
+  (LibreOffice honours `loop` and `use_timings`) do the same.
+- Reads never modify the deck. A deck with no settings reports
+  `loop=False`, `SPEAKER`, and `True` for the other three. The
+  `<p:showPr>` element — and `presProps.xml` itself, for a deck written by
+  a tool that leaves it out — is created on the first real change and
+  removed again when every setting is back at its default. Pen colour,
+  colour history, and extension lists in the same part are left alone.
+
+### Hidden slides
+
+```python
+slide.hidden = True      # stays in the deck, skipped in the slide show
+slide.hidden             # True
+slide.hidden = False     # shown again (removes the attribute, no show="1")
+
+for slide, rows in zip(prs.slides, tables):   # drop empty slides from a
+    slide.hidden = not rows                   # generated show, no renumbering
+```
+
+This replaces `slide._element.set("show", "0")`. Only `True`/`False` are
+accepted. Hidden slides are still linted and still rendered, so
+`slide_indexes=[n]` always means `prs.slides[n]`.

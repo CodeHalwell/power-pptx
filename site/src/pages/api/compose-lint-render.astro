@@ -4,7 +4,9 @@ import Code from "@/components/Code.astro";
 import { withBase } from "@/lib/utils";
 
 const s0 = `from power_pptx import Presentation
-from power_pptx.compose import from_spec
+from power_pptx.compose import (
+    SpecError, apply_template, from_html, from_spec, from_yaml, import_slide,
+)
 
 spec = {
     "slides": [
@@ -23,16 +25,31 @@ spec = {
     "lint": "raise",                          # raise | warn | off
 }
 prs = from_spec(spec)
+prs = from_spec(spec, vars={"company": "ACME"})   # {{ company }} substitution
+prs = from_spec(spec, safe=True, base_dir="decks/job-42")   # untrusted specs
+prs = from_yaml("decks/job-42/deck.yml",                 # needs pyyaml
+                safe=True, base_dir="decks/job-42")
+
+try:
+    from_spec({"slides": [{"layout": "title", "title": 2026}]})
+except SpecError as exc:                      # ValueError subclass
+    exc.path                                  # 'slides[0].title'
 
 source = Presentation("template.pptx")
-prs.import_slide(source.slides[0])            # deep-copy between decks
-prs.apply_template("corporate.potx")          # masters, layouts, theme`;
+prs.import_slide(source.slides[0])            # deep-copy between decks -> Slide
+import_slide(prs, source.slides[0], merge_master="dedupe")   # function form
+prs.apply_template("corporate.potx")          # masters, layouts, theme
+apply_template(prs, source)                   # path, stream or Presentation`;
 
 const s1 = `slide = prs.slides[0]
-report = slide.lint()                # SlideLintReport
+report = slide.lint()                # SlideLintReport; never modifies the slide
+slide.lint(disable=["MinFontSize"],  # skipped rules are not run at all
+           min_severity="warning")
 report.issues                        # list[LintIssue]
 report.auto_fix()                    # mutates: OffSlide, TextOverflow,
-                                     # OffGridDrift, LayerOrderViolation
+                                     # LayerOrderViolation; returns list[str]
+report.auto_fix(dry_run=True,        # describe only
+                fix_grid_drift=True) # OffGridDrift too (off by default)
 slide.tidy()                         # one-call lint + safe fixes
 slide.tidy(fix_grid_drift=True,      # per-fix opt in / out
            fix_layer_order=False)
@@ -43,12 +60,25 @@ from power_pptx.lint import (
     ShapeCollision, ShapeCollisionShadow,
     MinFontSize, OffGridDrift, LowContrast,
     ZOrderAnomaly, LayerOrderViolation,
-    MasterPlaceholderCollision,
+    MasterPlaceholderCollision, RaggedEdge,
+    InvalidGeometry,                 # negative width/height; ERROR
 )
 
 errors = [i for i in report.issues if i.severity is LintSeverity.ERROR]
+overflow = [i for i in report.issues if isinstance(i, TextOverflow)]
+# TextOverflow: ratio, dimension ("height" | "width"), overflow_pt,
+#   auto_size ("NONE" | "SHAPE_TO_FIT_TEXT" | "TEXT_TO_FIT_SHAPE" | None),
+#   estimated (fallback metrics), row / col (table cell, else None)
+# InvalidGeometry: dimension ("width" | "height"), value_emu`;
 
-# Declaring an intentional overlap, widest to narrowest
+const sCli = `power-pptx lint DECK [DECK ...]
+    [--format {text,json,sarif}]         # default text, grouped by slide
+    [--min-severity {info,warning,error}]
+    [--fail-on {error,warning,never}]    # default error
+    [--fix (--output PATH | --in-place)] # slide.tidy() on each slide first
+# exit: 0 clean, 1 issues at or above --fail-on, 2 usage error / unreadable deck`;
+
+const s1b = `# Declaring an intentional overlap, widest to narrowest
 slide.lint_group("kpi-1", card, accent_bar, value_box)  # n-ary, symmetric
 badge.allow_overlap_with(card)       # exactly one pair
 badge.disallow_overlap_with(card)    # revoke
@@ -151,13 +181,24 @@ for i, issue in new:
     print(f"slide {i}: {issue}")
 sys.exit(1 if new else 0)`;
 
-const s2 = `prs.render_thumbnails(out_dir="thumbs")
+const s2 = `prs.render_thumbnails(out_dir="thumbs")       # _render_input-page-1.png, ...
+prs.render_thumbnails(out_dir="thumbs", dpi=72, timeout=60)
+prs.slides[0].render_thumbnail(out_path="cover.png")
 
-from power_pptx.render import render_slides
+from power_pptx.render import (
+    render_slide_thumbnails, render_slide_thumbnail, render_slides,
+    ThumbnailRendererError, ThumbnailRendererUnavailable,
+)
 render_slides(prs, slides=[0, 1], out_dir="thumbs",
-              name_template="slide-{:02d}.png")
+              name_template="slide-{:02d}.png",   # index counts from 0
+              scale=2)                            # 144 dpi; overrides dpi=
+render_slide_thumbnails(prs, slide_indexes=[0], return_bytes=True,
+                        strategy="auto",          # "pdf" | "png"
+                        font_dirs=["assets/fonts"])
 
-# raises ThumbnailRendererUnavailable without soffice on PATH`;
+# ThumbnailRendererUnavailable: no soffice / libreoffice to run
+# ThumbnailRendererError: conversion failed or timed out, or a multi-slide
+#   deck with neither pdftoppm nor pypdfium2 to split the PDF`;
 
 const s3 = `from power_pptx import BBox
 from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
@@ -167,11 +208,14 @@ from power_pptx.util import Inches
 shape = slide.shapes.add_text(BBox.from_inches(1, 2, 4, 1), text="Animate me")
 
 Entrance.fade(slide, shape)
-Entrance.fly_in(slide, shape, direction="left")
+Entrance.fly_in(slide, shape, direction="left")   # bottom | top | left | right
 Emphasis.pulse(slide, shape, trigger=Trigger.WITH_PREVIOUS)
-Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS)
+Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS, direction="right")
+Exit.wheel(slide, shape)                          # also Exit.random_bars
 Entrance.fade(slide, shape.text_frame, by_paragraph=True)
 MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)
+MotionPath.svg(slide, shape, "M 0 0 Q 50 80 100 0", viewbox=(0, 0, 200, 100))
+slide.animations.purge_orphans()                  # drop entries for deleted shapes
 
 with slide.animations.sequence():
     Entrance.fade(slide, shape)      # first: on click
@@ -179,7 +223,8 @@ with slide.animations.sequence():
 
 slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
 slide.transition.duration = 600      # ms
-prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=300)`;
+prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=300)   # MORPH slide keeps MORPH
+prs.set_transition(kind=MSO_TRANSITION_TYPE.COMB, force=True)     # every slide`;
 
 const s4 = `from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import MSO_THEME_COLOR
@@ -204,9 +249,55 @@ rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 >
   <h2 id="compose"><code>power_pptx.compose</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s0} />
+  <ul>
+    <li>
+      <code>from_spec(spec, *, vars=None, safe=False, base_dir=None) -&gt; Presentation</code> and
+      <code>from_yaml(path, ...)</code>. <code>base_dir</code> (default: the working directory)
+      resolves relative paths; <code>safe=True</code> keeps every file the spec names inside it
+      and captures HTML/Plotly figures with network access blocked. A spec can never set
+      <code>browser_path</code>.
+    </li>
+    <li>
+      <code>SpecError</code> — a <code>ValueError</code> raised for anything wrong with a spec's
+      content; the message starts with the location and <code>.path</code> holds it alone
+      (<code>"slides[2].kpis[0]"</code>, <code>"slides[0].shapes[1]"</code>).
+    </li>
+    <li>
+      <code>import_slide(dst, slide, merge_master="dedupe")</code> /
+      <code>apply_template(dst, template)</code> — the function forms of the
+      <code>Presentation</code> methods, taking the <code>Presentation</code> and
+      <code>Slide</code> objects (their parts still work). <code>merge_master</code> other than
+      <code>"dedupe"</code> or <code>"clone"</code> raises <code>ValueError</code>, as does a
+      template with no master (or no layouts, for a deck with slides), leaving the deck unchanged.
+    </li>
+    <li>
+      <code>from_html(html, *, selector="[data-slide]", ..., mode="capture", allow_network=True)</code>
+      — one picture per section, or <code>mode="hybrid"</code> for annotated editable regions; see
+      <a href={withBase("/advanced/content-embedding")}>HTML &amp; SVG Embedding</a>.
+    </li>
+  </ul>
 
   <h2 id="lint"><code>power_pptx.lint</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s1} />
+  <Code code={s1b} />
+  <p>
+    <code>TextOverflow</code> is measured with the font metrics and line breaking
+    <code>fit_text</code> uses, and is an error only on a fixed-size frame: overflow on a frame
+    that auto-sizes, or on a table row, is a warning. See
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for every rule and fix.
+  </p>
+
+  <h3 id="lint-cli">The <code>power-pptx lint</code> command <strong class="text-primary">fork</strong></h3>
+  <Code code={sCli} lang="bash" />
+  <p>
+    Runs <code>slide.lint()</code> over every slide of each deck, hidden slides included.
+    <code>--format json</code> emits one document whose slide entries are
+    <code>report.to_dict()</code> plus <code>index</code>, <code>number</code>,
+    <code>title</code> and <code>hidden</code>; <code>--format sarif</code> emits
+    <code>lint_report_to_sarif</code> output with one run per deck. <code>--fix</code> never
+    writes over the input without <code>--in-place</code>. Also reachable as
+    <code>python -m power_pptx lint</code>.
+  </p>
 
   <h2 id="lint-ci">The linter in CI <strong class="text-primary">fork</strong></h2>
   <p>
@@ -289,9 +380,22 @@ rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 
   <h2 id="render"><code>power_pptx.render</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s2} />
+  <p>
+    Every strategy names files <code>_render_input-page-N.png</code> (1-based, zero-padded), and
+    <code>"auto"</code> goes through PDF whenever <code>pdftoppm</code> or <code>pypdfium2</code> is
+    available, so <code>dpi</code> applies to every deck. Hidden slides are rendered. See
+    <a href={withBase("/advanced/render")}>Rendering Thumbnails</a>.
+  </p>
 
   <h2 id="animation"><code>power_pptx.animation</code> &amp; transitions <strong class="text-primary">fork</strong></h2>
   <Code code={s3} />
+  <p>
+    An unknown <code>direction</code> for <code>fly_in</code>, <code>fly_out</code> or
+    <code>wipe</code> raises <code>ValueError</code>, as does a malformed motion path. Preset ids
+    now match PowerPoint and LibreOffice, so effects written by releases before 2.15 may read back
+    as a different <code>AnimationEntry.preset</code>. The animation API is experimental: see
+    <a href={withBase("/advanced/animations")}>Animations &amp; Transitions</a>.
+  </p>
 
   <h2 id="theme"><code>power_pptx.theme</code> &amp; <code>inherit</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s4} />

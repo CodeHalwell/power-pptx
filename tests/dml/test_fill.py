@@ -978,3 +978,153 @@ class DescribeLinearGradientHelper:
         )
         with pytest.raises(TypeError, match="end colour"):
             shape.fill.linear_gradient("#FF0000")
+
+
+def _rect():
+    from power_pptx import Presentation
+    from power_pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.util import Inches
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    return slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
+
+
+def _lin_ang(shape):
+    return shape._element.spPr.xpath("a:gradFill/a:lin/@ang")
+
+
+class DescribeGradientAngleConvention:
+    """Pins which way a gradient angle turns.
+
+    The API angle is counter-clockwise (trigonometric); the `ang` attribute in
+    the XML is clockwise. In OOXML terms `ang="5400000"` (90 degrees) runs
+    top-to-bottom and `ang="16200000"` (270 degrees) bottom-to-top. Every deck
+    built with this library depends on the mapping below, so it must not flip.
+    """
+
+    @pytest.mark.parametrize(
+        ("angle", "ooxml_ang", "runs"),
+        [
+            (0, "0", "left-to-right"),
+            (90, "16200000", "bottom-to-top"),
+            (180, "10800000", "right-to-left"),
+            (270, "5400000", "top-to-bottom"),
+            (-90, "5400000", "top-to-bottom"),
+            (45, "18900000", "towards the top right"),
+        ],
+    )
+    def it_writes_the_counter_clockwise_angle_as_ooxml_clockwise(self, angle, ooxml_ang, runs):
+        shape = _rect()
+        shape.fill.linear_gradient("#FF0000", "#0000FF", angle=angle)
+        assert _lin_ang(shape) == [ooxml_ang], runs
+        assert shape.fill.gradient_angle == angle % 360
+
+    def it_uses_the_same_convention_for_gradient_and_gradient_angle(self):
+        via_gradient, via_property = _rect(), _rect()
+        via_gradient.fill.gradient(angle=270)
+        via_property.fill.gradient()
+        via_property.fill.gradient_angle = 270
+        assert _lin_ang(via_gradient) == _lin_ang(via_property) == ["5400000"]
+
+    def it_documents_the_convention_it_implements(self):
+        # The docstrings once described the opposite sense ("90 is
+        # top-to-bottom"); keep the statement next to the code honest.
+        for doc in (
+            FillFormat.gradient_angle.__doc__,
+            FillFormat.linear_gradient.__doc__,
+            _GradFill.gradient_angle.__doc__,
+        ):
+            flat = " ".join(doc.split())
+            assert "counter-clockwise" in flat
+            assert "bottom-to-top" in flat
+            for wrong in (
+                "90`` is top-to-bottom",
+                "90 → top-to-bottom",
+                "90.0 represents a top-to-bottom",
+            ):
+                assert wrong not in flat
+
+
+class DescribeGradientAtomicity:
+    """A gradient call that raises leaves the fill exactly as it found it."""
+
+    @pytest.mark.parametrize(
+        ("bad_stops", "exc"),
+        [
+            ([(0.0, "#FF0000"), (1.5, "#00FF00")], ValueError),
+            ([(-0.2, "#FF0000"), (1.0, "#00FF00")], ValueError),
+            ([(0.0, "#FF0000"), (float("nan"), "#00FF00")], ValueError),
+            ([(0.0, "#FF0000"), ("half", "#00FF00")], ValueError),
+            ([(0.0, "#FF0000"), (1.0, "#FFF")], ValueError),
+            ([(0.0, "#FF0000"), (1.0, "12345")], ValueError),
+            ([(0.0, "#FF0000"), (1.0, (300, 0, 0))], ValueError),
+            ([(0.0, "#FF0000"), (1.0, 12345)], TypeError),
+            ([(0.0, "#FF0000"), 0.5], TypeError),
+        ],
+    )
+    def it_leaves_the_stops_untouched_when_replace_rejects_an_entry(self, bad_stops, exc):
+        # Regression: only the colour was pre-validated, so an out-of-range
+        # position raised after the old stops were gone and left an <a:gs/>
+        # with neither position nor colour.
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        with pytest.raises(exc):
+            stops.replace(bad_stops)
+
+        assert gsLst.xml == original_xml
+
+    @pytest.mark.parametrize(
+        ("position", "color", "exc"),
+        [
+            (1.5, "#00FF00", ValueError),
+            (-0.1, None, ValueError),
+            (0.5, "#FFF", ValueError),
+            (0.5, object(), TypeError),
+        ],
+    )
+    def it_adds_nothing_when_append_rejects_its_arguments(self, position, color, exc):
+        gsLst = CT_GradientStopList.new_gsLst()
+        stops = _GradientStops(gsLst)
+        original_xml = gsLst.xml
+
+        with pytest.raises(exc):
+            stops.append(position, color)
+
+        assert gsLst.xml == original_xml
+
+    @pytest.mark.parametrize(
+        ("args", "kwargs", "exc"),
+        [
+            (([("#FF0000", -0.2), ("#00FF00", 1.0)],), {}, ValueError),
+            (([("#FF0000", 0.0), ("#00FF00", 1.5)],), {}, ValueError),
+            (("#FF0000", "#00F"), {}, ValueError),
+            (("#FF0000", "#0000FF"), {"angle": "steep"}, ValueError),
+            (("#FF0000", "#0000FF"), {"angle": float("inf")}, ValueError),
+        ],
+    )
+    def it_leaves_the_fill_untouched_when_linear_gradient_rejects_a_value(self, args, kwargs, exc):
+        # ...including the fill *type*: the shape below is solid, and must
+        # still be solid, not a half-built gradient.
+        shape = _rect()
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = "123456"
+        original_xml = shape._element.spPr.xml
+
+        with pytest.raises(exc):
+            shape.fill.linear_gradient(*args, **kwargs)
+
+        assert shape._element.spPr.xml == original_xml
+
+    def it_leaves_the_fill_untouched_when_gradient_rejects_its_angle(self):
+        shape = _rect()
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = "123456"
+        original_xml = shape._element.spPr.xml
+
+        with pytest.raises(ValueError):
+            shape.fill.gradient(angle=float("nan"))
+
+        assert shape._element.spPr.xml == original_xml

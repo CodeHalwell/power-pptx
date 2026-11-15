@@ -31,7 +31,11 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.todo",
     "sphinx.ext.coverage",
+    "sphinx.ext.extlinks",
 ]
+
+# -- ``:pypi:`name``` in docstrings links to the package on PyPI --
+extlinks = {"pypi": ("https://pypi.org/project/%s/", "%s")}
 
 templates_path = ["_templates"]
 source_suffix = ".rst"
@@ -76,6 +80,7 @@ rst_epilog = """
 .. |TypeError| replace:: :exc:`TypeError`
 .. |ValueError| replace:: :exc:`ValueError`
 .. |NotImplementedError| replace:: :exc:`NotImplementedError`
+.. |IndexError| replace:: :exc:`IndexError`
 .. |InvalidXmlError| replace:: :exc:`InvalidXmlError`
 
 .. |ActionSetting| replace:: :class:`.ActionSetting`
@@ -116,6 +121,7 @@ rst_epilog = """
 .. |ChartPart| replace:: :class:`.ChartPart`
 .. |ChartTitle| replace:: :class:`.ChartTitle`
 .. |ChartXmlWriter| replace:: :class:`.ChartXmlWriter`
+.. |CollectionFace| replace:: :class:`.CollectionFace`
 .. |ColorFormat| replace:: :class:`.ColorFormat`
 .. |_Column| replace:: :class:`_Column`
 .. |_ColumnCollection| replace:: :class:`_ColumnCollection`
@@ -126,6 +132,7 @@ rst_epilog = """
 .. |DateAxis| replace:: :class:`.DateAxis`
 .. |DesignTokens| replace:: :class:`.DesignTokens`
 .. |Emu| replace:: :class:`.Emu`
+.. |ErrorBars| replace:: :class:`.ErrorBars`
 .. |FillFormat| replace:: :class:`.FillFormat`
 .. |Font| replace:: :class:`.Font`
 .. |FreeformBuilder| replace:: :class:`.FreeformBuilder`
@@ -139,6 +146,7 @@ rst_epilog = """
 .. |Image| replace:: :class:`.Image`
 .. |ImagePart| replace:: :class:`.ImagePart`
 .. |Inches| replace:: :class:`.Inches`
+.. |InnerShadowFormat| replace:: :class:`.InnerShadowFormat`
 .. |LayoutPlaceholder| replace:: :class:`.LayoutPlaceholder`
 .. |LayoutPlaceholders| replace:: :class:`.LayoutPlaceholders`
 .. |LayoutShapes| replace:: :class:`.LayoutShapes`
@@ -173,6 +181,7 @@ rst_epilog = """
 .. |Plots| replace:: :class:`.Plots`
 .. |Point| replace:: :class:`.Point`
 .. |Presentation| replace:: :class:`~power_pptx.presentation.Presentation`
+.. |PresetShadowFormat| replace:: :class:`.PresetShadowFormat`
 .. |Pt| replace:: :class:`.Pt`
 .. |RadarSeries| replace:: :class:`.RadarSeries`
 .. |ReflectionFormat| replace:: :class:`.ReflectionFormat`
@@ -182,6 +191,7 @@ rst_epilog = """
 .. |_Row| replace:: :class:`_Row`
 .. |_RowCollection| replace:: :class:`_RowCollection`
 .. |_Run| replace:: :class:`_Run`
+.. |Sections| replace:: :class:`.Sections`
 .. |Series| replace:: :class:`.Series`
 .. |SeriesCollection| replace:: :class:`.SeriesCollection`
 .. |ShadowFormat| replace:: :class:`.ShadowFormat`
@@ -205,10 +215,12 @@ rst_epilog = """
 .. |SlideTransition| replace:: :class:`.SlideTransition`
 .. |SmartArtCollection| replace:: :class:`.SmartArtCollection`
 .. |Table| replace:: :class:`Table`
+.. |TabStops| replace:: :class:`.TabStops`
 .. |TextFrame| replace:: :class:`.TextFrame`
 .. |Theme| replace:: :class:`.Theme`
 .. |ThreeDFormat| replace:: :class:`.ThreeDFormat`
 .. |TickLabels| replace:: :class:`.TickLabels`
+.. |Trendlines| replace:: :class:`.Trendlines`
 .. |ValueAxis| replace:: :class:`.ValueAxis`
 .. |XyChartData| replace:: :class:`.XyChartData`
 .. |XyPoints| replace:: :class:`.XyPoints`

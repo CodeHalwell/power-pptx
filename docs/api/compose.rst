@@ -8,6 +8,10 @@ Composition
 
 .. autofunction:: from_spec
 
+.. autofunction:: from_yaml
+
+.. autoclass:: SpecError
+
 .. autofunction:: from_html
 
 .. autofunction:: import_slide

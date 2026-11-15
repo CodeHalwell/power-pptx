@@ -1,16 +1,20 @@
+
 Support
 =======
 
 We'd love to hear from you if you like |pp|, want a new feature, find a bug,
 need help using it, or just have a word of encouragement.
 
-The **mailing list** for |pp| is python-pptx@googlegroups.com
+The **issue tracker** is on GitHub at `codehalwell/power-pptx`_. A small
+script or file that reproduces the problem, the output you expected and the
+versions of |pp| and Python you used make a bug quick to fix.
 
-The **issue tracker** is on github at `scanny/python-pptx`_.
+Feature requests are best opened as an issue first, so the approach and the
+API signature can be settled before any code is written; ``ROADMAP.md``
+lists what is planned and what is out of scope.
 
-Feature requests are best broached initially on the mailing list, they can be
-added to the issue tracker once we've clarified the best approach,
-particularly the appropriate API signature.
+Please report a security problem privately, as ``SECURITY.md`` describes,
+rather than in a public issue.
 
-.. _`scanny/python-pptx`:
-   https://github.com/scanny/python-pptx
+.. _`codehalwell/power-pptx`:
+   https://github.com/codehalwell/power-pptx/issues

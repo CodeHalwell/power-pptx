@@ -226,7 +226,9 @@ class DescribeNotesSlidePart(object):
         assert notes_master is notes_master_
 
     def it_provides_access_to_its_notes_slide(self, request, notes_slide_):
-        NotesSlide_ = class_mock(request, "power_pptx.parts.slide.NotesSlide", return_value=notes_slide_)
+        NotesSlide_ = class_mock(
+            request, "power_pptx.parts.slide.NotesSlide", return_value=notes_slide_
+        )
         notes = element("p:notes")
         notes_slide_part = NotesSlidePart(None, None, None, notes)
 
@@ -320,13 +322,13 @@ class DescribeSlidePart(object):
         assert rId == "rId42"
 
     @pytest.mark.parametrize(
-        "prog_id, rel_type",
-        (
+        ("prog_id", "rel_type"),
+        [
             (PROG_ID.DOCX, RT.PACKAGE),
             (PROG_ID.PPTX, RT.PACKAGE),
             (PROG_ID.XLSX, RT.PACKAGE),
             ("Foo.Bar.18", RT.OLE_OBJECT),
-        ),
+        ],
     )
     def it_can_add_an_embedded_ole_object_part(
         self, request, package_, relate_to_, prog_id, rel_type
@@ -392,7 +394,7 @@ class DescribeSlidePart(object):
     def it_knows_the_minimal_element_xml_for_a_slide(self):
         path = absjoin(test_file_dir, "minimal_slide.xml")
         sld = CT_Slide.new()
-        with open(path, "r") as f:
+        with open(path) as f:
             expected_xml = f.read()
         assert sld.xml == expected_xml
 

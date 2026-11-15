@@ -13,6 +13,9 @@ from power_pptx.section import Section, Sections
 GUID_A = "{11111111-1111-1111-1111-111111111111}"
 GUID_B = "{22222222-2222-2222-2222-222222222222}"
 
+_P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+_P14_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+
 
 def _deck(n_slides: int = 4):
     """Return a fresh blank presentation with `n_slides` blank slides."""
@@ -193,6 +196,50 @@ class DescribeSections:
         # No empty <p14:sectionLst/> (CT_SectionList minOccurs=1) may remain.
         assert prs._element.sectionLst is None
 
+    def but_it_keeps_the_other_extensions_of_the_presentation(self):
+        from power_pptx.oxml import parse_xml
+
+        prs = _deck(2)
+        only = prs.sections.add("Only", start_slide_index=0, id=GUID_A)
+        extLst = prs._element.find("{%s}extLst" % _P_NS)
+        extLst.append(parse_xml('<p:ext xmlns:p="%s" uri="{OTHER}"/>' % _P_NS))
+
+        only.delete()
+
+        assert prs._element.sectionLst is None
+        assert [ext.get("uri") for ext in prs._element.find("{%s}extLst" % _P_NS)] == ["{OTHER}"]
+
+    def it_does_nothing_when_a_section_is_deleted_twice(self):
+        prs = _deck(4)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        b = prs.sections.add("B", start_slide_index=2, id=GUID_B)
+        b.delete()
+
+        b.delete()
+
+        assert [(s.name, s.slide_ids) for s in prs.sections] == [("A", [256, 257, 258, 259])]
+
+    def it_removes_the_only_section_of_a_list_that_is_in_no_presentation(self):
+        from power_pptx.oxml import parse_xml
+        from power_pptx.section import _remove_section_element
+
+        section_xml = (
+            '<p14:sectionLst xmlns:p14="%s"><p14:section name="A" id="%s"><p14:sldIdLst>'
+            '<p14:sldId id="256"/></p14:sldIdLst></p14:section></p14:sectionLst>'
+            % (_P14_NS, GUID_A)
+        )
+        # -- a bare section list: nothing above it to remove --
+        sectionLst = parse_xml(section_xml)
+        _remove_section_element(sectionLst[0])
+        assert len(sectionLst) == 1
+        # -- an extension list with no presentation: its extension goes, it stays --
+        extLst = parse_xml(
+            '<p:extLst xmlns:p="%s"><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}">'
+            "%s</p:ext></p:extLst>" % (_P_NS, section_xml)
+        )
+        _remove_section_element(extLst[0][0][0])
+        assert len(extLst) == 0
+
     def it_moves_a_slide_between_sections_rather_than_duplicating_it(self):
         prs = _deck(2)
         a = prs.sections.add("A", start_slide_index=0, id=GUID_A)
@@ -285,3 +332,165 @@ class DescribeSectionsPersistence:
 
         violations = list(iter_schema_violations(_save_bytes(prs)))
         assert violations == []
+
+
+GUID_C = "{33333333-3333-3333-3333-333333333333}"
+GUID_D = "{44444444-4444-4444-4444-444444444444}"
+
+
+def _sectioned_deck(*starts, n_slides=6):
+    """A deck of `n_slides` slides with sections A, B, ... starting at `starts`."""
+    prs = _deck(n_slides)
+    for name, start, guid in zip("ABCD", starts, (GUID_A, GUID_B, GUID_C, GUID_D)):
+        prs.sections.add(name, start_slide_index=start, id=guid)
+    return prs
+
+
+def _layout(prs):
+    """Each section as (name, [original slide numbers]), slide n having id 256 + n."""
+    return [(s.name, [i - 256 for i in s.slide_ids]) for s in prs.sections]
+
+
+def _assert_partition(prs):
+    """Every slide is in exactly one section, and sections are contiguous runs."""
+    deck = [s.slide_id for s in prs.slides]
+    members = [i for section in prs.sections for i in section.slide_ids]
+    assert members == deck
+
+
+class DescribeSectionsFollowSlideOrder:
+    """`Slides.move()` / `reorder()` keep the section list consistent."""
+
+    def it_moves_a_slide_into_the_section_it_lands_in(self):
+        # Regression: after move(5, 0) the slide sat at the front of the deck
+        # but was still listed in the last section.
+        prs = _sectioned_deck(0, 2, 4)
+
+        prs.slides.move(5, 0)
+
+        assert _layout(prs) == [("A", [5, 0, 1]), ("B", [2, 3]), ("C", [4])]
+        _assert_partition(prs)
+
+    def it_joins_the_section_of_the_slide_before_it(self):
+        prs = _sectioned_deck(0, 2, 4)
+
+        prs.slides.move(0, 3)  # -- lands after slide 3, in B
+
+        assert _layout(prs) == [("A", [1]), ("B", [2, 3, 0]), ("C", [4, 5])]
+        _assert_partition(prs)
+
+    def but_it_stays_in_its_own_section_when_it_lands_next_to_it(self):
+        prs = _sectioned_deck(0, 3)
+
+        prs.slides.move(5, 3)  # -- between 2 (A) and 3 (B): next to its own B
+
+        assert _layout(prs) == [("A", [0, 1, 2]), ("B", [5, 3, 4])]
+        _assert_partition(prs)
+
+    def and_it_can_leave_a_section_empty(self):
+        prs = _sectioned_deck(0, 3, 4)  # -- B holds slide 3 alone
+
+        prs.slides.move(3, 1)
+
+        assert _layout(prs) == [("A", [0, 3, 1, 2]), ("B", []), ("C", [4, 5])]
+        _assert_partition(prs)
+
+    def it_moves_sections_with_their_slides_when_the_deck_is_reversed(self):
+        prs = _sectioned_deck(0, 3)
+
+        prs.slides.reorder([5, 4, 3, 2, 1, 0])
+
+        assert _layout(prs) == [("B", [5, 4, 3]), ("A", [2, 1, 0])]
+        _assert_partition(prs)
+
+    def it_can_swap_whole_sections(self):
+        prs = _sectioned_deck(0, 2, 4)
+
+        prs.slides.reorder([4, 5, 0, 1, 2, 3])
+
+        assert _layout(prs) == [("C", [4, 5]), ("A", [0, 1]), ("B", [2, 3])]
+        _assert_partition(prs)
+
+    def it_keeps_an_empty_section_after_the_one_it_followed(self):
+        prs = _sectioned_deck(0, 3)
+        prs.sections.add("Empty", id=GUID_C)  # -- last, after B
+        empty = prs.sections[2]
+        prs.sections[1]._element.addnext(empty._element)  # -- A, B, Empty
+        prs.sections[0]._element.addnext(empty._element)  # -- A, Empty, B
+
+        prs.slides.reorder([3, 4, 5, 0, 1, 2])
+
+        assert _layout(prs) == [("B", [3, 4, 5]), ("A", [0, 1, 2]), ("Empty", [])]
+
+    def it_treats_a_reorder_that_moves_one_slide_like_that_move(self):
+        by_move, by_reorder = _sectioned_deck(0, 2, 4), _sectioned_deck(0, 2, 4)
+
+        by_move.slides.move(5, 0)
+        by_reorder.slides.reorder([5, 0, 1, 2, 3, 4])
+
+        assert _layout(by_reorder) == _layout(by_move)
+
+    def it_keeps_sections_contiguous_after_an_interleaving_reorder(self):
+        prs = _sectioned_deck(0, 3)
+
+        prs.slides.reorder([0, 3, 1, 4, 2, 5])
+
+        _assert_partition(prs)
+        assert [s.name for s in prs.sections] == ["A", "B"]
+
+    def it_reorders_within_a_section_without_changing_membership(self):
+        prs = _sectioned_deck(0, 3)
+
+        prs.slides.reorder([2, 0, 1, 5, 3, 4])
+
+        assert _layout(prs) == [("A", [2, 0, 1]), ("B", [5, 3, 4])]
+
+    def it_drops_a_member_reference_to_a_slide_no_longer_in_the_deck(self):
+        prs = _sectioned_deck(0, 3)
+        prs.sections[0]._element.add_sldId(999)
+
+        prs.slides.move(1, 0)
+
+        assert _layout(prs) == [("A", [1, 0, 2]), ("B", [3, 4, 5])]
+
+    def it_keeps_a_moved_slide_in_its_section_when_no_neighbour_has_one(self):
+        prs = _deck(2)
+        a = prs.sections.add("A", id=GUID_A)
+        a.add_slide(prs.slides[1])  # -- slide 0 is in no section
+
+        prs.slides.move(1, 0)
+
+        assert _layout(prs) == [("A", [1])]
+
+    def it_leaves_an_unsectioned_deck_unsectioned(self):
+        prs = _deck(4)
+
+        prs.slides.move(3, 0)
+        prs.slides.reorder([1, 0, 3, 2])
+
+        assert len(prs.sections) == 0
+        assert prs.part._element.sectionLst is None
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda slides: slides.move(5, 0),
+            lambda slides: slides.move(0, 5),
+            lambda slides: slides.reorder([5, 4, 3, 2, 1, 0]),
+            lambda slides: slides.reorder([0, 3, 1, 4, 2, 5]),
+        ],
+    )
+    def it_saves_a_valid_deck_that_round_trips(self, operation):
+        from tests.integration.round_trip import assert_round_trip
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        prs = _sectioned_deck(0, 2, 4)
+        operation(prs.slides)
+
+        _assert_partition(prs)
+        if schema_validation_available():
+            assert list(iter_schema_violations(_save_bytes(prs))) == []
+        assert_round_trip(prs)

@@ -26,21 +26,27 @@ sys.path.insert(0, str(HERE))
 from power_pptx.chart.data import CategoryChartData
 from power_pptx.design.recipes import kpi_slide
 from power_pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
-from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
 from power_pptx.util import Inches, Pt
 
 from _brand import SALES as TOKENS, SALES_PALETTE as PALETTE
 from _common import (
     closing_slide,
+    color_delta,
     cover_slide,
     divider,
     eyebrow,
     footer,
+    hairline_below,
     hex_rgb,
     lint_or_die,
     new_deck,
     section_title,
+    shade_cell,
+    status_cell,
     styled_card,
+    table_body_text,
+    table_header_row,
 )
 
 FOOTER = "Q1 FY27 QBR  |  Sales Operations  |  Internal use only"
@@ -227,51 +233,36 @@ def _region_table(prs) -> None:
     table.columns[5].width = Inches(1.5)
     table.columns[6].width = Inches(1.4)
 
-    status_color = {"G": "#16A34A", "A": "#F59E0B", "R": "#DC2626"}
-    status_label = {"G": "ON TRACK", "A": "AT RISK", "R": "OFF PLAN"}
-
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(12)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    table_header_row(table, rows[0], TOKENS)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
             cell = table.cell(r, c)
             if c == 6:
-                cell.text = status_label[value]
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(status_color[value])
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(11)
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb("#FFFFFF")
-                p.alignment = PP_ALIGN.CENTER
+                status_cell(cell, *REGION_STATUS[value])
             else:
-                cell.text = value
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(12)
-                p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-                if c == 0:
-                    p.font.bold = True
-                if c == 3 and value.startswith("−"):
-                    p.font.color.rgb = hex_rgb(TOKENS.palette["negative"])
-                    p.font.bold = True
-                elif c == 3 and value.startswith("+"):
-                    p.font.color.rgb = hex_rgb(TOKENS.palette["positive"])
-                    p.font.bold = True
-                if r % 2 == 0:
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
+                _region_metric_cell(cell, r, c, value)
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            hairline_below(cell)
     footer(slide, FOOTER, "5", TOKENS)
+
+
+#: Region status code -> (label, fill) for the scorecard's status column.
+REGION_STATUS = {
+    "G": ("ON TRACK", "#16A34A"),
+    "A": ("AT RISK", "#F59E0B"),
+    "R": ("OFF PLAN", "#DC2626"),
+}
+
+
+def _region_metric_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold region names, a coloured "vs. Plan" delta, zebra-striped rows."""
+    p = table_body_text(cell, value, TOKENS)
+    if c == 0:
+        p.font.bold = True
+    if c == 3:
+        color_delta(p, value, TOKENS)
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
 
 
 def _top10(prs) -> None:
@@ -306,40 +297,35 @@ def _top10(prs) -> None:
     table.columns[4].width = Inches(1.7)
     table.columns[5].width = Inches(2.2)
 
-    stage_color = {"Stage 4": TOKENS.palette["positive"],
-                   "Stage 3": TOKENS.palette["primary"],
-                   "Stage 2": "#94A3B8"}
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(12)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    table_header_row(table, rows[0], TOKENS)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
-            cell = table.cell(r, c)
-            cell.text = value
-            p = cell.text_frame.paragraphs[0]
-            p.font.size = Pt(11)
-            p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-            if c == 0:
-                p.font.bold = True
-            if c == 2:
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb(stage_color.get(value, TOKENS.palette["neutral"]))
-            if c == 3:
-                p.font.bold = True
-            cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            if r % 2 == 0:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            _deal_cell(table.cell(r, c), r, c, value)
     footer(slide, FOOTER, "6", TOKENS)
+
+
+#: Deal stage -> text colour for the "Stage" column.
+STAGE_COLOR = {
+    "Stage 4": TOKENS.palette["positive"],
+    "Stage 3": TOKENS.palette["primary"],
+    "Stage 2": "#94A3B8",
+}
+
+
+def _deal_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold account, stage and ACV columns; the stage coloured by how late it is."""
+    p = table_body_text(cell, value, TOKENS, size=11)
+    if c == 0:
+        p.font.bold = True
+    if c == 2:
+        p.font.bold = True
+        p.font.color.rgb = hex_rgb(STAGE_COLOR.get(value, TOKENS.palette["neutral"]))
+    if c == 3:
+        p.font.bold = True
+    cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
+    hairline_below(cell)
 
 
 def _win_loss(prs) -> None:

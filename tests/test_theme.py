@@ -9,6 +9,8 @@ from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import MSO_THEME_COLOR
 from power_pptx.theme import Theme, ThemeColors, ThemeFonts
 
+from .unitutil.cxml import xml
+
 
 @pytest.fixture
 def prs():
@@ -63,6 +65,7 @@ class DescribeThemeColors:
         # Replace the existing srgbClr in the accent3 slot with sysClr,
         # then verify the writer drops the sysClr and replaces with srgbClr.
         from lxml import etree
+
         from power_pptx.oxml.ns import qn
 
         slot = prs.theme._theme_elm.find(  # type: ignore[attr-defined]
@@ -115,6 +118,97 @@ class DescribeThemeApply:
         with pytest.raises(TypeError):
             theme.apply("not a theme")  # type: ignore[arg-type]
 
+    def it_keeps_its_own_font_where_the_other_theme_names_none(self):
+        src_prs = Presentation()
+        src_theme_elm = src_prs.theme._theme_elm  # type: ignore[attr-defined]
+        for latin in src_theme_elm.xpath("a:themeElements/a:fontScheme/a:majorFont/a:latin"):
+            del latin.attrib["typeface"]
+        src_prs.theme.fonts.minor = "Inter"
+        dst_prs = Presentation()
+        major = dst_prs.theme.fonts.major
+
+        rebound = dst_prs.theme.apply(src_prs.theme)
+
+        assert rebound == 0
+        assert dst_prs.theme.fonts.major == major
+        assert dst_prs.theme.fonts.minor == "Inter"
+
+    def it_rebinds_literal_colors_of_the_old_palette_on_every_slide(self, prs):
+        from power_pptx.oxml.ns import qn
+        from power_pptx.oxml.xmlchemy import OxmlElement
+        from power_pptx.util import Inches
+
+        old_accent = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]
+        fills = []
+        for color in (old_accent, RGBColor(0x12, 0x34, 0x56), old_accent):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = color
+            fills.append(shape._element.spPr.find(qn("a:solidFill")))
+        srgbClr = fills[0][0]
+        srgbClr.set("val", srgbClr.get("val").lower())
+        for tag, val in (("a:alpha", "50000"), ("a:lumMod", "75000")):
+            srgbClr.append(OxmlElement(tag))
+            srgbClr[-1].set("val", val)
+        new_prs = Presentation()
+        new_prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x00, 0x00)
+
+        rebound = prs.theme.apply(new_prs.theme, rebind_shape_colors=True, presentation=prs)
+
+        assert rebound == 2
+        assert [_without_nsdecls(fill.xml) for fill in fills] == [
+            _without_nsdecls(xml(cxml))
+            for cxml in (
+                "a:solidFill/a:schemeClr{val=accent1}/(a:alpha{val=50000},a:lumMod{val=75000})",
+                "a:solidFill/a:srgbClr{val=123456}",
+                "a:solidFill/a:schemeClr{val=accent1}",
+            )
+        ]
+
+    def it_rebinds_nothing_for_an_empty_palette(self, prs):
+        from power_pptx.theme import _rebind_shape_colors
+
+        assert _rebind_shape_colors(prs, {}) == 0
+
+
+def _without_nsdecls(xml_str: str) -> str:
+    import re
+
+    return re.sub(r' xmlns:\w+="[^"]*"', "", xml_str)
+
+
+class DescribeEmbeddedFontEntry:
+    """`_add_embedded_font_entry()` keeps one `p:embeddedFont` per typeface."""
+
+    def it_points_an_existing_weight_slot_at_the_new_font_part(self):
+        from power_pptx.oxml import parse_xml
+        from power_pptx.theme import _add_embedded_font_entry
+
+        pres = parse_xml(
+            b'<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/'
+            b'main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+            b'"/>'
+        )
+
+        class _Presentation:
+            _element = pres
+
+        for typeface, weight, rId in (
+            ("Inter", "bold", "rId1"),
+            ("Inter", "regular", "rId2"),
+            ("Lora", "italic", "rId3"),
+            ("Inter", "bold", "rId4"),
+        ):
+            _add_embedded_font_entry(_Presentation, typeface, weight, rId)
+
+        assert pres.get("embedTrueTypeFonts") == "1"
+        assert pres.xml == xml(
+            "p:presentation{embedTrueTypeFonts=1}/p:embeddedFontLst/("
+            "p:embeddedFont/(p:font{typeface=Inter},p:regular{r:id=rId2},p:bold{r:id=rId4}),"
+            "p:embeddedFont/(p:font{typeface=Lora},p:italic{r:id=rId3}))"
+        )
+
 
 class DescribeThemeName:
     def it_reads_name(self, theme):
@@ -161,6 +255,37 @@ def _contrast(a, b) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
+_PALETTE_SLOTS = tuple(slot for slot in MSO_THEME_COLOR if slot.xml_value)
+
+
+class DescribeRaiseContrast:
+    """`_raise_contrast()` moves a color away from its background."""
+
+    @pytest.mark.parametrize(
+        ("rgb", "background"),
+        [
+            (RGBColor(0x0A, 0x0A, 0x0A), RGBColor(0x00, 0x00, 0x00)),
+            (RGBColor(0x40, 0x20, 0x80), RGBColor(0x12, 0x12, 0x12)),
+            (RGBColor(0xF0, 0xF0, 0x60), RGBColor(0xFF, 0xFF, 0xFF)),
+            (RGBColor(0x80, 0xC0, 0xFF), RGBColor(0xF4, 0xF4, 0xF4)),
+        ],
+    )
+    def it_reaches_the_contrast_target_on_either_kind_of_background(self, rgb, background):
+        from power_pptx.theme import _raise_contrast
+
+        fixed = _raise_contrast(rgb, background, 4.5)
+
+        assert _contrast(fixed, background) >= 4.5 - 1e-6
+        moved_lighter = _relative_luminance(fixed) > _relative_luminance(rgb)
+        assert moved_lighter is (_relative_luminance(background) < 0.18)
+
+    def it_leaves_a_color_that_already_contrasts_alone(self):
+        from power_pptx.theme import _raise_contrast
+
+        rgb = RGBColor(0x12, 0x34, 0x56)
+        assert _raise_contrast(rgb, RGBColor(0xFF, 0xFF, 0xFF), 4.5) is rgb
+
+
 class DescribeThemeToDarkMode:
     def it_swaps_the_dark_light_background_text_pairs(self, theme):
         before_dk1 = theme.colors[MSO_THEME_COLOR.DARK_1]
@@ -190,6 +315,49 @@ class DescribeThemeToDarkMode:
         ):
             accent = theme.colors[slot]
             assert _contrast(accent, bg) >= 4.5 - 1e-6
+
+    def it_is_idempotent(self, theme):
+        # Regression: a second call swapped the pairs back to light and then
+        # "raised" every accent's contrast by lightening it, on a white canvas,
+        # turning most of them white.
+        theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x0A, 0x0A, 0x0A)
+        theme.to_dark_mode()
+        once = {slot: theme.colors.get(slot) for slot in _PALETTE_SLOTS}
+
+        theme.to_dark_mode()
+
+        assert {slot: theme.colors.get(slot) for slot in _PALETTE_SLOTS} == once
+
+    def it_leaves_a_theme_that_is_already_dark_dark(self, theme):
+        colors = theme.colors
+        colors[MSO_THEME_COLOR.DARK_1] = RGBColor(0xF5, 0xF5, 0xF5)
+        colors[MSO_THEME_COLOR.LIGHT_1] = RGBColor(0x10, 0x14, 0x1C)
+        colors[MSO_THEME_COLOR.DARK_2] = RGBColor(0xC0, 0xC8, 0xD0)
+        colors[MSO_THEME_COLOR.LIGHT_2] = RGBColor(0x22, 0x28, 0x33)
+        accent = RGBColor(0x5B, 0xC0, 0xEB)
+        colors[MSO_THEME_COLOR.ACCENT_1] = accent
+
+        theme.to_dark_mode()
+
+        assert colors[MSO_THEME_COLOR.LIGHT_1] == RGBColor(0x10, 0x14, 0x1C)
+        assert colors[MSO_THEME_COLOR.LIGHT_2] == RGBColor(0x22, 0x28, 0x33)
+        assert colors[MSO_THEME_COLOR.ACCENT_1] == accent
+
+    def it_darkens_accents_that_are_too_light_for_a_light_canvas(self, theme):
+        # A canvas that is still light after the swap (light-grey "text" over
+        # white): an accent can only gain contrast by getting darker.
+        colors = theme.colors
+        colors[MSO_THEME_COLOR.DARK_1] = RGBColor(0xEE, 0xEE, 0xEE)
+        colors[MSO_THEME_COLOR.LIGHT_1] = RGBColor(0xFF, 0xFF, 0xFF)
+        colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0xE0, 0x80)
+
+        theme.to_dark_mode()
+
+        bg = colors[MSO_THEME_COLOR.LIGHT_1]
+        accent = colors[MSO_THEME_COLOR.ACCENT_1]
+        assert bg == RGBColor(0xEE, 0xEE, 0xEE)
+        assert _contrast(accent, bg) >= 4.5 - 1e-6
+        assert _relative_luminance(accent) < _relative_luminance(RGBColor(0xFF, 0xE0, 0x80))
 
     def it_round_trips_after_dark_mode(self):
         from tests.integration.round_trip import assert_round_trip

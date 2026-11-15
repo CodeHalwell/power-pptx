@@ -1,0 +1,28 @@
+# Keep the tooling this repository depends on current.  Minor and patch
+# updates arrive grouped, one pull request per ecosystem per week, so the
+# noise stays low; majors come separately because they need a real look.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+    groups:
+      site-minor:
+        update-types: ["minor", "patch"]

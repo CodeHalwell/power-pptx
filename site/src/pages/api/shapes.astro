@@ -143,7 +143,8 @@ picture.crop_left, picture.crop_top          # also crop_right / crop_bottom
 picture.effects.transparency = 0.25          # fork: 0..1
 picture.effects.brightness = 0.1             # fork: -1..1
 picture.effects.contrast = -0.2              # fork
-picture.effects.recolor = "grayscale"        # fork: sepia | washout | duotone
+picture.effects.recolor = "grayscale"        # fork: sepia | washout | duotone |
+                                             #   black_and_white | None
 picture.enclosing_container()  # fork: the surrounding card, if any
 
 def builder(slide, bbox):      # fork: swap picture for native shapes
@@ -270,16 +271,18 @@ picture.replace_with(builder, padding=Inches(0.05))`;
       <tr><th>Function</th><th>Result dataclass</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>horizontal_pipeline(slide, bbox, steps, accent=...)</code></td><td><code>PipelineResult</code></td></tr>
-      <tr><td><code>vertical_pipeline(slide, bbox, steps, ...)</code></td><td><code>PipelineResult</code></td></tr>
-      <tr><td><code>hub_and_spoke(slide, bbox, centre, spokes, ...)</code></td><td><code>HubAndSpokeResult</code></td></tr>
-      <tr><td><code>cycle(slide, bbox, steps, ...)</code></td><td><code>CycleResult</code></td></tr>
-      <tr><td><code>decision_tree(slide, bbox, root, branches, ...)</code></td><td><code>DecisionTreeResult</code></td></tr>
+      <tr><td><code>horizontal_pipeline(slide, bbox, steps, accent=..., min_size_pt=6)</code></td><td><code>PipelineResult</code></td></tr>
+      <tr><td><code>vertical_pipeline(slide, bbox, steps, ..., min_size_pt=6)</code></td><td><code>PipelineResult</code></td></tr>
+      <tr><td><code>hub_and_spoke(slide, bbox, centre, spokes, ..., min_size_pt=6)</code></td><td><code>HubAndSpokeResult</code></td></tr>
+      <tr><td><code>cycle(slide, bbox, steps, ..., min_size_pt=6)</code></td><td><code>CycleResult</code></td></tr>
+      <tr><td><code>decision_tree(slide, bbox, root, branches, ..., min_size_pt=6)</code></td><td><code>DecisionTreeResult</code></td></tr>
       <tr><td><code>comparison_columns(slide, bbox, columns, ...)</code></td><td><code>ColumnsResult</code></td></tr>
     </tbody>
   </table>
   <p>
     Each returns a dataclass exposing the constituent shapes (nodes, connectors, labels) for
-    further tweaks.
+    further tweaks. Labels shrink from <code>size_pt</code> to fit their node; one that cannot be
+    set at <code>min_size_pt</code> raises <code>ValueError</code> and nothing is added to the
+    slide.
   </p>
 </DocsLayout>

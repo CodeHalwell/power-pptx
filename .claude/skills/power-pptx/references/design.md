@@ -20,11 +20,11 @@ palette, typography, radii, shadows, spacings.
 > through — no `RGBColor.from_hex(...)` round-trip required:
 >
 > ```python
+> shape.fill.solid()
 > shape.fill.fore_color.rgb = tokens.palette["primary"]   # ✓ pass RGBColor
 > shape.fill.fore_color.rgb = "#4F9DFF"                    # ✓ hex string
-> # Don't:
-> shape.fill.fore_color.rgb = RGBColor.from_hex(tokens.palette["primary"])
-> # 'RGBColor' object has no attribute 'startswith'
+> # Don't: RGBColor.from_hex(tokens.palette["primary"]) raises
+> # AttributeError: 'RGBColor' object has no attribute 'startswith'
 > ```
 
 ```python
@@ -41,30 +41,59 @@ tokens = DesignTokens.from_dict({
     },
     "typography": {
         # Recipes look up the keys "heading" and "body". Other keys are
-        # available for your own use. Bare floats are treated as POINTS;
-        # bare ints are EMU. Use floats unless you know what you're doing.
-        "heading":  {"family": "Inter", "size": 44.0, "bold": True},
-        "body":     {"family": "Inter", "size": 18.0},
-        "caption":  {"family": "Inter", "size": 12.0, "italic": True},
+        # available for your own use. A bare number is POINTS: 44 and
+        # 44.0 mean the same thing.
+        "heading":  {"family": "Inter", "size": 44, "bold": True},
+        "body":     {"family": "Inter", "size": 18},
+        "caption":  {"family": "Inter", "size": 12, "italic": True},
     },
     "shadows": {
-        # 'blur' / 'distance' are bare-float points too.
-        "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
+        # 'blur_radius' (or its alias 'blur') and 'distance' are points too.
+        "card": {"blur_radius": 18, "distance": 4, "alpha": 0.18},
     },
-    "radii":    {"card": 12.0, "button": 6.0},
-    "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
+    "radii":    {"card": 12, "button": 6},
+    "spacings": {"sm": 8, "md": 16, "lg": 32},
 })
 ```
+
+**Units.** Every length field — typography `size`, `radii`, `spacings`,
+shadow `blur_radius` / `distance` — takes either a `Length` (`Pt(8)`,
+`Emu(101600)`, `Inches(0.1)`), which is kept exactly, or a bare number,
+which is read as **points**. Integers and floats are the same (`36` ==
+`36.0`), so a brand spec that went through JSON or YAML behaves like the
+Python dict. The one exception is backward compatibility: a bare
+*integer* of 12700 or more (one point in EMU) is still read as EMU, as
+every bare integer used to be. Pass `Pt(...)` if a value that large
+really is points.
+
+Palette colours take a hex string (`"#4F9DFF"` or `"4F9DFF"`), an
+`RGBColor`, or an `(r, g, b)` tuple — or an `[r, g, b]` list, which is
+how JSON and YAML carry one.
+
+**Keys are checked.** A typography token takes `family` (required),
+`size`, `bold`, `italic`, `color`; a shadow token takes `blur_radius`
+(alias `blur`), `distance`, `direction`, `color`, `alpha`. Anything else
+raises `ValueError` with a did-you-mean hint (`'sise' (did you mean
+'size'?)`) instead of being dropped, and errors name the token
+(`typography.heading.size: ...`). At the top level, keys other than the
+five sections are ignored so a brand file can carry its own data — but a
+near-miss of a section name (`"palete"`, `"shadow"`) raises.
 
 ### Other constructors
 
 ```python
-# Optional pyyaml dependency
+# Optional pyyaml dependency. Write lengths as plain numbers of points
+# (`size: 36`, `radii: {md: 8}`).
 tokens = DesignTokens.from_yaml("brand.yml")
 
 # Extracts the six accent slots, dk1/dk2/lt1/lt2, hyperlink slots, and
-# major/minor fonts from a deck or template
+# major/minor fonts from a deck or template. Takes a path (str or
+# pathlib.Path), an open binary file, or a Presentation.
 tokens = DesignTokens.from_pptx("template.pptx")
+
+# Per-call tweaks: dotted paths or nested dicts, same unit rule
+tokens = tokens.with_overrides({"typography.heading.size": 40,
+                                "shadows.card.blur": 24})
 
 # Layer brand-spec overrides on top of a template-extracted base
 tokens = DesignTokens.from_pptx("template.pptx").merge(
@@ -241,11 +270,73 @@ image_hero_slide(
 ```
 
 Recipes use the `Blank` layout and place every shape themselves so the
-rendered geometry doesn't depend on the host template's master.
+rendered geometry doesn't depend on the host template's master. A
+template with no layout named `Blank` (renamed or localised) gets the
+layout with the fewest placeholders, and any placeholders it brings are
+removed, so recipe slides always start empty.
+
+The same module also has `section_divider`, `chart_slide`, `table_slide`,
+`code_slide`, `timeline_slide`, `comparison_slide` and `figure_slide`;
+`from_spec` reaches them by layout name (`"timeline"`, `"code"`, …).
+
+**Recipes fit their content and fail loudly.** Where the text is known
+at build time the fitting size is measured and written into the slide
+(an autofit flag alone does nothing in PowerPoint until the text is
+edited), never below 9pt. Content that cannot fit at 9pt raises
+`ValueError` saying how many items fit — split it across slides:
+
+| Recipe | Limit (10" × 7.5" / 13.33" × 7.5") |
+|---|---|
+| `kpi_slide` | 9 / 12 cards in the row |
+| `timeline_slide` | 15 / 21 milestones |
+| `comparison_slide` | 21 rows |
+| `table_slide` | ~20 single-line rows; columns ≥ 0.4" |
+| `bullet_slide` | as many bullets as fit at 9pt |
+| `code_slide` | truncates with `… (+N more lines)`; `overflow="raise"` raises |
+
+**Item dicts are validated.** `kpis` (`label`, `value`, optional
+`delta` / `delta_text`), `milestones` (`label`, optional `date` /
+`done`), comparison `rows` (`left`, `right`) and chart `series`
+(`name`, `values`) must use exactly those keys; a typo raises with a
+did-you-mean hint instead of rendering a blank card.
+
+**Text meets 4.5:1 on the surface it sits on.** When a palette role
+does not (e.g. `muted` on `surface`, which is 2.2–3.4:1 in every
+built-in preset), the recipe darkens or lightens it, keeping its hue,
+until it does; a palette whose roles already contrast is used as-is.
 
 `kpi_slide` honours `palette["positive"]` / `palette["negative"]` when
 tinting deltas (falls back to green/red when unset). It applies
-`tokens.shadows["card"]` to each card when present.
+`tokens.shadows["card"]` to each card when present, and sets one value,
+label and delta size across the row.
+
+`table_slide(widths=…)` reads bare numbers as relative weights —
+`[50, 25, 25]`, `[2, 1, 1]` and `[0.5, 0.25, 0.25]` are the same table —
+and `Length` values (`Inches(2)`) as exact widths. Columns past the end
+of the list share what fractions summing below 1 leave (`[0.5]` on three
+columns is 50/25/25); zero or negative widths raise.
+
+`code_slide` writes one installed monospace family (Cascadia Code,
+Consolas, Menlo, DejaVu Sans Mono, Liberation Mono or Courier New;
+Consolas when none is found) flagged fixed-pitch, or the `font=` you
+pass. Text and syntax colours follow the panel's brightness, so it is
+readable with or without tokens. The code is fitted to the panel,
+14pt down to 9pt.
+
+`timeline_slide` alternates labels above and below the rail, keeps them
+inside the slide margins and anchors labels above the rail at the
+bottom, so the slide lints clean for 2–8 milestones on either size.
+
+`figure_slide` contain-fits every figure kind (aspect ratio kept,
+centred in the content area); `fit="cover"` crops to fill and
+`fit="stretch"` distorts. It accepts Plotly / Matplotlib figures, SVG
+or HTML markup, image paths, raw image bytes and binary file objects.
+A figure it cannot embed (unknown kind, missing file, unreadable bytes,
+rejected `plotly_options`) raises and leaves no half-built slide behind.
+
+`chart_slide` takes `line`, `line_markers`, `bar`, `column`, `pie`,
+`doughnut` and `area` (category charts; build XY scatter with
+`slide.shapes.add_chart`). A `None` value leaves a gap.
 
 `image_hero_slide` uses `palette["on_primary"]` for overlay text and
 tints the bottom band with `palette["primary"]` at 55% alpha.
@@ -272,7 +363,9 @@ kpi = add_kpi_card(
     tokens=tokens,
 )
 # kpi.card / kpi.value_box / kpi.label_box / kpi.delta_box are
-# accessible for further per-deck tweaks.
+# accessible for further per-deck tweaks. The value/label/delta stack
+# is laid out for a 1.9" card and scales down with a shorter one;
+# below 0.95" it raises ValueError.
 
 bar = add_progress_bar(
     slide,
@@ -308,6 +401,7 @@ add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
                       {"label": "NDR", "value": "131%", "delta": +0.03},
                       {"label": "CAC payback", "value": "8 mo"}],
                tokens=tokens)
+# Each card needs at least 0.75" of width; more items raise ValueError.
 ```
 
 ## Starter pack
@@ -317,7 +411,10 @@ add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
 a ready-to-use `TOKENS`:
 
 ```python
+# run from a checkout of the power-pptx repository
 from examples.starter_pack import modern, classic, editorial
+from power_pptx import Presentation
+from power_pptx.design.recipes import title_slide
 
 prs = Presentation()
 title_slide(prs, title="Hello", subtitle="World", tokens=modern.TOKENS)
@@ -345,11 +442,11 @@ tokens = DesignTokens.from_dict({
         "on_primary": "#FFFFFF",
     },
     "typography": {
-        # Recipes look up "heading" and "body". Floats = points, ints = EMU.
-        "heading": {"family": "Inter", "size": 44.0, "bold": True},
-        "body":    {"family": "Inter", "size": 18.0},
+        # Recipes look up "heading" and "body". Bare numbers are points.
+        "heading": {"family": "Inter", "size": 44, "bold": True},
+        "body":    {"family": "Inter", "size": 18},
     },
-    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+    "shadows": {"card": {"blur_radius": 18, "distance": 4, "alpha": 0.18}},
 })
 
 prs = Presentation()

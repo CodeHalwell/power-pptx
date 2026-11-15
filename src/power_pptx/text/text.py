@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from power_pptx.dml.color import _LazyColorFormat
 from power_pptx.dml.effect import GlowFormat, ShadowFormat
@@ -13,14 +13,19 @@ from power_pptx.enum.lang import MSO_LANGUAGE_ID
 from power_pptx.enum.text import MSO_AUTO_SIZE, MSO_UNDERLINE, MSO_VERTICAL_ANCHOR
 from power_pptx.exc import FontMetricsWarning
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.oxml.ns import qn
 from power_pptx.oxml.simpletypes import ST_TextWrappingType
+from power_pptx.oxml.xmlchemy import OxmlElement
 from power_pptx.shapes import Subshape
+from power_pptx.text._linebreak import has_east_asian
 from power_pptx.text.fonts import find_font_file
-from power_pptx.text.layout import TextFitter
+from power_pptx.text.layout import ParagraphFormat, TextFitter, _validate_constraints
 from power_pptx.util import Centipoints, Emu, Length, Pt, lazyproperty
 
 if TYPE_CHECKING:
-    from power_pptx.dml.color import ColorFormat
+    from lxml.etree import _Element
+
+    from power_pptx.dml.color import ColorFormat, RGBColor
     from power_pptx.enum.text import (
         MSO_TEXT_UNDERLINE_TYPE,
         MSO_VERTICAL_ANCHOR,
@@ -31,6 +36,7 @@ if TYPE_CHECKING:
         CT_RegularTextRun,
         CT_TextBody,
         CT_TextCharacterProperties,
+        CT_TextFont,
         CT_TextParagraph,
         CT_TextParagraphProperties,
         CT_TextTabStop,
@@ -101,7 +107,7 @@ class TextFrame(Subshape):
         min_size: int = 1,
         max_lines: int | None = None,
         preserve_breaks: bool = False,
-        line_spacing: float | None = None,
+        line_spacing: float | Length | None = None,
     ) -> int | None:
         """Fit text-frame text entirely within bounds of its shape.
 
@@ -109,6 +115,15 @@ class TextFrame(Subshape):
         word wrap on and applying the "best-fit" font size to all the text it contains.  Returns
         the point size applied (|None| when the frame is empty and nothing was done).
         Paragraph breaks, soft line breaks, and blank lines are included in measurement.
+
+        Text is measured with the formatting it will be drawn with: each paragraph's line
+        spacing and the space between paragraphs, runs set in capitals (``all_caps`` or
+        ``small_caps``) and letter spacing, whether set on the paragraphs and runs or
+        inherited from the frame's list style or, for a placeholder, its layout and master.
+        Lines wrap where PowerPoint and LibreOffice wrap them: at spaces, after hyphens and
+        slashes, and between East Asian characters. A word wider than the frame is kept whole
+        by choosing a smaller size when one from `min_size` up allows it, and is otherwise
+        split at the edge of the frame as a renderer splits it.
 
         :attr:`TextFrame.auto_size` is set to :attr:`MSO_AUTO_SIZE.NONE`. The font size will not
         be set larger than `max_size` points. If the path to a matching TrueType font is provided
@@ -140,21 +155,18 @@ class TextFrame(Subshape):
         ``min_size`` rejects an unreadably small fit. ``max_lines`` caps the
         rendered line count; ``preserve_breaks=True`` prevents additional
         wrapping beyond explicit paragraph/soft breaks. ``line_spacing`` is
-        a positive line-height multiplier, used for measurement and applied to
-        each paragraph. Unsatisfiable constraints raise before any mutation.
+        applied to each paragraph, a multiple of single spacing such as ``1.2``
+        or a length such as ``Pt(28)``, and is measured in place of the
+        paragraphs' own spacing. Unsatisfiable constraints raise before any mutation.
         """
         options = {}
         if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, None):
-            from power_pptx.text.layout import _validate_constraints
-
-            _validate_constraints(min_size, max_size, max_lines, line_spacing or 1.2)
-            if line_spacing is not None and line_spacing <= 0:
-                raise ValueError("line_spacing must be finite and positive")
+            _validate_constraints(min_size, max_size, max_lines, line_spacing)
             options = {
                 "min_size": min_size,
                 "max_lines": max_lines,
                 "preserve_breaks": preserve_breaks,
-                "line_spacing": line_spacing if line_spacing is not None else 1.2,
+                "line_spacing": line_spacing,
             }
         # ---no-op when empty as fit behavior not defined for that case---
         if self.text == "":
@@ -178,6 +190,30 @@ class TextFrame(Subshape):
             for paragraph in self.paragraphs:
                 paragraph.line_spacing = line_spacing
         return font_size
+
+    def _fit_size(
+        self,
+        max_size: int,
+        font_file: str | None,
+        *,
+        line_spacing: float | Length | None = None,
+        **constraints: Any,
+    ) -> int | None:
+        """Largest size up to `max_size` at which this frame's text fits, or |None|.
+
+        Measures with `font_file` and the formatting `fit_text` leaves in place;
+        `line_spacing`, when given, replaces each paragraph's own. Changes nothing.
+        """
+        text, formats = self._measured_paragraphs(line_spacing)
+        return TextFitter.best_fit_font_size(
+            text,
+            self._extents,
+            max_size,
+            font_file,
+            paragraph_formats=formats,
+            in_table=self._in_table,
+            **constraints,
+        )
 
     @property
     def margin_bottom(self) -> Length:
@@ -298,39 +334,17 @@ class TextFrame(Subshape):
             from power_pptx._color import coerce_color
 
             rgb = coerce_color(color)
-
-        def _apply_to_font(font: Font) -> None:
-            if font_name is not None and font.name is None:
-                font.name = font_name
-            if size is not None and font.size is None:
-                font.size = size
-            if bold is not None and font.bold is None:
-                font.bold = bold
-            if italic is not None and font.italic is None:
-                font.italic = italic
-            if rgb is not None:
-                # Don't read ``font.color.rgb`` first — that raises
-                # ``AttributeError`` for runs with an explicit non-RGB
-                # color (e.g. ``theme_color`` / scheme colour), which
-                # would crash the helper on mixed-format frames.  Use
-                # ``font.color.type`` as the "is anything set?" probe
-                # instead; ``None`` means no explicit colour, scheme /
-                # RGB / preset / system means leave it alone.
-                try:
-                    color_type = font.color.type
-                except AttributeError:
-                    color_type = None
-                if color_type is None:
-                    font.color.rgb = rgb
+        # -- in the order they are set, which is the order of the attributes written --
+        defaults = {"name": font_name, "size": size, "bold": bold, "italic": italic}
 
         for paragraph in self.paragraphs:
             # The paragraph-level Font controls run defaults via
             # `a:defRPr`; setting it here gives a baseline that empty
             # paragraphs inherit, while the per-run pass below
             # overwrites any already-set run-level properties.
-            _apply_to_font(paragraph.font)
+            _fill_unset_font(paragraph.font, defaults, rgb)
             for run in paragraph.runs:
-                _apply_to_font(run.font)
+                _fill_unset_font(run.font, defaults, rgb)
 
     @property
     def column_count(self) -> int:
@@ -438,30 +452,8 @@ class TextFrame(Subshape):
         setter with a confusing ``TypeError`` from inside ``Pt(None)``.
         """
         if font_file is None:
-            font_file = find_font_file(family, bold, italic)
-            if font_file is None:
-                style = "".join((" bold" if bold else "", " italic" if italic else ""))
-                detail = (
-                    f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
-                    "default font instead of real metrics — the chosen size is an estimate and "
-                    "the text may still overflow when rendered with the intended face"
-                )
-                if strict:
-                    raise ValueError(
-                        f"fit_text(strict=True): {detail}. Pass font_file= with a TrueType "
-                        "file for this family, or choose an installed family "
-                        "(power_pptx.text.fonts.installed_font_families() lists them)."
-                    )
-                if warn_on_fallback:
-                    warnings.warn(
-                        f"{detail}. Pass font_file=, use strict=True to make this an error, or "
-                        "check power_pptx.text.fonts.font_is_installed() first.",
-                        FontMetricsWarning,
-                        stacklevel=3,
-                    )
-        size = TextFitter.best_fit_font_size(
-            self.text, self._extents, max_size, font_file, **constraints
-        )
+            font_file = _fit_font_file(family, bold, italic, strict, warn_on_fallback)
+        size = self._fit_size(max_size, font_file, **constraints)
         if size is None:
             raise ValueError(
                 f"fit_text: text does not fit at any size from {constraints.get('min_size', 1)}pt "
@@ -478,16 +470,99 @@ class TextFrame(Subshape):
     def _extents(self) -> tuple[Length, Length]:
         """(cx, cy) 2-tuple representing the effective rendering area of this text-frame.
 
-        Margins are taken into account.
+        Margins are taken into account: in a table cell its own margins (``a:tcPr``), since
+        renderers ignore the text body's insets there; elsewhere the text-body insets.
         """
         parent = cast("ProvidesExtents", self._parent)
+        margins: Any = parent if self._in_table else self
         return (
-            Length(parent.width - self.margin_left - self.margin_right),
-            Length(parent.height - self.margin_top - self.margin_bottom),
+            Length(parent.width - margins.margin_left - margins.margin_right),
+            Length(parent.height - margins.margin_top - margins.margin_bottom),
         )
 
+    @property
+    def _in_table(self) -> bool:
+        """True when this is the text of a table cell (an ``a:txBody``, not a ``p:txBody``)."""
+        return self._txBody.tag == qn("a:txBody")
+
+    def _measured_paragraphs(
+        self, line_spacing: float | Length | None = None
+    ) -> tuple[str, list[ParagraphFormat]]:
+        """The text `fit_text` measures, and the formatting of each of its paragraphs.
+
+        Runs set in capitals contribute their text upper-cased. A paragraph's tracking is
+        the widest of its runs'. `line_spacing`, when given, replaces each paragraph's own.
+        """
+        texts: list[str] = []
+        formats: list[ParagraphFormat] = []
+        inherited: dict[int, list[_Element]] = {}
+        for p in self._txBody.p_lst:
+            chain = self._paragraph_style_chain(p, inherited)
+            text, tracking = _measured_text(p, chain)
+            texts.append(text)
+            formats.append(_paragraph_format(chain, tracking, line_spacing))
+        return "\n".join(texts), formats
+
+    def _paragraph_style_chain(
+        self, p: CT_TextParagraph, inherited: dict[int, list[_Element]]
+    ) -> list[_Element]:
+        """The paragraph-property elements `p` takes its formatting from, nearest first.
+
+        `inherited` caches `_inherited_paragraph_styles` by level for the paragraphs of
+        this frame.
+        """
+        pPr = p.pPr
+        level = 0 if pPr is None else pPr.lvl
+        if level not in inherited:
+            inherited[level] = self._inherited_paragraph_styles(level)
+        own: list[_Element] = [] if pPr is None else [pPr]
+        return own + inherited[level]
+
+    def _inherited_paragraph_styles(self, level: int) -> list[_Element]:
+        """The paragraph-property elements a paragraph at `level` inherits from, nearest first.
+
+        These are the frame's own list style and, for a placeholder, the list styles of the
+        layout and master placeholders it inherits from and the master's text style for its
+        kind of placeholder (title, body or other).
+        """
+        tag = qn("a:lvl%dpPr" % (level + 1))
+        styles: list[_Element] = []
+
+        def add(container: _Element | None):
+            style = None if container is None else container.find(tag)
+            if style is not None:
+                styles.append(style)
+
+        add(self._txBody.find(qn("a:lstStyle")))
+        shape: Any = self._parent
+        if not getattr(shape, "is_placeholder", False):
+            return styles
+        while True:
+            try:
+                base = shape._base_placeholder
+            except (AttributeError, KeyError, NotImplementedError):
+                break
+            if base is None:
+                break
+            txBody = base._element.find(qn("p:txBody"))
+            add(None if txBody is None else txBody.find(qn("a:lstStyle")))
+            shape = base
+        master = getattr(getattr(shape, "part", None), "_element", None)
+        if master is None or master.tag != qn("p:sldMaster"):
+            return styles
+        ph = shape._element.find("%s/%s/%s" % (qn("p:nvSpPr"), qn("p:nvPr"), qn("p:ph")))
+        ph_type = "obj" if ph is None else ph.get("type", "obj")
+        style_tag = qn(_MASTER_TEXT_STYLE.get(ph_type, "p:bodyStyle"))
+        add(master.find("%s/%s" % (qn("p:txStyles"), style_tag)))
+        return styles
+
     def _set_font(self, family: str, size: int, bold: bool, italic: bool):
-        """Set the font properties of all the text in this text frame."""
+        """Set the font properties of all the text in this text frame.
+
+        When the text contains East Asian characters `family` is named as the East Asian
+        typeface (``a:ea``) too: renderers draw those characters with it rather than with
+        the Latin one, and they were measured with `family`.
+        """
 
         def iter_rPrs(txBody: CT_TextBody) -> Iterator[CT_TextCharacterProperties]:
             for p in txBody.p_lst:
@@ -501,10 +576,161 @@ class TextFrame(Subshape):
         ):
             f = Font(rPr)
             f.name, f.size, f.bold, f.italic = family, Pt(size), bold, italic
+            if east_asian:
+                ea = rPr.find(qn("a:ea"))
+                if ea is None:
+                    ea = OxmlElement("a:ea")
+                    cast("CT_TextFont", rPr.latin).addnext(ea)
+                ea.set("typeface", family)
 
         txBody = self._element
+        east_asian = any(has_east_asian(t.text or "") for t in txBody.iter(qn("a:t")))
         for rPr in iter_rPrs(txBody):
             set_rPr_font(rPr, family, size, bold, italic)
+
+
+#: The master text style (``p:txStyles`` child) each kind of placeholder follows;
+#: other placeholders follow the body style.
+_MASTER_TEXT_STYLE = {
+    "title": "p:titleStyle",
+    "ctrTitle": "p:titleStyle",
+    "dt": "p:otherStyle",
+    "ftr": "p:otherStyle",
+    "sldNum": "p:otherStyle",
+    "hdr": "p:otherStyle",
+}
+
+
+def _fit_font_file(
+    family: str, bold: bool, italic: bool, strict: bool, warn_on_fallback: bool
+) -> str | None:
+    """The installed font file `fit_text` measures `family` with, or |None| for Pillow's default.
+
+    Falling back to Pillow's font raises |ValueError| under `strict`, and otherwise warns
+    with :class:`~power_pptx.exc.FontMetricsWarning` when `warn_on_fallback` is set.
+    """
+    font_file = find_font_file(family, bold, italic)
+    if font_file is not None:
+        return font_file
+    style = "".join((" bold" if bold else "", " italic" if italic else ""))
+    detail = (
+        f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
+        "default font instead of real metrics — the chosen size is an estimate and "
+        "the text may still overflow when rendered with the intended face"
+    )
+    if strict:
+        raise ValueError(
+            f"fit_text(strict=True): {detail}. Pass font_file= with a TrueType "
+            "file for this family, or choose an installed family "
+            "(power_pptx.text.fonts.installed_font_families() lists them)."
+        )
+    if warn_on_fallback:
+        # -- reported against the caller of fit_text --
+        warnings.warn(
+            f"{detail}. Pass font_file=, use strict=True to make this an error, or "
+            "check power_pptx.text.fonts.font_is_installed() first.",
+            FontMetricsWarning,
+            stacklevel=4,
+        )
+    return None
+
+
+def _fill_unset_font(font: Font, defaults: dict[str, Any], rgb: RGBColor | None) -> None:
+    """Set each of `defaults`, a property name and value, that `font` leaves unset.
+
+    A |None| value is not applied. `rgb`, when given, colors `font` unless it has an
+    explicit color of its own.
+    """
+    for name, value in defaults.items():
+        if value is not None and getattr(font, name) is None:
+            setattr(font, name, value)
+    if rgb is not None and not _has_explicit_color(font):
+        font.color.rgb = rgb
+
+
+def _has_explicit_color(font: Font) -> bool:
+    """True when `font` sets a color of its own; False also when that can't be read."""
+    # Don't read ``font.color.rgb`` first — that raises
+    # ``AttributeError`` for runs with an explicit non-RGB
+    # color (e.g. ``theme_color`` / scheme colour), which
+    # would crash the helper on mixed-format frames.  Use
+    # ``font.color.type`` as the "is anything set?" probe
+    # instead; ``None`` means no explicit colour, scheme /
+    # RGB / preset / system means leave it alone.
+    try:
+        return font.color.type is not None
+    except AttributeError:
+        return False
+
+
+def _first_attr(elements: list[_Element], name: str) -> str | None:
+    """Value of attribute `name` on the first of `elements` that has it."""
+    for element in elements:
+        value = element.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _measured_text(p: CT_TextParagraph, chain: list[_Element]) -> tuple[str, int]:
+    """The text of paragraph `p` as it is measured, and the widest tracking of its runs in EMU.
+
+    Runs set in capitals contribute their text upper-cased. `chain` is the paragraph's
+    style chain, whose default run properties apply where a run sets nothing itself.
+    """
+    defaults = [d for d in (e.find(qn("a:defRPr")) for e in chain) if d is not None]
+    pieces: list[str] = []
+    tracking = 0
+    for child in p.content_children:
+        if child.tag == qn("a:br"):
+            pieces.append(child.text)
+            continue
+        rPr = child.find(qn("a:rPr"))
+        props = defaults if rPr is None else [rPr, *defaults]
+        piece = child.text
+        if _first_attr(props, "cap") in ("all", "small"):
+            piece = piece.upper()
+        pieces.append(piece)
+        tracking = max(tracking, int(_first_attr(props, "spc") or 0) * 127)
+    return "".join(pieces), tracking
+
+
+def _paragraph_format(
+    chain: list[_Element], tracking: int, line_spacing: float | Length | None
+) -> ParagraphFormat:
+    """The |ParagraphFormat| of a paragraph with style `chain` and run `tracking`.
+
+    `line_spacing`, when given, replaces the paragraph's own.
+    """
+    if line_spacing is None:
+        line_spacing = _first_spacing(chain, "a:lnSpc")
+    return ParagraphFormat(
+        line_spacing,
+        _first_spacing(chain, "a:spcBef") or 0,
+        _first_spacing(chain, "a:spcAft") or 0,
+        tracking,
+    )
+
+
+def _first_spacing(chain: list[_Element], tag: str) -> float | Length | None:
+    """The first spacing `tag` (``a:lnSpc``, ``a:spcBef``, ``a:spcAft``) set in `chain`.
+
+    A percentage comes back as a fraction (``1.5``), a point value as a |Length|.
+    """
+    for element in chain:
+        spacing = element.find(qn(tag))
+        if spacing is None:
+            continue
+        points = spacing.find(qn("a:spcPts"))
+        if points is not None:
+            return Centipoints(int(points.get("val", "0")))
+        percent = spacing.find(qn("a:spcPct"))
+        if percent is not None:
+            value = percent.get("val", "0")
+            if value.endswith("%"):
+                return float(value[:-1]) / 100
+            return int(value) / 100000
+    return None
 
 
 class Font(object):

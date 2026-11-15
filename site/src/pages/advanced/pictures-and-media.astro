@@ -54,11 +54,13 @@ pic.effects.contrast = -0.05         # -1.0 .. 1.0, 0.0 = unchanged`;
 
 const snippet5 = `pic.effects.recolor = "grayscale"
 pic.effects.recolor = "sepia"
-pic.effects.recolor = "washout"
-pic.effects.recolor = "duotone"       # neutral grey duotone
-pic.effects.recolor = None            # clear it
+pic.effects.recolor = "washout"           # PowerPoint's Washout: faded towards white
+print(pic.effects.brightness, pic.effects.contrast)   # 0.7 -0.7 - that is what washout is
+pic.effects.recolor = "black_and_white"   # pure black / pure white, 50% threshold
+pic.effects.recolor = "duotone"           # neutral grey duotone
+pic.effects.recolor = None                # clear it
 
-print(pic.effects.recolor)            # None`;
+print(pic.effects.recolor)                # None`;
 
 const snippet6 = `from power_pptx.dml.color import RGBColor
 
@@ -217,16 +219,24 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
   <h3 id="recolor">Recolour presets</h3>
   <p>
     <code>effects.recolor</code> is a <strong>property, not a method</strong>. Assigning a new
-    value clears whatever recolour was there before, so the four modes are mutually exclusive by
+    value clears whatever recolour was there before, so the five modes are mutually exclusive by
     construction:
   </p>
   <Code code={snippet5} />
   <p>
-    <code>"grayscale"</code> writes <code>&lt;a:grayscl&gt;</code>; <code>"washout"</code> writes a
-    two-level threshold (<code>&lt;a:biLevel thresh="50%"/&gt;</code>); <code>"sepia"</code> is a
-    duotone using the warm brown / cream pair PowerPoint uses for its own sepia preset. Any other
-    string — <code>"black_and_white"</code>, say — raises <code>ValueError</code>, and validation
-    happens <em>before</em> anything is mutated, so a typo leaves the existing effect intact.
+    <code>"grayscale"</code> writes <code>&lt;a:grayscl&gt;</code>; <code>"sepia"</code> is a
+    duotone using the warm brown / cream pair PowerPoint uses for its own sepia preset;
+    <code>"black_and_white"</code> is the hard two-tone split
+    (<code>&lt;a:biLevel thresh="50%"/&gt;</code>). <code>"washout"</code> is PowerPoint's
+    <em>Washout</em>, written exactly as PowerPoint writes it — the brightness/contrast pair
+    <code>&lt;a:lum bright="70000" contrast="-70000"/&gt;</code> — so after it
+    <code>brightness</code> and <code>contrast</code> read <code>0.7</code> and
+    <code>-0.7</code>, and assigning either takes the picture out of washout. Set washout
+    <em>or</em> your own brightness and contrast, not both. Releases before 2.15 wrote the
+    black-and-white threshold for <code>"washout"</code>; ask for
+    <code>"black_and_white"</code> if you relied on that look. Any other string raises
+    <code>ValueError</code>, and validation happens <em>before</em> anything is mutated, so a typo
+    leaves the existing effect intact.
   </p>
 
   <h3 id="duotone">Duotone</h3>
@@ -237,8 +247,11 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
   </p>
   <Code code={snippet6} />
   <p>
-    Either colour may be an <code>RGBColor</code>, a hex string (with or without <code>#</code>),
-    or a plain <code>(r, g, b)</code> tuple. There is no dedicated clear method — assign
+    Either colour may be an <code>RGBColor</code>, a six-digit hex string (with or without
+    <code>#</code>), or a plain <code>(r, g, b)</code> tuple of 0–255 values; anything else —
+    <code>"#FFF"</code>, <code>"red"</code>, <code>(300, 0, 0)</code> — raises
+    <code>ValueError</code> and the picture keeps the recolour it had. There is no dedicated clear
+    method — assign
     <code>effects.recolor = None</code> to drop it. Note that reading <code>recolor</code> back
     after <code>set_duotone</code> returns <code>"duotone"</code> unless the colours happen to be
     the sepia pair, in which case it reports <code>"sepia"</code>.
@@ -321,7 +334,9 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
     unconditionally, including for audio, and <code>shape_type</code> is
     <code>MSO_SHAPE_TYPE.MEDIA</code>. Don't use <code>media_type</code> to tell audio from video
     — check the MIME type of the related media part instead. Play-control timing is registered on
-    the enclosing slide even when the movie is added inside a group.
+    the enclosing slide even when the movie is added inside a group, and
+    <code>movie.delete()</code> removes those play controls with it, so a deleted movie leaves no
+    timing nodes pointing at nothing.
   </p>
 
   <h2 id="alt-text">Alt text on pictures</h2>
@@ -335,8 +350,10 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
   <Code code={snippet10} />
   <p>
     Describe what the image <em>tells the audience</em>, not what it depicts: "Q4 revenue up 18%,
-    driven by EMEA" is useful, "bar chart" is not. Reading returns <code>""</code> when nothing
-    has been set; assigning <code>""</code> or <code>None</code> removes the attribute entirely.
+    driven by EMEA" is useful, "bar chart" is not. <code>add_picture</code> fills
+    <code>alt_text</code> with the image's file name (<code>"hero.jpg"</code>), so read it back as
+    a placeholder to replace, not as a description; a shape with nothing set reads
+    <code>""</code>. Assigning <code>""</code> or <code>None</code> removes the attribute entirely.
     <code>title_text</code> is the companion short label (the <code>title</code> attribute) for
     when you want a one-line name as well as a description. Both round-trip through save and
     reopen.
@@ -345,8 +362,9 @@ pic.alt_text = ""                      # assigning "" or None removes descr`;
     Generated decks miss alt text by default, since nothing in the API forces you to write it.
     <code>audit_accessibility(prs)</code> in <code>power_pptx.accessibility</code> reports a
     <code>MissingAltText</code> issue at <strong>error</strong> severity for every picture with no
-    description — the cheapest way to catch the gap before a deck ships. Note that an empty
-    <code>alt_text</code> is still reported: there is no "mark as decorative" flag, so a logo you
-    genuinely want ignored will keep showing up in the report.
+    description, or only a file name — pictures inserted into placeholders included — the
+    cheapest way to catch the gap before a deck ships. Note that an empty <code>alt_text</code> is
+    still reported: there is no "mark as decorative" flag, so a logo you genuinely want ignored
+    will keep showing up in the report.
   </p>
 </DocsLayout>

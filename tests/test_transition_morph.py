@@ -98,15 +98,13 @@ class DescribeMorphTransitionSerialization:
             'office/powerpoint/2010/main" Requires="p159">'
             '<p:transition spd="slow" p14:dur="2000">'
             '<p159:morph option="byObject"/></p:transition></mc:Choice>'
-            "<mc:Fallback><p:transition spd=\"slow\"><p:fade/></p:transition>"
+            '<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition>'
             "</mc:Fallback></mc:AlternateContent>"
         )
         out = io.BytesIO()
         with zipfile.ZipFile(buf) as zin:
             slide_xml = zin.read("ppt/slides/slide1.xml").decode("utf-8")
-            slide_xml = re.sub(
-                r"(</p:clrMapOvr>)", r"\1" + p159_wrapper, slide_xml, count=1
-            )
+            slide_xml = re.sub(r"(</p:clrMapOvr>)", r"\1" + p159_wrapper, slide_xml, count=1)
             with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     data = (
@@ -165,9 +163,7 @@ class DescribeMorphTransitionSerialization:
         out = io.BytesIO()
         with zipfile.ZipFile(buf) as zin:
             slide_xml = zin.read("ppt/slides/slide1.xml").decode("utf-8")
-            slide_xml = re.sub(
-                r"(</p:clrMapOvr>)", r"\1" + p14_wrapper, slide_xml, count=1
-            )
+            slide_xml = re.sub(r"(</p:clrMapOvr>)", r"\1" + p14_wrapper, slide_xml, count=1)
             with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     data = (
@@ -190,9 +186,10 @@ class DescribeChartAxisIds:
     def it_generates_unsigned_axis_ids(self, tmp_path):
         # axId / crossAx are xs:unsignedInt; the legacy templates used to emit
         # negative (signed) ids which fail schema validation.
+        from lxml import etree
+
         from power_pptx.chart.data import CategoryChartData
         from power_pptx.enum.chart import XL_CHART_TYPE
-        from lxml import etree
 
         prs = Presentation()
         s = prs.slides.add_slide(prs.slide_layouts[6])

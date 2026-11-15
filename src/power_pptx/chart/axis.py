@@ -51,9 +51,7 @@ class _BaseAxis(object):
         causes major gridlines to be displayed. Assigning |False| causes them
         to be removed.
         """
-        if self._element.majorGridlines is None:
-            return False
-        return True
+        return self._element.majorGridlines is not None
 
     @has_major_gridlines.setter
     def has_major_gridlines(self, value):
@@ -70,9 +68,7 @@ class _BaseAxis(object):
         causes minor gridlines to be displayed. Assigning |False| causes them
         to be removed.
         """
-        if self._element.minorGridlines is None:
-            return False
-        return True
+        return self._element.minorGridlines is not None
 
     @has_minor_gridlines.setter
     def has_minor_gridlines(self, value):
@@ -89,9 +85,7 @@ class _BaseAxis(object):
         causes an axis title to be added if not already present. Assigning
         |False| causes any existing title to be deleted.
         """
-        if self._element.title is None:
-            return False
-        return True
+        return self._element.title is not None
 
     @has_title.setter
     def has_title(self, value):
@@ -232,7 +226,7 @@ class _BaseAxis(object):
         delete = self._element.delete_
         if delete is None:
             return False
-        return False if delete.val else True
+        return not delete.val
 
     @visible.setter
     def visible(self, value):
@@ -267,9 +261,7 @@ class AxisTitle(ElementProxy):
         already present. Assigning |False| causes any existing text frame to
         be removed along with any text contained in the text frame.
         """
-        if self._title.tx_rich is None:
-            return False
-        return True
+        return self._title.tx_rich is not None
 
     @has_text_frame.setter
     def has_text_frame(self, value):
@@ -447,9 +439,8 @@ class ValueAxis(_BaseAxis):
     @crosses.setter
     def crosses(self, value):
         cross_xAx = self._cross_xAx
-        if value == XL_AXIS_CROSSES.CUSTOM:
-            if cross_xAx.crossesAt is not None:
-                return
+        if value == XL_AXIS_CROSSES.CUSTOM and cross_xAx.crossesAt is not None:
+            return
         cross_xAx._remove_crosses()
         cross_xAx._remove_crossesAt()
         if value == XL_AXIS_CROSSES.CUSTOM:

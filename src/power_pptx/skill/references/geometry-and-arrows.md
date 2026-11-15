@@ -19,7 +19,8 @@ Every rectangular region on a slide can be expressed as a
 
 ```python
 from power_pptx import BBox
-from power_pptx.util import Inches
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
 
 bb = BBox.from_inches(1, 2, 8, 4)        # left, top, width, height
 bb.right                                  # Emu(9 inches)
@@ -141,7 +142,10 @@ slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
     .line_hex("#0D0D0D", weight_pt=1.25)
 ```
 
-`hex_color=None` clears the fill (transparent background).
+`fill_hex(None)` makes the shape transparent: it writes an explicit
+`<a:noFill/>` (same as `fill.background()`), which overrides the theme
+style rather than inheriting from it. `line_hex(None)` likewise removes
+the outline.
 
 ---
 
@@ -207,12 +211,15 @@ draws native shapes in the freed area.
 
 When the picture sits inside a "card" rectangle plus a heading,
 `picture.enclosing_container()` returns the bbox of the enclosing card
-(trimmed to avoid sibling text). This is the bbox you actually want
-to redraw into, not the picture's own bbox:
+(trimmed to avoid sibling text), or `None` when nothing encloses it.
+That is usually the box you want to redraw into. `replace_with` always
+hands the builder the picture's own box, so for the card area delete the
+picture and call the builder yourself:
 
 ```python
-container_bbox = picture.enclosing_container(exclude_text=True)
-picture.replace_with(builder, padding=Inches(0.05))
+box = picture.enclosing_container(exclude_text=True) or picture.bbox
+picture.delete()
+diagram(slide, box.inset(all=Inches(0.05)))
 ```
 
 ---
@@ -227,8 +234,8 @@ slide.tidy()                             # lint + auto_fix(safe subset)
 ```
 
 `tidy()` is the one-call cleanup before save: it lints, runs the safe
-subset of auto-fixes (OffSlide clamp, TextOverflow flip), and returns
-the list of fixes applied.
+subset of auto-fixes (OffSlide clamp, text that overflows made to fit,
+layer-order restack), and returns the list of fixes applied.
 
 ---
 
@@ -286,6 +293,17 @@ comparison_columns(
 
 Each recipe returns a small dataclass (`PipelineResult`, `HubAndSpokeResult`,
 …) exposing the underlying shapes for further tweaks.
+
+Labels are measured and shrunk from `size_pt` to fit their node, never
+splitting a word; circular nodes are fitted to the square inscribed in
+the circle, which is where PowerPoint actually lays out ellipse text.
+`cycle` and `hub_and_spoke` shrink their nodes so neighbours never
+overlap. When a label cannot fit at `min_size_pt` (6pt by default) —
+too many steps for the bbox, or a very long label — the recipe raises
+`ValueError` naming the label and adds nothing to the slide: split the
+diagram, give it a bigger bbox or shorten the labels (or pass a lower
+`min_size_pt`). `decision_tree` indents children under their branch and
+links them with a connector down the indent, so no arrow crosses a card.
 
 Step / column dicts accept per-item `fill` and `text_color` overrides:
 

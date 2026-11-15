@@ -411,7 +411,9 @@ class DescribeBaseShape(object):
 
     @pytest.fixture
     def ActionSetting_(self, request, action_setting_):
-        return class_mock(request, "power_pptx.shapes.base.ActionSetting", return_value=action_setting_)
+        return class_mock(
+            request, "power_pptx.shapes.base.ActionSetting", return_value=action_setting_
+        )
 
     @pytest.fixture
     def action_setting_(self, request):
@@ -597,6 +599,221 @@ class DescribeBaseShape(object):
     @pytest.fixture
     def width(self):
         return 321
+
+
+class DescribeBaseShapeSetTextPreservingFormat:
+    """`set_text_preserving_format()` keeps the first paragraph's and run's formatting."""
+
+    def it_applies_the_first_paragraphs_properties_to_every_new_paragraph(self, slide):
+        from power_pptx import BBox
+
+        tx = slide.shapes.add_text(
+            BBox.from_inches(0, 0, 4, 1), text="<x>", align="center", bold=True
+        )
+
+        tx.set_text_preserving_format("a\nb")
+
+        assert _txBody_xml(tx) == _expected_txBody_xml(
+            "wrap=square",
+            'a:p/(a:pPr{algn=ctr},a:r/(a:rPr{b=1},a:t"a"))',
+            'a:p/(a:pPr{algn=ctr},a:r/(a:rPr{b=1},a:t"b"))',
+        )
+
+    def it_keeps_the_paragraph_properties_when_the_new_text_is_empty(self, slide):
+        from power_pptx import BBox
+
+        tx = slide.shapes.add_text(
+            BBox.from_inches(0, 0, 4, 1), text="<x>", align="center", bold=True
+        )
+
+        tx.set_text_preserving_format("")
+
+        assert _txBody_xml(tx) == _expected_txBody_xml("wrap=square", "a:p/a:pPr{algn=ctr}")
+
+    def it_adds_no_formatting_when_there_is_none_to_keep(self, slide):
+        from power_pptx.util import Inches
+
+        tx = slide.shapes.add_textbox(Inches(0), Inches(0), Inches(4), Inches(1))
+
+        tx.set_text_preserving_format("p\nq")
+
+        assert _txBody_xml(tx) == _expected_txBody_xml(
+            "wrap=none", 'a:p/a:r/a:t"p"', 'a:p/a:r/a:t"q"'
+        )
+
+    def it_sets_the_text_of_a_text_frame_that_has_no_paragraphs(self, slide):
+        from power_pptx.oxml.ns import qn
+        from power_pptx.util import Inches
+
+        tx = slide.shapes.add_textbox(Inches(0), Inches(0), Inches(4), Inches(1))
+        txBody = tx._element.txBody
+        for p in txBody.findall(qn("a:p")):
+            txBody.remove(p)
+
+        result = tx.set_text_preserving_format("z")
+
+        assert result is tx
+        assert _txBody_xml(tx) == _expected_txBody_xml("wrap=none", 'a:p/a:r/a:t"z"')
+
+    def it_replaces_formatting_the_rebuilt_text_already_carries(self, slide, monkeypatch):
+        # -- `TextFrame.text` writes bare paragraphs and runs today; if it ever
+        # -- writes its own pPr/rPr, the kept ones replace them, not join them
+        from power_pptx import BBox
+        from power_pptx.oxml.ns import qn
+        from power_pptx.oxml.xmlchemy import OxmlElement
+        from power_pptx.text.text import TextFrame
+
+        tx = slide.shapes.add_text(
+            BBox.from_inches(0, 0, 4, 1), text="<x>", align="center", bold=True
+        )
+        set_text = TextFrame.text.fset
+
+        def set_text_with_formatting(text_frame, text):
+            set_text(text_frame, text)
+            for p in text_frame._txBody.findall(qn("a:p")):
+                p.insert(0, OxmlElement("a:pPr"))
+                p[0].set("algn", "r")
+                for r in p.findall(qn("a:r")):
+                    r.insert(0, OxmlElement("a:rPr"))
+                    r[0].set("i", "1")
+
+        monkeypatch.setattr(TextFrame, "text", TextFrame.text.setter(set_text_with_formatting))
+
+        tx.set_text_preserving_format("a")
+
+        assert _txBody_xml(tx) == _expected_txBody_xml(
+            "wrap=square", 'a:p/(a:pPr{algn=ctr},a:r/(a:rPr{b=1},a:t"a"))'
+        )
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _without_nsdecls(xml_str: str) -> str:
+    import re
+
+    return re.sub(r' xmlns:\w+="[^"]*"', "", xml_str)
+
+
+def _txBody_xml(shape) -> str:
+    """The XML of `shape`'s `p:txBody`, without namespace declarations."""
+    return _without_nsdecls(shape._element.txBody.xml)
+
+
+def _expected_txBody_xml(wrap: str, *paragraphs: str) -> str:
+    """A text box's `p:txBody` holding `paragraphs`, without namespace declarations."""
+    return _without_nsdecls(
+        xml("p:txBody/(a:bodyPr{%s}/a:spAutoFit,a:lstStyle,%s)" % (wrap, ",".join(paragraphs)))
+    )
+
+
+class DescribeBaseShapeDeletePurgesAllowances:
+    """`delete()` drops the deleted ids from overlap allowances, never failing."""
+
+    def it_skips_a_shape_that_has_no_cNvPr(self, slide, monkeypatch):
+        from power_pptx import lint
+
+        a, b, c = self._allowing_shapes(slide)
+        shape_cNvPr = lint._shape_cNvPr
+        monkeypatch.setattr(
+            lint,
+            "_shape_cNvPr",
+            lambda shape: None if shape == c else shape_cNvPr(shape),
+        )
+
+        b.delete()
+
+        assert a.overlap_allowances == frozenset()
+        assert c.overlap_allowances == frozenset({b.shape_id})
+
+    def it_carries_on_past_a_shape_whose_allowances_cannot_be_read(self, slide, monkeypatch):
+        from power_pptx import lint
+
+        a, b, c = self._allowing_shapes(slide)
+        read_lint_allow = lint._read_lint_allow
+        a_cNvPr = lint._shape_cNvPr(a)
+
+        def read_or_fail(cNvPr):
+            if cNvPr is a_cNvPr:
+                raise RuntimeError("unreadable")
+            return read_lint_allow(cNvPr)
+
+        monkeypatch.setattr(lint, "_read_lint_allow", read_or_fail)
+
+        b.delete()
+
+        monkeypatch.setattr(lint, "_read_lint_allow", read_lint_allow)
+        assert a.overlap_allowances == frozenset({b.shape_id})
+        assert c.overlap_allowances == frozenset()
+
+    def it_carries_on_past_a_group_that_cannot_be_walked(self, slide, monkeypatch):
+        from power_pptx.shapes.shapetree import GroupShapes
+        from power_pptx.util import Inches
+
+        a, b, _ = self._allowing_shapes(slide)
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
+        inner.allow_overlap_with(b)
+        after = slide.shapes.add_textbox(Inches(6), Inches(4), Inches(1), Inches(1))
+        after.allow_overlap_with(b)
+
+        def fail_to_iterate(shapes):
+            raise RuntimeError("unwalkable")
+
+        monkeypatch.setattr(GroupShapes, "__iter__", fail_to_iterate)
+
+        b.delete()
+
+        monkeypatch.undo()
+        assert a.overlap_allowances == frozenset()
+        assert inner.overlap_allowances == frozenset({b.shape_id})
+        assert after.overlap_allowances == frozenset()
+
+    def it_leaves_allowances_alone_when_the_slide_cannot_be_walked(self, slide, monkeypatch):
+        from power_pptx.shapes.shapetree import SlideShapes
+
+        a, b, c = self._allowing_shapes(slide)
+        iterate = SlideShapes.__iter__
+        calls = []
+
+        def fail_on_the_purge_walk(shapes):
+            calls.append(shapes)
+            raise RuntimeError("unwalkable")
+
+        monkeypatch.setattr(SlideShapes, "__iter__", fail_on_the_purge_walk)
+
+        b.delete()
+
+        monkeypatch.setattr(SlideShapes, "__iter__", iterate)
+        assert calls
+        assert a.overlap_allowances == frozenset({b.shape_id})
+        assert c.overlap_allowances == frozenset({b.shape_id})
+
+    # fixtures -------------------------------------------------------
+
+    def _allowing_shapes(self, slide):
+        """Shapes `a`, `b` and `c`, where `a` and `c` are each allowed to overlap `b`."""
+        from power_pptx.util import Inches
+
+        a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
+        b = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
+        c = slide.shapes.add_textbox(Inches(3), Inches(1), Inches(3), Inches(2))
+        a.allow_overlap_with(b)
+        c.allow_overlap_with(b)
+        return a, b, c
+
+    @pytest.fixture
+    def slide(self):
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
 
 
 class DescribeSubshape(object):

@@ -96,7 +96,8 @@ class DescribeCT_Shape(object):
             '1"/>\n    </a:effectRef>\n    <a:fontRef idx="minor">\n      <a:'
             'schemeClr val="lt1"/>\n    </a:fontRef>\n  </p:style>\n  <p:txBo'
             'dy>\n    <a:bodyPr rtlCol="0" anchor="ctr"/>\n    <a:lstStyle/>'
-            '\n    <a:p>\n      <a:pPr algn="ctr"/>\n      <a:endParaRPr lang="en-US"/>\n    </a:p>\n  </p:txBody'
+            '\n    <a:p>\n      <a:pPr algn="ctr"/>\n'
+            '      <a:endParaRPr lang="en-US"/>\n    </a:p>\n  </p:txBody'
             ">\n</p:sp>\n" % (nsdecls("a", "p"), id_, name, left, top, width, height, prst)
         )
         # exercise ---------------------
@@ -254,11 +255,7 @@ class DescribeCT_Shape(object):
             "</p:sp>\n" % (nsdecls("a", "p"), "%d", "%s", "%s", "%s")
         )
         txBody_snippet = (
-            "  <p:txBody>\n"
-            "    <a:bodyPr/>\n"
-            "    <a:lstStyle/>\n"
-            "    <a:p/>\n"
-            "  </p:txBody>\n"
+            "  <p:txBody>\n    <a:bodyPr/>\n    <a:lstStyle/>\n    <a:p/>\n  </p:txBody>\n"
         )
         txBody_str = txBody_snippet if id_ in (2, 4, 8) else ""
         expected_values = (id_, name, expected_attrs, txBody_str)

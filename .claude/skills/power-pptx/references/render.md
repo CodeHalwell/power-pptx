@@ -17,10 +17,16 @@ unrelated files are preserved; PNGs with the same output names are replaced.
 The saved input deck, intermediate PDF, and profile are removed after the
 call. `return_bytes=True` returns bytes without writing to `out_dir`.
 
+Hidden slides (`<p:sld show="0">`) are rendered like any other, so
+`slide_indexes=[n]` always means `prs.slides[n]`, and `power-pptx review`
+covers them too. This needs LibreOffice 7.4 or later; an older build
+renders the visible slides and raises `ThumbnailRendererError` for a hidden
+one you ask for.
+
 ## Convenience methods
 
 ```python
-# All slides → ./thumbs/<n>.png
+# All slides → ./thumbs/_render_input-page-<n>.png (n counts from 1)
 paths = prs.render_thumbnails(out_dir="thumbs")
 
 # Single slide as bytes
@@ -44,14 +50,36 @@ paths = render_slide_thumbnails(
     slide_indexes=[0, 3, 7],                              # only these slides
     soffice_bin="/opt/libreoffice/program/soffice",
     timeout=60,                                            # seconds
+    dpi=150,                                               # the default
 )
 
 png = render_slide_thumbnail(slide, return_bytes=True)
 ```
 
+### Resolution, strategy and file names
+
+`dpi=` sets the resolution (default 150, so a 10in-wide slide is 1500px
+wide). `render_slides(scale=...)` is the same knob in PDF units: `scale=1.0`
+is 72 DPI, `scale=2` is 144, and it overrides `dpi=`. Both apply to every
+deck, one-slide decks included.
+
+`strategy="auto"` (the default) exports a PDF and splits it into pages with
+`pdftoppm` (Poppler) or, failing that, `pypdfium2`. Only when neither is
+installed does it use LibreOffice's direct PNG filter, which ignores `dpi=`
+and, on stock LibreOffice 7+, writes just the first slide, so it serves
+one-slide decks only. `strategy="pdf"` and `strategy="png"` force one path.
+
+Files are named `_render_input-page-<n>.png`, where `<n>` is the slide number
+counting from 1, zero-padded to the width of the slide count (`-page-07` in
+a 12-slide deck), whichever path rendered them. For names of your own use
+`render_slides(prs, out_dir="thumbs", name_template="slide-{:02d}.png")`
+(that index counts from 0).
+
 ### Fonts that aren't in a system folder
 
 ```python
+from power_pptx.render import render_slides
+
 render_slides(prs, out_dir="thumbs", font_dirs=["assets/fonts"])
 ```
 
@@ -59,15 +87,15 @@ render_slides(prs, out_dir="thumbs", font_dirs=["assets/fonts"])
 `render_slide_thumbnail`) writes a temporary `fonts.conf` that includes the
 system configuration, the OS font folders and the given folders. It sets
 `FONTCONFIG_FILE` for the `soffice` subprocess only. Folders registered with
-`power_pptx.text.register_font_dir` or `POWER_PPTX_FONT_DIRS` are always
-passed through. Use it when previews show a serif fallback although the PPTX
+`power_pptx.text.register_font_dir` or `POWER_PPTX_FONT_DIRS`, and the files
+registered with `register_font_family`, are always passed through. Use it when previews show a serif fallback although the PPTX
 names the right font. On macOS that happens to fonts in `~/Library/Fonts`,
 because LibreOffice's bundled fontconfig doesn't search there. Confirm with
 `pdffonts` on the intermediate PDF.
 
-The output resolution is whatever LibreOffice's headless PNG
-converter chooses — there's no `width=` knob. If you need a specific
-size, post-process with Pillow (``Image.open(...).resize(...)``).
+There's no `width=` knob. For an exact pixel size, pick the `dpi=` that
+gives it (`dpi = pixels / slide width in inches`) or post-process with
+Pillow (``Image.open(...).resize(...)``).
 
 ## Pointing at a custom binary
 
@@ -75,7 +103,10 @@ Three ways to choose `soffice`, in priority order:
 
 1. The `soffice_bin=` keyword argument
 2. The `POWER_PPTX_SOFFICE` environment variable
-3. The first `soffice` (or `libreoffice`) on `$PATH`
+3. The first `soffice` on `$PATH`, or else the first `libreoffice`
+
+A binary named through the first two is used as given: if it can't be found,
+`ThumbnailRendererUnavailable` is raised without falling back to `$PATH`.
 
 ```python
 import os
@@ -96,21 +127,18 @@ generated `.pptx` opens correctly in PowerPoint:
   does not. For decks meant to be thumbnail-reviewed on the same
   machine, prefer Unicode glyphs from the shipped DejaVu families
   (`•`, `→`, `★`, `‹›`, `■`, etc.) over emoji codepoints.
-* **Un-aligned text in fresh textboxes** renders centered instead of
-  left-aligned. A textbox created via `slide.shapes.add_textbox(...)`
-  has no `a:pPr/@algn` attribute; PowerPoint treats that as the
-  OOXML default (left), LibreOffice as centered. Set
-  `paragraph.alignment = PP_ALIGN.LEFT` explicitly to make
-  thumbnails match how PowerPoint will render the slide.
 * **`wrap="none" + spAutoFit` (the textbox default) re-centers under
   LibreOffice.** A fresh textbox has `<a:bodyPr wrap="none">
   <a:spAutoFit/></a:bodyPr>`. PowerPoint shrinks the box around the
   declared anchor; LibreOffice re-centers the shrunken box inside
   its original width, so a kicker line declared at
   `left=Inches(1.1), width=Inches(11)` renders near the middle of
-  the slide rather than the left edge. Setting `tf.word_wrap = True`
-  suppresses `spAutoFit` and keeps the declared geometry intact —
-  fold it into every textbox in a recipe-style helper.
+  the slide rather than the left edge — even with
+  `paragraph.alignment = PP_ALIGN.LEFT`. Setting `tf.word_wrap = True`
+  keeps the declared geometry intact (as does `slide.shapes.add_text`,
+  which wraps by default) — fold it into every textbox in a
+  recipe-style helper. A wrapping textbox with no alignment set renders
+  left-aligned in both applications.
 
 ## Errors
 
@@ -129,6 +157,10 @@ except ThumbnailRendererError as e:
     # soffice ran but produced no PNG / exited non-zero / timed out
     print(e)
 ```
+
+`timeout=` (seconds, default 120) applies to the LibreOffice conversion and
+to the PDF split separately. A step that overruns is stopped, together with
+the worker processes LibreOffice started, before the error is raised.
 
 ## Patterns
 

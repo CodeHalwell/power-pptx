@@ -48,9 +48,7 @@ class CT_Chart(BaseOxmlElement):
         True if this chart has a legend defined, False otherwise.
         """
         legend = self.legend
-        if legend is None:
-            return False
-        return True
+        return legend is not None
 
     @has_legend.setter
     def has_legend(self, bool_value):
@@ -331,7 +329,7 @@ class CT_PlotArea(BaseOxmlElement):
         matches = self.xpath('c:valAx[c:axPos/@val="r"]')
         return matches[0] if matches else None
 
-    def add_secondary_value_axis(self, target_xChart=None):
+    def add_secondary_value_axis(self, target_xChart=None, repoint=True):
         """Create a secondary value axis and return its ``c:valAx`` element.
 
         Allocates two fresh signed-int32 axId values, builds a secondary value
@@ -339,6 +337,8 @@ class CT_PlotArea(BaseOxmlElement):
         crosses, and re-points *target_xChart*'s two ``c:axId`` children to the
         new ids so that plot is rendered against the secondary axes. When
         *target_xChart* is ``None`` the front-most plot is used (back-compat).
+        Pass ``repoint=False`` to add the axes without moving any plot onto
+        them.
 
         Returns the existing secondary ``c:valAx`` if one is already present,
         making this method idempotent.
@@ -449,7 +449,8 @@ class CT_PlotArea(BaseOxmlElement):
         anchor.addnext(valAx)
 
         # -- re-point the target plot (front-most by default) onto the new ids.
-        self._repoint_front_plot_axes(val2_id, cross2_id, target_xChart)
+        if repoint:
+            self._repoint_front_plot_axes(val2_id, cross2_id, target_xChart)
         return valAx
 
     def _repoint_front_plot_axes(self, val2_id, cross2_id, xChart=None):

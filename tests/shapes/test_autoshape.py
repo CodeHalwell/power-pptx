@@ -105,7 +105,7 @@ class DescribeAdjustmentCollection(object):
     def it_should_load_adj_val_actuals_from_xml(self, load_adj_actuals_fixture_):
         prstGeom, expected_actuals, prstGeom_xml = load_adj_actuals_fixture_
         adjustments = AdjustmentCollection(prstGeom)._adjustments
-        actual_actuals = dict([(a.name, a.actual) for a in adjustments])
+        actual_actuals = {a.name: a.actual for a in adjustments}
         assert actual_actuals == expected_actuals
 
     def it_provides_normalized_effective_value_on_indexed_access(self, indexed_access_fixture_):
@@ -483,7 +483,9 @@ class DescribeShape(object):
 
     @pytest.fixture
     def TextFrame_(self, request, text_frame_):
-        return class_mock(request, "power_pptx.shapes.autoshape.TextFrame", return_value=text_frame_)
+        return class_mock(
+            request, "power_pptx.shapes.autoshape.TextFrame", return_value=text_frame_
+        )
 
     @pytest.fixture
     def text_frame_(self, request):

@@ -82,7 +82,7 @@ const snippet5 = `# WRONG - lint, fix, lint again; three passes and two throwawa
 
 # RIGHT - one call, returns the list of fixes it applied
 slide.tidy()
-# ["Clamped 'Rectangle 2' on-slide: position (10972800,914400) -> (7315200,914400)."]
+# ["Clamped 'Rectangle 2' on-slide: position (10972800,914400) → (7315200,914400)."]
 
 slide.tidy(fix_grid_drift=True)     # opt into grid snapping
 slide.lint(disable=["MinFontSize"]) # or silence a rule you do not want`;
@@ -163,6 +163,18 @@ const snippet11 = `# WRONG - leaves orphan animation timing entries pointing at 
 for shape in [s for s in slide.shapes if s.name.startswith("Accent")]:
     shape.delete()`;
 
+const snippet17 = `# WRONG - the slide, its notes and its charts stay in the package
+# xml_slides = prs.slides._sldIdLst
+# prs.part.drop_rel(xml_slides[2].rId)
+# xml_slides.remove(xml_slides[2])
+
+# RIGHT
+prs.slides.remove(prs.slides[2])
+
+for slide in list(prs.slides):     # iterate over a copy while removing
+    if not slide.shapes:
+        prs.slides.remove(slide)`;
+
 const snippet12 = `chart = slide.shapes.add_chart(
     XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(4), Inches(4), Inches(2), data
 ).chart
@@ -181,14 +193,24 @@ slide.shapes.title            # None - recipes use the Blank layout
 [s.name for s in slide.shapes]  # ['TextBox 1', 'TextBox 2'] - address by index`;
 
 const snippet14 = `from power_pptx.design.tokens import DesignTokens
+from power_pptx.util import Emu, Pt
 
-# WRONG - a bare int is EMU, so this is a 0.003pt heading
-# DesignTokens.from_dict({"typography": {"heading": {"size": 44}}})
-
-# RIGHT - bare floats are points; Pt() is unambiguous
+# A bare number is points - 44 and 44.0 are the same 44pt heading
 DesignTokens.from_dict({"typography": {"heading": {"family": "Inter",
-                                                   "size": 44.0,
-                                                   "bold": True}}})`;
+                                                   "size": 44,
+                                                   "bold": True}}})
+
+# WRONG - EMU written as a small bare integer: below 12700 it is now
+# points, so this half-point hairline radius becomes 6350pt
+# DesignTokens.from_dict({"radii": {"hairline": 6350}})
+
+# RIGHT - a Length is kept exactly, whatever its size
+DesignTokens.from_dict({"radii": {"hairline": Emu(6350)}})
+DesignTokens.from_dict({"radii": {"hairline": Pt(0.5)}})   # the same radius
+
+# WRONG - a misspelt key raises instead of being dropped
+# DesignTokens.from_dict({"typography": {"heading": {"family": "Inter", "sise": 44}}})
+# ValueError: typography.heading: unknown typography key(s) 'sise' (did you mean 'size'?) ...`;
 
 const snippet15 = `# WRONG - a bare line, no arrowhead, no routing
 # slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x1, y1, x2, y2)
@@ -273,12 +295,12 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   </p>
   <Code code={snippet4} />
   <p>
-    <code>slide.lint()</code> is unaffected — its overflow check uses a font-agnostic
-    character-width heuristic — which is exactly why the lint pass stays worth running even when
-    the metrics were approximate. That heuristic already narrows itself for short single-line
-    strings (20 characters or fewer), but a pill or badge under half an inch tall is still its
-    hardest case: set <code>auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE</code> on those frames right
-    after writing the text and the question does not arise.
+    <code>slide.lint()</code> measures overflow with the same metrics, so it shares the
+    limitation: an overflow it measured with fallback metrics says so in its message and carries
+    <code>estimated == True</code>. Fix the font, not the check — name a family the build machine
+    has, or register the brand font's folder with
+    <code>power_pptx.text.register_font_dir()</code>, and a tight pill or badge is judged by the
+    face it will be drawn in.
   </p>
 
   <h2 id="tidy">Lint, auto-fix, lint again</h2>
@@ -291,10 +313,13 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   <Code code={snippet5} />
   <p>
     Auto-fix handles what needs no designer judgment: <code>OffSlide</code> (clamped back
-    on-slide), <code>TextOverflow</code> (flipped to
-    <code>auto_size = TEXT_TO_FIT_SHAPE</code>), <code>OffGridDrift</code> (snapped, opt-in) and
-    <code>LayerOrderViolation</code> (restacked). <code>ShapeCollision</code>,
-    <code>LowContrast</code> and <code>MinFontSize</code> are deliberately left for you.
+    on-slide), <code>TextOverflow</code> (made to fit the way the frame's auto-size setting asks
+    — a stored shrink scale, a resized box, reduced font sizes or a taller table row, never an
+    empty autofit flag that only hides the problem), <code>LayerOrderViolation</code> (restacked)
+    and, only with <code>fix_grid_drift=True</code>, <code>OffGridDrift</code> (snapped).
+    <code>ShapeCollision</code>, <code>LowContrast</code> and <code>MinFontSize</code> are
+    deliberately left for you. Calling <code>fit_text</code> before save is still the better fix
+    for overflow: auto-fix never undoes a size <code>fit_text</code> chose.
   </p>
 
   <h2 id="intentional-overlap">Deliberate layering reported as <code>ShapeCollision</code></h2>
@@ -368,6 +393,17 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   </p>
   <Code code={snippet11} />
 
+  <h2 id="deleting-slides">Deleting a slide through <code>_sldIdLst</code></h2>
+  <p>
+    The long-circulated python-pptx recipe — drop the slide's <code>p:sldId</code> entry and its
+    relationship by hand — leaves the slide's id in its section, and wherever another slide links
+    to it, the slide itself in the package as an orphan reached only through that link.
+    <code>prs.slides.remove(slide)</code> does the whole job: section, custom shows, links from
+    other slides (the text stays, the link goes) and the notes, charts and media only that slide
+    used.
+  </p>
+  <Code code={snippet17} />
+
   <h2 id="chart-shape">Reaching for a chart's parent shape through <code>element</code></h2>
   <p>
     <code>chart.element.getparent().getparent()</code> bottoms out earlier than you expect.
@@ -379,7 +415,9 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   <h2 id="recipes-blank">Expecting <code>shapes.title</code> on a recipe slide</h2>
   <p>
     Recipes (<code>title_slide</code>, <code>kpi_slide</code>, …) build on the Blank layout so the
-    recipe owns every geometry and styling decision end to end. There is no title placeholder to
+    recipe owns every geometry and styling decision end to end — on a template with no layout
+    named "Blank", the layout with the fewest placeholders, emptied of them. There is no title
+    placeholder to
     read back — <code>slide.shapes.title</code> is <code>None</code> — so a footer or page number
     added on top of a recipe slide has to address shapes by index. Note the accessibility
     consequence: a deck of recipe slides has no title landmarks, which
@@ -387,11 +425,18 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   </p>
   <Code code={snippet13} />
 
-  <h2 id="token-units">Bare integers in <code>DesignTokens</code> typography</h2>
+  <h2 id="token-units">Units and keys in <code>DesignTokens</code></h2>
   <p>
-    Token sizes, shadow blur and distance are interpreted as <strong>EMU</strong> when written as a
-    bare <code>int</code> and as <strong>points</strong> when written as a bare <code>float</code>.
-    <code>44</code> is therefore a 0.003pt heading; <code>44.0</code> is what you meant.
+    Every length in a token — typography <code>size</code>, <code>radii</code>,
+    <code>spacings</code>, shadow <code>blur_radius</code> (or its alias <code>blur</code>) and
+    <code>distance</code> — is a <code>Length</code>, kept exactly, or a bare number, read as
+    <strong>points</strong>: <code>44</code> and <code>44.0</code> are the same heading, so a brand
+    file that went through JSON or YAML behaves like the Python dict. For compatibility a bare
+    integer of 12700 or more (one point in EMU) is still read as EMU, as every integer once was —
+    which also means a small EMU value written as a bare integer now changes meaning. Pass a
+    <code>Length</code> when in doubt. Keys are checked: an unknown typography or shadow key, or a
+    near-miss of a section name such as <code>"palete"</code>, raises <code>ValueError</code>
+    with a did-you-mean hint rather than being silently dropped.
   </p>
   <Code code={snippet14} />
 
@@ -427,8 +472,10 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
   <ul>
     <li>
       <code>render_thumbnails()</code> / <code>render_slides()</code> need <code>soffice</code>
-      (LibreOffice) on <code>PATH</code>, plus <code>pdftoppm</code> or <code>pypdfium2</code> —
-      otherwise <code>ThumbnailRendererUnavailable</code>.
+      (or <code>libreoffice</code>) on <code>PATH</code> — otherwise
+      <code>ThumbnailRendererUnavailable</code> — plus <code>pdftoppm</code> or
+      <code>pypdfium2</code> to split the PDF into slides; without one of those a deck of more than
+      one slide raises <code>ThumbnailRendererError</code>.
     </li>
     <li>
       <code>add_svg_picture()</code> needs <code>cairosvg</code>, or a pre-rasterised
@@ -449,6 +496,7 @@ prs.set_transition(MSO_TRANSITION_TYPE.FADE, force=True)  # now it is FADE`;
     <li>Bundle the <code>.ttf</code> or pass <code>strict=True</code> if <code>fit_text</code> has to be exact.</li>
     <li><code>slide.tidy()</code>, then declare intentional overlaps instead of silencing the rule.</li>
     <li><code>shape.shadow.clear()</code>, <code>shape.corner_radius</code>, <code>shape.delete()</code>, <code>chart.shape</code>.</li>
-    <li>Bare floats (not ints) for point-valued design tokens.</li>
+    <li>Bare numbers in design tokens are points; pass a <code>Length</code> for anything else.</li>
+    <li><code>prs.slides.remove(slide)</code>, never surgery on <code>_sldIdLst</code>.</li>
   </ul>
 </DocsLayout>

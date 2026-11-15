@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Sequence, Union
 
 from power_pptx._color import coerce_color
@@ -22,7 +23,12 @@ if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
     from power_pptx.oxml.shapes.shared import CT_LineProperties
-    from power_pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCellProperties, CT_TableCol, CT_TableRow
+    from power_pptx.oxml.table import (
+        CT_Table,
+        CT_TableCell,
+        CT_TableCol,
+        CT_TableRow,
+    )
     from power_pptx.parts.slide import BaseSlidePart
     from power_pptx.shapes.graphfrm import GraphicFrame
     from power_pptx.types import ProvidesPart
@@ -38,6 +44,9 @@ else:
     # at runtime here).
     _ColorLike = Any
 
+
+#: A table style id, as the schema's ``ST_Guid`` allows it (hex digits upper-cased).
+_GUID = re.compile(r"\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}")
 
 #: What `Table.format_cells` accepts for its `rows` / `cols` arguments.
 _CellSelector = Union[None, int, slice, Iterable[int]]
@@ -71,15 +80,12 @@ def _resolve_selector(selector: _CellSelector, count: int, name: str) -> list[in
     return out
 
 
-def _apply_cell_margins(
-    cell: "_Cell", margin: "float | Length | Sequence[float | Length]"
-) -> None:
+def _apply_cell_margins(cell: "_Cell", margin: "float | Length | Sequence[float | Length]") -> None:
     """Set a cell's four insets from a scalar or ``(top, right, bottom, left)``."""
     if isinstance(margin, (tuple, list)):
         if len(margin) != 4:
             raise ValueError(
-                "margin tuple must have 4 elements (top, right, bottom, left); "
-                f"got {len(margin)}"
+                f"margin tuple must have 4 elements (top, right, bottom, left); got {len(margin)}"
             )
         top, right, bottom, left = (coerce_length(v) for v in margin)
     else:
@@ -243,77 +249,49 @@ class Table(object):
     def fit_to_box(
         self,
         *,
-        font_family: str = "Calibri",
+        font_family: str | None = None,
         max_font_pt: int = 18,
         min_font_pt: int = 8,
         bold: bool = False,
         italic: bool = False,
         font_file: str | None = None,
+        strict: bool = False,
     ) -> int:
         """Shrink cell text font size until every cell fits within its bounds.
 
         Walks every populated cell, computes the per-cell best-fit font
-        size against the cell's *own* width and row height (margins
-        respected), and applies the **smallest** of those sizes uniformly
-        to every cell — so the table reads as a single coherent grid
-        rather than each cell at its own size.
+        size against the cell's *own* width and row height (inside the
+        cell's margins; a merged cell spans the widths and heights of its
+        columns and rows), and applies the **smallest** of those sizes
+        uniformly to every cell — so the table reads as a single coherent
+        grid rather than each cell at its own size.  Each cell is measured
+        the way :meth:`TextFrame.fit_text` measures, formatting included.
 
         Returns the chosen size in points (clamped to ``min_font_pt``).
 
         Useful for runtime-driven tables where row counts and string
         lengths aren't known up front.
 
-        Parameters mirror :meth:`TextFrame.fit_text`.
+        Parameters mirror :meth:`TextFrame.fit_text`, including how a
+        missing font is reported: with `font_family` left as |None| the
+        text is measured as Calibri without a warning; a named family that
+        isn't installed emits a
+        :class:`~power_pptx.exc.FontMetricsWarning`, and ``strict=True``
+        raises |ValueError| instead of measuring with fallback metrics.
         """
-        from power_pptx.text.fonts import find_font_file
-        from power_pptx.text.layout import TextFitter
-        from power_pptx.util import Emu, Pt
+        from power_pptx.util import Pt
 
         if min_font_pt <= 0 or max_font_pt < min_font_pt:
-            raise ValueError(
-                "min_font_pt must be > 0 and max_font_pt must be >= min_font_pt"
-            )
+            raise ValueError("min_font_pt must be > 0 and max_font_pt must be >= min_font_pt")
 
         if font_file is None:
-            font_file = find_font_file(font_family, bold, italic)
+            font_file = _resolve_font_file(font_family, bold, italic, strict)
 
-        # Default cell margins per OOXML: 0.1" left/right, 0.05" top/bottom.
-        DEFAULT_MARG_LR = 91440
-        DEFAULT_MARG_TB = 45720
-
-        cols = list(self.columns)
-        rows = list(self.rows)
-
-        per_cell_sizes: list[int] = []
-        for r_idx, row in enumerate(rows):
-            for c_idx, col in enumerate(cols):
-                cell = self.cell(r_idx, c_idx)
-                if not cell.text.strip():
-                    continue
-                marL = cell.margin_left if cell.margin_left is not None else DEFAULT_MARG_LR
-                marR = cell.margin_right if cell.margin_right is not None else DEFAULT_MARG_LR
-                marT = cell.margin_top if cell.margin_top is not None else DEFAULT_MARG_TB
-                marB = cell.margin_bottom if cell.margin_bottom is not None else DEFAULT_MARG_TB
-                cx = max(1, int(col.width) - int(marL) - int(marR))
-                cy = max(1, int(row.height) - int(marT) - int(marB))
-                try:
-                    size = TextFitter.best_fit_font_size(
-                        cell.text, (Emu(cx), Emu(cy)), max_font_pt, font_file
-                    )
-                except Exception:
-                    # If measurement fails for a populated cell, treat it as
-                    # the worst case so the final uniform size remains safe
-                    # for every populated cell. Skipping the cell would let
-                    # ``target = min(...)`` stay artificially high and other
-                    # cells could end up still overflowing.
-                    per_cell_sizes.append(int(min_font_pt))
-                    continue
-                if size is None:
-                    # Text genuinely does not fit at any size in this cell;
-                    # treat as ``min_font_pt``.
-                    per_cell_sizes.append(int(min_font_pt))
-                else:
-                    per_cell_sizes.append(int(size))
+        per_cell_sizes = [
+            _cell_fit_size(cell, max_font_pt, min_font_pt, font_file)
+            for cell in self.iter_cells()
+            if not cell.is_spanned and cell.text.strip()
+        ]
 
         target = min(per_cell_sizes) if per_cell_sizes else max_font_pt
         target = max(target, min_font_pt)
@@ -386,8 +364,9 @@ class Table(object):
 
         Assigning accepts either a friendly name *or* a raw ``{GUID}``
         string.  An unknown friendly name raises :class:`ValueError` with a
-        "did you mean" hint.  Assigning |None| detaches the table from any
-        built-in style (equivalent to :meth:`clear_style`)::
+        "did you mean" hint, as does a ``{...}`` string that isn't a GUID
+        (lower-case hex digits are upper-cased).  Assigning |None| detaches
+        the table from any built-in style (equivalent to :meth:`clear_style`)::
 
             table.style = "Medium Style 2 - Accent 1"
             table.style = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
@@ -412,8 +391,15 @@ class Table(object):
         from power_pptx.table_styles import guid_for_name
 
         text = value.strip()
-        is_raw_guid = text.startswith("{") and text.endswith("}")
-        guid = text if is_raw_guid else guid_for_name(text)
+        if text.startswith("{"):
+            guid = text.upper()
+            if not _GUID.fullmatch(guid):
+                raise ValueError(
+                    f"table style id {value!r} is not a GUID like "
+                    "'{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}'"
+                )
+        else:
+            guid = guid_for_name(text)
 
         tblPr = self._tbl.get_or_add_tblPr()
         tblPr.tableStyleId_val = guid
@@ -681,7 +667,7 @@ class _Cell(Subshape):
         `.is_merge_origin` before calling.
         """
         if not self.is_merge_origin:
-            raise ValueError("not a merge-origin cell; only a merge-origin cell can be sp" "lit")
+            raise ValueError("not a merge-origin cell; only a merge-origin cell can be split")
 
         tc_range = TcRange.from_merge_origin(self._tc)
 
@@ -717,7 +703,8 @@ class _Cell(Subshape):
 
     @property
     def width(self) -> Length:
-        """Width of this cell in EMU (the parent column's width).
+        """Width of this cell in EMU: its column's width, or for a merge-origin cell
+        the widths of all the columns it spans.
 
         Exposed so that :meth:`TextFrame.fit_text` can measure against the
         cell's bounds rather than the whole table when called on
@@ -727,21 +714,20 @@ class _Cell(Subshape):
         if tr is None:
             return Emu(0)
         try:
-            col_idx = list(tr).index(self._tc)
+            col_idx = tr.tc_lst.index(self._tc)
         except ValueError:
             return Emu(0)
         tbl = tr.getparent()
         if tbl is None:
             return Emu(0)
-        try:
-            gridCol = tbl.tblGrid.gridCol_lst[col_idx]
-        except IndexError:
-            return Emu(0)
-        return Emu(int(gridCol.w))
+        span = self._tc.gridSpan if self._tc.is_merge_origin else 1
+        gridCols = tbl.tblGrid.gridCol_lst[col_idx : col_idx + max(span, 1)]
+        return Emu(sum(int(gridCol.w) for gridCol in gridCols))
 
     @property
     def height(self) -> Length:
-        """Height of this cell in EMU (the parent row's height).
+        """Height of this cell in EMU: its row's height, or for a merge-origin cell
+        the heights of all the rows it spans.
 
         Exposed so that :meth:`TextFrame.fit_text` can measure against the
         cell's bounds rather than the whole table when called on
@@ -750,7 +736,12 @@ class _Cell(Subshape):
         tr = self._tc.getparent()
         if tr is None:
             return Emu(0)
-        return Emu(int(tr.h or 0))
+        tbl = tr.getparent()
+        if tbl is None or not self._tc.is_merge_origin or self._tc.rowSpan <= 1:
+            return Emu(int(tr.h or 0))
+        trs = tbl.tr_lst
+        row_idx = trs.index(tr)
+        return Emu(sum(int(row.h or 0) for row in trs[row_idx : row_idx + self._tc.rowSpan]))
 
     # Friendly short-string ↔ ST_TextVerticalType (`a:tcPr@vert`) mapping.
     # The XSD default is ``horz`` (attribute may also be absent), so reading a
@@ -1076,8 +1067,14 @@ class _Borders(object):
         (`"1F4E79"`), an `(r, g, b)` 3-tuple, or an |RGBColor|. Either argument
         may be |None| to leave that aspect alone.
         """
-        for edge in (self.left, self.right, self.top, self.bottom,
-                     self.diagonal_down, self.diagonal_up):
+        for edge in (
+            self.left,
+            self.right,
+            self.top,
+            self.bottom,
+            self.diagonal_down,
+            self.diagonal_up,
+        ):
             self._apply(edge, width, color)
 
     def outer(self, width: Length | None = None, color: _ColorLike | None = None) -> None:
@@ -1179,3 +1176,63 @@ class _LineGroup(object):
             tcPr._remove_lnB()
             tcPr._remove_lnTlToBr()
             tcPr._remove_lnBlToTr()
+
+
+def _cell_fit_size(cell: _Cell, max_font_pt: int, min_font_pt: int, font_file: str | None) -> int:
+    """The best-fit size of `cell`'s text for `Table.fit_to_box`.
+
+    `min_font_pt` when the text does not fit at any size or cannot be measured.
+    """
+    try:
+        size = cell.text_frame._fit_size(  # pyright: ignore[reportPrivateUsage]
+            max_font_pt, font_file
+        )
+    except Exception:
+        # If measurement fails for a populated cell, treat it as
+        # the worst case so the final uniform size remains safe
+        # for every populated cell. Skipping the cell would let
+        # ``target = min(...)`` stay artificially high and other
+        # cells could end up still overflowing.
+        return int(min_font_pt)
+    if size is None:
+        # Text genuinely does not fit at any size in this cell;
+        # treat as ``min_font_pt``.
+        return int(min_font_pt)
+    return int(size)
+
+
+def _resolve_font_file(
+    font_family: str | None, bold: bool, italic: bool, strict: bool
+) -> str | None:
+    """The font file measuring `font_family`, reporting a fallback as `fit_text` does.
+
+    |None| means Pillow's default metrics. A named family that isn't installed warns
+    with :class:`~power_pptx.exc.FontMetricsWarning`; `strict` raises instead.
+    """
+    import warnings
+
+    from power_pptx.exc import FontMetricsWarning
+    from power_pptx.text.fonts import find_font_file
+
+    family = "Calibri" if font_family is None else font_family
+    font_file = find_font_file(family, bold, italic)
+    if font_file is not None:
+        return font_file
+    style = "".join((" bold" if bold else "", " italic" if italic else ""))
+    detail = (
+        f"{family!r}{style} is not installed, so fit_to_box measured with Pillow's default "
+        "font instead of real metrics — the chosen size is an estimate and the text may "
+        "still overflow when rendered with the intended face"
+    )
+    if strict:
+        raise ValueError(
+            f"fit_to_box(strict=True): {detail}. Pass font_file= with a TrueType file for "
+            "this family, or choose an installed family."
+        )
+    if font_family is not None:
+        warnings.warn(
+            f"{detail}. Pass font_file=, or use strict=True to make this an error.",
+            FontMetricsWarning,
+            stacklevel=3,
+        )
+    return None

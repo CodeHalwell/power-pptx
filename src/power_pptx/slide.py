@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Iterator, Sequence, cast
 
 from power_pptx.dml.fill import FillFormat
@@ -13,6 +13,7 @@ from power_pptx.enum.presentation import (
 )
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.oxml.ns import qn
+from power_pptx.oxml.slide import remove_transition_wrappers
 from power_pptx.shapes.shapetree import (
     LayoutPlaceholders,
     LayoutShapes,
@@ -29,7 +30,12 @@ from power_pptx.util import lazyproperty
 if TYPE_CHECKING:
     from power_pptx.animation import SlideAnimations
     from power_pptx.lint import SlideLintReport
-    from power_pptx.oxml.presentation import CT_SlideIdList, CT_SlideMasterIdList
+    from power_pptx.oxml.presentation import (
+        CT_Presentation,
+        CT_SlideId,
+        CT_SlideIdList,
+        CT_SlideMasterIdList,
+    )
     from power_pptx.oxml.slide import (
         CT_CommonSlideData,
         CT_NotesSlide,
@@ -44,6 +50,25 @@ if TYPE_CHECKING:
     from power_pptx.shapes.shapetree import NotesSlidePlaceholder
     from power_pptx.smart_art import SmartArtCollection
     from power_pptx.text.text import TextFrame
+
+
+_P14_CREATION_ID = qn("p14:creationId")
+
+
+def _renew_creation_id(copy: Slide, source_id: int) -> None:
+    """Give a duplicated slide its own ``p14:creationId``, as PowerPoint does.
+
+    PowerPoint 2010+ records this id on a slide to recognise it when slides
+    are reused or merged, so two slides should not share one. Decks this
+    library creates have none; a slide copied from a PowerPoint-authored deck
+    carries the original's. Under ``SOURCE_DATE_EPOCH`` the new id is derived
+    from the two slides' ids, so builds stay reproducible.
+    """
+    from power_pptx._reproducible import new_uuid
+
+    for creation_id in copy._element.iter(_P14_CREATION_ID):
+        renewed = new_uuid("creationId", source_id, copy.slide_id).int % 2**32
+        creation_id.set("val", str(renewed))
 
 
 class _BaseSlide(PartElementProxy):
@@ -193,7 +218,9 @@ class SlideTransition(object):
 
     Setting any property creates the ``<p:transition>`` element on demand;
     use :meth:`clear` to remove the element entirely (restoring the default
-    "no explicit transition" state).
+    "no explicit transition" state). Clearing the last remaining timing
+    setting (assigning |None| to it) removes the element too, so no empty
+    ``<p:transition/>`` is left behind.
     """
 
     def __init__(self, sld_elm):
@@ -201,7 +228,14 @@ class SlideTransition(object):
 
     @property
     def kind(self) -> MSO_TRANSITION_TYPE | None:
-        """Transition kind as :ref:`MsoTransitionType`, or |None| if not set."""
+        """Transition kind as :ref:`MsoTransitionType`, or |None| if not set.
+
+        Also |None| for a transition of a kind :ref:`MsoTransitionType` has no
+        member for, which PowerPoint may have written. Such a transition is
+        left alone: it is saved back exactly as it was read, and
+        :meth:`Presentation.set_transition` treats it like any other per-slide
+        choice.
+        """
         transition = self._sld.transition
         if transition is None:
             return None
@@ -209,11 +243,24 @@ class SlideTransition(object):
         if kind_elm is None:
             # explicit `<p:transition/>` with no child means "cut" / no animation
             return MSO_TRANSITION_TYPE.NONE
-        local = kind_elm.tag.rsplit("}", 1)[-1]
-        try:
-            return MSO_TRANSITION_TYPE.from_xml(local)
-        except ValueError:
-            return None
+        return _kind_of(kind_elm)
+
+    @property
+    def _states_a_kind(self) -> bool:
+        """True when this slide already says which transition it wants.
+
+        That is when its transition has a kind element (of whatever kind,
+        known to this library or not), or when it is a bare ``<p:transition/>``,
+        which is how "no transition" is asked for
+        (``kind = MSO_TRANSITION_TYPE.NONE``). A kind-less transition that only
+        carries timing attributes says nothing about the kind.
+        """
+        transition = self._sld.transition
+        if transition is None:
+            return False
+        if transition.kind_element is not None:
+            return True
+        return not transition.attrib
 
     @kind.setter
     def kind(self, value: MSO_TRANSITION_TYPE | None) -> None:
@@ -221,9 +268,7 @@ class SlideTransition(object):
             self.clear()
             return
         if not isinstance(value, MSO_TRANSITION_TYPE):
-            raise TypeError(
-                "kind must be a MSO_TRANSITION_TYPE member or None, got %r" % (value,)
-            )
+            raise TypeError("kind must be a MSO_TRANSITION_TYPE member or None, got %r" % (value,))
         transition = self._sld.get_or_add_transition()
         # remove any pre-existing kind child
         existing = transition.kind_element
@@ -232,12 +277,7 @@ class SlideTransition(object):
         if value is MSO_TRANSITION_TYPE.NONE:
             return
         local = value.xml_value
-        if local in P159_TRANSITION_NAMES:
-            prefix = "p159"
-        elif local in P14_TRANSITION_NAMES:
-            prefix = "p14"
-        else:
-            prefix = "p"
+        prefix = _kind_prefix(local)
         kind_elm = etree.Element(
             qn("%s:%s" % (prefix, local)),
             nsmap={prefix: _PREFIX_TO_URI[prefix]},
@@ -275,10 +315,13 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = qn("p14:dur") in transition.attrib or transition.spd is not None
             transition.attrib.pop(qn("p14:dur"), None)
             # also drop the legacy `spd` bucket; otherwise the getter falls
             # back to it and reads as still-explicitly-set
             transition.spd = None
+            if was_set:
+                self._remove_if_empty()
             return
         if ms < 0:
             raise ValueError("duration must be a non-negative integer (milliseconds)")
@@ -301,7 +344,10 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = transition.advClick is not None
             transition.advClick = None
+            if was_set:
+                self._remove_if_empty()
             return
         transition = self._sld.get_or_add_transition()
         transition.advClick = bool(value)
@@ -320,7 +366,10 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = transition.advTm is not None
             transition.advTm = None
+            if was_set:
+                self._remove_if_empty()
             return
         if ms < 0:
             raise ValueError("advance_after must be a non-negative integer (milliseconds)")
@@ -334,6 +383,19 @@ class SlideTransition(object):
         |None| again. Idempotent: safe to call when no transition is set.
         """
         self._sld._remove_transition()
+        # -- the wrapper the transition was loaded in goes with it --
+        remove_transition_wrappers(self._sld)
+
+    def _remove_if_empty(self) -> None:
+        """Remove the transition element once it holds no setting at all.
+
+        An element left behind by clearing its last timing attribute would read
+        back as ``MSO_TRANSITION_TYPE.NONE``: an explicit "no transition" the
+        caller never asked for.
+        """
+        transition = self._sld.transition
+        if transition is not None and not transition.attrib and len(transition) == 0:
+            self.clear()
 
 
 _SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}
@@ -344,6 +406,38 @@ _PREFIX_TO_URI = {
     "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
     "p159": "http://schemas.microsoft.com/office/powerpoint/2015/09/main",
 }
+
+
+def _kind_prefix(local: str) -> str:
+    """Namespace prefix of the transition-kind element named *local*."""
+    if local in P159_TRANSITION_NAMES:
+        return "p159"
+    if local in P14_TRANSITION_NAMES:
+        return "p14"
+    return "p"
+
+
+def _kind_of(kind_elm) -> MSO_TRANSITION_TYPE | None:
+    """The :ref:`MsoTransitionType` member *kind_elm* stands for, or |None| if none does.
+
+    The namespace counts as much as the name: a kind is only recognised in the
+    namespace it is defined in, so an extension element that merely shares its
+    local name with a member is not mistaken for it.
+    """
+    tag = kind_elm.tag
+    if not isinstance(tag, str) or not tag.startswith("{"):
+        return None
+    uri, local = tag[1:].split("}", 1)
+    try:
+        member = MSO_TRANSITION_TYPE.from_xml(local)
+    except ValueError:
+        return None
+    if uri == _PREFIX_TO_URI[_kind_prefix(local)]:
+        return member
+    # -- earlier releases wrote morph in the p14 namespace; it is retagged on save --
+    if member is MSO_TRANSITION_TYPE.MORPH and uri == _PREFIX_TO_URI["p14"]:
+        return member
+    return None
 
 
 # -- imported here to avoid a circular import at module load time --
@@ -409,7 +503,7 @@ class Slide(_BaseSlide):
         unique-on-the-slide group name when one isn't supplied, so
         callers don't have to invent ``"kpi-card-1"`` / ``"kpi-card-2"``
         labels by hand.  Inspired by IMPROVEMENT_PLAN.md item 12 — the
-        single-line equivalent of:
+        single-line equivalent of::
 
             slide.lint_group(f"design-group-{n}", *shapes)
 
@@ -424,14 +518,9 @@ class Slide(_BaseSlide):
         already appear as a ``lint_group`` tag on this slide.
         """
         if not shapes:
-            raise ValueError(
-                "lint_group_overlaps requires at least one shape; got 0"
-            )
+            raise ValueError("lint_group_overlaps requires at least one shape; got 0")
         if name is None:
-            existing = {
-                getattr(s, "lint_group", None)
-                for s in self.shapes
-            } - {None, ""}
+            existing = {getattr(s, "lint_group", None) for s in self.shapes} - {None, ""}
             n = 1
             while f"design-group-{n}" in existing:
                 n += 1
@@ -462,14 +551,19 @@ class Slide(_BaseSlide):
             raise ValueError("design_group name must be a non-empty string")
 
         sp_tree = self._element.spTree
-        before = {id(elm) for elm in sp_tree.iter_shape_elms()}
+        # Hold the elements themselves, not their ``id()``: lxml hands out a
+        # fresh proxy object for a node nobody references, so the address of
+        # a discarded proxy is soon reused by an unrelated shape.  While this
+        # set keeps them alive each node keeps its one proxy, and membership
+        # is a true "was this shape here before?".
+        before = set(sp_tree.iter_shape_elms())
         try:
             yield
         finally:
             from power_pptx.lint import _read_lint_group, _write_lint_group
 
             for elm in sp_tree.iter_shape_elms():
-                if id(elm) in before:
+                if elm in before:
                     continue
                 try:
                     cNvPr = elm._nvXxPr.cNvPr
@@ -553,6 +647,38 @@ class Slide(_BaseSlide):
         return self.part.has_notes_slide
 
     @property
+    def hidden(self) -> bool:
+        """|True| if this slide is hidden, |False| otherwise. Read/write.
+
+        A hidden slide stays in the deck and can still be edited, but is
+        skipped when the presentation is run as a slide show (PowerPoint's
+        *Hide Slide*)::
+
+            slide.hidden = True      # skipped in the show
+            slide.hidden = False     # shown again
+
+        This is the ``show`` attribute of the slide's ``<p:sld>`` element,
+        which is absent on a slide that is shown. Hiding a slide writes
+        ``show="0"``; un-hiding it removes the attribute rather than writing
+        ``show="1"``, so hiding and un-hiding a slide leaves it as it was.
+
+        Raises |TypeError| if assigned anything other than |True| or |False|.
+        """
+        return self._element.get("show") in ("0", "false")
+
+    @hidden.setter
+    def hidden(self, value: bool) -> None:
+        # -- `slide.hidden = "no"` must not hide the slide, so nothing is coerced --
+        if value is not True and value is not False:
+            raise TypeError("hidden must be True or False, got %r" % (value,))
+        if value:
+            # -- leave a slide that is already hidden (`show="false"`, say) as it is --
+            if not self.hidden:
+                self._element.set("show", "0")
+        elif "show" in self._element.attrib:
+            del self._element.attrib["show"]
+
+    @property
     def notes_slide(self) -> NotesSlide:
         """The |NotesSlide| instance for this slide.
 
@@ -626,14 +752,58 @@ class Slide(_BaseSlide):
                 box = BBox.from_shape(shape)
             except Exception:
                 continue
-            if not include_decorative:
-                if (
-                    int(box.width) >= threshold_w
-                    and int(box.height) >= threshold_h
-                ):
-                    continue
+            if not include_decorative and (
+                int(box.width) >= threshold_w and int(box.height) >= threshold_h
+            ):
+                continue
             union_box = box if union_box is None else union_box.union(box)
         return union_box
+
+    def _shape_boxes(self):
+        """The :class:`BBox` of each shape on this slide whose geometry can be read."""
+        from power_pptx.geometry import BBox
+
+        boxes: list[BBox] = []
+        for shape in self.shapes:
+            with suppress(Exception):
+                boxes.append(BBox.from_shape(shape))
+        return boxes
+
+    @staticmethod
+    def _merge_row_runs(cells):
+        """Merge each run of horizontally adjacent `cells` in the same row into one box.
+
+        `cells` are in row-major order, as :meth:`BBox.grid` produces them.
+        """
+        merged = []
+        for c in cells:
+            if merged:
+                last = merged[-1]
+                if int(last.top) == int(c.top) and int(last.right) == int(c.left):
+                    merged[-1] = last.union(c)
+                    continue
+            merged.append(c)
+        return merged
+
+    @staticmethod
+    def _region_target(near):
+        """The box a `find_empty_region(near=...)` argument stands for."""
+        from power_pptx.geometry import BBox
+        from power_pptx.shapes.base import BaseShape
+
+        if isinstance(near, BaseShape):
+            return BBox.from_shape(near)
+        if isinstance(near, BBox):
+            return near
+        raise TypeError(
+            f"find_empty_region(near=...) must be a BaseShape or BBox; got {type(near).__name__}"
+        )
+
+    @staticmethod
+    def _nearest_to(boxes, target):
+        """The first of `boxes` whose centre is nearest the centre of `target`."""
+        tx, ty = int(target.cx), int(target.cy)
+        return min(boxes, key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2)
 
     def find_empty_region(
         self,
@@ -661,55 +831,23 @@ class Slide(_BaseSlide):
         slide_box = BBox.from_slide(self)
         # 12×8 sample grid is fine-grained enough for typical decks.
         cells = slide_box.grid(12, 8)
-        existing = []
-        for shape in self.shapes:
-            try:
-                existing.append(BBox.from_shape(shape))
-            except Exception:
-                pass
+        existing = self._shape_boxes()
 
         free = [c for c in cells if not any(c.intersects(s) for s in existing)]
         if not free:
             return None
 
         # Merge horizontally-adjacent free cells in the same row.
-        merged: list[BBox] = []
-        for c in free:
-            if merged:
-                last = merged[-1]
-                if (
-                    int(last.top) == int(c.top)
-                    and int(last.right) == int(c.left)
-                ):
-                    merged[-1] = last.union(c)
-                    continue
-            merged.append(c)
+        merged = self._merge_row_runs(free)
 
         candidates = [
-            m for m in merged
-            if int(m.width) >= int(min_width)
-            and int(m.height) >= int(min_height)
+            m for m in merged if int(m.width) >= int(min_width) and int(m.height) >= int(min_height)
         ]
         if not candidates:
             return None
 
         if near is not None:
-            from power_pptx.shapes.base import BaseShape
-
-            if isinstance(near, BaseShape):
-                target = BBox.from_shape(near)
-            elif isinstance(near, BBox):
-                target = near
-            else:
-                raise TypeError(
-                    "find_empty_region(near=...) must be a BaseShape or BBox; "
-                    f"got {type(near).__name__}"
-                )
-            tx, ty = int(target.cx), int(target.cy)
-            candidates.sort(
-                key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2
-            )
-            return candidates[0]
+            return self._nearest_to(candidates, self._region_target(near))
         candidates.sort(key=lambda b: -b.area)
         return candidates[0]
 
@@ -729,11 +867,15 @@ class Slide(_BaseSlide):
 
         * ``fix_offslide`` (default ``True``) clamps shapes back
           on-slide.
-        * ``fix_overflow`` (default ``True``) flips overflowing text
-          frames to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE``.
+        * ``fix_overflow`` (default ``True``) makes overflowing text fit:
+          it stores the font scale that fits on a frame that shrinks text
+          (or has no auto-size setting), resizes a frame that resizes to its
+          text, reduces the font sizes of a frame set to
+          ``MSO_AUTO_SIZE.NONE``, and grows a table row to its text.  See
+          :meth:`SlideLintReport.auto_fix`.
         * ``fix_grid_drift`` (default ``False``) snaps minor grid drift
-          — off by default because the snap can move a shape by several
-          EMU when the inferred grid is wrong.
+          — off by default because the snap can move a shape off an
+          alignment the author meant when the inferred grid is wrong.
         * ``fix_layer_order`` (default ``True``) restacks shapes whose
           ``layer_above`` declaration is contradicted by the drawing
           order.  On by default because it only enforces an ordering
@@ -749,7 +891,7 @@ class Slide(_BaseSlide):
         if not fix_layer_order:
             disable.append("LayerOrderViolation")
         report = self.lint(disable=disable)
-        return report.auto_fix()
+        return report.auto_fix(fix_grid_drift=fix_grid_drift)
 
     @property
     def smart_art(self) -> SmartArtCollection:
@@ -838,15 +980,21 @@ class Slide(_BaseSlide):
             return
         if value == "dark":
             self.set_clr_map_override(
-                bg1="dk1", tx1="lt1", bg2="dk2", tx2="lt2",
-                accent1="accent1", accent2="accent2", accent3="accent3",
-                accent4="accent4", accent5="accent5", accent6="accent6",
-                hlink="hlink", folHlink="folHlink",
+                bg1="dk1",
+                tx1="lt1",
+                bg2="dk2",
+                tx2="lt2",
+                accent1="accent1",
+                accent2="accent2",
+                accent3="accent3",
+                accent4="accent4",
+                accent5="accent5",
+                accent6="accent6",
+                hlink="hlink",
+                folHlink="folHlink",
             )
             return
-        raise ValueError(
-            f"color_variant must be 'light', 'dark', or None; got {value!r}"
-        )
+        raise ValueError(f"color_variant must be 'light', 'dark', or None; got {value!r}")
 
     def set_clr_map_override(self, *, masterClrMapping: bool = False, **mapping: str) -> None:
         """Set this slide's ``<p:clrMapOvr>`` element directly.
@@ -942,6 +1090,114 @@ class Slides(ParentedElementProxy):
             return
         sectionLst.section_lst[-1].add_sldId(slide_id)
 
+    def remove(self, slide: Slide) -> None:
+        """Remove `slide` from the presentation, along with everything only it uses.
+
+        ::
+
+            prs.slides.remove(prs.slides[2])
+
+        Besides taking the slide out of the slide list, this takes it out of
+        its section and of any custom show, and removes every link to it from
+        the rest of the deck: a shape that jumps to it on click
+        (``click_action.target_slide``) or on hover, and a text run whose
+        hyperlink jumps to it, on a slide, its notes, a layout or a master.
+        The shape or run keeps its text and formatting; it just stops being a
+        link. The slide's notes, charts, and the pictures and media no other
+        slide uses are not saved with the deck any more; a picture another
+        slide also shows stays.
+
+        The |Slide| object is detached and should not be used afterwards.
+
+        Raises |ValueError| when `slide` is not in this presentation (it
+        belongs to another deck, or was removed already), and |TypeError|
+        when it is not a |Slide|.
+        """
+        from power_pptx._slide_remover import remove_slide
+
+        self._entry_of(slide, "remove")
+        remove_slide(self.part, slide.part)
+        self._rename_slide_parts()
+
+    def duplicate(self, slide: Slide, index: int | None = None) -> Slide:
+        """Add a copy of `slide` to the presentation and return the copy.
+
+        ::
+
+            copy = prs.slides.duplicate(prs.slides[0])            # right after it
+            copy = prs.slides.duplicate(prs.slides[0], index=-1)  # last in the deck
+
+        The copy goes right after `slide`, unless `index` gives the position
+        it should have in the deck afterwards: ``prs.slides[index]`` is the
+        copy once the call returns, negative values counting from the end.
+
+        The copy is independent of the original: it has its own shapes and
+        text, its own notes, and its own copy of each chart and chart
+        workbook, so editing one slide leaves the other alone. Pictures and
+        media, which cannot be edited in place, are shared rather than stored
+        twice. Links to other slides still lead to the same slides, and a
+        link from `slide` to itself leads to the copy. In a deck with
+        sections the copy joins the section of the slide before it (the
+        original, by default), or of the slide after it when it goes first.
+
+        This is a same-deck :meth:`Presentation.import_slide()
+        <power_pptx.presentation.Presentation.import_slide>`, placed.
+
+        Raises |ValueError| when `slide` is not in this presentation,
+        |TypeError| when it is not a |Slide|, and |IndexError| when `index`
+        is out of range; the deck is unchanged in each case.
+        """
+        from power_pptx._slide_importer import (
+            _import_slide_part,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        entry = self._entry_of(slide, "duplicate")
+        sldId_lst = self._sldIdLst.sldId_lst
+        if index is None:
+            position = sldId_lst.index(entry) + 1
+        else:
+            position = self._normalized_index(index, len(sldId_lst) + 1)
+        old_ids = [sldId.id for sldId in sldId_lst]
+        copy = _import_slide_part(slide.part, self.part)
+        _renew_creation_id(copy, slide.slide_id)
+        self._place_last_slide(position, old_ids)
+        self._rename_slide_parts()
+        return copy
+
+    def _entry_of(self, slide: Slide, verb: str) -> CT_SlideId:
+        """The `p:sldId` entry listing `slide`, raising unless it is a slide of this deck."""
+        from power_pptx._slide_remover import slide_id_entries
+
+        if not isinstance(slide, Slide):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(
+                "Slides.%s() takes a Slide, got %s; for the slide at position i "
+                "pass prs.slides[i]" % (verb, type(slide).__name__)
+            )
+        return slide_id_entries(self.part, slide.part)[0]
+
+    def _place_last_slide(self, position: int, old_ids: list[int]) -> None:
+        """Move the slide just appended to `position`, and into the section it lands in.
+
+        `old_ids` is the slide order before it was appended. The slide is
+        placed in the section of the slide before it, or after it when it
+        goes first, whatever section appending it put it in.
+        """
+        sldId = self._sldIdLst.sldId_lst[-1]
+        sectionLst = cast("CT_Presentation", self._sldIdLst.getparent()).sectionLst
+        for section in [] if sectionLst is None else sectionLst.section_lst:
+            section.remove_sldId(sldId.id)
+        if position < len(old_ids):
+            self._sldIdLst.sldId_lst[position].addprevious(sldId)
+        self._follow_with_sections(old_ids, moved=frozenset((sldId.id,)))
+
+    def _rename_slide_parts(self) -> None:
+        """Name the slide parts `slide1.xml`, `slide2.xml`, ... in deck order again.
+
+        As reading :attr:`Presentation.slides` does, so a deck saved straight
+        after a removal or a duplication has no gaps or out-of-order names.
+        """
+        self.part.rename_slide_parts([sldId.rId for sldId in self._sldIdLst.sldId_lst])
+
     def get(self, slide_id: int, default: Slide | None = None) -> Slide | None:
         """Return the slide identified by int `slide_id` in this presentation.
 
@@ -972,12 +1228,20 @@ class Slides(ParentedElementProxy):
 
             prs.slides.move(0, 2)   # send the first slide to position 2
 
+        In a deck with sections the slide changes section the way it does
+        when dragged in PowerPoint's slide sorter: it stays in its own section
+        if it lands next to another slide of that section, and otherwise joins
+        the section of the slide now before it (or after it, when it becomes
+        the first slide). Every other slide keeps its section, and the section
+        list stays a set of contiguous runs.
+
         Raises |IndexError| if either index is out of range.
         """
         count = len(self._sldIdLst)
         old_index = self._normalized_index(old_index, count)
         new_index = self._normalized_index(new_index, count)
         sldId_lst = self._sldIdLst.sldId_lst
+        old_ids = [s.id for s in sldId_lst]
         sldId = sldId_lst[old_index]
         self._sldIdLst.remove(sldId)
         # -- recompute the insertion reference against the post-removal order --
@@ -986,6 +1250,17 @@ class Slides(ParentedElementProxy):
             self._sldIdLst.append(sldId)
         else:
             remaining[new_index].addprevious(sldId)
+        self._follow_with_sections(old_ids, moved=frozenset((sldId.id,)))
+
+    def _follow_with_sections(self, old_ids: list[int], moved: frozenset[int] | None) -> None:
+        """Bring the deck's sections, if it has any, into line with the new slide order."""
+        from power_pptx.section import _follow_slide_order
+
+        prs_elm = self._sldIdLst.getparent()
+        if prs_elm is None:
+            return
+        new_ids = [s.id for s in self._sldIdLst.sldId_lst]
+        _follow_slide_order(prs_elm, old_ids, new_ids, moved)
 
     def reorder(self, new_order: "Sequence[int | Slide]") -> None:
         """Rearrange the slides into the permutation given by `new_order`.
@@ -997,6 +1272,14 @@ class Slides(ParentedElementProxy):
 
             prs.slides.reorder([2, 0, 1])           # by index
             prs.slides.reorder([s2, s0, s1])        # by Slide object
+
+        In a deck with sections, the section list follows the new order. When
+        every section's slides are still contiguous (the deck is reversed, or
+        whole sections are shuffled) each slide keeps its section and the
+        sections are reordered with their slides. Otherwise the slides still
+        in their old relative order keep their sections, and each of the
+        others is placed as :meth:`move` would place it, so a reorder that
+        moves one slide has the same effect on sections as that move.
 
         Raises |ValueError| if `new_order` is not a permutation of exactly the
         slides in this collection (wrong length, duplicates, or unknown items).
@@ -1019,11 +1302,13 @@ class Slides(ParentedElementProxy):
         if sorted(indices) != list(range(count)):
             raise ValueError("new_order must be a permutation of the slides in this collection")
 
+        old_ids = [s.id for s in sldId_lst]
         ordered_sldIds = [sldId_lst[i] for i in indices]
         for sldId in ordered_sldIds:
             self._sldIdLst.remove(sldId)
         for sldId in ordered_sldIds:
             self._sldIdLst.append(sldId)
+        self._follow_with_sections(old_ids, moved=None)
 
     @staticmethod
     def _normalized_index(idx: int, count: int) -> int:

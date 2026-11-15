@@ -45,3 +45,16 @@ canonical ``lt1`` / ``lt2`` / ``dk1`` / ``dk2`` target)::
 
     # Bulk-copy the palette and font pair from another deck's theme.
     prs.theme.apply(other_prs.theme)
+
+``apply(..., rebind_shape_colors=True, presentation=prs)`` also points every
+shape colour that matched a slot of the old palette at that theme slot, so a
+re-skinned deck keeps no stray literal colours.
+
+Dark variant
+------------
+
+``prs.theme.to_dark_mode()`` swaps the dark and light background/text slots
+(``dk1``/``lt1`` and ``dk2``/``lt2``) and then moves any accent whose contrast
+against the background (``lt1``) is below 4.5:1 (``min_contrast=``) away from
+it, lighter on a dark background, keeping its hue and saturation.  A pair already the dark way round is left alone, so calling
+it on a dark theme, or twice, changes nothing more.

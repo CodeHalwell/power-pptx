@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import pathlib
+
 import pytest
 
+from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import Part
 from power_pptx.opc.packuri import PackURI
@@ -107,11 +111,12 @@ class DescribePresentationPart(object):
         related_part_.assert_called_once_with(prs_part, "rId42")
         assert slide_master is slide_master_
 
-    def it_can_rename_related_slide_parts(self, request, related_part_):
+    def it_can_rename_related_slide_parts(self, request, related_part_, package_):
         rIds = tuple("rId%d" % n for n in range(5, 0, -1))
         slide_parts = tuple(instance_mock(request, SlidePart) for _ in range(5))
         related_part_.side_effect = iter(slide_parts)
-        prs_part = PresentationPart(None, None, None, None)
+        package_.iter_parts.side_effect = lambda: iter(slide_parts)
+        prs_part = PresentationPart(None, None, package_, None)
 
         prs_part.rename_slide_parts(rIds)
 
@@ -120,9 +125,72 @@ class DescribePresentationPart(object):
             PackURI("/ppt/slides/slide%d.xml" % (i + 1)) for i in range(len(rIds))
         ]
 
+    def but_it_moves_an_unlisted_part_off_a_partname_a_listed_slide_needs(
+        self, related_part_, package_
+    ):
+        """A slide part that is in the package but not in `p:sldIdLst` must not end up sharing
+        a partname with a listed slide: the two would be saved as one zip member name."""
+        listed = [
+            Part(PackURI("/ppt/slides/slide1.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide7.xml"), None, None),
+        ]
+        unlisted = [
+            Part(PackURI("/ppt/slides/slide2.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide4.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), None, None),
+        ]
+        bystander = Part(PackURI("/ppt/slides/slide5.xml"), None, None)
+        related_part_.side_effect = iter(listed)
+        package_.iter_parts.side_effect = lambda: iter(listed + unlisted + [bystander])
+        prs_part = PresentationPart(None, None, package_, None)
+
+        prs_part.rename_slide_parts(["rId1", "rId2", "rId3"])
+
+        assert [p.partname for p in listed] == [
+            "/ppt/slides/slide1.xml",
+            "/ppt/slides/slide2.xml",
+            "/ppt/slides/slide3.xml",
+        ]
+        # -- slide2 and the second slide3 were in the way; slide4 and slide5 were not --
+        assert [p.partname for p in unlisted] == [
+            "/ppt/slides/slide6.xml",
+            "/ppt/slides/slide4.xml",
+            "/ppt/slides/slide7.xml",
+        ]
+        assert bystander.partname == "/ppt/slides/slide5.xml"
+        assert all(isinstance(p.partname, PackURI) for p in listed + unlisted)
+
     def it_can_save_the_package_to_a_file(self, package_):
         PresentationPart(None, None, package_, None).save("prs.pptx")
         package_.save.assert_called_once_with("prs.pptx")
+
+    @pytest.mark.parametrize(
+        ("content_type", "target", "expected"),
+        [
+            (CT.PML_TEMPLATE_MAIN, "deck.pptx", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "brand.potx", CT.PML_TEMPLATE_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "show.PPSX", CT.PML_SLIDESHOW_MAIN),
+            (CT.PML_TEMPLATE_MAIN, pathlib.Path("out") / "deck.pptx", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "deck.tmp", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, io.BytesIO(), CT.PML_PRESENTATION_MAIN),
+            (CT.PML_SLIDESHOW_MAIN, io.BytesIO(), CT.PML_PRESENTATION_MAIN),
+            (CT.PML_PRESENTATION_MAIN, "brand.potx", CT.PML_TEMPLATE_MAIN),
+            (CT.PML_PRESENTATION_MAIN, pathlib.Path("show.ppsx"), CT.PML_SLIDESHOW_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, "deck.pptx", CT.PML_PRES_MACRO_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, "brand.potx", CT.PML_PRES_MACRO_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, io.BytesIO(), CT.PML_PRES_MACRO_MAIN),
+        ],
+    )
+    def it_saves_as_the_kind_of_package_its_target_calls_for(
+        self, package_, content_type, target, expected
+    ):
+        prs_part = PresentationPart(None, content_type, package_, None)
+
+        prs_part.save(target)
+
+        package_.save.assert_called_once_with(target)
+        assert prs_part.content_type == expected
 
     def it_can_add_a_new_slide(self, request, package_, slide_part_, slide_, relate_to_):
         slide_layout_ = instance_mock(request, SlideLayout)
@@ -169,7 +237,7 @@ class DescribePresentationPart(object):
         with pytest.raises(ValueError):
             prs_part.slide_id(slide_part_)
 
-    @pytest.mark.parametrize("is_present", (True, False))
+    @pytest.mark.parametrize("is_present", [True, False])
     def it_finds_a_slide_by_slide_id(self, is_present, slide_, slide_part_, related_part_):
         prs_elm = element(
             "p:presentation/p:sldIdLst/(p:sldId{r:id=a,id=256},p:sldId{r:id="

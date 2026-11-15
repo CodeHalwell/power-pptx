@@ -105,26 +105,10 @@ class Theme:
         before_palette: dict[tuple[int, int, int], MSO_THEME_COLOR] = {}
         if rebind_shape_colors:
             if presentation is None:
-                raise ValueError(
-                    "rebind_shape_colors=True requires presentation= to be supplied"
-                )
-            for slot in MSO_THEME_COLOR:
-                if not slot.xml_value:
-                    continue
-                rgb = self.colors.get(slot)
-                if rgb is not None:
-                    # First-write wins so aliases (BACKGROUND_1 vs LIGHT_1)
-                    # don't shadow the canonical slot.
-                    before_palette.setdefault(tuple(int(c) for c in rgb), slot)
+                raise ValueError("rebind_shape_colors=True requires presentation= to be supplied")
+            before_palette = self._slots_by_rgb()
 
-        src_colors = other.colors
-        dst_colors = self.colors
-        for slot in MSO_THEME_COLOR:
-            if not slot.xml_value:
-                continue
-            rgb = src_colors.get(slot)
-            if rgb is not None:
-                dst_colors[slot] = rgb
+        self._copy_colors_from(other)
 
         if other.fonts.major:
             self.fonts.major = other.fonts.major
@@ -135,17 +119,51 @@ class Theme:
             return 0
         return _rebind_shape_colors(presentation, before_palette)
 
+    def _slots_by_rgb(self) -> dict[tuple[int, int, int], MSO_THEME_COLOR]:
+        """Map each RGB this theme's palette resolves to the first slot holding it.
+
+        First-write wins so aliases (BACKGROUND_1 vs LIGHT_1) don't shadow the
+        canonical slot.
+        """
+        slots: dict[tuple[int, int, int], MSO_THEME_COLOR] = {}
+        for slot in MSO_THEME_COLOR:
+            if not slot.xml_value:
+                continue
+            rgb = self.colors.get(slot)
+            if rgb is not None:
+                slots.setdefault(tuple(int(c) for c in rgb), slot)
+        return slots
+
+    def _copy_colors_from(self, other: Theme) -> None:
+        """Write the RGB of every slot *other* can resolve into the same slot here."""
+        src_colors = other.colors
+        dst_colors = self.colors
+        for slot in MSO_THEME_COLOR:
+            if not slot.xml_value:
+                continue
+            rgb = src_colors.get(slot)
+            if rgb is not None:
+                dst_colors[slot] = rgb
+
     def to_dark_mode(self, *, min_contrast: float = 4.5) -> "Theme":
         """Convert this theme's palette to a dark variant **in place**.
 
         Swaps the two background/text pairs — ``dk1``↔``lt1`` and
         ``dk2``↔``lt2`` — so the slot that previously held the (light)
         page background now holds the (dark) one and text/background
-        invert.  Accent colors are then nudged *only as needed* to keep
-        them legible against the new dark background: any accent whose
-        WCAG contrast ratio against the new ``lt1`` (the dark canvas)
-        falls below *min_contrast* is lightened in HSL space until it
-        clears the threshold (or reaches white).
+        invert.  A pair whose background slot (``lt1`` / ``lt2``) already
+        holds the darker of its two colors is left as it is, so a theme
+        that is already dark is not turned light again, and calling this
+        method twice gives the same palette as calling it once.  A pair
+        with a slot whose color cannot be resolved to RGB is left alone
+        too, since there is no telling which way round it is.
+
+        Accent colors are then nudged *only as needed* to keep them
+        legible against the background: any accent whose WCAG contrast
+        ratio against ``lt1`` (the canvas) falls below *min_contrast* is
+        moved away from it in HSL space — lightened on a dark canvas,
+        darkened on a light one — until it clears the threshold (or
+        reaches white or black).  Hue and saturation are kept.
 
         The default ``min_contrast`` of 4.5 is the WCAG AA threshold for
         normal-size text.  The swap and any accent adjustments are
@@ -156,23 +174,25 @@ class Theme:
         """
         colors = self.colors
 
-        # 1. Swap the dark/light background-text pairs.  Read both ends
-        #    of each pair first so the in-place writes don't clobber a
-        #    value we still need.
+        # 1. Orient each dark/light background-text pair so the background
+        #    slot holds the darker color. Comparing rather than blindly
+        #    swapping is what makes a second call (or a call on a theme that
+        #    is dark already) a no-op instead of flipping the theme back.
         for dark_slot, light_slot in (
             (MSO_THEME_COLOR.DARK_1, MSO_THEME_COLOR.LIGHT_1),
             (MSO_THEME_COLOR.DARK_2, MSO_THEME_COLOR.LIGHT_2),
         ):
-            dark_rgb = colors.get(dark_slot)
-            light_rgb = colors.get(light_slot)
-            if dark_rgb is not None:
-                colors[light_slot] = dark_rgb
-            if light_rgb is not None:
-                colors[dark_slot] = light_rgb
+            text_rgb = colors.get(dark_slot)
+            canvas_rgb = colors.get(light_slot)
+            if text_rgb is None or canvas_rgb is None:
+                continue
+            if _relative_luminance(canvas_rgb) > _relative_luminance(text_rgb):
+                colors[light_slot] = text_rgb
+                colors[dark_slot] = canvas_rgb
 
-        # 2. The new page background is whatever lt1 now resolves to
-        #    (lt1/bg1 is the canonical canvas slot).  Raise each accent's
-        #    contrast against it to at least min_contrast.
+        # 2. The page background is whatever lt1 now resolves to (lt1/bg1 is
+        #    the canonical canvas slot).  Raise each accent's contrast
+        #    against it to at least min_contrast.
         background = colors.get(MSO_THEME_COLOR.LIGHT_1)
         if background is not None:
             accent_slots = (
@@ -238,9 +258,7 @@ def embed_font(
 
     valid_weights = ("regular", "bold", "italic", "boldItalic")
     if weight not in valid_weights:
-        raise ValueError(
-            f"weight must be one of {valid_weights}, got {weight!r}"
-        )
+        raise ValueError(f"weight must be one of {valid_weights}, got {weight!r}")
     if not os.path.isfile(font_path):
         raise FileNotFoundError(f"font file not found: {font_path}")
     with open(font_path, "rb") as f:
@@ -274,7 +292,6 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     creating the list if needed.
     """
     pres_elm = presentation._element  # type: ignore[attr-defined]
-    r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
     # PowerPoint treats font embedding as *disabled* unless the presentation
     # carries embedTrueTypeFonts="1" — without it, a user re-saving the deck
@@ -289,44 +306,54 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     # inserts before the first existing successor.
     embedded_lst = pres_elm.get_or_add_embeddedFontLst()
 
-    # Find existing entry for this typeface.
-    existing = None
+    entry = _embedded_font_for(embedded_lst, typeface)
+    if entry is None:
+        entry = OxmlElement("p:embeddedFont")
+        font = OxmlElement("p:font")
+        font.set("typeface", typeface)
+        entry.append(font)
+        embedded_lst.append(entry)
+    _set_embedded_font_slot(entry, weight, rId)
+
+
+def _embedded_font_for(embedded_lst, typeface: str):
+    """The ``<p:embeddedFont>`` in *embedded_lst* registered for *typeface*, or ``None``."""
     for ef in embedded_lst.findall(qn("p:embeddedFont")):
         font = ef.find(qn("p:font"))
         if font is not None and font.get("typeface") == typeface:
-            existing = ef
-            break
+            return ef
+    return None
 
-    if existing is None:
-        ef = OxmlElement("p:embeddedFont")
-        font = OxmlElement("p:font")
-        font.set("typeface", typeface)
-        ef.append(font)
-        embedded_lst.append(ef)
-        existing = ef
 
-    # Add weight slot if absent (PowerPoint disallows duplicates).
-    slot_elm = existing.find(qn(f"p:{weight}"))
+def _set_embedded_font_slot(entry, weight: str, rId: str) -> None:
+    """Point the *weight* slot of *entry* at relationship *rId*, adding the slot if absent.
+
+    PowerPoint disallows duplicate slots, so an existing one is re-pointed.
+    """
+    slot_elm = entry.find(qn(f"p:{weight}"))
     if slot_elm is not None:
-        slot_elm.set(f"{{{r_ns}}}id", rId)
-    else:
-        slot_elm = OxmlElement(f"p:{weight}")
-        slot_elm.set(f"{{{r_ns}}}id", rId)
-        # CT_EmbeddedFontListEntry is a fixed sequence: font, regular?, bold?,
-        # italic?, boldItalic?.  Insert the new slot at its schema position
-        # rather than appending — appending out of order (e.g. italic before
-        # bold) produces a sequence violation PowerPoint may reject/repair.
-        new_idx = _EMBED_WEIGHT_ORDER.index(weight)
-        insert_before = None
-        for child in existing:
-            local = child.tag.rsplit("}", 1)[-1]
-            if local in _EMBED_WEIGHT_ORDER and _EMBED_WEIGHT_ORDER.index(local) > new_idx:
-                insert_before = child
-                break
-        if insert_before is None:
-            existing.append(slot_elm)
-        else:
-            insert_before.addprevious(slot_elm)
+        slot_elm.set(qn("r:id"), rId)
+        return
+    slot_elm = OxmlElement(f"p:{weight}")
+    slot_elm.set(qn("r:id"), rId)
+    _insert_weight_slot(entry, slot_elm, weight)
+
+
+def _insert_weight_slot(entry, slot_elm, weight: str) -> None:
+    """Insert *slot_elm*, the new *weight* slot, at its schema position in *entry*.
+
+    CT_EmbeddedFontListEntry is a fixed sequence: font, regular?, bold?,
+    italic?, boldItalic?.  Insert the new slot at its schema position
+    rather than appending — appending out of order (e.g. italic before
+    bold) produces a sequence violation PowerPoint may reject/repair.
+    """
+    new_idx = _EMBED_WEIGHT_ORDER.index(weight)
+    for child in entry:
+        local = child.tag.rsplit("}", 1)[-1]
+        if local in _EMBED_WEIGHT_ORDER and _EMBED_WEIGHT_ORDER.index(local) > new_idx:
+            child.addprevious(slot_elm)
+            return
+    entry.append(slot_elm)
 
 
 # Method on Theme for the user-facing API.
@@ -336,9 +363,7 @@ def _theme_embed_font(self, presentation, font_path, *, typeface=None, weight="r
     Convenience method on :class:`Theme`.  See :func:`embed_font` for
     the full description.
     """
-    return embed_font(
-        presentation, font_path, typeface=typeface, weight=weight
-    )
+    return embed_font(presentation, font_path, typeface=typeface, weight=weight)
 
 
 Theme.embed_font = _theme_embed_font  # type: ignore[attr-defined]
@@ -406,20 +431,14 @@ class ThemeColors:
                 f"key must be an MSO_THEME_COLOR member, got {type(theme_color).__name__!r}"
             )
         if not isinstance(rgb, RGBColor):
-            raise TypeError(
-                f"value must be an RGBColor, got {type(rgb).__name__!r}"
-            )
+            raise TypeError(f"value must be an RGBColor, got {type(rgb).__name__!r}")
         if not theme_color.xml_value:
-            raise ValueError(
-                f"{theme_color!r} has no <a:clrScheme> slot and cannot be assigned"
-            )
+            raise ValueError(f"{theme_color!r} has no <a:clrScheme> slot and cannot be assigned")
 
         slot_name = _CLR_SCHEME_ALIAS.get(theme_color.xml_value, theme_color.xml_value)
         clr_scheme = self._clr_scheme()
         if clr_scheme is None:
-            raise ValueError(
-                "theme has no <a:clrScheme>; cannot write to color slot"
-            )
+            raise ValueError("theme has no <a:clrScheme>; cannot write to color slot")
 
         slot_elm = clr_scheme.find(qn(f"a:{slot_name}"))
         if slot_elm is None:
@@ -544,13 +563,9 @@ class ThemeFonts:
         if not isinstance(typeface, str) or not typeface:
             raise TypeError("typeface must be a non-empty string")
 
-        font_scheme = self._theme_elm.find(
-            f"{qn('a:themeElements')}/{qn('a:fontScheme')}"
-        )
+        font_scheme = self._theme_elm.find(f"{qn('a:themeElements')}/{qn('a:fontScheme')}")
         if font_scheme is None:
-            raise ValueError(
-                "theme has no <a:fontScheme>; cannot set typeface"
-            )
+            raise ValueError("theme has no <a:fontScheme>; cannot set typeface")
 
         kind_elm = font_scheme.find(qn(f"a:{font_kind}"))
         if kind_elm is None:
@@ -584,9 +599,18 @@ class ThemeFonts:
 # CT_ColorScheme defines its children in this exact sequence; later slots
 # (e.g. hlink) must follow earlier ones, and <a:extLst> is allowed last.
 _CLR_SCHEME_SLOT_ORDER: tuple[str, ...] = (
-    "dk1", "lt1", "dk2", "lt2",
-    "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
-    "hlink", "folHlink",
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "hlink",
+    "folHlink",
 )
 
 
@@ -609,33 +633,32 @@ def _rebind_shape_colors(presentation, palette_map) -> int:
         return 0
 
     # Build a hex-string lookup keyed by uppercase 6-char strings.
-    hex_map: dict[str, str] = {}
-    for (r, g, b), slot in palette_map.items():
-        hex_str = "{:02X}{:02X}{:02X}".format(r, g, b)
-        hex_map[hex_str] = slot.xml_value
+    hex_map: dict[str, str] = {
+        f"{r:02X}{g:02X}{b:02X}": slot.xml_value for (r, g, b), slot in palette_map.items()
+    }
+    return sum(
+        _rebind_srgb_colors(slide._element, hex_map)  # type: ignore[attr-defined]
+        for slide in presentation.slides
+    )
 
-    a_srgbClr = qn("a:srgbClr")
+
+def _rebind_srgb_colors(root, hex_map: dict[str, str]) -> int:
+    """Point each ``<a:srgbClr>`` under *root* whose value is in *hex_map* at its slot.
+
+    The element is retagged in place as ``<a:schemeClr val="<slot>">``, so
+    its alpha/lumMod/etc. modifier children are preserved. Returns the
+    number rebound.
+    """
     a_schemeClr = qn("a:schemeClr")
-
     rebound = 0
-    for slide in presentation.slides:
-        for srgb in slide._element.iter(a_srgbClr):  # type: ignore[attr-defined]
-            val = (srgb.get("val") or "").upper()
-            if val not in hex_map:
-                continue
-            scheme = OxmlElement("a:schemeClr")
-            scheme.set("val", hex_map[val])
-            # Preserve alpha/lumMod/etc. modifier children.
-            for child in list(srgb):
-                scheme.append(child)
-            srgb.tag = a_schemeClr
-            srgb.attrib.clear()
-            srgb.set("val", hex_map[val])
-            for child in list(srgb):
-                srgb.remove(child)
-            for child in list(scheme):
-                srgb.append(child)
-            rebound += 1
+    for srgb in root.iter(qn("a:srgbClr")):
+        val = (srgb.get("val") or "").upper()
+        if val not in hex_map:
+            continue
+        srgb.tag = a_schemeClr
+        srgb.attrib.clear()
+        srgb.set("val", hex_map[val])
+        rebound += 1
     return rebound
 
 
@@ -666,28 +689,32 @@ def _contrast_ratio(rgb_a: RGBColor, rgb_b: RGBColor) -> float:
 
 
 def _raise_contrast(rgb: RGBColor, background: RGBColor, min_contrast: float) -> RGBColor:
-    """Lighten *rgb* in HSL space until it clears *min_contrast* on *background*.
+    """Move *rgb* away from *background* in HSL space until it clears *min_contrast*.
 
     Returns *rgb* unchanged when it already meets the threshold.  The hue
-    and saturation are preserved; only lightness is raised, in small
-    steps, until the contrast target is met or the color reaches white.
+    and saturation are preserved; only lightness changes, in small steps,
+    until the contrast target is met or the color reaches white or black.
+    The direction is the one with the more room: lighter on a background
+    that contrasts better with white than with black (a dark one), darker
+    otherwise. Lightening an accent on a light background would only ever
+    lower its contrast.
     """
     import colorsys
 
     if _contrast_ratio(rgb, background) >= min_contrast:
         return rgb
 
-    h, light, s = colorsys.rgb_to_hls(
-        rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
-    )
+    white, black = RGBColor(0xFF, 0xFF, 0xFF), RGBColor(0x00, 0x00, 0x00)
+    lighten = _contrast_ratio(white, background) >= _contrast_ratio(black, background)
+    target = 1.0 if lighten else 0.0
+
+    h, light, s = colorsys.rgb_to_hls(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
     best = rgb
     steps = 100
     for i in range(1, steps + 1):
-        new_l = light + (1.0 - light) * (i / steps)
+        new_l = light + (target - light) * (i / steps)
         r, g, b = colorsys.hls_to_rgb(h, new_l, s)
-        candidate = RGBColor(
-            round(r * 255), round(g * 255), round(b * 255)
-        )
+        candidate = RGBColor(round(r * 255), round(g * 255), round(b * 255))
         best = candidate
         if _contrast_ratio(candidate, background) >= min_contrast:
             break

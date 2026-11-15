@@ -39,9 +39,44 @@ presets ship in ``power_pptx.chart.quick_layouts``::
     chart.apply_quick_layout("title_axes_legend_right")
     chart.apply_quick_layout("minimal")
 
-Custom layouts can be supplied as a dict spec.  Missing keys leave the
-chart untouched so layouts compose cleanly, and charts without
-category/value axes (e.g. pie) silently skip the corresponding keys.
+Custom layouts can be supplied as a dict spec with flat keys (there are
+no nested ``"category_axis"`` / ``"value_axis"`` sections; the gridline
+keys apply to the value axis)::
+
+    chart.apply_quick_layout({
+        "has_title": True,
+        "title_text": "ARR ($M)",
+        "legend_position": "bottom",
+        "has_major_gridlines": True,
+    })
+
+The valid keys are ``has_title``, ``title_text``, ``has_legend``,
+``legend_position``, ``legend_in_layout``, ``has_category_axis_title``,
+``category_axis_title_text``, ``has_value_axis_title``,
+``value_axis_title_text``, ``has_major_gridlines`` and
+``has_minor_gridlines``.  Any other key raises before the chart is
+changed — :class:`ValueError` in a dict spec, :class:`TypeError` as a
+keyword override — and the message suggests the closest valid key.
+
+Missing keys leave the chart untouched so layouts compose cleanly, and
+charts without category/value axes (e.g. pie) silently skip the
+corresponding keys.
+
+Secondary value axis
+--------------------
+
+``series.axis_group = "secondary"`` moves one series onto a second value
+axis, created the first time it is needed::
+
+    margin = chart.series[1]
+    margin.axis_group = "secondary"
+    chart.secondary_value_axis.maximum_scale = 100
+
+Only that series moves; the others keep the primary axis, which is what
+``chart.value_axis`` always returns.  The series is split into a plot of its
+own, so it changes position in ``chart.series`` (keep a reference to it rather
+than indexing again).  Moving a series back to ``"primary"`` raises
+:class:`ValueError`.
 
 Per-series gradient and pattern fills
 -------------------------------------

@@ -10,6 +10,8 @@ org-chart template whose names need refreshing every quarter.
 ## Iterating SmartArt on a slide
 
 ```python
+from power_pptx import Presentation
+
 prs = Presentation("org-chart-template.pptx")
 slide = prs.slides[0]
 
@@ -23,6 +25,11 @@ for sa in slide.smart_art:
 - `texts` — ordered list of node text strings
 - `set_text(values, *, strict=True)` — replaces node text in document
   order without touching layout, style, or color parts
+
+Both work on diagrams as PowerPoint saves them, where content nodes
+carry no `type` attribute (it defaults to `node`). A node nobody has
+typed into yet (it shows a `[Text]` prompt) reads as `""` and can be
+given text like any other.
 
 ## Replacing names
 
@@ -43,6 +50,17 @@ slide.smart_art[0].set_text(["Alex", "Priya"], strict=False)
 `DiagramDataPart` and its sibling part classes are registered so the
 SmartArt `diagrams/data#.xml`, `layout#`, `quickStyle#`, and `colors#`
 parts are handled as typed `XmlPart` subclasses. Reads never mutate.
+
+## The cached drawing
+
+PowerPoint 2010+ also saves `diagrams/drawing#.xml`, a cache of the
+shapes the diagram was last laid out as. Viewers display that cache
+(LibreOffice always does), so `set_text` replaces the text there too
+— otherwise the old names would still show. The cached shapes keep
+their size and font size, which were fitted to the old text; PowerPoint
+re-fits them the next time the diagram is edited. Keep replacement
+text close in length to what it replaces, and render the slide to
+check the fit when it matters.
 
 ## What this is not
 

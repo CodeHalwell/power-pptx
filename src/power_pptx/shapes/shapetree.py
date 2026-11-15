@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import warnings
@@ -100,8 +101,7 @@ def _resolve_anchor(anchor: str) -> tuple[str, str]:
         return ("middle", "center")
     if "-" not in raw:
         raise ValueError(
-            f"anchor must be 'center' or 'vertical-horizontal' "
-            f"(e.g. 'top-right'); got {anchor!r}"
+            f"anchor must be 'center' or 'vertical-horizontal' (e.g. 'top-right'); got {anchor!r}"
         )
     parts = [p.strip() for p in raw.split("-", 1)]
     v, h = parts[0], parts[1]
@@ -110,8 +110,7 @@ def _resolve_anchor(anchor: str) -> tuple[str, str]:
         v = "middle"
     if v not in _VERTICAL_ANCHORS or h not in _HORIZONTAL_ANCHORS:
         raise ValueError(
-            f"anchor must be one of top|middle|bottom dash "
-            f"left|center|right; got {anchor!r}"
+            f"anchor must be one of top|middle|bottom dash left|center|right; got {anchor!r}"
         )
     # Normalise "centre" → "center" on the horizontal half.
     if h == "centre":
@@ -195,9 +194,7 @@ def _container_box(shapetree, container) -> tuple[int, int, int, int]:
             return (0, 0, int(prs.slide_width), int(prs.slide_height))
         except AttributeError:
             pass
-    raise ValueError(
-        "container must be None, a slide, or a shape with .width/.height"
-    )
+    raise ValueError("container must be None, a slide, or a shape with .width/.height")
 
 
 def _container_extents(shapetree, container) -> tuple[int, int]:
@@ -235,7 +232,6 @@ class _LintGroupScope:
         # On exception, still tag — the shapes were added; bailing
         # would leave them as untagged "real" overlaps in the lint
         # report, which is the worse default.
-        from power_pptx.shapes.base import BaseShape
 
         elms = list(self._shapetree._iter_member_elms())
         added = elms[self._snapshot :]
@@ -257,11 +253,9 @@ class _LintGroupScope:
 
         for elm in added:
             shape: BaseShape = self._shapetree._shape_factory(elm)
-            try:
+            # Some shape kinds don't carry a cNvPr (rare); skip them.
+            with contextlib.suppress(AttributeError, NotImplementedError):
                 shape.lint_group = name
-            except (AttributeError, NotImplementedError):
-                # Some shape kinds don't carry a cNvPr (rare); skip.
-                pass
         return False  # never suppress exceptions
 
 
@@ -278,11 +272,9 @@ def _apply_horizontal_bar_default(graphic_frame, chart_type) -> None:
     """
     if getattr(chart_type, "name", None) not in _HORIZONTAL_BAR_CHART_NAMES:
         return
-    try:
+    # Defensive: never break chart creation on a styling tweak.
+    with contextlib.suppress(AttributeError, ValueError):
         graphic_frame.chart.category_axis.reverse_order = True
-    except (AttributeError, ValueError):
-        # Defensive: never break chart creation on a styling tweak.
-        pass
 
 
 # +-- _BaseShapes
@@ -338,37 +330,48 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
       the resulting point inward by ``inset_emu`` so an arrowhead won't
       bleed past the target's stroke.
     """
-    if isinstance(target, (tuple, list)) and len(target) == 2:
+    if _is_point(target):
         return (int(target[0]), int(target[1]))
 
     box = _endpoint_box(target)
     if box is None:
-        raise TypeError(
-            "arrow endpoint must be (x, y), a Shape, or a BBox; got %r"
-            % (target,)
-        )
-    left, top, width, height = box
-
+        raise TypeError("arrow endpoint must be (x, y), a Shape, or a BBox; got %r" % (target,))
     if side in (None, "auto"):
-        opp_box = _endpoint_box(opposite)
-        if isinstance(opposite, (tuple, list)) and len(opposite) == 2:
-            opp_cx, opp_cy = int(opposite[0]), int(opposite[1])
-        elif opp_box is not None:
-            opp_cx = opp_box[0] + opp_box[2] // 2
-            opp_cy = opp_box[1] + opp_box[3] // 2
-        else:
-            opp_cx, opp_cy = left + width // 2, top + height // 2
+        side = _side_facing(box, _endpoint_centre(opposite, default=_box_centre(box)))
+    return _edge_point(box, side, inset_emu)
 
-        cx = left + width // 2
-        cy = top + height // 2
-        # Pick whichever edge the opposite endpoint is closest to.
-        dx = opp_cx - cx
-        dy = opp_cy - cy
-        if abs(dx) >= abs(dy):
-            side = "right" if dx >= 0 else "left"
-        else:
-            side = "bottom" if dy >= 0 else "top"
 
+def _is_point(endpoint) -> bool:
+    """True if `endpoint` is an ``(x, y)`` pair rather than a box."""
+    return isinstance(endpoint, (tuple, list)) and len(endpoint) == 2
+
+
+def _box_centre(box: tuple[int, int, int, int]) -> tuple[int, int]:
+    """The ``(x, y)`` centre of a ``(left, top, width, height)`` box."""
+    left, top, width, height = box
+    return (left + width // 2, top + height // 2)
+
+
+def _endpoint_centre(endpoint, *, default: tuple[int, int]) -> tuple[int, int]:
+    """The point an arrow end stands for: itself, or the centre of its box; else `default`."""
+    if _is_point(endpoint):
+        return (int(endpoint[0]), int(endpoint[1]))
+    box = _endpoint_box(endpoint)
+    return default if box is None else _box_centre(box)
+
+
+def _side_facing(box: tuple[int, int, int, int], point: tuple[int, int]) -> str:
+    """The edge of `box` that `point` lies beyond: the one along its larger offset."""
+    cx, cy = _box_centre(box)
+    dx, dy = point[0] - cx, point[1] - cy
+    if abs(dx) >= abs(dy):
+        return "right" if dx >= 0 else "left"
+    return "bottom" if dy >= 0 else "top"
+
+
+def _edge_point(box: tuple[int, int, int, int], side, inset_emu: int) -> tuple[int, int]:
+    """The middle of edge `side` of `box`, pulled `inset_emu` into the box."""
+    left, top, width, height = box
     if side == "right":
         return (left + width - inset_emu, top + height // 2)
     if side == "left":
@@ -377,9 +380,7 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
         return (left + width // 2, top + inset_emu)
     if side == "bottom":
         return (left + width // 2, top + height - inset_emu)
-    raise ValueError(
-        f"side must be 'top'/'right'/'bottom'/'left'/'auto'; got {side!r}"
-    )
+    raise ValueError(f"side must be 'top'/'right'/'bottom'/'left'/'auto'; got {side!r}")
 
 
 class _BaseShapes(ParentedElementProxy):
@@ -626,7 +627,8 @@ class _BaseGroupShapes(_BaseShapes):
         grpSp = self._element.add_grpSp()
         for shape in shapes:
             grpSp.insert_element_before(
-                shape._element, "p:extLst"  # pyright: ignore[reportPrivateUsage]
+                shape._element,
+                "p:extLst",  # pyright: ignore[reportPrivateUsage]
             )
         if shapes:
             grpSp.recalculate_extents()
@@ -950,9 +952,7 @@ class _BaseGroupShapes(_BaseShapes):
 
         if margin_pt is not None:
             if isinstance(margin_pt, (tuple, list)) and len(margin_pt) != 4:
-                raise ValueError(
-                    "margin_pt tuple must have 4 elements (top, right, bottom, left)"
-                )
+                raise ValueError("margin_pt tuple must have 4 elements (top, right, bottom, left)")
             apply_margins(tf, margin_pt)
 
         if anchor is not None:
@@ -1031,9 +1031,7 @@ class _BaseGroupShapes(_BaseShapes):
             "curved": MSO_CONNECTOR_TYPE.CURVE,
         }
         if route not in _CONNECTOR:
-            raise ValueError(
-                f"route must be one of {sorted(_CONNECTOR)}; got {route!r}"
-            )
+            raise ValueError(f"route must be one of {sorted(_CONNECTOR)}; got {route!r}")
 
         _DASH = {
             "solid": MSO_LINE_DASH_STYLE.SOLID,
@@ -1041,9 +1039,7 @@ class _BaseGroupShapes(_BaseShapes):
             "dotted": MSO_LINE_DASH_STYLE.ROUND_DOT,
         }
         if style not in _DASH:
-            raise ValueError(
-                f"style must be one of {sorted(_DASH)}; got {style!r}"
-            )
+            raise ValueError(f"style must be one of {sorted(_DASH)}; got {style!r}")
 
         _END_TYPE = {
             None: MSO_LINE_END_TYPE.NONE,
@@ -1085,15 +1081,13 @@ class _BaseGroupShapes(_BaseShapes):
         head_size_key = _norm(head_size)
         tail_size_key = _norm(tail_size)
         if head_size_key not in _END_SIZE:
-            raise ValueError(
-                f"head_size must be one of {sorted(_END_SIZE)}; got {head_size!r}"
-            )
+            raise ValueError(f"head_size must be one of {sorted(_END_SIZE)}; got {head_size!r}")
         if tail_size_key not in _END_SIZE:
-            raise ValueError(
-                f"tail_size must be one of {sorted(_END_SIZE)}; got {tail_size!r}"
-            )
+            raise ValueError(f"tail_size must be one of {sorted(_END_SIZE)}; got {tail_size!r}")
 
-        bx, by = _resolve_endpoint(start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt)))
+        bx, by = _resolve_endpoint(
+            start, opposite=end, side=start_side, inset_emu=int(Pt(inset_pt))
+        )
         ex, ey = _resolve_endpoint(end, opposite=start, side=end_side, inset_emu=int(Pt(inset_pt)))
 
         conn = self.add_connector(_CONNECTOR[route], bx, by, ex, ey)
@@ -1552,7 +1546,7 @@ class SlidePlaceholders(ParentedElementProxy):
 
     def __iter__(self):
         """Generate placeholder shapes in `idx` order."""
-        ph_elms = sorted([e for e in self._element.iter_ph_elms()], key=lambda e: e.ph_idx)
+        ph_elms = sorted(self._element.iter_ph_elms(), key=lambda e: e.ph_idx)
         return (SlideShapeFactory(e, self) for e in ph_elms)
 
     def __len__(self) -> int:

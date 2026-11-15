@@ -21,7 +21,7 @@ const sections = [
   {
     href: withBase("/api/presentation"),
     title: "Presentation & Slides",
-    body: "Presentation factory, slide collection, slide masters/layouts, notes, core properties, transitions, audit().",
+    body: "Presentation factory, slide size, slide-show settings, adding, duplicating and removing slides, masters/layouts, notes, core properties, transitions, audit().",
   },
   {
     href: withBase("/api/shapes"),
@@ -31,7 +31,7 @@ const sections = [
   {
     href: withBase("/api/text"),
     title: "Text",
-    body: "TextFrame, paragraphs, runs, fonts, fit_text, TextFitter, auto-size behaviour.",
+    body: "TextFrame, paragraphs, runs, fonts, fit_text, TextFitter, measure_text, font registration, auto-size behaviour.",
   },
   {
     href: withBase("/api/charts"),
@@ -46,7 +46,7 @@ const sections = [
   {
     href: withBase("/api/compose-lint-render"),
     title: "Compose, Lint & Render",
-    body: "from_spec, import_slide, apply_template, slide.lint()/tidy(), audit, thumbnail renderer, animations, theme.",
+    body: "from_spec and SpecError, import_slide, apply_template, slide.lint()/tidy(), the power-pptx lint command, audit, thumbnail renderer, animations, theme.",
   },
   {
     href: withBase("/api/enumerations"),
@@ -99,9 +99,33 @@ const sections = [
       Unset optional properties return <code>None</code>; assign <code>None</code> to clear them.
     </li>
     <li>
-      Exceptions live in <code>power_pptx.exc</code> — e.g.
-      <code>PackageNotFoundError</code>, <code>CairoSvgUnavailable</code>,
-      <code>ThumbnailRendererUnavailable</code>, <code>FigureBackendUnavailable</code>.
+      Core exceptions live in <code>power_pptx.exc</code>: <code>PackageNotFoundError</code>,
+      its subclass <code>InvalidPackageError</code> (a file that is not a readable package; also a
+      <code>zipfile.BadZipFile</code> and a <code>KeyError</code>), <code>LintError</code> and the
+      <code>FontMetricsWarning</code> warning. Errors from optional backends live beside their
+      feature: <code>ThumbnailRendererUnavailable</code> / <code>ThumbnailRendererError</code> in
+      <code>power_pptx.render</code>, <code>CairoSvgUnavailable</code> in
+      <code>power_pptx._svg</code>, <code>FigureBackendUnavailable</code> at the top level, and
+      <code>SpecError</code> (a <code>ValueError</code>) in <code>power_pptx.compose</code>.
+    </li>
+  </ul>
+
+  <h2 id="cli">Command-line tools</h2>
+  <ul>
+    <li>
+      <code>power-pptx lint DECK [DECK ...]</code> — the layout linter on saved decks, with text,
+      JSON and SARIF reports, <code>--fail-on</code> and <code>--fix</code>; see
+      <a href={`${withBase("/advanced/lint")}#cli`}>Lint &amp; Audit</a>.
+    </li>
+    <li>
+      <code>power-pptx review INPUT ... --out-dir DIR</code> — render, validate and gather a review
+      bundle; see
+      <a href={`${withBase("/advanced/authoring-workflows")}#review`}>Modern Authoring Workflows</a>.
+    </li>
+    <li>
+      <code>python -m power_pptx.skill install [--target DIR]</code> (or
+      <code>power-pptx-skill install</code>) — install the bundled Claude skill; see
+      <a href={withBase("/agents")}>Coding Agents</a>.
     </li>
   </ul>
 </DocsLayout>

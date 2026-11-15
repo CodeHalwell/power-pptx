@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Iterable, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, Iterable, Iterator, cast
 
 from power_pptx.action import ActionSetting
 from power_pptx.dml.effect import (
@@ -427,7 +428,8 @@ class BaseShape(object):
         ``"after_previous"``. ``delay_ms`` and ``duration_ms`` are
         OOXML milliseconds. ``direction`` is consumed by ``fly_in`` /
         ``fly_out`` / ``wipe`` (``"left"``, ``"right"``, ``"top"``,
-        ``"bottom"``); ignored otherwise.
+        ``"bottom"``; anything else raises ``ValueError``); ignored
+        otherwise. A preset name not listed above raises ``ValueError``.
 
         For animation types not covered here, drop down to
         :class:`power_pptx.animation.Entrance` /
@@ -441,15 +443,13 @@ class BaseShape(object):
                 f"got entry={entry!r}, exit={exit!r}, emphasis={emphasis!r}"
             )
 
-        from power_pptx.animation import Emphasis, Entrance, Exit
+        from power_pptx.animation import _EMPHASIS_PRESETS, _ENTRANCE_PRESETS, _EXIT_PRESETS
         from power_pptx.enum.animation import PP_ANIM_TRIGGER
 
         try:
             slide = self.part.slide  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise ValueError(
-                "shape.animate() requires the shape to be on a slide"
-            ) from exc
+            raise ValueError("shape.animate() requires the shape to be on a slide") from exc
 
         trigger_map = {
             "on_click": PP_ANIM_TRIGGER.ON_CLICK,
@@ -457,39 +457,34 @@ class BaseShape(object):
             "after_previous": PP_ANIM_TRIGGER.AFTER_PREVIOUS,
         }
         if trigger not in trigger_map:
-            raise ValueError(
-                f"trigger must be one of {sorted(trigger_map)}; got {trigger!r}"
-            )
+            raise ValueError(f"trigger must be one of {sorted(trigger_map)}; got {trigger!r}")
         trig = trigger_map[trigger]
 
-        common_kwargs = {"trigger": trig, "delay": int(delay_ms)}
-
-        def _call(facade_method, preset, *, supports_direction=False):
-            kwargs = dict(common_kwargs)
-            if preset != "appear" and preset != "disappear":
-                kwargs["duration"] = int(duration_ms)
-            if supports_direction and direction is not None:
-                kwargs["direction"] = direction
-            facade_method(slide, self, **kwargs)
-
+        # The preset tables are the list of what exists; looking a name up as
+        # an attribute of the Entrance/Exit/Emphasis classes would also find
+        # `mro` or `__class__`, and miss presets with no facade method.
+        timing = {"trigger": trig, "delay": delay_ms, "duration": duration_ms}
+        animations = slide.animations
         if entry is not None:
-            preset = entry
-            method = getattr(Entrance, preset, None)
-            if method is None:
-                raise ValueError(f"unknown entry preset: {preset!r}")
-            _call(method, preset, supports_direction=preset in ("fly_in", "wipe"))
+            if entry not in _ENTRANCE_PRESETS:
+                raise ValueError(
+                    f"unknown entry preset: {entry!r}; choose from {sorted(_ENTRANCE_PRESETS)}"
+                )
+            animations.add_entrance(entry, self, direction=direction, **timing)
         elif exit is not None:
-            preset = exit
-            method = getattr(Exit, preset, None)
-            if method is None:
-                raise ValueError(f"unknown exit preset: {preset!r}")
-            _call(method, preset, supports_direction=preset in ("fly_out", "wipe"))
+            if exit not in _EXIT_PRESETS:
+                raise ValueError(
+                    f"unknown exit preset: {exit!r}; choose from {sorted(_EXIT_PRESETS)}"
+                )
+            animations.add_exit(exit, self, direction=direction, **timing)
         else:  # emphasis
-            preset = emphasis  # type: ignore[assignment]
-            method = getattr(Emphasis, preset, None)
-            if method is None:
-                raise ValueError(f"unknown emphasis preset: {preset!r}")
-            _call(method, preset)
+            assert emphasis is not None
+            if emphasis not in _EMPHASIS_PRESETS:
+                raise ValueError(
+                    f"unknown emphasis preset: {emphasis!r}; "
+                    f"choose from {sorted(_EMPHASIS_PRESETS)}"
+                )
+            animations.add_emphasis(emphasis, self, **timing)
 
     @property
     def lint_skip(self) -> frozenset[str]:
@@ -534,10 +529,7 @@ class BaseShape(object):
         codes: set[str] = set()
         for raw in value:
             if not isinstance(raw, str):
-                raise TypeError(
-                    "lint_skip codes must be strings; got "
-                    f"{type(raw).__name__}"
-                )
+                raise TypeError(f"lint_skip codes must be strings; got {type(raw).__name__}")
             code = raw.strip()
             if not code:
                 raise ValueError("lint_skip codes must be non-empty strings")
@@ -583,9 +575,7 @@ class BaseShape(object):
         for other in shapes:
             other_id = self._require_shape_id(other)
             if other_id == self.shape_id:
-                raise ValueError(
-                    "a shape cannot be given an overlap allowance with itself"
-                )
+                raise ValueError("a shape cannot be given an overlap allowance with itself")
             ids.add(other_id)
         _write_lint_allow(cNvPr, ids)
 
@@ -673,8 +663,7 @@ class BaseShape(object):
             value = ()
         if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
             raise TypeError(
-                "overlap_allowances must be an iterable of shape ids; got "
-                f"{type(value).__name__}"
+                f"overlap_allowances must be an iterable of shape ids; got {type(value).__name__}"
             )
         ids: set[int] = set()
         for raw in value:
@@ -756,9 +745,7 @@ class BaseShape(object):
         if value is None:
             return None
         if not isinstance(value, str):
-            raise TypeError(
-                f"{attr} must be a string or None; got {type(value).__name__}"
-            )
+            raise TypeError(f"{attr} must be a string or None; got {type(value).__name__}")
         value = value.strip()
         return value or None
 
@@ -801,10 +788,8 @@ class BaseShape(object):
             parent.remove(self._element)
 
         if slide is not None:
-            try:
+            with contextlib.suppress(Exception):
                 slide.animations.purge_orphans()
-            except Exception:
-                pass
             if deleted_ids:
                 self._purge_overlap_allowances(slide, deleted_ids)
 
@@ -842,30 +827,18 @@ class BaseShape(object):
         """
         from power_pptx.lint import _read_lint_allow, _shape_cNvPr, _write_lint_allow
 
-        def _walk(shapes):
-            for shape in shapes:
-                yield shape
-                nested = getattr(shape, "shapes", None)
-                if nested is not None:
-                    try:
-                        yield from _walk(nested)
-                    except Exception:
-                        continue
-
         try:
-            shapes = list(_walk(slide.shapes))
+            shapes = list(_iter_shapes_leniently(slide.shapes))
         except Exception:
             return
         for shape in shapes:
-            try:
+            with contextlib.suppress(Exception):
                 cNvPr = _shape_cNvPr(shape)
                 if cNvPr is None:
                     continue
                 allowances = _read_lint_allow(cNvPr)
                 if allowances & deleted_ids:
                     _write_lint_allow(cNvPr, allowances - deleted_ids)
-            except Exception:
-                continue
 
     @property
     def shape_type(self) -> MSO_SHAPE_TYPE:
@@ -929,29 +902,27 @@ class BaseShape(object):
 
             slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *box).fill_hex("#0B5CFF")
 
-        Pass ``None`` to clear the fill (the shape inherits from its
-        theme afterwards).  Hex strings, ``RGBColor`` instances, and
-        ``(r, g, b)`` tuples are all accepted.
+        Pass ``None`` to make the shape transparent: it writes an explicit
+        ``<a:noFill/>``, the same as ``shape.fill.background()``.  That is
+        *not* a return to the theme's fill — an auto shape's style would
+        otherwise paint it in the accent colour, and ``None`` overrides
+        that.  Hex strings, ``RGBColor`` instances, and ``(r, g, b)``
+        tuples are all accepted.
         """
         from power_pptx._color import coerce_color
 
         if hex_color is None:
-            # ``fill.background()`` produces a transparent (no-fill)
-            # solid; the closest thing to "clear" without ripping the
-            # element out wholesale.
+            # ``fill.background()`` writes an explicit `<a:noFill/>`, which
+            # overrides the fill a shape style would otherwise supply.
             try:
                 self.fill.background()  # type: ignore[attr-defined]
             except AttributeError as exc:
-                raise AttributeError(
-                    f"{type(self).__name__} does not support fill"
-                ) from exc
+                raise AttributeError(f"{type(self).__name__} does not support fill") from exc
             return self
         try:
             fill = self.fill  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise AttributeError(
-                f"{type(self).__name__} does not support fill"
-            ) from exc
+            raise AttributeError(f"{type(self).__name__} does not support fill") from exc
         fill.solid()
         fill.fore_color.rgb = coerce_color(hex_color)
         return self
@@ -979,9 +950,7 @@ class BaseShape(object):
         try:
             line = self.line  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise AttributeError(
-                f"{type(self).__name__} does not support line"
-            ) from exc
+            raise AttributeError(f"{type(self).__name__} does not support line") from exc
         if hex_color is None:
             line.fill.background()
         else:
@@ -1010,43 +979,68 @@ class BaseShape(object):
         Raises :class:`ValueError` if the shape has no text frame.
         """
         if not getattr(self, "has_text_frame", False):
-            raise ValueError(
-                f"shape {self.name!r} has no text frame; can't replace text"
-            )
+            raise ValueError(f"shape {self.name!r} has no text frame; can't replace text")
         tf = self.text_frame  # type: ignore[attr-defined]
-
-        from copy import deepcopy
-
-        rPr_template = None
-        pPr_template = None
-        first_para = tf.paragraphs[0] if tf.paragraphs else None
-        if first_para is not None:
-            pPr = first_para._p.pPr  # type: ignore[attr-defined]
-            if pPr is not None:
-                pPr_template = deepcopy(pPr)
-            if first_para.runs:
-                rPr = first_para.runs[0]._r.rPr  # type: ignore[attr-defined]
-                if rPr is not None:
-                    rPr_template = deepcopy(rPr)
+        pPr_template, rPr_template = _first_paragraph_formatting(tf)
 
         # Rebuild the body using the high-level text setter; this gives
         # us one paragraph per "\n" with a single run per paragraph.
         tf.text = new_text if new_text else ""
 
         for para in tf.paragraphs:
-            p_elm = para._p  # type: ignore[attr-defined]
             if pPr_template is not None:
-                existing_pPr = p_elm.pPr
-                if existing_pPr is not None:
-                    p_elm._remove_pPr()
-                p_elm._insert_pPr(deepcopy(pPr_template))
+                _replace_pPr(para._p, pPr_template)  # type: ignore[attr-defined]
             if rPr_template is not None:
                 for run in para.runs:
-                    r_elm = run._r  # type: ignore[attr-defined]
-                    if r_elm.rPr is not None:
-                        r_elm._remove_rPr()
-                    r_elm._insert_rPr(deepcopy(rPr_template))
+                    _replace_rPr(run._r, rPr_template)  # type: ignore[attr-defined]
         return self
+
+
+def _iter_shapes_leniently(shapes) -> Iterator[BaseShape]:
+    """Generate each of `shapes` and, depth-first after a group, the shapes inside it.
+
+    A group whose members cannot be walked is passed over: whatever it yielded
+    before failing stands, and the walk carries on with the group's next sibling.
+    """
+    for shape in shapes:
+        yield shape
+        nested = getattr(shape, "shapes", None)
+        if nested is None:
+            continue
+        with contextlib.suppress(Exception):
+            yield from _iter_shapes_leniently(nested)
+
+
+def _first_paragraph_formatting(text_frame) -> tuple:
+    """`(pPr, rPr)`: copies of the first paragraph's `a:pPr` and its first run's `a:rPr`.
+
+    Either is |None| when there is no such element to copy.
+    """
+    paragraphs = text_frame.paragraphs
+    if not paragraphs:
+        return None, None
+    first_para = paragraphs[0]
+    pPr = first_para._p.pPr
+    runs = first_para.runs
+    rPr = runs[0]._r.rPr if runs else None
+    return (
+        None if pPr is None else deepcopy(pPr),
+        None if rPr is None else deepcopy(rPr),
+    )
+
+
+def _replace_pPr(p, pPr_template) -> None:
+    """Give paragraph element `p` a copy of `pPr_template` in place of any `a:pPr` it has."""
+    if p.pPr is not None:
+        p._remove_pPr()
+    p._insert_pPr(deepcopy(pPr_template))
+
+
+def _replace_rPr(r, rPr_template) -> None:
+    """Give run element `r` a copy of `rPr_template` in place of any `a:rPr` it has."""
+    if r.rPr is not None:
+        r._remove_rPr()
+    r._insert_rPr(deepcopy(rPr_template))
 
 
 class _PlaceholderFormat(ElementProxy):

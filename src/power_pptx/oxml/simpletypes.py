@@ -9,6 +9,7 @@ attributes. Naming generally corresponds to the simple type in the associated XM
 
 from __future__ import annotations
 
+import math
 import numbers
 from typing import Any
 
@@ -245,6 +246,10 @@ class ST_Angle(XsdInt):
     @classmethod
     def validate(cls, value):
         BaseFloatType.validate(value)
+        # -- NaN and infinity have no integer form; say so here, before the
+        # -- caller has created the element the attribute is destined for
+        if not math.isfinite(value):
+            raise ValueError("angle must be a finite number of degrees, got %s" % value)
 
 
 class ST_AxisUnit(XsdDouble):
@@ -640,14 +645,13 @@ class ST_PositiveFixedAngle(ST_Angle):
         """Convert signed angle float like -427.42 to int 60000 per degree.
 
         Value is normalized to a positive value less than 360 degrees.
-        """
-        if degrees < 0.0:
-            degrees %= -360
-            degrees += 360
-        elif degrees > 0.0:
-            degrees %= 360
 
-        return str(int(round(degrees * cls.DEGREE_INCREMENTS)))
+        The modulo is taken on the *rounded* integer, not on the float. Folding
+        the float first lets a value a hair under a full turn (-360, 359.9999999,
+        -1e-6) round up to exactly 21600000, which the schema excludes
+        (`maxExclusive`) and PowerPoint rejects.
+        """
+        return str(int(round(degrees * cls.DEGREE_INCREMENTS)) % cls.THREE_SIXTY)
 
 
 class ST_PositiveFixedPercentage(ST_Percentage):
@@ -675,16 +679,41 @@ class ST_SlideId(XsdUnsignedInt):
 
 
 class ST_SlideSizeCoordinate(BaseIntType):
+    """A slide width or height, between `MIN_SLIDE_SIZE` and `MAX_SLIDE_SIZE`.
+
+    The limits (1 and 56 inches) are public as
+    :data:`power_pptx.util.MIN_SLIDE_SIZE` and
+    :data:`power_pptx.util.MAX_SLIDE_SIZE`;
+    :func:`power_pptx.util.fit_slide_size` scales a size that is outside them
+    to one that is not.
+    """
+
     @classmethod
     def convert_from_xml(cls, str_value):
         return Emu(str_value)
 
     @classmethod
-    def validate(cls, value):
+    def validate(cls, value, what="slide width and height"):
+        """Raise unless `value` is an integer number of EMU inside the limits.
+
+        `what` names the offending dimension in the message, for a caller
+        that knows which one it is checking.
+        """
+        from power_pptx.util import MAX_SLIDE_SIZE, MIN_SLIDE_SIZE
+
         cls.validate_int(value)
-        if value < 914400 or value > 51206400:
+        if value < MIN_SLIDE_SIZE or value > MAX_SLIDE_SIZE:
             raise ValueError(
-                "value must be in range(914400, 51206400) (1-56 inches), got %d" % value
+                "%s must be between %g and %g inches (%d to %d EMU), got %g inches (%d EMU)"
+                % (
+                    what,
+                    MIN_SLIDE_SIZE.inches,
+                    MAX_SLIDE_SIZE.inches,
+                    MIN_SLIDE_SIZE,
+                    MAX_SLIDE_SIZE,
+                    Emu(value).inches,
+                    value,
+                )
             )
 
 

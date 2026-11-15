@@ -265,6 +265,63 @@ def bulleted_list(slide, left: float, top: float, width: float,
         p.space_after = Pt(6)
 
 
+def table_header_row(table, labels: Iterable[str], tokens: DesignTokens, *,
+                     size: int = 12) -> None:
+    """Bold *labels* on the brand primary colour across the first table row."""
+    for c, label in enumerate(labels):
+        cell = table.cell(0, c)
+        cell.text = label
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = hex_rgb(tokens.palette["primary"])
+        p = cell.text_frame.paragraphs[0]
+        p.font.bold = True
+        p.font.size = Pt(size)
+        p.font.color.rgb = hex_rgb(tokens.palette["on_primary"])
+        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+
+
+def table_body_text(cell, value: str, tokens: DesignTokens, *, size: int = 12):
+    """Write *value* into a body cell in the neutral ink; return its paragraph."""
+    cell.text = value
+    p = cell.text_frame.paragraphs[0]
+    p.font.size = Pt(size)
+    p.font.color.rgb = hex_rgb(tokens.palette["neutral"])
+    return p
+
+
+def status_cell(cell, text: str, hex_fill: str) -> None:
+    """A white, bold, centred status label on a solid colour (RAG columns)."""
+    cell.text = text
+    shade_cell(cell, hex_fill)
+    p = cell.text_frame.paragraphs[0]
+    p.font.size = Pt(11)
+    p.font.bold = True
+    p.font.color.rgb = hex_rgb("#FFFFFF")
+    p.alignment = PP_ALIGN.CENTER
+
+
+def shade_cell(cell, hex_fill: str) -> None:
+    """Solid background for a table cell — zebra stripes and highlights."""
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = hex_rgb(hex_fill)
+
+
+def hairline_below(cell) -> None:
+    """Thin light-grey rule along the bottom edge of a table cell."""
+    cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
+    cell.borders.bottom.width = Pt(0.5)
+
+
+def color_delta(p, value: str, tokens: DesignTokens) -> None:
+    """Bold red for a negative ("−") delta, bold green for a positive ("+") one."""
+    if value.startswith("−"):
+        p.font.color.rgb = hex_rgb(tokens.palette["negative"])
+        p.font.bold = True
+    elif value.startswith("+"):
+        p.font.color.rgb = hex_rgb(tokens.palette["positive"])
+        p.font.bold = True
+
+
 def number_label(slide, left: float, top: float, n: int, tokens: DesignTokens) -> None:
     """Numbered circle marker in the brand primary color."""
     circle = slide.shapes.add_shape(

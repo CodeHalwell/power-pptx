@@ -24,6 +24,26 @@ For a whole deck, iterate the slides yourself::
     for slide in prs.slides:
         all_issues.extend(slide.lint().issues)
 
+or call :func:`power_pptx.audit() <power_pptx.audit.audit>`, which adds
+checks the slide linter does not make — pictures that are broken or larger
+than ``size_warn_bytes``, slides
+with nothing but decoration on them, and fonts outside a conservative list of
+commonly installed ones (each reported once per slide; theme references such
+as ``+mn-lt`` count as the theme font they stand for)::
+
+    from power_pptx import audit
+
+    report = audit(prs)
+    report.has_errors
+    print(report.markdown())       # also .to_dict() and .to_json()
+
+:func:`power_pptx.accessibility.audit_accessibility` is the same kind of
+report for screen-reader problems: a picture with no alt text, or only the
+file name ``add_picture`` fills in (an ERROR, placeholders included); a slide
+with no title; and text whose contrast against its fill is below 4.5:1, judged
+as ``LowContrast`` judges it.  Like ``slide.lint()``, neither audit changes
+the deck.
+
 The :func:`power_pptx.compose.from_spec` entry point also accepts a
 deck-level ``"lint": "warn" | "raise"`` field that walks every slide
 and surfaces issues for you, and any presentation — however it was
@@ -33,39 +53,74 @@ built — can be checked at save time with
 Issue types
 -----------
 
-* :class:`power_pptx.lint.TextOverflow` — estimated text extent exceeds the
-  text-frame extent.  The current implementation uses a fast
-  character/line-count heuristic (default character width of
-  ``0.55 × pt``, line height of ``1.2 × pt``) and respects text-frame
-  margins; shapes with ``auto_size`` set to ``TEXT_TO_FIT_SHAPE`` or
-  ``SHAPE_TO_FIT_TEXT`` are skipped because they cannot overflow by
-  definition.
+* :class:`power_pptx.lint.TextOverflow` — text does not fit its text frame.
+  The text is laid out with the same Pillow font metrics
+  :meth:`TextFrame.fit_text <power_pptx.text.text.TextFrame.fit_text>` uses:
+  every run at its effective size and typeface (run, then paragraph, then the
+  placeholder and master it inherits from), wrapped inside the frame's
+  margins where ``fit_text`` breaks lines (at spaces, after hyphens and
+  dashes, between East Asian characters, at the slashes of a long path) and
+  stacked at its line and paragraph spacing.  Text in groups and
+  table cells is checked too (except a cell whose text is rotated or
+  stacked), and a frame ``fit_text`` has sized is never flagged.  When a typeface is not installed the engine's fallback metrics
+  are used, without a warning, and the issue's ``estimated`` is ``True``.
+
+  A fixed-size frame (``MSO_AUTO_SIZE.NONE`` or no setting) that overflows
+  is an ERROR.  A frame set to ``SHAPE_TO_FIT_TEXT`` (what ``add_textbox``
+  and ``add_text`` create) or ``TEXT_TO_FIT_SHAPE``, and a table row shorter
+  than its text, are a WARNING: |pp| only writes the auto-size flag, so the
+  stored geometry is stale, but a renderer repairs it when the deck is
+  opened or the text edited.  ``ratio``, ``dimension``, ``overflow_pt`` and
+  ``auto_size`` describe the overflow; for a table row, ``row`` and ``col``
+  name the cell with the most text.
 * :class:`power_pptx.lint.OffSlide` — a shape is wholly or partly outside the
-  slide bounds.
+  slide bounds.  A rotated shape is judged by the area its rotated frame
+  covers, and a ``SHAPE_TO_FIT_TEXT`` shape by the box it grows into (down
+  from a top anchor, up from a bottom anchor, both ways from the middle).
 * :class:`power_pptx.lint.ShapeCollision` — two shapes' bounding boxes overlap
-  significantly.  See :ref:`lint-groups` for the three ways to declare that an
-  overlap is intentional.
+  significantly (again the rotated, grown boxes).  A connector collides only
+  with what its line runs into.  See :ref:`lint-groups` for the three ways to
+  declare that an overlap is intentional.
 * :class:`power_pptx.lint.MinFontSize` — a text run is below the configured
   legibility threshold (default 9pt).
 * :class:`power_pptx.lint.OffGridDrift` — a shape's left or top edge is
   slightly off a dominant column/row that several other shapes hit cleanly.
-  Auto-fixable: :meth:`SlideLintReport.auto_fix` snaps the drifted edge onto
-  the grid.
-* :class:`power_pptx.lint.LowContrast` — text and resolved background fill
-  have a WCAG contrast ratio below 4.5:1.  Resolves only solid RGB fills
-  (theme colors and gradients are skipped silently to avoid false
-  positives).
-* :class:`power_pptx.lint.ZOrderAnomaly` — a filled shape is drawn above a
-  shape it visually contains, hiding the inner shape at render time.
+  A shape whose right or bottom edge sits on a grid line (bars on a shared
+  baseline) is aligned there on purpose and not flagged.  Auto-fixable with
+  ``auto_fix(fix_grid_drift=True)``, which snaps the drifted edge onto the
+  grid.
+* :class:`power_pptx.lint.LowContrast` — text and the colour painted behind
+  it (the shape's own fill, a filled card drawn beneath it, or the slide's
+  background) have a WCAG contrast ratio below 4.5:1.  Only an explicit RGB
+  text colour on a solid RGB backdrop is judged; theme colours, gradients,
+  translucent fills, pictures and partial covers are skipped rather than
+  guessed at.
+* :class:`power_pptx.lint.ZOrderAnomaly` — a shape with a fully opaque fill
+  is drawn above a shape it visually contains, hiding the inner shape at
+  render time.  A translucent fill hides nothing, and the declarations in
+  :ref:`lint-groups` mark the stacking as intended.
 * :class:`power_pptx.lint.LayerOrderViolation` — a shape declares
   ``layer_above = "..."`` but is drawn *below* a shape in that layer, so it
   will be hidden at render time.  Severity ERROR, because the declaration
   records what the author meant and the drawing order is what failed to
-  deliver it.  Auto-fixable: :meth:`SlideLintReport.auto_fix` restacks the
-  declaring shape.  See :ref:`lint-groups`.
+  deliver it.  Auto-fixable:
+  :meth:`~power_pptx.lint.SlideLintReport.auto_fix` restacks the declaring
+  shape.  See :ref:`lint-groups`.
 * :class:`power_pptx.lint.MasterPlaceholderCollision` — a non-placeholder
   shape sits at exactly the position of a layout placeholder it should
   likely have inherited from instead of redrawing.
+* :class:`power_pptx.lint.InvalidGeometry` — a shape's stored width or height
+  is negative.  Severity ERROR: negative extents are schema-invalid, so
+  PowerPoint reports the file as needing repair.  The shape is left out of
+  the other geometric checks.
+* :class:`power_pptx.lint.RaggedEdge` — a filled panel stops short of the
+  bottom edge the panels beside it share, with nothing beneath it (side-by-side
+  cards of different heights).  Severity WARNING.
+
+``slide.lint(include_effect_bleed=True)`` also widens each shape by its
+shadow's blur before the off-slide and collision checks, and reports what
+only the shadow causes as ``OffSlideShadow`` and ``ShapeCollisionShadow``, so
+those can be silenced separately with ``shape.lint_skip``.
 
 Each issue carries a ``severity`` (:class:`~power_pptx.lint.LintSeverity`),
 a ``code`` string, a human-readable ``message``, and a ``shapes``
@@ -85,17 +140,26 @@ rather than a second ``slide.lint()`` call.
 
 Currently auto-fixable:
 
-* ``OffSlide`` — clamps the shape on-slide.  A shape larger than the
-  slide is shrunk first (translation alone can never fix that), then
-  nudged inside the bounds.  A shape that triggered several ``OffSlide``
-  issues (left *and* right, say) is clamped once, not twice.
-* ``OffGridDrift`` — snaps the drifted edge onto the dominant grid line.
-* ``TextOverflow`` — flips the offending text frame to
-  ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` so PowerPoint shrinks the runs at
-  render time.  Non-destructive: the text is preserved verbatim, only the
-  render-time sizing changes.  For a size baked into the XML before save,
-  use ``text_frame.fit_text(...)`` instead, which measures with real
-  Pillow font metrics.
+* ``OffSlide`` — moves the shape so the area it covers (rotated, and grown
+  to its text) is on the slide.  A shape larger than the slide is shrunk
+  first (translation alone can never fix that): a picture or a group
+  proportionally, so the image is not distorted and the group's members are
+  not squashed; anything else along the axis that is too long.  A shape that
+  triggered several ``OffSlide`` issues (left *and* right, say) is clamped
+  once, not twice.
+* ``OffGridDrift`` — only with ``auto_fix(fix_grid_drift=True)``: snaps the
+  drifted edge onto the dominant grid line.  Off by default, as in
+  :meth:`Slide.tidy <power_pptx.slide.Slide.tidy>`.
+* ``TextOverflow`` — makes the text fit, the way the frame's own auto-size
+  setting asks.  A frame with no setting, or ``TEXT_TO_FIT_SHAPE``, is set
+  to shrink text with the font scale that fits stored on it (the values
+  PowerPoint stores when it shrinks text itself — the bare flag would
+  shrink nothing until the text was next edited); a ``SHAPE_TO_FIT_TEXT``
+  shape is resized to its text; a frame set to ``NONE`` keeps that setting
+  and has its font sizes reduced in place, as ``fit_text`` does; a table
+  row is grown to its text.  The text is always preserved verbatim.  Text
+  that would have to shrink below a quarter of its size is left alone and
+  stays in the report.
 * ``LayerOrderViolation`` — restacks the shape that declared
   ``layer_above`` so it sits immediately after the layer it named.  This
   is the one collision-adjacent fix that needs no designer judgment: the
@@ -119,7 +183,12 @@ flags most decks want by default::
 
 ``fix_offslide``, ``fix_overflow`` and ``fix_layer_order`` default to
 ``True``; ``fix_grid_drift`` defaults to ``False``, because the snap can
-move a shape by several EMU when the inferred grid is wrong.
+pull a shape off an alignment the author meant when the inferred grid is
+wrong.
+
+``slide.lint()`` never changes the slide, and ``disable=[...]`` /
+``min_severity=...`` skip the rules they exclude rather than computing and
+discarding them, so they also make linting faster.
 
 .. _lint-groups:
 
@@ -319,3 +388,95 @@ Recommended pattern for generators
 
 When building through :func:`power_pptx.compose.from_spec`, the
 ``"lint": "raise"`` field on the spec dict is the equivalent of step 2.
+
+
+.. _lint-cli:
+
+From the command line
+---------------------
+
+``power-pptx lint`` checks saved decks without any Python, which is what
+a CI job needs when one step builds the decks and another has to gate
+them.  It runs :meth:`Slide.lint() <power_pptx.slide.Slide.lint>` on every
+slide of every deck it is given::
+
+    power-pptx lint deck.pptx
+    power-pptx lint build/*.pptx --fail-on warning
+
+The default report is grouped by slide, with the slide's title when it has
+one, and only the slides that have something to report::
+
+    deck.pptx: 2 issues on 2 of 3 slides (1 error, 1 warning)
+
+      Slide 1: Quarterly review
+        error    OffSlide        Shape 'Runaway' extends beyond the right edge of the slide.
+
+      Slide 3 (hidden)
+        warning  ShapeCollision  Shapes 'Card A' and 'Card B' overlap (33% of ...
+
+Hidden slides are linted like any other and marked as such.
+
+Exit status
+~~~~~~~~~~~
+
+=====  ===================================================================
+``0``  No issue at or above the ``--fail-on`` level.
+``1``  At least one issue at or above the ``--fail-on`` level.
+``2``  A usage error, or a deck that could not be read (or, with
+       ``--fix``, written).
+=====  ===================================================================
+
+``--fail-on`` is ``error`` (the default), ``warning`` or ``never``.
+Informational issues never fail a run.  A deck that cannot be read makes the
+run exit ``2`` even with ``--fail-on never``; the decks that could be read
+are reported all the same, and the reason goes to standard error.
+
+``--min-severity info|warning|error`` leaves the lower issues out of the
+report, and out of the exit status too.
+
+Machine-readable reports
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--format json`` writes one JSON document for the whole run::
+
+    power-pptx lint deck.pptx --format json > lint.json
+
+It holds a ``decks`` list, the total ``issue_count`` and ``counts`` by
+severity, and the ``min_severity``, ``fail_on`` and ``exit_code`` of the run.
+Each deck has its ``path``, its counts and a ``slides`` list in which every
+entry is that slide's :meth:`SlideLintReport.to_dict()
+<power_pptx.lint.SlideLintReport.to_dict>` plus ``index``, ``number``,
+``title`` and ``hidden``.  A deck that could not be read is just
+``{"path": ..., "error": ...}``.
+
+``--format sarif`` writes SARIF 2.1.0, the format GitHub code scanning
+uploads::
+
+    power-pptx lint build/*.pptx --format sarif > lint.sarif
+
+Each deck is one run, made by :func:`power_pptx.lint.lint_report_to_sarif`
+and tagged with the deck's path (in ``automationDetails.id`` and
+``properties.deck``) so that the runs of several decks stay apart.
+
+Fixing as well
+~~~~~~~~~~~~~~
+
+``--fix`` applies the safe automatic fixes of :meth:`Slide.tidy()
+<power_pptx.slide.Slide.tidy>` -- clamping off-slide shapes, making
+overflowing text fit, restacking contradicted layers -- and then reports
+what is left; the exit status is judged on that too.  It needs to be told
+where to write the result (``--output PATH``, or ``-o PATH``), and never
+overwrites the input unless asked to::
+
+    power-pptx lint deck.pptx --fix --output tidied.pptx
+    power-pptx lint build/*.pptx --fix --output tidied/      # a directory
+    power-pptx lint deck.pptx --fix --in-place               # overwrite the deck
+
+``--output`` names a directory when several decks are given, when it ends
+with a path separator or when it is an existing directory; each deck keeps
+its file name there.  An ``--output`` that would land on one of the inputs
+is refused, as is a run that would write two decks of the same name to one
+directory -- before any deck is opened, so nothing is half done.
+``--in-place`` rewrites a deck only when a fix changed it.  A deck is written
+to a temporary file and moved into place, so an existing file is never left
+half-written.

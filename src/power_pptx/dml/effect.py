@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING, Callable
 from power_pptx.dml.color import ColorFormat
 from power_pptx.enum.dml import MSO_THEME_COLOR
 from power_pptx.oxml.ns import qn
+from power_pptx.oxml.simpletypes import (
+    ST_PositiveCoordinate,
+    ST_PositiveFixedAngle,
+    ST_PositiveFixedPercentage,
+)
+from power_pptx.util import _coerce_emu
 
 # `<a:outerShdw>`, `<a:innerShdw>`, and `<a:glow>` each require *exactly one*
 # EG_ColorChoice child per the OOXML schema (minOccurs=1).  PowerPoint reports a
@@ -32,6 +38,125 @@ def _ensure_effect_color(el) -> None:
     from power_pptx.dml.color import RGBColor
 
     ColorFormat.from_colorchoice_parent(el).rgb = RGBColor(0x00, 0x00, 0x00)
+
+
+# ---------------------------------------------------------------------------
+# Validation — every setter checks its value *before* it creates any XML.
+#
+# The effect elements are created lazily, and several of them are not neutral
+# when empty: `<a:softEdge/>` is missing its required `rad`, a bare
+# `<a:reflection/>` is a full default reflection, and a colour-only
+# `<a:outerShdw>` silently replaces the theme shadow.  A setter that created
+# the element and only then discovered the value was unusable left that behind,
+# so the value is settled first and the element is only touched on success.
+# ---------------------------------------------------------------------------
+
+
+def _validated_length(value) -> int:
+    """Return `value` as a whole, non-negative number of EMU.
+
+    Floats are rounded, so arithmetic on lengths (``Pt(6) / 2``) works here the
+    way it does for ``shape.left``.  Raises |TypeError| for a value that is not
+    a number and |ValueError| for one outside the schema range.
+    """
+    emu = _coerce_emu(value)
+    ST_PositiveCoordinate.validate(emu)
+    return emu
+
+
+def _validated_angle(value: float) -> float:
+    """Return `value` if it is usable as an angle in degrees, else raise."""
+    ST_PositiveFixedAngle.validate(value)
+    return value
+
+
+def _validated_fraction(value: float) -> float:
+    """Return `value` if it is a number in `[0.0, 1.0]`, else raise."""
+    ST_PositiveFixedPercentage.validate(value)
+    # -- NaN compares false to both bounds, so the range check lets it through
+    if value != value:
+        raise ValueError("value must be in range 0.0 to 1.0 inclusive, got %s" % value)
+    return value
+
+
+def _validated_rgb(value):
+    """Return `value` as an |RGBColor|, raising |ValueError| if it is not colour-like."""
+    from power_pptx._color import coerce_color
+
+    try:
+        return coerce_color(value)
+    except (TypeError, ValueError) as exc:
+        # -- same exception type `ColorFormat.rgb` raises for a bad colour --
+        raise ValueError(str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Clearing — assigning `None` has to give the theme its say back.
+# ---------------------------------------------------------------------------
+
+
+def _is_default_effect_color(clr) -> bool:
+    """True if `clr` is exactly the colour `_ensure_effect_color()` inserts."""
+    return clr.tag == qn("a:srgbClr") and len(clr) == 0 and dict(clr.attrib) == {"val": "000000"}
+
+
+def _remove_effect(effect) -> None:
+    """Remove `effect` from its `<a:effectLst>`, and the list too if that empties it.
+
+    An empty `<a:effectLst/>` is not the same as no list: it tells the renderer
+    "this shape has no effects" and so overrides the theme's effect style.
+    Leaving one behind after the last explicit effect is cleared would keep the
+    shape from inheriting again, which is the whole point of clearing.
+    """
+    effectLst = effect.getparent()
+    if effectLst is None:
+        return
+    effectLst.remove(effect)
+    parent = effectLst.getparent()
+    if len(effectLst) == 0 and parent is not None:
+        parent.remove(effectLst)
+
+
+def _drop_effect_if_spent(effect) -> None:
+    """Remove `effect` once it no longer says anything of its own.
+
+    That is the case when it has no attributes left and no colour other than
+    the opaque black this module inserts to satisfy the schema.  A colour the
+    caller chose (anything but plain black) is kept: it is explicit state, and
+    is cleared by assigning |None| to the effect's `color`.
+    """
+    if effect.attrib:
+        return
+    children = list(effect)
+    if len(children) > 1 or (children and not _is_default_effect_color(children[0])):
+        return
+    _remove_effect(effect)
+
+
+def _clear_effect_attr(effect, attr_name: str) -> None:
+    """Remove `attr_name` from `effect` (if any), then drop the element if spent."""
+    if effect is None:
+        return
+    effect.attrib.pop(attr_name, None)
+    _drop_effect_if_spent(effect)
+
+
+def _clear_effect_color(effect) -> None:
+    """Forget the explicit colour on `effect`, a shadow or glow element.
+
+    The schema requires a colour on these elements, so when the element still
+    carries geometry the colour falls back to the default black; otherwise the
+    element has nothing left to say and is removed.
+    """
+    if effect is None:
+        return
+    for child in list(effect):
+        if child.tag in _EFFECT_COLOR_TAGS:
+            effect.remove(child)
+    if effect.attrib:
+        _ensure_effect_color(effect)
+    else:
+        _remove_effect(effect)
 
 
 #: The three shadow effects, wherever they appear — a flat `<a:effectLst>` or
@@ -121,7 +246,8 @@ class _LazyEffectColorFormat:
 
     @rgb.setter
     def rgb(self, value: RGBColor):
-        self._ensure_cf().rgb = value
+        rgb = _validated_rgb(value)
+        self._ensure_cf().rgb = rgb
 
     @property
     def theme_color(self) -> MSO_THEME_COLOR:
@@ -130,6 +256,8 @@ class _LazyEffectColorFormat:
 
     @theme_color.setter
     def theme_color(self, value: MSO_THEME_COLOR):
+        # -- raises for a value that has no XML form, before anything is created --
+        MSO_THEME_COLOR.to_xml(value)
         self._ensure_cf().theme_color = value
 
     @property
@@ -153,8 +281,13 @@ class _LazyEffectColorFormat:
 
     @alpha.setter
     def alpha(self, value: float | None):
+        if value is not None:
+            ColorFormat._validate_alpha_value(value)  # pyright: ignore[reportPrivateUsage]
         cf = self._existing_cf()
         if cf is None:
+            if value is None:
+                # -- nothing to clear; don't conjure up an effect to hold "no alpha" --
+                return
             # No colour set yet.  Rather than force callers to set ``.rgb``
             # first, default to opaque black — shadows (and glows) are almost
             # always black, so an alpha-only assignment is the common case.
@@ -180,6 +313,17 @@ class ShadowFormat(object):
     All property reads are non-mutating: if no explicit shadow is set, None is
     returned rather than writing a default into the XML.  Assigning to a
     property creates the `<a:effectLst>`/`<a:outerShdw>` hierarchy on demand.
+
+    Lengths may be whole EMU or floats (``Pt(8) / 2``); a value is checked
+    before anything is written, so a rejected assignment leaves the shape as it
+    was.
+
+    Assigning |None| to a property clears it.  Once ``blur_radius``,
+    ``distance`` and ``direction`` are all cleared and no colour of the
+    caller's choosing is left, the `<a:outerShdw>` element is removed — and
+    the `<a:effectLst>` with it if that was its last effect — so the shape
+    goes back to inheriting the theme's shadow.  A colour that was set
+    explicitly is cleared with ``shadow.color = None``.
 
     The legacy `inherit` read/write property is retained for backward
     compatibility but is deprecated; prefer reading individual properties for
@@ -306,10 +450,10 @@ class ShadowFormat(object):
     @blur_radius.setter
     def blur_radius(self, value: Length | None):
         if value is None:
-            if self._outerShdw is not None:
-                self._outerShdw.blurRad = None  # type: ignore[assignment]
+            _clear_effect_attr(self._outerShdw, "blurRad")
         else:
-            self._get_or_add_outerShdw().blurRad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_outerShdw().blurRad = emu  # type: ignore[assignment]
 
     @property
     def distance(self) -> Length | None:
@@ -320,10 +464,10 @@ class ShadowFormat(object):
     @distance.setter
     def distance(self, value: Length | None):
         if value is None:
-            if self._outerShdw is not None:
-                self._outerShdw.dist = None  # type: ignore[assignment]
+            _clear_effect_attr(self._outerShdw, "dist")
         else:
-            self._get_or_add_outerShdw().dist = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_outerShdw().dist = emu  # type: ignore[assignment]
 
     @property
     def direction(self) -> float | None:
@@ -334,10 +478,10 @@ class ShadowFormat(object):
     @direction.setter
     def direction(self, value: float | None):
         if value is None:
-            if self._outerShdw is not None:
-                self._outerShdw.dir = None  # type: ignore[assignment]
+            _clear_effect_attr(self._outerShdw, "dir")
         else:
-            self._get_or_add_outerShdw().dir = value  # type: ignore[assignment]
+            degrees = _validated_angle(value)
+            self._get_or_add_outerShdw().dir = degrees  # type: ignore[assignment]
 
     @property
     def color(self) -> _LazyEffectColorFormat:
@@ -351,11 +495,15 @@ class ShadowFormat(object):
         return _LazyEffectColorFormat(lambda: self._outerShdw, self._get_or_add_outerShdw)
 
     @color.setter
-    def color(self, value: RGBColor) -> None:
+    def color(self, value: RGBColor | None) -> None:
         # Convenience setter so ``shape.shadow.color = RGBColor(...)`` works in
         # addition to ``shape.shadow.color.rgb = RGBColor(...)`` (parity with
-        # ThreeDFormat.extrusion_color / contour_color).
-        self.color.rgb = value
+        # ThreeDFormat.extrusion_color / contour_color).  ``None`` forgets the
+        # explicit colour, which is the one thing the geometry setters keep.
+        if value is None:
+            _clear_effect_color(self._outerShdw)
+        else:
+            self.color.rgb = value
 
     # ------------------------------------------------------------------
     # Internals
@@ -407,10 +555,10 @@ class InnerShadowFormat(object):
     @blur_radius.setter
     def blur_radius(self, value: Length | None):
         if value is None:
-            if self._innerShdw is not None:
-                self._innerShdw.blurRad = None  # type: ignore[assignment]
+            _clear_effect_attr(self._innerShdw, "blurRad")
         else:
-            self._get_or_add_innerShdw().blurRad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_innerShdw().blurRad = emu  # type: ignore[assignment]
 
     @property
     def distance(self) -> Length | None:
@@ -421,10 +569,10 @@ class InnerShadowFormat(object):
     @distance.setter
     def distance(self, value: Length | None):
         if value is None:
-            if self._innerShdw is not None:
-                self._innerShdw.dist = None  # type: ignore[assignment]
+            _clear_effect_attr(self._innerShdw, "dist")
         else:
-            self._get_or_add_innerShdw().dist = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_innerShdw().dist = emu  # type: ignore[assignment]
 
     @property
     def direction(self) -> float | None:
@@ -435,10 +583,10 @@ class InnerShadowFormat(object):
     @direction.setter
     def direction(self, value: float | None):
         if value is None:
-            if self._innerShdw is not None:
-                self._innerShdw.dir = None  # type: ignore[assignment]
+            _clear_effect_attr(self._innerShdw, "dir")
         else:
-            self._get_or_add_innerShdw().dir = value  # type: ignore[assignment]
+            degrees = _validated_angle(value)
+            self._get_or_add_innerShdw().dir = degrees  # type: ignore[assignment]
 
     @property
     def color(self) -> _LazyEffectColorFormat:
@@ -452,10 +600,14 @@ class InnerShadowFormat(object):
         return _LazyEffectColorFormat(lambda: self._innerShdw, self._get_or_add_innerShdw)
 
     @color.setter
-    def color(self, value: RGBColor) -> None:
+    def color(self, value: RGBColor | None) -> None:
         # Convenience setter so ``shape.inner_shadow.color = RGBColor(...)``
         # works in addition to ``shape.inner_shadow.color.rgb = RGBColor(...)``.
-        self.color.rgb = value
+        # ``None`` forgets the explicit colour (see `ShadowFormat.color`).
+        if value is None:
+            _clear_effect_color(self._innerShdw)
+        else:
+            self.color.rgb = value
 
     # ------------------------------------------------------------------
     # Internals
@@ -492,6 +644,10 @@ class PresetShadowFormat(object):
     ``color`` before a preset defaults the preset to ``shdw1``.  All reads are
     non-mutating and return ``None`` (or the "no color" sentinel) when no
     explicit preset shadow is present.
+
+    Because the preset is what defines the effect, clearing ``distance`` or
+    ``direction`` leaves the preset shadow in place; assign ``preset = None``
+    to remove it and inherit from the theme again.
     """
 
     def __init__(self, spPr: CT_ShapeProperties):
@@ -507,12 +663,14 @@ class PresetShadowFormat(object):
     def preset(self, value: MSO_PRESET_SHADOW | str | None):
         if value is None:
             # The whole element hinges on `prst`; clearing the preset removes
-            # the element so theme inheritance is restored.
-            effectLst: CT_EffectList | None = self._element.effectLst
-            if effectLst is not None and effectLst.prstShdw is not None:
-                effectLst._remove_prstShdw()  # pyright: ignore[reportPrivateUsage]
+            # the element (and an `<a:effectLst>` it leaves empty) so theme
+            # inheritance is restored.
+            prstShdw = self._prstShdw
+            if prstShdw is not None:
+                _remove_effect(prstShdw)
             return
-        self._get_or_add_prstShdw().prst = self._coerce_preset(value)  # type: ignore[assignment]
+        preset = self._coerce_preset(value)
+        self._get_or_add_prstShdw().prst = preset  # type: ignore[assignment]
 
     @property
     def distance(self) -> Length | None:
@@ -526,7 +684,8 @@ class PresetShadowFormat(object):
             if self._prstShdw is not None:
                 self._prstShdw.dist = None  # type: ignore[assignment]
         else:
-            self._get_or_add_prstShdw().dist = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_prstShdw().dist = emu  # type: ignore[assignment]
 
     @property
     def direction(self) -> float | None:
@@ -540,7 +699,8 @@ class PresetShadowFormat(object):
             if self._prstShdw is not None:
                 self._prstShdw.dir = None  # type: ignore[assignment]
         else:
-            self._get_or_add_prstShdw().dir = value  # type: ignore[assignment]
+            degrees = _validated_angle(value)
+            self._get_or_add_prstShdw().dir = degrees  # type: ignore[assignment]
 
     @property
     def color(self) -> _LazyEffectColorFormat:
@@ -554,8 +714,13 @@ class PresetShadowFormat(object):
         return _LazyEffectColorFormat(lambda: self._prstShdw, self._get_or_add_prstShdw)
 
     @color.setter
-    def color(self, value: RGBColor) -> None:
-        self.color.rgb = value
+    def color(self, value: RGBColor | None) -> None:
+        # ``None`` puts the default colour back; the element itself stays, since
+        # it is the preset (cleared with ``preset = None``) that defines it.
+        if value is None:
+            _clear_effect_color(self._prstShdw)
+        else:
+            self.color.rgb = value
 
     # ------------------------------------------------------------------
     # Internals
@@ -563,12 +728,17 @@ class PresetShadowFormat(object):
 
     @staticmethod
     def _coerce_preset(value: MSO_PRESET_SHADOW | str) -> MSO_PRESET_SHADOW:
-        """Accept an :class:`MSO_PRESET_SHADOW` member or a ``"shdw1".."shdw20"`` string."""
+        """Accept an :class:`MSO_PRESET_SHADOW` member or a ``"shdw1".."shdw20"`` string.
+
+        Raises |ValueError| for anything else, so a bad value is rejected
+        before the `<a:prstShdw>` element is created.
+        """
         from power_pptx.enum.dml import MSO_PRESET_SHADOW
 
         if isinstance(value, str):
             return MSO_PRESET_SHADOW.from_xml(value)
-        return value
+        MSO_PRESET_SHADOW.to_xml(value)
+        return MSO_PRESET_SHADOW(value)
 
     @property
     def _prstShdw(self) -> CT_PresetShadowEffect | None:
@@ -596,7 +766,9 @@ class GlowFormat(object):
     """Provides access to the glow effect on a shape.
 
     All property reads are non-mutating; assigning a non-None value lazily
-    creates the `<a:effectLst>`/`<a:glow>` hierarchy.
+    creates the `<a:effectLst>`/`<a:glow>` hierarchy.  Assigning |None| to
+    ``radius`` removes the glow again unless it carries a colour the caller
+    chose, which ``glow.color = None`` clears.
     """
 
     def __init__(self, spPr: CT_ShapeProperties):
@@ -611,11 +783,12 @@ class GlowFormat(object):
     @radius.setter
     def radius(self, value: Length | None):
         if value is None:
-            # Only remove the attribute — preserves any explicitly set color.
-            if self._glow is not None:
-                self._glow.rad = None  # type: ignore[assignment]
+            # A colour the caller chose is kept; a glow left with nothing but
+            # the default black is removed so the theme is inherited again.
+            _clear_effect_attr(self._glow, "rad")
         else:
-            self._get_or_add_glow().rad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_glow().rad = emu  # type: ignore[assignment]
 
     @property
     def color(self) -> _LazyEffectColorFormat:
@@ -629,10 +802,14 @@ class GlowFormat(object):
         return _LazyEffectColorFormat(lambda: self._glow, self._get_or_add_glow)
 
     @color.setter
-    def color(self, value: RGBColor) -> None:
+    def color(self, value: RGBColor | None) -> None:
         # Convenience setter so ``shape.glow.color = RGBColor(...)`` works in
-        # addition to ``shape.glow.color.rgb = RGBColor(...)``.
-        self.color.rgb = value
+        # addition to ``shape.glow.color.rgb = RGBColor(...)``.  ``None``
+        # forgets the explicit colour (see `ShadowFormat.color`).
+        if value is None:
+            _clear_effect_color(self._glow)
+        else:
+            self.color.rgb = value
 
     # ------------------------------------------------------------------
     # Internals
@@ -660,7 +837,8 @@ class SoftEdgeFormat(object):
     """Provides access to the soft-edge effect on a shape.
 
     All property reads are non-mutating.  Assigning a non-None radius lazily
-    creates the `<a:effectLst>`/`<a:softEdge>` hierarchy.
+    creates the `<a:effectLst>`/`<a:softEdge>` hierarchy; assigning |None|
+    removes it again.
     """
 
     def __init__(self, spPr: CT_ShapeProperties):
@@ -675,12 +853,13 @@ class SoftEdgeFormat(object):
     @radius.setter
     def radius(self, value: Length | None):
         if value is None:
-            if self._softEdge is not None:
-                effectLst: CT_EffectList | None = self._element.effectLst
-                if effectLst is not None:
-                    effectLst._remove_softEdge()  # pyright: ignore[reportPrivateUsage]
+            # `rad` is required on `<a:softEdge>`, so no radius means no element.
+            softEdge = self._softEdge
+            if softEdge is not None:
+                _remove_effect(softEdge)
         else:
-            self._get_or_add_softEdge().rad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_softEdge().rad = emu  # type: ignore[assignment]
 
     # ------------------------------------------------------------------
     # Internals
@@ -726,7 +905,8 @@ class BlurFormat(object):
                 self._blur.rad = None  # type: ignore[assignment]
                 self._maybe_drop_blur()
         else:
-            self._get_or_add_blur().rad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_blur().rad = emu  # type: ignore[assignment]
 
     @property
     def grow(self) -> bool | None:
@@ -777,9 +957,7 @@ class BlurFormat(object):
         if blur is None:
             return
         if not blur.attrib:
-            effectLst = self._element.effectLst
-            if effectLst is not None:
-                effectLst._remove_blur()  # pyright: ignore[reportPrivateUsage]
+            _remove_effect(blur)
 
 
 class ReflectionFormat(object):
@@ -814,7 +992,8 @@ class ReflectionFormat(object):
                 self._reflection.blurRad = None  # type: ignore[assignment]
                 self._maybe_drop_reflection()
         else:
-            self._get_or_add_reflection().blurRad = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_reflection().blurRad = emu  # type: ignore[assignment]
 
     @property
     def distance(self) -> Length | None:
@@ -829,7 +1008,8 @@ class ReflectionFormat(object):
                 self._reflection.dist = None  # type: ignore[assignment]
                 self._maybe_drop_reflection()
         else:
-            self._get_or_add_reflection().dist = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_reflection().dist = emu  # type: ignore[assignment]
 
     @property
     def direction(self) -> float | None:
@@ -844,7 +1024,8 @@ class ReflectionFormat(object):
                 self._reflection.dir = None  # type: ignore[assignment]
                 self._maybe_drop_reflection()
         else:
-            self._get_or_add_reflection().dir = value  # type: ignore[assignment]
+            degrees = _validated_angle(value)
+            self._get_or_add_reflection().dir = degrees  # type: ignore[assignment]
 
     @property
     def start_alpha(self) -> float | None:
@@ -859,7 +1040,8 @@ class ReflectionFormat(object):
                 self._reflection.stA = None  # type: ignore[assignment]
                 self._maybe_drop_reflection()
         else:
-            self._get_or_add_reflection().stA = value  # type: ignore[assignment]
+            fraction = _validated_fraction(value)
+            self._get_or_add_reflection().stA = fraction  # type: ignore[assignment]
 
     @property
     def end_alpha(self) -> float | None:
@@ -874,7 +1056,8 @@ class ReflectionFormat(object):
                 self._reflection.endA = None  # type: ignore[assignment]
                 self._maybe_drop_reflection()
         else:
-            self._get_or_add_reflection().endA = value  # type: ignore[assignment]
+            fraction = _validated_fraction(value)
+            self._get_or_add_reflection().endA = fraction  # type: ignore[assignment]
 
     # ------------------------------------------------------------------
     # Internals
@@ -904,6 +1087,4 @@ class ReflectionFormat(object):
         if reflection is None:
             return
         if not reflection.attrib:
-            effectLst = self._element.effectLst
-            if effectLst is not None:
-                effectLst._remove_reflection()  # pyright: ignore[reportPrivateUsage]
+            _remove_effect(reflection)

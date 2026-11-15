@@ -40,12 +40,31 @@ can signal asynchronous application readiness. Container overflow raises by
 default, with ``check_overflow=False`` available for intentional overflow.
 
 Local HTML files are served temporarily on localhost. Keep relative styles,
-fonts and images under the HTML file's directory. Inline markup should use
-data URLs or explicit absolute resource URLs. A system Chromium can be
-selected with ``browser_path=`` or ``POWER_PPTX_CHROMIUM``.
+fonts and images under the HTML file's directory: only regular files under
+it are served, with no directory listings and no symlinks leading out of
+it. Inline markup should use data URLs or explicit absolute resource URLs.
+A system Chromium can be selected with ``browser_path=`` or
+``POWER_PPTX_CHROMIUM``; ``browser_path`` names a program to run, so never
+take it from untrusted input (a ``from_spec`` spec cannot set it).
+
+If no element matches the selector, ``from_html`` raises :class:`ValueError`
+naming it straight away rather than waiting out the timeout. The capture
+uses Playwright's synchronous API; from a thread running an asyncio event
+loop, call it through ``await asyncio.to_thread(from_html, ...)``.
+
+Untrusted HTML
+--------------
+
+Capturing HTML runs it, with the process's network access. For markup from
+a model or a user, pass ``allow_network=False`` to ``from_html``,
+``add_html_figure`` or ``add_plotly_figure``. The page may
+then load only ``data:`` / ``blob:`` URLs and its own document directory;
+any other request is blocked and the capture raises :class:`ValueError`
+listing the blocked URLs. ``from_spec(spec, safe=True)`` applies this to
+every figure in a spec — see :ref:`compose`.
 
 Capturing a single element
--------------------------
+--------------------------
 
 Use a CSS selector to capture one diagram/card into an existing slide::
 
@@ -62,7 +81,8 @@ Use a CSS selector to capture one diagram/card into an existing slide::
 not physical size. ``full_page=True`` captures a long page as one image,
 and cannot be combined with ``selector``. It does not paginate a webpage.
 JSON ``figure`` slides and ``design.recipes.figure_slide`` accept the same
-capture options through ``html_options``.
+capture options through ``html_options`` (except ``browser_path`` in a
+spec).
 
 SVG and native reconstruction
 -----------------------------

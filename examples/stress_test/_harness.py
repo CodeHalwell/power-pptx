@@ -90,6 +90,18 @@ def _save_bytes(prs) -> bytes:
     return buf.getvalue()
 
 
+def _part_changed(name: str, p1: bytes | None, p2: bytes | None) -> bool:
+    """Whether a part differs between saves: XML after c14n, anything else raw."""
+    if p1 is None or p2 is None:
+        return True
+    if name.endswith((".xml", ".rels")):
+        try:
+            return _canon(p1) != _canon(p2)
+        except etree.XMLSyntaxError:
+            pass  # not well-formed: fall back to comparing the raw bytes
+    return p1 != p2
+
+
 def round_trip_diff(prs) -> dict[str, tuple]:
     first = _save_bytes(prs)
     reopened = Presentation(io.BytesIO(first))
@@ -98,17 +110,7 @@ def round_trip_diff(prs) -> dict[str, tuple]:
     diff: dict[str, tuple] = {}
     for name in set(parts1) | set(parts2):
         p1, p2 = parts1.get(name), parts2.get(name)
-        if p1 is None or p2 is None:
-            diff[name] = (p1, p2)
-            continue
-        if name.endswith((".xml", ".rels")):
-            try:
-                if _canon(p1) != _canon(p2):
-                    diff[name] = (p1, p2)
-            except etree.XMLSyntaxError:
-                if p1 != p2:
-                    diff[name] = (p1, p2)
-        elif p1 != p2:
+        if _part_changed(name, p1, p2):
             diff[name] = (p1, p2)
     return diff
 
@@ -152,35 +154,11 @@ def _short_tb() -> str:
 
 def check_deck(name: str, render: bool = False) -> DeckResult:
     res = DeckResult(name=name)
-    path = HERE / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-        prs = module.build()
-        res.build_ok = True
-        res.n_slides = len(prs.slides)
-    except Exception:
-        res.build_crash = _short_tb()
+    prs = _build(name, res)
+    if prs is None:
         return res
-
-    # 2. lint
-    try:
-        for i, slide in enumerate(prs.slides):
-            report = slide.lint()
-            report.auto_fix()
-            for issue in slide.lint().issues:
-                if issue.severity is LintSeverity.ERROR:
-                    res.lint_errors.append(f"slide {i + 1}: {issue}")
-    except Exception:
-        res.lint_crash = _short_tb()
-
-    # 3. round-trip
-    try:
-        diff = round_trip_diff(prs)
-        res.roundtrip_parts = sorted(diff)
-    except Exception:
-        res.roundtrip_crash = _short_tb()
+    _check_lint(prs, res)
+    _check_round_trip(prs, res)
 
     # save (always, so artifacts exist + reopen check is meaningful)
     OUT.mkdir(exist_ok=True)
@@ -191,41 +169,90 @@ def check_deck(name: str, render: bool = False) -> DeckResult:
         res.reopen_crash = "save failed:\n" + _short_tb()
         return res
 
-    # 4. reopen
+    _check_reopen(out_path, res)
+    if _SCHEMA:
+        _check_schema(out_path, res)
+    if render:
+        _render_pdf(out_path, res)
+    return res
+
+
+def _build(name: str, res: DeckResult):
+    """1. Import the deck script and run its ``build()``; ``None`` if it crashed."""
+    path = HERE / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        prs = module.build()
+        res.build_ok = True
+        res.n_slides = len(prs.slides)
+    except Exception:
+        res.build_crash = _short_tb()
+        return None
+    return prs
+
+
+def _check_lint(prs, res: DeckResult) -> None:
+    """2. Lint and auto-fix every slide, then record the residual errors."""
+    try:
+        for i, slide in enumerate(prs.slides):
+            report = slide.lint()
+            report.auto_fix()
+            for issue in slide.lint().issues:
+                if issue.severity is LintSeverity.ERROR:
+                    res.lint_errors.append(f"slide {i + 1}: {issue}")
+    except Exception:
+        res.lint_crash = _short_tb()
+
+
+def _check_round_trip(prs, res: DeckResult) -> None:
+    """3. Save → reopen → save must leave every part unchanged."""
+    try:
+        diff = round_trip_diff(prs)
+        res.roundtrip_parts = sorted(diff)
+    except Exception:
+        res.roundtrip_crash = _short_tb()
+
+
+def _check_reopen(out_path: Path, res: DeckResult) -> None:
+    """4. The saved file must open again."""
     try:
         Presentation(out_path)
     except Exception:
         res.reopen_crash = _short_tb()
 
-    # 5. ISO-29500 schema validation (deduplicated, part :: message)
-    if _SCHEMA:
-        try:
-            seen = set()
-            for part, msg in iter_schema_violations(out_path):
-                short = msg.strip().splitlines()[0][:160]
-                key = (part.rsplit("/", 1)[-1], short)
-                if key in seen:
-                    continue
-                seen.add(key)
-                res.schema_violations.append(f"{key[0]} :: {short}")
-        except Exception:
-            res.schema_crash = _short_tb()
 
-    # 6. optional render
-    if render:
-        import shutil
-        import subprocess
+def _check_schema(out_path: Path, res: DeckResult) -> None:
+    """5. ISO-29500 schema validation (deduplicated, part :: message)."""
+    try:
+        seen = set()
+        for part, msg in iter_schema_violations(out_path):
+            short = msg.strip().splitlines()[0][:160]
+            key = (part.rsplit("/", 1)[-1], short)
+            if key in seen:
+                continue
+            seen.add(key)
+            res.schema_violations.append(f"{key[0]} :: {short}")
+    except Exception:
+        res.schema_crash = _short_tb()
 
-        if shutil.which("soffice"):
-            try:
-                subprocess.run(
-                    ["soffice", "--headless", "--convert-to", "pdf",
-                     "--outdir", str(OUT), str(out_path)],
-                    capture_output=True, timeout=120, check=True,
-                )
-            except Exception:
-                res.render_crash = _short_tb()
-    return res
+
+def _render_pdf(out_path: Path, res: DeckResult) -> None:
+    """6. Optional: convert the deck to PDF with LibreOffice, when it is installed."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("soffice"):
+        return
+    try:
+        subprocess.run(
+            ["soffice", "--headless", "--convert-to", "pdf",
+             "--outdir", str(OUT), str(out_path)],
+            capture_output=True, timeout=120, check=True,
+        )
+    except Exception:
+        res.render_crash = _short_tb()
 
 
 def discover() -> list[str]:
@@ -247,52 +274,7 @@ def main(argv: list[str]) -> int:
     print("\n" + "=" * 72)
     print("STRESS-TEST HARNESS REPORT")
     print("=" * 72)
-    bugs = 0
-    for r in results:
-        status = "CLEAN" if r.clean else "ISSUES"
-        print(f"\n[{status}] {r.name}  ({r.n_slides} slides)")
-        if r.build_crash:
-            bugs += 1
-            print("  ✗ BUILD CRASHED:")
-            print("    " + r.build_crash.replace("\n", "\n    "))
-            continue
-        if r.lint_crash:
-            bugs += 1
-            print("  ✗ LINT CRASHED:")
-            print("    " + r.lint_crash.replace("\n", "\n    "))
-        if r.lint_errors:
-            print(f"  ⚠ {len(r.lint_errors)} lint error-issue(s):")
-            for e in r.lint_errors[:8]:
-                print(f"      - {e}")
-            if len(r.lint_errors) > 8:
-                print(f"      ... +{len(r.lint_errors) - 8} more")
-        if r.roundtrip_crash:
-            bugs += 1
-            print("  ✗ ROUND-TRIP CRASHED:")
-            print("    " + r.roundtrip_crash.replace("\n", "\n    "))
-        if r.roundtrip_parts:
-            bugs += 1
-            print(f"  ✗ ROUND-TRIP CHANGED {len(r.roundtrip_parts)} part(s):")
-            for p in r.roundtrip_parts:
-                print(f"      - {p}")
-        if r.reopen_crash:
-            bugs += 1
-            print("  ✗ REOPEN/SAVE CRASHED:")
-            print("    " + r.reopen_crash.replace("\n", "\n    "))
-        if r.schema_crash:
-            bugs += 1
-            print("  ✗ SCHEMA VALIDATION CRASHED:")
-            print("    " + r.schema_crash.replace("\n", "\n    "))
-        if r.schema_violations:
-            bugs += 1
-            print(f"  ✗ ISO-29500 SCHEMA: {len(r.schema_violations)} distinct violation(s):")
-            for v in r.schema_violations[:8]:
-                print(f"      - {v}")
-            if len(r.schema_violations) > 8:
-                print(f"      ... +{len(r.schema_violations) - 8} more")
-        if r.render_crash:
-            print("  ⚠ RENDER FAILED:")
-            print("    " + r.render_crash.replace("\n", "\n    "))
+    bugs = sum(_report_deck(r) for r in results)
 
     clean = sum(1 for r in results if r.clean)
     print("\n" + "=" * 72)
@@ -302,6 +284,54 @@ def main(argv: list[str]) -> int:
     # Non-zero exit on any hard bug signal so the harness is usable as a CI /
     # scripted gate, not just a printed report.
     return 1 if bugs else 0
+
+
+def _report_deck(r: DeckResult) -> int:
+    """Print one deck's section of the report; return its hard bug signal count.
+
+    Lint error-issues and render failures are printed as warnings (⚠) but are
+    not hard bug signals; every ✗ line is.
+    """
+    status = "CLEAN" if r.clean else "ISSUES"
+    print(f"\n[{status}] {r.name}  ({r.n_slides} slides)")
+    if r.build_crash:
+        return _report_crash("  ✗ BUILD CRASHED:", r.build_crash)
+    bugs = _report_crash("  ✗ LINT CRASHED:", r.lint_crash)
+    _report_items(f"  ⚠ {len(r.lint_errors)} lint error-issue(s):", r.lint_errors, limit=8)
+    bugs += _report_crash("  ✗ ROUND-TRIP CRASHED:", r.roundtrip_crash)
+    bugs += _report_items(
+        f"  ✗ ROUND-TRIP CHANGED {len(r.roundtrip_parts)} part(s):", r.roundtrip_parts
+    )
+    bugs += _report_crash("  ✗ REOPEN/SAVE CRASHED:", r.reopen_crash)
+    bugs += _report_crash("  ✗ SCHEMA VALIDATION CRASHED:", r.schema_crash)
+    bugs += _report_items(
+        f"  ✗ ISO-29500 SCHEMA: {len(r.schema_violations)} distinct violation(s):",
+        r.schema_violations,
+        limit=8,
+    )
+    _report_crash("  ⚠ RENDER FAILED:", r.render_crash)
+    return bugs
+
+
+def _report_crash(heading: str, tb: str | None) -> int:
+    """Print *heading* and the indented traceback when there is one; return 1 if so."""
+    if not tb:
+        return 0
+    print(heading)
+    print("    " + tb.replace("\n", "\n    "))
+    return 1
+
+
+def _report_items(heading: str, items: list[str], limit: int | None = None) -> int:
+    """Print *heading* and up to *limit* bullet items when there are any; return 1 if so."""
+    if not items:
+        return 0
+    print(heading)
+    for item in items[:limit]:
+        print(f"      - {item}")
+    if limit is not None and len(items) > limit:
+        print(f"      ... +{len(items) - limit} more")
+    return 1
 
 
 if __name__ == "__main__":

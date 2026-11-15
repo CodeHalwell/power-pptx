@@ -711,6 +711,39 @@ Deliberately deferred to a follow-up:
 
 ---
 
+## Review-driven hardening  *— SHIPPED in 2.15.0*
+
+A full review of the library found the space-aware safety net weaker than
+it looked, and enough rough edges elsewhere to justify a release of fixes
+before new surface area. See the HISTORY entry for the complete list.
+
+- [x] **Lint measures text the way `fit_text` does.** `TextOverflow` uses the
+  text engine's metrics, line breaking and line height; auto-size frames
+  (the default for `add_textbox`) are checked; `auto_fix()` makes overflowing
+  text actually fit; `lint()` is no longer quadratic in the shape count.
+- [x] **The text engine wraps where renderers wrap**: after hyphens and URL
+  slashes, and between East Asian characters by their line-break rules.
+- [x] **Package integrity.** `apply_template`, `import_slide` and save no
+  longer produce broken or leaky packages; malformed input fails clearly;
+  saving is atomic; templates (`.potx`) and slide shows (`.ppsx`) open.
+- [x] **Untrusted specs.** `from_spec` validates every value with located
+  errors (`SpecError`) and has a `safe=True` mode that confines paths and
+  blocks network access in captures.
+- [x] **Slide management**: `Slides.remove()`, `Slides.duplicate()`,
+  `Slide.hidden`, slide-show settings including loop (#53), and slide-size
+  limits with a proportional fit (#56).
+- [x] **`power-pptx lint`** checks saved decks from the command line, with
+  text, JSON and SARIF output.
+- [x] **Code health.** Every function has a cognitive complexity of 15 or
+  less, Ruff's rules and formatter pass everywhere, and CI enforces both,
+  tests Python 3.10–3.15, and tests the declared minimum dependencies.
+
+Still open: full type annotations for the public API (about half of it is
+fully typed), and verification against PowerPoint itself rather than the
+ISO schemas and LibreOffice.
+
+---
+
 ## How to follow / contribute
 
 - **Issues**: GitHub issue tracker on the fork repository.

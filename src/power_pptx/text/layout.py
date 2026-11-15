@@ -2,23 +2,73 @@
 
 from __future__ import annotations
 
+import bisect
 import functools
 import math
 import re
-from typing import TYPE_CHECKING
+from typing import NamedTuple, Sequence
 
 from PIL import ImageFont
 
-if TYPE_CHECKING:
-    from power_pptx.util import Length
+from power_pptx.text._linebreak import (
+    asian_latin_gaps,
+    break_offsets,
+    is_character_start,
+    split_full_width,
+    split_words,
+)
+from power_pptx.util import Length
+
+#: What separates the paragraphs of a text. A vertical tab is a line break
+#: inside a paragraph, as in `TextFrame.text`.
+_PARAGRAPH_BREAK = re.compile(r"\r\n|[\n\r]")
+
+#: LibreOffice only ends a line after a slash this far or further from the
+#: previous space, so that "and/or" and short paths stay in one piece.
+_SLASH_REACH = 65
+
+#: Space, in ems, reserved where an East Asian letter meets a Latin one or a
+#: digit; LibreOffice adds a little less than this by default.
+_ASIAN_LATIN_GAP_EM = 0.25
+
+
+class ParagraphFormat(NamedTuple):
+    """The formatting of one paragraph that changes how much room its text takes.
+
+    `line_spacing` is |None| for single spacing, a number for a multiple of it
+    (``1.5``) or a |Length| for an exact distance between lines. `space_before`
+    and `space_after` are a |Length|, or a number for that fraction of the font
+    size; renderers leave them out above the first paragraph and below the
+    last. `letter_spacing` is the tracking added after every character, in EMU.
+    Text drawn in capitals is measured by passing it upper-cased.
+    """
+
+    line_spacing: float | Length | None = None
+    space_before: float | Length = 0
+    space_after: float | Length = 0
+    letter_spacing: int = 0
+
+
+class _Layout(NamedTuple):
+    """What a fitter has to respect besides its box and its font."""
+
+    line_spacing: float | Length | None = None
+    formats: tuple[ParagraphFormat, ...] | None = None
+    max_lines: int | None = None
+    preserve_breaks: bool = False
+    in_table: bool = False
+    break_long_words: bool = False
 
 
 class TextFitter(tuple):
     """Value object that knows how to fit text into given rectangular extents."""
 
-    def __new__(cls, line_source, extents, font_file, letter_spacing=0):
+    def __new__(cls, line_source, extents, font_file, letter_spacing=0, layout=None):
         width, height = extents
-        return tuple.__new__(cls, (line_source, width, height, font_file, int(letter_spacing)))
+        return tuple.__new__(
+            cls,
+            (line_source, width, height, font_file, int(letter_spacing), layout or _Layout()),
+        )
 
     @classmethod
     def best_fit_font_size(
@@ -31,77 +81,68 @@ class TextFitter(tuple):
         min_size: int = 1,
         max_lines: int | None = None,
         preserve_breaks: bool = False,
-        line_spacing: float = 1.2,
+        line_spacing: float | Length | None = None,
         letter_spacing: int = 0,
+        paragraph_formats: Sequence[ParagraphFormat] | None = None,
+        in_table: bool = False,
+        break_long_words: bool | None = None,
     ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
         The return value is the largest whole-number point size less than or equal to
         `max_size` that allows `text` to fit completely within `extents` when rendered
-        using font defined in `font_file`.  Returns ``None`` when even 1pt overflows the
-        extents — callers are expected to surface that as an error (see
-        :meth:`TextFrame._best_fit_font_size`).
+        using font defined in `font_file`.  Returns ``None`` when no size from
+        `min_size` up fits the extents; callers are expected to surface that as an
+        error, as :meth:`TextFrame.fit_text` does.
 
-        `letter_spacing` is extra tracking in EMU added after every character,
-        matching how PowerPoint applies ``<a:rPr spc>``.
+        Text wraps where PowerPoint and LibreOffice wrap it: at spaces, after
+        hyphens and slashes, and between East Asian characters. By default
+        (`break_long_words` |None|) words are kept whole when some size from
+        `min_size` up allows it, and only when none does is a word wider than
+        the box split at the edge of the box, which is what the renderers do
+        with it. |True| splits such a word at any size; |False| never splits
+        one, so |None| is returned when no size fits with every word whole.
+
+        `line_spacing` is the spacing the paragraphs will be rendered with: a
+        multiple of single spacing, a |Length| for an exact line height, or
+        |None| for single spacing. `letter_spacing` is extra tracking in EMU
+        added after every character, matching how PowerPoint applies
+        ``<a:rPr spc>``. `paragraph_formats` gives these and the space between
+        paragraphs separately for each newline-separated paragraph of `text`,
+        and takes precedence. `in_table` measures text in a
+        table cell, where LibreOffice makes a line as tall as the font's own
+        ascent and descent rather than 1.2 times its size.
         """
         if not math.isfinite(letter_spacing):
             raise ValueError("letter_spacing must be finite")
-        line_source = _LineSource(text)
-        text_fitter = cls(line_source, extents, font_file, letter_spacing)
-        if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, 1.2):
+        if (min_size, max_lines, preserve_breaks, line_spacing) != (1, None, False, None):
             _validate_constraints(min_size, max_size, max_lines, line_spacing)
-            for size in range(int(max_size), min_size - 1, -1):
-                lines = text_fitter._wrap_lines(line_source, size)
-                if lines is None or (max_lines is not None and len(lines) > max_lines):
-                    continue
-                if preserve_breaks and len(lines) != len(re.split(r"\r\n|[\n\v\r]", text)):
-                    continue
-                height = max(
-                    _rendered_size("Ty", size, font_file)[1],
-                    int(size * line_spacing * _line_height_em(font_file) * 12700),
-                ) * len(lines)
-                if height <= extents[1]:
-                    return size
-            return None
-        return text_fitter._best_fit_font_size(max_size)
+        layout = _Layout(
+            line_spacing,
+            None if paragraph_formats is None else tuple(paragraph_formats),
+            max_lines,
+            preserve_breaks,
+            in_table,
+            bool(break_long_words),
+        )
+        text_fitter = cls(_LineSource(text), extents, font_file, letter_spacing, layout)
+        size = text_fitter._best_fit_font_size(max_size, min_size)
+        if size is None and break_long_words is None:
+            layout = layout._replace(break_long_words=True)
+            text_fitter = cls(_LineSource(text), extents, font_file, letter_spacing, layout)
+            size = text_fitter._best_fit_font_size(max_size, min_size)
+        return size
 
-    def _best_fit_font_size(self, max_size: int) -> int | None:
+    def _best_fit_font_size(self, max_size: int, min_size: int = 1) -> int | None:
         """
-        Return the largest whole-number point size less than or equal to
+        Return the largest whole-number point size from *min_size* to
         *max_size* that this fitter can fit, or ``None`` when no size fits.
         """
         if int(max_size) < 1:
             raise ValueError("max_size must be at least 1pt")
         predicate = self._fits_inside_predicate
-        sizes = _BinarySearchTree.from_ordered_sequence(range(1, int(max_size) + 1))
+        sizes = _BinarySearchTree.from_ordered_sequence(range(min_size, int(max_size) + 1))
         return sizes.find_max(predicate)
-
-    def _break_line(self, line_source, point_size):
-        """
-        Return a (line, remainder) pair where *line* is the longest line in
-        *line_source* that will fit in this fitter's width and *remainder* is
-        a |_LineSource| object containing the text following the break point.
-        """
-        lines = _BinarySearchTree.from_ordered_sequence(line_source)
-        predicate = self._fits_in_width_predicate(point_size)
-        return lines.find_max(predicate)
-
-    def _fits_in_width_predicate(self, point_size):
-        """
-        Return a function taking a text string value and returns |True| if
-        that text fits in this fitter when rendered at *point_size*. Used as
-        predicate for _break_line()
-        """
-
-        def predicate(line):
-            """
-            Return |True| if *line* fits in this fitter when rendered at
-            *point_size*.
-            """
-            return self._line_width(line.text, point_size) <= self._width
-
-        return predicate
 
     @property
     def _fits_inside_predicate(self):
@@ -117,29 +158,24 @@ class TextFitter(tuple):
             Fit means text can be broken into lines that fit entirely within `extents`
             when rendered at `point_size` using the font defined in `font_file`.
             """
-            text_lines = self._wrap_lines(self._line_source, point_size)
-            if text_lines is None:
-                # No whole word fits in the available width at this point
-                # size; treat as "doesn't fit" so the search continues to
-                # smaller sizes rather than crashing.  Returning ``None``
-                # is the explicit no-fit signal from ``_wrap_lines`` /
-                # ``_break_line``.
+            layout = self._layout
+            if layout.formats is None:
+                text_lines = self._wrap_lines(self._line_source, point_size, fitting=True)
+                line_counts = None if text_lines is None else (len(text_lines),)
+            else:
+                paragraphs = self._wrap_paragraphs(self._line_source, point_size, fitting=True)
+                line_counts = None if paragraphs is None else [len(p) for p in paragraphs]
+            if line_counts is None:
+                # A word, or even one character, is wider than the box at this
+                # point size; treat as "doesn't fit" so the search continues to
+                # smaller sizes rather than crashing.
                 return False
-            # Use the bigger of (Pillow ink-box height) and (1.2× the
-            # point-size baseline) per line.  Pillow's getbbox on ``"Ty"``
-            # returns the *ink box* — descenders and ascender margins
-            # included, but not line leading — which under-estimates the
-            # vertical space a wrapped line actually occupies in
-            # PowerPoint / LibreOffice (where leading bumps each line to
-            # roughly 1.2× the point size).  The pre-fix predicate
-            # accepted 72pt wrapping to 2 lines inside a 2-inch box
-            # because 2 × ink-box ≈ 1.6 inches; the rendered layout
-            # actually consumed 2.4 inches and overflowed.  See
-            # IMPROVEMENTS item 7.
-            ink_cy = _rendered_size("Ty", point_size, self._font_file)[1]
-            leading_cy = int(point_size * 1.2 * 914400 / 72.0)
-            cy = max(ink_cy, leading_cy)
-            return (cy * len(text_lines)) <= self._height
+            line_count = sum(line_counts)
+            if layout.max_lines is not None and line_count > layout.max_lines:
+                return False
+            if layout.preserve_breaks and line_count != self._line_source.explicit_line_count:
+                return False
+            return self._text_height(point_size, line_counts) <= self._height
 
         return predicate
 
@@ -151,11 +187,23 @@ class TextFitter(tuple):
     def _letter_spacing(self):
         return self[4]
 
-    def _line_width(self, text, point_size):
-        """Width of `text` in EMU at `point_size`, including letter spacing."""
-        return _rendered_size(text, point_size, self._font_file)[0] + self._letter_spacing * len(
-            text
-        )
+    @property
+    def _layout(self) -> _Layout:
+        return self[5]
+
+    def _line_width(self, text, point_size, letter_spacing=None):
+        """Width of `text` in EMU at `point_size`, including letter spacing.
+
+        Where East Asian and Latin text meet, the space a renderer puts between
+        them is included too.
+        """
+        if letter_spacing is None:
+            letter_spacing = self._letter_spacing
+        width = _rendered_size(text, point_size, self._font_file)[0] + letter_spacing * len(text)
+        gaps = asian_latin_gaps(text)
+        if gaps:
+            width += int(gaps * _ASIAN_LATIN_GAP_EM * point_size * 12700)
+        return width
 
     @property
     def _height(self):
@@ -169,45 +217,351 @@ class TextFitter(tuple):
     def _width(self):
         return self[1]
 
-    def _wrap_lines(self, line_source, point_size):
+    def _text_height(self, point_size, line_counts):
+        """Height in EMU of text wrapped to `line_counts` lines in each paragraph.
+
+        A renderer stacks lines one line pitch apart, the first one included,
+        and adds the space after a paragraph and the space before the next one
+        between them. Neither is added above the first paragraph or below the
+        last (LibreOffice measured; it keeps a one-paragraph fit unchanged).
+        """
+        layout = self._layout
+        font_file, in_table = self._font_file, layout.in_table
+        if layout.formats is None:
+            pitch = _line_pitch(point_size, font_file, layout.line_spacing, in_table)
+            return pitch * sum(line_counts)
+        height, last = 0, len(layout.formats) - 1
+        for index, (paragraph, line_count) in enumerate(zip(layout.formats, line_counts)):
+            pitch = _line_pitch(point_size, font_file, paragraph.line_spacing, in_table)
+            height += pitch * line_count
+            if index > 0:
+                height += _paragraph_space(paragraph.space_before, point_size)
+            if index < last:
+                height += _paragraph_space(paragraph.space_after, point_size)
+        return height
+
+    def _wrap_lines(self, line_source, point_size, fitting=False):
         """
         Return a sequence of str values representing the text in
         *line_source* wrapped within this fitter when rendered at
         *point_size*.
 
-        Returns ``None`` when no whole word from *line_source* fits in
-        the available width at *point_size* (``_break_line`` returns
-        ``None``), signalling "no-fit" to callers without raising.
+        Returns ``None`` when a word in *line_source* is wider than the
+        available width at *point_size* and long words are not to be broken,
+        signalling "no-fit" to callers without raising. With *fitting*, a
+        single character wider than the box is a no-fit too; otherwise it gets
+        a line of its own, drawn past the edge as a renderer draws it.
         """
-        # Paragraph boundaries (\n) and soft breaks (\v) always occupy a
-        # line, including empty and trailing lines. Wrapping the whole string
-        # through str.split() would silently flatten them into spaces.
-        lines = []
-        for text in re.split(r"\r\n|[\n\v\r]", line_source._text):
-            remainder = _LineSource(text)
-            if not remainder:
-                lines.append("")
-            while remainder:
-                result = self._break_line(remainder, point_size)
-                if result is None:
+        paragraphs = self._wrap_paragraphs(line_source, point_size, fitting)
+        if paragraphs is None:
+            return None
+        return [line for lines in paragraphs for line in lines]
+
+    def _wrap_paragraphs(self, line_source, point_size, fitting=False):
+        """The wrapped lines of each paragraph of *line_source*, or ``None`` on no-fit.
+
+        Paragraph boundaries (\\n) and soft breaks (\\v) always occupy a line,
+        including empty and trailing lines.
+        """
+        formats = self._layout.formats
+        paragraphs = _paragraphs(line_source._text)
+        if formats is not None and len(formats) != len(paragraphs):
+            raise ValueError(
+                "paragraph_formats needs one entry for each of the %d paragraphs of the text, "
+                "got %d" % (len(paragraphs), len(formats))
+            )
+        wrapped = []
+        letter_spacing = self._letter_spacing
+        for index, explicit_lines in enumerate(paragraphs):
+            if formats is not None:
+                letter_spacing = int(formats[index].letter_spacing)
+            lines = []
+            for units in explicit_lines:
+                unit_lines = self._wrap_units(units, point_size, letter_spacing, fitting)
+                if unit_lines is None:
                     return None
-                line, remainder = result
-                lines.append(line)
+                lines.extend(unit_lines)
+            wrapped.append(lines)
+        return wrapped
+
+    def _wrap_units(self, units, point_size, letter_spacing, fitting=False):
+        """The lines one explicit line of text wraps to, or ``None`` on no-fit.
+
+        Each line takes as many whole units as fit this fitter's width; see |_LineBreaker|.
+        """
+        if not units.ends:
+            return [""]
+        return _LineBreaker(self, units, point_size, letter_spacing, fitting).lines()
+
+
+class _LineBreaker(object):
+    """Wraps one explicit line of text, cut into |_Units|, to the width of a fitter's box.
+
+    Each line takes as many whole units as fit. The rough width of every
+    candidate comes from adding up cached advance widths; only the candidates
+    next to the edge of the box are measured exactly, so a long text costs a
+    couple of measurements a line.
+    """
+
+    __slots__ = (
+        "_units",
+        "_estimates",
+        "_point_size",
+        "_letter_spacing",
+        "_tracking",
+        "_width",
+        "_budget",
+        "_font_file",
+        "_line_width",
+        "_break_long_words",
+        "_fitting",
+    )
+
+    def __init__(self, fitter, units, point_size, letter_spacing, fitting=False):
+        self._units = units
+        self._point_size, self._letter_spacing = point_size, letter_spacing
+        self._font_file, self._width = fitter._font_file, fitter._width
+        self._line_width = fitter._line_width
+        self._break_long_words = fitter._layout.break_long_words
+        # -- when choosing a size, a character too wide for the box is no fit --
+        self._fitting = fitting
+        self._estimates = units.estimates(point_size, self._font_file, letter_spacing)
+        # -- in points, as the estimates are --
+        self._budget = self._width / 12700.0
+        self._tracking = letter_spacing / 12700.0
+
+    def lines(self):
+        """The wrapped lines, or ``None`` when a word would have to be split and may not be."""
+        text, count = self._units.text, len(self._units.ends)
+        lines = []
+        first, begin = 0, 0
+        while first < count:
+            last = self._last_fitting(first, begin)
+            if last == count - 1:
+                lines.append(text[begin:])
+                break
+            end = self._line_end(first, begin, last)
+            if end is None:
+                return None
+            lines.append(text[begin:end])
+            first, begin = self._next_line_start(end)
         return lines
+
+    def _fits(self, begin, end):
+        """True when the text from offset `begin` to `end` fits the width of the box."""
+        line = self._units.text[begin:end]
+        return self._line_width(line, self._point_size, self._letter_spacing) <= self._width
+
+    def _last_fitting(self, first, begin):
+        """Index of the last unit that fits on a line starting at `begin`, in unit `first`.
+
+        One less than `first` when not even unit `first` fits.
+        """
+        ends = self._units.ends
+        last = self._estimated_last_fitting(first, begin)
+        if self._fits(begin, ends[last]):
+            while last + 1 < len(ends) and self._fits(begin, ends[last + 1]):
+                last += 1
+            return last
+        last -= 1
+        while last >= first and not self._fits(begin, ends[last]):
+            last -= 1
+        return last
+
+    def _estimated_last_fitting(self, first, begin):
+        """`_last_fitting` by the estimated widths, but never less than `first`."""
+        text, ends, estimates = self._units.text, self._units.ends, self._estimates
+        # -- the estimate of unit `first` includes the text before `begin`; take it off --
+        used = estimates[first] - self._tracking * (ends[first] - begin)
+        used -= _advance(text[begin : ends[first]], self._point_size, self._font_file)
+        reach = bisect.bisect_right(estimates, used + self._budget, first, len(ends))
+        return max(first, reach - 1)
+
+    def _line_end(self, first, begin, last):
+        """Offset at which the line starting at `begin`, in unit `first`, ends.
+
+        `last` is the last unit that fits on the line (see `_last_fitting`).
+        Returns ``None`` when the line would have to be cut inside a word and
+        long words are kept whole, or, when fitting, when not even the line's
+        first character fits.
+        """
+        units = self._units
+        # -- `cut` is the unit the line ends on, or None when no break fits on it --
+        cut = last if last >= first else None
+        if cut is not None and units.breaks_after_slash(last):
+            cut = self._slash_break(first, begin, last)
+        if cut is not None:
+            return units.ends[cut]
+        # -- a renderer then cuts the line where the box ends --
+        if not self._break_long_words:
+            return None
+        floor = units.ends[last] if last >= first else begin
+        end = _fill(units.text, begin, floor, units.ends[last + 1], self._fits)
+        if self._fitting and not self._fits(begin, end):
+            return None
+        return end
+
+    def _next_line_start(self, end):
+        """The first unit and the offset of the line after one that ends at offset `end`."""
+        starts, ends = self._units.starts, self._units.ends
+        first = bisect.bisect_left(ends, end)
+        if ends[first] != end:
+            # -- the line was cut inside unit `first`, which the next line goes on with --
+            return first, end
+        first += 1
+        return first, starts[first] if first < len(ends) else end
+
+    def _slash_break(self, first, begin, last):
+        """Index of the unit a line ends on when unit `last`, which ends in a slash, fits.
+
+        Returns ``None`` when the line is to be cut where the box ends instead.
+        This is LibreOffice's handling of paths and URLs: it does not end a
+        line with the slash that exactly fills it, and it uses a slash at all
+        only when there is no space shortly before it. With a space nearby the
+        whole path goes to the next line, or, when the path starts the line, is
+        cut at the edge of the box.
+        """
+        units = self._units
+        ends, word_starts = units.ends, units.word_starts
+        if not self._fits(begin, ends[last] + 1):
+            if last == first:
+                return last
+            last -= 1
+            if not units.breaks_after_slash(last):
+                return last
+        word_start = word_starts[last]
+        # -- a soft line break before the line counts as the space LibreOffice looks for --
+        if (word_start == 0 and not units.after_soft_break) or (
+            ends[last] - word_start > _SLASH_REACH
+        ):
+            return last
+        if word_start <= begin:
+            return None
+        while word_starts[last] == word_start:
+            last -= 1
+        return last
+
+
+class _Units(object):
+    """One explicit line of text, cut into the units a renderer keeps on one line.
+
+    A unit is a word or, where a line may also break inside a word (after a
+    hyphen, between East Asian characters), a piece of one. `text` is the line
+    with each run of spaces reduced to one space; unit `n` is
+    ``text[starts[n]:ends[n]]`` and belongs to the word starting at
+    ``word_starts[n]``. `after_soft_break` says a line break (``\\v``), not a
+    paragraph start, precedes the line.
+    """
+
+    __slots__ = ("text", "starts", "ends", "word_starts", "after_soft_break")
+
+    def __init__(self, text, after_soft_break=False):
+        self.after_soft_break = after_soft_break
+        words = split_words(text)
+        self.text = " ".join(words)
+        self.starts, self.ends, self.word_starts = [], [], []
+        word_start = 0
+        for word in words:
+            start = word_start
+            for offset in (*break_offsets(word), len(word)):
+                self.starts.append(start)
+                self.ends.append(word_start + offset)
+                self.word_starts.append(word_start)
+                start = word_start + offset
+            word_start += len(word) + 1
+
+    def breaks_after_slash(self, index):
+        """True when unit `index` ends in a slash with more of its word following."""
+        end = self.ends[index]
+        return (
+            self.text[end - 1] == "/"
+            and index + 1 < len(self.ends)
+            and self.starts[index + 1] == end
+        )
+
+    def estimates(self, point_size, font_file, letter_spacing):
+        """Estimated width in points of `text` up to the end of each unit."""
+        text, tracking = self.text, letter_spacing / 12700.0
+        space = _advance(" ", point_size, font_file)
+        estimates, total, previous_end = [], 0.0, 0
+        for start, end in zip(self.starts, self.ends):
+            if start != previous_end:
+                total += space
+            total += _advance(text[start:end], point_size, font_file)
+            estimates.append(total + tracking * end)
+            previous_end = end
+        return estimates
+
+
+@functools.lru_cache(maxsize=64)
+def _paragraphs(text):
+    """The paragraphs of `text`, each a tuple of the |_Units| of its explicit lines."""
+    return tuple(
+        tuple(_Units(line, index > 0) for index, line in enumerate(paragraph.split("\v")))
+        for paragraph in _PARAGRAPH_BREAK.split(text)
+    )
+
+
+def _fill(text, begin, floor, limit, fits):
+    """Offset at which a line starting at `begin` is cut for want of a place to break.
+
+    The line takes as many characters as fit, and always at least one. `floor`
+    is an offset known to fit and `limit` one known not to.
+    """
+    low, high = floor, limit - 1
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(begin, middle):
+            low = middle
+        else:
+            high = middle - 1
+    end = low
+    while end > begin and not is_character_start(text, end):
+        end -= 1
+    if end == begin:
+        end += 1
+        while end < limit and not is_character_start(text, end):
+            end += 1
+    return end
+
+
+def _line_pitch(point_size, font_file, line_spacing=None, in_table=False):
+    """Distance in EMU from one line of text to the next at `point_size`.
+
+    PowerPoint, and LibreOffice when it opens a .pptx, make a single-spaced
+    line in a shape 1.2 times the point size whatever the font, and scale that
+    by the paragraph's line spacing. In a table cell LibreOffice uses the
+    font's own ascent and descent instead, so the taller of the two is
+    reserved there. A |Length| `line_spacing` is an exact pitch. Pillow's ink
+    height of ``"Ty"`` is a floor, for spacing tighter than the glyphs.
+    """
+    ink_cy = _rendered_size("Ty", point_size, font_file)[1]
+    if isinstance(line_spacing, Length):
+        return max(ink_cy, int(line_spacing))
+    leading = point_size * (max(1.2, _line_height_em(font_file)) if in_table else 1.2)
+    if line_spacing is not None:
+        leading *= line_spacing
+    return max(ink_cy, int(leading * 914400 / 72.0))
+
+
+def _paragraph_space(space, point_size):
+    """EMU of paragraph spacing `space`: a |Length|, or a fraction of the font size."""
+    if isinstance(space, Length):
+        return int(space)
+    return int(space * point_size * 12700)
 
 
 @functools.lru_cache(maxsize=None)
 def _line_height_em(font_file):
     """The font's single-spaced line height (ascent + descent) in ems.
 
-    Percentage line spacing in PowerPoint and LibreOffice scales this, not the
-    point size: 1.2 spacing of an 18pt Outfit line renders about 27pt, not
-    21.6pt. Falls back to 1.2 em without a font file.
+    LibreOffice makes a line of text in a table cell this tall; see
+    `_line_pitch`. Falls back to 1.2 em without a font file.
     """
     if font_file is None:
         return 1.2
     try:
-        ascent, descent = ImageFont.truetype(font_file, 1000).getmetrics()
+        ascent, descent = _Fonts.font(font_file, 1000).getmetrics()
     except OSError:
         return 1.2
     return (ascent + descent) / 1000
@@ -222,7 +576,9 @@ def _validate_constraints(min_size, max_size, max_lines, line_spacing):
         isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 1
     ):
         raise ValueError("max_lines must be a positive integer or None")
-    if not math.isfinite(line_spacing) or line_spacing <= 0:
+    if line_spacing is not None and (
+        isinstance(line_spacing, bool) or not math.isfinite(line_spacing) or line_spacing <= 0
+    ):
         raise ValueError("line_spacing must be finite and positive")
 
 
@@ -344,6 +700,11 @@ class _LineSource(object):
     def __eq__(self, other):
         return self._text == other._text
 
+    @property
+    def explicit_line_count(self):
+        """Number of lines the text has before any wrapping: its paragraphs and soft breaks."""
+        return len(re.split(r"\r\n|[\n\v\r]", self._text))
+
     def __iter__(self):
         """
         Generate a (text, remainder) pair for each possible even-word line
@@ -427,7 +788,14 @@ class _Fonts(object):
                 # to the unsized bitmap default. Less accurate but at least
                 # never blows up.
                 return ImageFont.load_default()
-        return ImageFont.truetype(font_path, point_size)
+        # -- a face of a font collection other than its first carries its index --
+        try:
+            return ImageFont.truetype(
+                font_path, point_size, index=getattr(font_path, "face_index", 0)
+            )
+        except OSError as exc:
+            # -- Pillow's own message ("cannot open resource") names no file --
+            raise OSError(f"cannot open font file {str(font_path)!r}: {exc}") from exc
 
 
 def _rendered_size(text, point_size, font_file):
@@ -435,6 +803,9 @@ def _rendered_size(text, point_size, font_file):
     Return a (width, height) pair representing the size of *text* in English
     Metric Units (EMU) when rendered at *point_size* in the font defined in
     *font_file*.
+
+    Wide and fullwidth East Asian characters are counted as one em each,
+    whatever the font (see `split_full_width`).
     """
     emu_per_inch = 914400
     px_per_inch = 72.0
@@ -445,8 +816,41 @@ def _rendered_size(text, point_size, font_file):
     except AttributeError:
         left, top, right, bottom = font.getbbox(text)
         px_width, px_height = right - left, bottom - top
+    narrow, full_width = split_full_width(text)
+    if full_width:
+        # -- a point is a pixel at 72 px per inch --
+        px_width = full_width * point_size + (_ink_width(font, narrow) if narrow else 0)
 
     emu_width = int(px_width / px_per_inch * emu_per_inch)
     emu_height = int(px_height / px_per_inch * emu_per_inch)
 
     return emu_width, emu_height
+
+
+def _ink_width(font, text):
+    """Width in pixels of the ink of *text* in the Pillow *font*."""
+    try:
+        return font.getsize(text)[0]
+    except AttributeError:
+        left, _, right, _ = font.getbbox(text)
+        return right - left
+
+
+@functools.lru_cache(maxsize=65536)
+def _advance(text, point_size, font_file):
+    """Distance in points the pen moves drawing *text* at *point_size*.
+
+    Unlike `_rendered_size`, the advances of the pieces of a line add up to
+    the advance of the line, so one cached value per word estimates the width
+    of any line the word appears in. Wide and fullwidth East Asian characters
+    advance one em each, whatever the font (see `split_full_width`).
+    """
+    narrow, full_width = split_full_width(text)
+    if not narrow:
+        return float(full_width * point_size)
+    font = _Fonts.font(font_file, point_size)
+    try:
+        return full_width * point_size + font.getlength(narrow)
+    except AttributeError:
+        # -- Pillow's unsized bitmap default font, before Pillow 9.2 --
+        return full_width * point_size + _rendered_size(narrow, point_size, font_file)[0] / 12700.0

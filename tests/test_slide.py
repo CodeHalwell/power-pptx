@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx.dml.fill import FillFormat
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.package import Package
 from power_pptx.parts.presentation import PresentationPart
@@ -24,7 +25,6 @@ from power_pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
-from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.slide import (
     NotesMaster,
     NotesSlide,
@@ -33,8 +33,8 @@ from power_pptx.slide import (
     SlideLayouts,
     SlideMaster,
     SlideMasters,
-    SlideTransition,
     Slides,
+    SlideTransition,
     _Background,
     _BaseMaster,
     _BaseSlide,
@@ -43,6 +43,7 @@ from power_pptx.text.text import TextFrame
 
 from .unitutil.cxml import element, xml
 from .unitutil.mock import call, class_mock, instance_mock, method_mock, property_mock
+from .unitutil.slide_links import PNG, add_chart, titled_deck
 
 
 class Describe_BaseSlide(object):
@@ -151,7 +152,9 @@ class Describe_BaseMaster(object):
 
     @pytest.fixture
     def MasterPlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.MasterPlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.MasterPlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def MasterShapes_(self, request, shapes_):
@@ -269,7 +272,9 @@ class DescribeNotesSlide(object):
 
     @pytest.fixture
     def NotesSlidePlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.NotesSlidePlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.NotesSlidePlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def NotesSlideShapes_(self, request, shapes_):
@@ -452,6 +457,108 @@ class DescribeSlide(object):
         return instance_mock(request, SlidePart)
 
 
+class DescribeSlideFindEmptyRegion:
+    """`Slide.find_empty_region()` on the 12 x 8 grid over a 10 x 7.5 in slide."""
+
+    def it_returns_the_first_largest_free_row_run(self, slide):
+        assert slide.find_empty_region() == _inches(0, 0, 10, 0.9375)
+
+        _add_rect(slide, 0, 0, 3, 1)  # -- covers part of the first two rows --
+
+        assert slide.find_empty_region() == _inches(0, 1.875, 10, 0.9375)
+
+    def it_merges_only_adjacent_free_cells_in_the_same_row(self, slide):
+        for row in range(8):
+            _add_rect(slide, 0, row * 0.9375, 5, 0.1)
+
+        assert slide.find_empty_region() == _inches(5, 0, 5, 0.9375)
+
+    def it_returns_None_when_no_region_is_big_enough(self, slide):
+        from power_pptx.util import Inches
+
+        _add_rect(slide, 0, 0, 3, 1)
+
+        assert slide.find_empty_region(min_width=Inches(11)) is None
+        assert slide.find_empty_region(min_height=Inches(1)) is None
+
+    def it_returns_None_when_the_slide_is_full(self, slide):
+        _add_rect(slide, 0, 0, 10, 7.5)
+
+        assert slide.find_empty_region() is None
+        # -- `near` is not looked at when nothing is free --
+        assert slide.find_empty_region(near="not-a-shape") is None
+
+    def it_ignores_shapes_that_have_no_geometry(self, slide):
+        _add_rect(slide, 0, 0, 3, 1)
+        shapeless = _add_rect(slide, 0, 0, 10, 7.5)
+        spPr = shapeless._element.spPr
+        spPr.remove(spPr.xfrm)
+
+        assert slide.find_empty_region() == _inches(0, 1.875, 10, 0.9375)
+
+    def it_prefers_the_region_nearest_a_shape(self, slide):
+        from power_pptx.geometry import BBox
+
+        _add_rect(slide, 0, 0, 3, 1)
+        target = _add_rect(slide, 8, 6, 1, 1)
+
+        region = slide.find_empty_region(near=target)
+
+        # -- the last cell of the row the target sits in --
+        assert region == BBox.from_emu(11 * 762000, 6 * 857250, 762000, 857250)
+
+    def it_prefers_the_region_nearest_a_bbox(self, slide):
+        from power_pptx.util import Inches
+
+        _add_rect(slide, 0, 0, 3, 1)
+        _add_rect(slide, 8, 6, 1, 1)
+        near = _inches(0, 3, 1, 1)
+
+        assert slide.find_empty_region(near=near) == _inches(0, 5.625, 7.5, 0.9375)
+        assert slide.find_empty_region(near=near, min_width=Inches(8)) == _inches(
+            0, 2.8125, 10, 0.9375
+        )
+
+    def it_rejects_a_near_that_is_neither_a_shape_nor_a_bbox(self, slide):
+        with pytest.raises(TypeError, match="must be a BaseShape or BBox; got str"):
+            slide.find_empty_region(near="not-a-shape")
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        import power_pptx
+
+        prs = power_pptx.Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _inches(left, top, width, height):
+    from power_pptx.geometry import BBox
+
+    return BBox.from_inches(left, top, width, height)
+
+
+def _add_rect(slide, left, top, width, height):
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    return slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *_inches(left, top, width, height))
+
+
+def _transition_with_kind(kind: str):
+    """A `p:transition` element whose only child is the empty element `kind`.
+
+    `kind` is a prefixed tag, optionally followed by attributes; the extension
+    prefixes (`p14`, `p15`, `p159`) are available, which cxml cannot spell.
+    """
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    return parse_xml(
+        "<p:transition %s><%s/></p:transition>" % (nsdecls("p", "p14", "p15", "p159"), kind)
+    )
+
+
 class DescribeSlideTransition(object):
     """Unit-test suite for `power_pptx.slide.SlideTransition` objects."""
 
@@ -463,7 +570,10 @@ class DescribeSlideTransition(object):
         assert transition.advance_on_click is None
         assert transition.advance_after is None
         # reads must be non-mutating
-        assert sld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}transition") is None
+        assert (
+            sld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}transition")
+            is None
+        )
 
     @pytest.mark.parametrize(
         ("transition_cxml", "expected"),
@@ -528,8 +638,7 @@ class DescribeSlideTransition(object):
         t_elm = sld.transition
         assert t_elm is not None
         assert (
-            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade")
-            is None
+            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade") is None
         )
 
     def it_clears_the_transition_when_kind_is_set_to_None(self):
@@ -552,7 +661,7 @@ class DescribeSlideTransition(object):
 
     def it_maps_legacy_spd_attribute_to_milliseconds(self):
         sld = element("p:sld/p:cSld")
-        sld.append(element('p:transition{spd=med}'))
+        sld.append(element("p:transition{spd=med}"))
         transition = SlideTransition(sld)
         assert transition.duration == 750
 
@@ -609,7 +718,7 @@ class DescribeSlideTransition(object):
         """`duration = None` must also drop the legacy `spd` bucket so the
         getter actually reads `None` afterward (it falls back to `spd`)."""
         sld = element("p:sld/p:cSld")
-        sld.append(element("p:transition{spd=med}"))
+        sld.append(element("p:transition{spd=med}/p:fade"))
         transition = SlideTransition(sld)
         # sanity: getter sees the legacy bucket
         assert transition.duration == 750
@@ -617,6 +726,100 @@ class DescribeSlideTransition(object):
         transition.duration = None
         assert transition.duration is None
         assert sld.transition.spd is None
+
+    @pytest.mark.parametrize(
+        ("attr_name", "value"),
+        [("duration", 500), ("advance_on_click", True), ("advance_after", 8000)],
+    )
+    def it_removes_the_transition_once_its_last_setting_is_cleared(self, attr_name, value):
+        """Setting a timing option and clearing it again must not leave an empty
+        `<p:transition/>` behind: that reads as an explicit "no transition"."""
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+
+        setattr(transition, attr_name, value)
+        setattr(transition, attr_name, None)
+
+        assert sld.transition is None
+        assert transition.kind is None
+
+    def but_it_keeps_a_transition_that_still_holds_another_setting(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.advance_on_click = True
+        transition.advance_after = 8000
+
+        transition.advance_on_click = None
+
+        assert transition.advance_after == 8000
+
+    def and_it_keeps_an_explicit_NONE_that_had_nothing_to_clear(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.NONE
+
+        transition.duration = None
+        transition.advance_on_click = None
+        transition.advance_after = None
+
+        assert transition.kind == MSO_TRANSITION_TYPE.NONE
+
+    def it_can_set_and_read_the_comb_kind(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+
+        transition.kind = MSO_TRANSITION_TYPE.COMB
+
+        assert transition.kind == MSO_TRANSITION_TYPE.COMB
+        assert sld.transition.kind_element.tag == (
+            "{http://schemas.openxmlformats.org/presentationml/2006/main}comb"
+        )
+
+    def it_reads_None_for_a_kind_it_has_no_member_for(self):
+        sld = element("p:sld/p:cSld")
+        sld.append(_transition_with_kind('p15:prstTrans prst="airplane"'))
+        transition = SlideTransition(sld)
+
+        assert transition.kind is None
+        # -- which is not the same as the slide having no transition --
+        assert transition._states_a_kind is True
+
+    @pytest.mark.parametrize(
+        ("kind_tag", "expected"),
+        [
+            ("p14:vortex", MSO_TRANSITION_TYPE.VORTEX),
+            ("p159:morph", MSO_TRANSITION_TYPE.MORPH),
+            # -- morph as earlier releases wrote it; retagged to p159 on save --
+            ("p14:morph", MSO_TRANSITION_TYPE.MORPH),
+            # -- a namesake in some other namespace is a different element --
+            ("p15:fade", None),
+            ("p:vortex", None),
+        ],
+    )
+    def it_only_recognises_a_kind_in_the_namespace_it_is_defined_in(self, kind_tag, expected):
+        sld = element("p:sld/p:cSld")
+        sld.append(_transition_with_kind(kind_tag))
+
+        assert SlideTransition(sld).kind == expected
+
+    @pytest.mark.parametrize(
+        ("transition_cxml", "expected"),
+        [
+            ("p:transition", True),
+            ("p:transition/p:fade", True),
+            ("p:transition{advTm=8000}/p:fade", True),
+            ("p:transition{advTm=8000}", False),
+            ("p:transition{advClick=0}", False),
+        ],
+    )
+    def it_knows_whether_the_slide_states_a_kind(self, transition_cxml, expected):
+        sld = element("p:sld/p:cSld")
+        sld.append(element(transition_cxml))
+
+        assert SlideTransition(sld)._states_a_kind is expected
+
+    def and_a_slide_without_a_transition_states_none(self):
+        assert SlideTransition(element("p:sld/p:cSld"))._states_a_kind is False
 
     def it_replaces_legacy_spd_when_setting_an_explicit_duration(self):
         sld = element("p:sld/p:cSld")
@@ -675,7 +878,7 @@ class DescribeSlides(object):
 
     def it_can_iterate_its_slides(self, iter_fixture):
         slides, related_slide_, calls, expected_value = iter_fixture
-        slide_lst = [s for s in slides]
+        slide_lst = list(slides)
         assert related_slide_.call_args_list == calls
         assert slide_lst == expected_value
 
@@ -926,6 +1129,312 @@ class DescribeSlideReorderAndNotes(object):
         assert violations == []
 
 
+def _titles(prs) -> list[str]:
+    return [slide.shapes[0].text_frame.text for slide in prs.slides]
+
+
+def _listed_partnames(prs) -> list[str]:
+    """Partnames of the slides in `p:sldIdLst` order, read without `prs.slides` renaming them."""
+    sldIdLst = prs.part._element.sldIdLst
+    return [str(prs.part.related_part(sldId.rId).partname) for sldId in sldIdLst.sldId_lst]
+
+
+class DescribeSlidesRemove(object):
+    """Integration-style suite for `Slides.remove`."""
+
+    def it_removes_the_slide(self):
+        prs = titled_deck("a", "b", "c")
+        ids = [s.slide_id for s in prs.slides]
+
+        prs.slides.remove(prs.slides[1])
+
+        assert _titles(prs) == ["a", "c"]
+        assert [s.slide_id for s in prs.slides] == [ids[0], ids[2]]
+
+    def it_can_remove_every_slide(self):
+        prs = titled_deck("a", "b")
+
+        for slide in list(prs.slides):
+            prs.slides.remove(slide)
+
+        assert len(prs.slides) == 0
+
+    def it_takes_the_slide_out_of_its_section(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        prs.slides.remove(b)
+
+        assert [s.slide_ids for s in prs.sections] == [[a.slide_id], [c.slide_id]]
+
+    def it_removes_links_to_the_slide_but_keeps_the_linking_shape(self):
+        prs = titled_deck("a", "b", "c")
+        a, b, c = prs.slides
+        a.shapes[0].click_action.target_slide = b
+        c.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide = b
+
+        prs.slides.remove(b)
+
+        assert a.shapes[0].click_action.target_slide is None
+        assert c.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide is None
+        assert _titles(prs) == ["a", "c"]
+
+    def it_names_the_remaining_slide_parts_in_order(self):
+        prs = titled_deck("a", "b", "c")
+        slides = prs.slides
+
+        slides.remove(slides[0])
+
+        assert _listed_partnames(prs) == ["/ppt/slides/slide1.xml", "/ppt/slides/slide2.xml"]
+
+    def it_raises_on_a_slide_of_another_presentation(self):
+        prs, other = titled_deck("a"), titled_deck("x")
+
+        with pytest.raises(ValueError, match="belongs to another presentation"):
+            prs.slides.remove(other.slides[0])
+
+        assert _titles(prs) == ["a"]
+        assert _titles(other) == ["x"]
+
+    def it_raises_on_a_slide_it_has_removed_already(self):
+        prs = titled_deck("a", "b")
+        b = prs.slides[1]
+        prs.slides.remove(b)
+
+        with pytest.raises(ValueError, match="already have been removed"):
+            prs.slides.remove(b)
+
+    def it_raises_TypeError_for_an_index(self):
+        prs = titled_deck("a", "b")
+
+        with pytest.raises(TypeError, match=r"pass prs\.slides\[i\]"):
+            prs.slides.remove(0)  # pyright: ignore[reportArgumentType]
+
+        assert len(prs.slides) == 2
+
+
+class DescribeSlidesDuplicate(object):
+    """Integration-style suite for `Slides.duplicate`."""
+
+    @staticmethod
+    def _give_creation_id(slide, value):
+        """Add the ``p14:creationId`` PowerPoint 2010+ writes on every slide."""
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        slide._element.append(
+            parse_xml(
+                f"<p:extLst {nsdecls('p')}>"
+                '<p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}">'
+                '<p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/'
+                f'2010/main" val="{value}"/></p:ext></p:extLst>'
+            )
+        )
+
+    @staticmethod
+    def _creation_ids(prs):
+        tag = "{http://schemas.microsoft.com/office/powerpoint/2010/main}creationId"
+        return [el.get("val") for s in prs.slides for el in s._element.iter(tag)]
+
+    def it_gives_the_copy_its_own_creation_id(self):
+        prs = titled_deck("a", "b")
+        self._give_creation_id(prs.slides[0], 3411862513)
+
+        prs.slides.duplicate(prs.slides[0])
+
+        original, copied = self._creation_ids(prs)
+        assert original == "3411862513"
+        assert copied != original
+        assert 0 <= int(copied) < 2**32
+
+    def and_the_new_creation_id_is_reproducible_under_a_pinned_build(self, monkeypatch):
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+
+        def copied_id():
+            prs = titled_deck("a", "b")
+            self._give_creation_id(prs.slides[0], 3411862513)
+            prs.slides.duplicate(prs.slides[0])
+            return self._creation_ids(prs)[1]
+
+        assert copied_id() == copied_id()
+
+    def it_inserts_the_copy_after_the_original(self):
+        prs = titled_deck("a", "b", "c")
+
+        copy = prs.slides.duplicate(prs.slides[0])
+
+        assert _titles(prs) == ["a", "a", "b", "c"]
+        assert prs.slides[1] == copy
+        assert len({s.slide_id for s in prs.slides}) == 4
+
+    @pytest.mark.parametrize(
+        ("index", "expected"),
+        [
+            (0, ["b", "a", "b", "c"]),
+            (3, ["a", "b", "c", "b"]),
+            (-1, ["a", "b", "c", "b"]),
+            (-4, ["b", "a", "b", "c"]),
+            (2, ["a", "b", "b", "c"]),
+        ],
+    )
+    def it_inserts_the_copy_where_index_says(self, index, expected):
+        prs = titled_deck("a", "b", "c")
+
+        copy = prs.slides.duplicate(prs.slides[1], index=index)
+
+        assert _titles(prs) == expected
+        assert prs.slides[index] == copy
+
+    @pytest.mark.parametrize("index", [4, -5])
+    def it_raises_IndexError_and_changes_nothing_when_index_is_out_of_range(self, index):
+        prs = titled_deck("a", "b", "c")
+
+        with pytest.raises(IndexError):
+            prs.slides.duplicate(prs.slides[0], index=index)
+
+        assert _titles(prs) == ["a", "b", "c"]
+        assert len(_listed_partnames(prs)) == 3
+
+    def it_raises_on_a_slide_of_another_presentation(self):
+        prs, other = titled_deck("a"), titled_deck("x")
+
+        with pytest.raises(ValueError, match="import_slide"):
+            prs.slides.duplicate(other.slides[0])
+
+        assert _titles(prs) == ["a"]
+
+    def it_raises_TypeError_for_an_index(self):
+        prs = titled_deck("a")
+
+        with pytest.raises(TypeError, match="takes a Slide"):
+            prs.slides.duplicate(0)  # pyright: ignore[reportArgumentType]
+
+    def it_names_the_slide_parts_in_deck_order(self):
+        prs = titled_deck("a", "b", "c")
+        slides = prs.slides
+
+        slides.duplicate(slides[0])
+
+        assert _listed_partnames(prs) == ["/ppt/slides/slide%d.xml" % n for n in (1, 2, 3, 4)]
+        assert [s.shapes[0].text_frame.text for s in slides] == ["a", "a", "b", "c"]
+
+    def it_makes_a_copy_whose_text_is_its_own(self):
+        prs = titled_deck("a", "b")
+        original = prs.slides[0]
+
+        copy = prs.slides.duplicate(original)
+        copy.shapes[0].text_frame.text = "edited"
+
+        assert original.shapes[0].text_frame.text == "a"
+        assert copy.shapes[0]._element is not original.shapes[0]._element
+
+    def it_gives_the_copy_its_own_chart_and_workbook(self):
+        from power_pptx.chart.data import CategoryChartData
+
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        chart = add_chart(original)
+
+        copy = prs.slides.duplicate(original)
+        copy_chart = copy.shapes[1].chart
+        new_data = CategoryChartData()
+        new_data.categories = ["a", "b"]
+        new_data.add_series("s", (7, 9))
+        copy_chart.replace_data(new_data)
+
+        assert copy_chart.part is not chart.part
+        assert copy_chart.part.chart_workbook.xlsx_part is not chart.part.chart_workbook.xlsx_part
+        assert list(chart.plots[0].series[0].values) == [1.0, 2.0]
+        assert list(copy_chart.plots[0].series[0].values) == [7.0, 9.0]
+
+    def it_shares_pictures_rather_than_storing_them_twice(self):
+        import io
+
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        original.shapes.add_picture(io.BytesIO(PNG), 0, 0)
+
+        copy = prs.slides.duplicate(original)
+
+        def image_of(slide):
+            return slide.part.related_part(slide.shapes[1]._element.blip_rId)
+
+        assert image_of(copy) is image_of(original)
+
+    def it_copies_the_notes(self):
+        prs = titled_deck("a")
+        original = prs.slides[0]
+        original.notes = "thank the sponsors"
+
+        copy = prs.slides.duplicate(original)
+        copy.notes = "thank the team"
+
+        assert original.notes == "thank the sponsors"
+        assert copy.notes == "thank the team"
+        assert copy.notes_slide.part is not original.notes_slide.part
+
+    def it_keeps_links_to_other_slides_and_points_a_self_link_at_the_copy(self):
+        prs = titled_deck("a", "b")
+        a, b = prs.slides
+        a.shapes[0].click_action.target_slide = b
+        run = a.shapes[0].text_frame.paragraphs[0].runs[0]
+        run.hyperlink.target_slide = a
+
+        copy = prs.slides.duplicate(a)
+
+        assert copy.shapes[0].click_action.target_slide == b
+        assert copy.shapes[0].text_frame.paragraphs[0].runs[0].hyperlink.target_slide == copy
+
+    def it_uses_the_layout_of_the_original(self):
+        prs = titled_deck("a")
+        # -- a same-deck import with merge_master="clone" leaves the deck with two
+        # -- identical masters; a slide on the second one must stay on it --
+        on_second_master = prs.import_slide(prs.slides[0], merge_master="clone")
+
+        copy = prs.slides.duplicate(on_second_master)
+
+        assert copy.slide_layout == on_second_master.slide_layout
+        assert copy.slide_layout != prs.slides[0].slide_layout
+
+    def it_puts_the_copy_in_the_section_of_the_original(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        copy = prs.slides.duplicate(b)
+
+        assert [s.slide_ids for s in prs.sections] == [
+            [a.slide_id, b.slide_id, copy.slide_id],
+            [c.slide_id],
+        ]
+
+    def and_before_an_empty_last_section_too(self):
+        prs = titled_deck("a", "b")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Empty")
+        a, b = prs.slides
+
+        copy = prs.slides.duplicate(b)
+
+        assert [s.slide_ids for s in prs.sections] == [[a.slide_id, b.slide_id, copy.slide_id], []]
+
+    def it_puts_a_copy_placed_first_in_the_first_section(self):
+        prs = titled_deck("a", "b", "c")
+        prs.sections.add("One", start_slide_index=0)
+        prs.sections.add("Two", start_slide_index=2)
+        a, b, c = prs.slides
+
+        copy = prs.slides.duplicate(c, index=0)
+
+        assert [s.slide_ids for s in prs.sections] == [
+            [copy.slide_id, a.slide_id, b.slide_id],
+            [c.slide_id],
+        ]
+
+
 class DescribeSlideLayout(object):
     """Unit-test suite for `power_pptx.slide.SlideLayout` objects."""
 
@@ -1020,7 +1529,9 @@ class DescribeSlideLayout(object):
 
     @pytest.fixture
     def LayoutPlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.LayoutPlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.LayoutPlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def LayoutShapes_(self, request, shapes_):
@@ -1097,7 +1608,7 @@ class DescribeSlideLayouts(object):
         related_slide_layout_.side_effect = _slide_layouts
         slide_layouts = SlideLayouts(sldLayoutIdLst, None)
 
-        slide_layout_lst = [sl for sl in slide_layouts]
+        slide_layout_lst = list(slide_layouts)
 
         assert related_slide_layout_.call_args_list == [call("a"), call("b")]
         assert slide_layout_lst == _slide_layouts
@@ -1280,7 +1791,7 @@ class DescribeSlideMasters(object):
 
     def it_can_iterate_the_slide_masters(self, iter_fixture):
         slide_masters, related_slide_master_, calls, expected_values = iter_fixture
-        _slide_masters = [sm for sm in slide_masters]
+        _slide_masters = list(slide_masters)
         assert related_slide_master_.call_args_list == calls
         assert _slide_masters == expected_values
 
@@ -1351,15 +1862,15 @@ class Describe_Background(object):
     """Unit-test suite for `power_pptx.slide._Background` objects."""
 
     @pytest.mark.parametrize(
-        "cSld_xml, expected_cxml",
-        (
+        ("cSld_xml", "expected_cxml"),
+        [
             ("p:cSld{a:b=c}", "p:cSld{a:b=c}/p:bg/p:bgPr/(a:noFill,a:effectLst)"),
             (
                 "p:cSld{a:b=c}/p:bg/p:bgRef",
                 "p:cSld{a:b=c}/p:bg/p:bgPr/(a:noFill,a:effectLst)",
             ),
             ("p:cSld/p:bg/p:bgPr/a:solidFill", "p:cSld/p:bg/p:bgPr/a:solidFill"),
-        ),
+        ],
     )
     def it_provides_access_to_its_fill(self, request, cSld_xml, expected_cxml):
         fill_ = instance_mock(request, FillFormat)

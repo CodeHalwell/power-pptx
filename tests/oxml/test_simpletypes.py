@@ -23,6 +23,7 @@ from power_pptx.oxml.simpletypes import (
     ST_Coordinate,
     ST_HexColorRGB,
     ST_Percentage,
+    ST_PositiveFixedAngle,
 )
 
 from ..unitutil.mock import instance_mock, method_mock
@@ -65,9 +66,7 @@ class DescribeBaseSimpleType(object):
     # fixtures -------------------------------------------------------
 
     @pytest.fixture
-    def to_xml_fixture(
-        self, request, py_value_, str_value_, convert_to_xml_, validate_
-    ):
+    def to_xml_fixture(self, request, py_value_, str_value_, convert_to_xml_, validate_):
         return ST_SimpleType, py_value_, str_value_
 
     @pytest.fixture(
@@ -217,9 +216,7 @@ class DescribeST_HexColorRGB(object):
 
     # fixtures -------------------------------------------------------
 
-    @pytest.fixture(
-        params=[("deadbf", "DEADBF"), ("012345", "012345"), ("0a1b3c", "0A1B3C")]
-    )
+    @pytest.fixture(params=[("deadbf", "DEADBF"), ("012345", "012345"), ("0a1b3c", "0A1B3C")])
     def to_xml_fixture(self, request):
         value, expected_value = request.param
         return value, expected_value
@@ -262,6 +259,46 @@ class DescribeST_Percentage(object):
     def percent_fixture(self, request):
         str_value, expected_value = request.param
         return str_value, expected_value
+
+
+class DescribeST_PositiveFixedAngle(object):
+    """`a:lin@ang`, `a:outerShdw@dir` etc. — schema range is `[0, 21600000)`."""
+
+    @pytest.mark.parametrize(
+        ("degrees", "expected"),
+        [
+            (0, "0"),
+            (45, "2700000"),
+            (90.0, "5400000"),
+            (359.5, "21570000"),
+            (360, "0"),
+            (720.5, "30000"),
+            (-90, "16200000"),
+            (-427.42, "17554800"),
+            # -- each of these used to come out as 21600000, a full turn, which
+            # -- the schema's `maxExclusive` facet rejects
+            (-360, "0"),
+            (-720, "0"),
+            (359.9999999, "0"),
+            (-1e-6, "0"),
+            (-0.0, "0"),
+        ],
+    )
+    def it_normalises_an_angle_into_the_schema_range(self, degrees, expected):
+        assert ST_PositiveFixedAngle.to_xml(degrees) == expected
+
+    @pytest.mark.parametrize("degrees", [-1e9, -360.00001, 359.99999, 1e9, 12345.678])
+    def it_never_writes_a_full_turn_or_a_negative_value(self, degrees):
+        assert 0 <= int(ST_PositiveFixedAngle.to_xml(degrees)) < 21600000
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def it_rejects_a_non_finite_angle(self, bad):
+        with pytest.raises(ValueError, match="finite"):
+            ST_PositiveFixedAngle.to_xml(bad)
+
+    def it_rejects_a_value_that_is_not_a_number(self):
+        with pytest.raises(TypeError):
+            ST_PositiveFixedAngle.to_xml("90")
 
 
 # --------------------------------------------------------------------

@@ -21,9 +21,12 @@ Animations
    ``IMPROVEMENT_PLAN.md`` (item 1) for the diagnostic plan.
 
 |pp| ships a preset-only animation API that maps directly onto
-PowerPoint's built-in animation library.  All generated XML is valid OOXML
-and round-trips through PowerPoint without loss.  Animations authored in
-the desktop UI survive a read–modify–write cycle untouched.
+PowerPoint's built-in animation library.  The XML it generates is valid
+against the OOXML schema, survives a save → open → save cycle with |pp|,
+and imports into LibreOffice as the effect each preset names; playback in
+PowerPoint is the open question described above.  Animations authored in
+the desktop UI survive a read–modify–write cycle untouched, and effects
+added to such a slide join its main sequence.
 
 Triggers
 --------
@@ -37,6 +40,10 @@ Every preset accepts an optional ``trigger`` and ``delay``::
     Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS,
                   delay=500)
 
+``delay`` and ``duration`` are milliseconds.  A float is rounded to the
+nearest millisecond, and a negative or out-of-range time raises
+:class:`ValueError`.
+
 Entrance / exit / emphasis presets
 ----------------------------------
 
@@ -46,27 +53,56 @@ Entrance / exit / emphasis presets
     Entrance.fade(slide, shape)
     Entrance.fly_in(slide, shape, direction="bottom")
     Entrance.float_in(slide, shape)
-    Entrance.wipe(slide, shape)
+    Entrance.wipe(slide, shape, direction="left")
     Entrance.zoom(slide, shape)
     Entrance.wheel(slide, shape)
     Entrance.random_bars(slide, shape)
 
     Exit.disappear(slide, shape)
     Exit.fade(slide, shape)
-    Exit.fly_out(slide, shape)
+    Exit.fly_out(slide, shape, direction="bottom")
+    Exit.float_out(slide, shape)
+    Exit.wipe(slide, shape, direction="left")
+    Exit.zoom(slide, shape)
+    Exit.wheel(slide, shape)
+    Exit.random_bars(slide, shape)
 
     Emphasis.pulse(slide, shape)
     Emphasis.spin(slide, shape)
     Emphasis.teeter(slide, shape)
 
+``direction`` is one of ``"bottom"``, ``"top"``, ``"left"``, ``"right"``
+for the presets that have one (fly in/out, wipe); anything else raises
+:class:`ValueError`.  The other ``Entrance`` and ``Exit`` methods take no
+``direction`` argument.
+
+The same presets can be named as strings through the slide's animation
+collection, which is also where the less common options live::
+
+    slide.animations.add_entrance("wipe", shape, direction="top",
+                                  easing="ease_out")
+    slide.animations.add_exit("fly_out", shape, direction="left")
+    slide.animations.add_emphasis("spin", shape, degrees=180)
+
+``add_entrance`` and ``add_exit`` accept ``direction`` for any preset and
+ignore it where the preset has none.  ``easing`` (entrances only) is
+``"linear"``, ``"ease_in"``, ``"ease_out"``, ``"ease_in_out"`` or an
+``(accel, decel)`` pair of fractions of the duration.
+
 Per-paragraph reveal
 --------------------
 
-Pass ``by_paragraph=True`` to fade, wipe, zoom, wheel, or appear a text
-frame in one paragraph at a time.  Each paragraph fires
-``AFTER_PREVIOUS`` so the whole sequence plays from a single click::
+Pass ``by_paragraph=True`` to reveal a text frame one paragraph at a time.
+Each paragraph fires ``AFTER_PREVIOUS`` so the whole sequence plays from a
+single click::
 
     Entrance.fade(slide, body_text_frame, by_paragraph=True)
+
+``slide.animations.add_entrance(preset, text_frame, by_paragraph=True)``
+does the same for the ``"appear"``, ``"fade"``, ``"wipe"``, ``"zoom"``,
+``"wheel"`` and ``"random_bars"`` presets (any other raises
+:class:`ValueError`), with ``direction`` and ``easing`` applied to every
+paragraph.
 
 Sequencing
 ----------
@@ -97,4 +133,34 @@ Motion paths
     MotionPath.zigzag(slide, shape, Inches(4), Inches(0),
                       segments=6, amplitude=0.2)
     MotionPath.spiral(slide, shape, Inches(2), turns=2.5)
-    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5")  # OOXML expr
+    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 E")  # OOXML expr
+    MotionPath.svg(slide, shape, "M 0 0 H 100 V 50",
+                   viewbox=(0, 0, 200, 100))            # SVG path
+
+A raw motion path knows five commands: ``M`` (move to), ``L`` (line to),
+``C`` (cubic curve to), ``Z`` (close the loop) and ``E`` (end), in lower
+case for coordinates relative to the current point.  Coordinates are
+fractions of the slide: ``(0, 0)`` is where the shape starts, ``(1, 0)``
+one slide width to its right.  ``custom`` adds the closing ``E`` if it is
+left out and raises :class:`ValueError` for anything that is not such a
+path.  ``svg`` accepts the wider SVG set (``M L H V C Q Z``, either case)
+and converts it; arcs (``A``) and smooth curves (``S``, ``T``) are not
+supported and raise :class:`ValueError`.
+
+Reading and removing effects
+----------------------------
+
+``slide.animations`` iterates over every effect on the slide, whether this
+library added it or PowerPoint did, wherever it sits in the timing tree::
+
+    for effect in slide.animations:
+        effect.kind, effect.preset, effect.trigger, effect.shape
+
+    slide.animations.clear()            # remove every effect
+    slide.animations.purge_orphans()    # remove effects on shapes now gone
+
+``preset`` is ``None`` for an effect this library has no name for.  Effects
+written by releases before 2.15 used preset numbers that did not match
+PowerPoint's, so they can read back as a different ``preset``.  Deleting a
+shape or a movie, or ungrouping, already removes the timing nodes that
+pointed at it; ``purge_orphans()`` is for shapes removed by other means.

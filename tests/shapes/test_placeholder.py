@@ -51,7 +51,7 @@ class Describe_BaseSlidePlaceholder(object):
         placeholder, prop_name, expected_value = override_fixture
         assert getattr(placeholder, prop_name) == expected_value
 
-    @pytest.mark.parametrize("prop_name", ("left", "top", "width", "height"))
+    @pytest.mark.parametrize("prop_name", ["left", "top", "width", "height"])
     def it_provides_inherited_dims_when_no_override(self, request, prop_name):
         method_mock(request, _BaseSlidePlaceholder, "_inherited_value", return_value=42)
         placeholder = _BaseSlidePlaceholder(element("p:sp/p:spPr"), None)
@@ -463,8 +463,8 @@ class DescribePicturePlaceholder(object):
         assert placeholder_picture is placeholder_picture_
 
     @pytest.mark.parametrize(
-        "image_size, crop_attr_names",
-        (((444, 333), ("l", "r")), ((333, 444), ("t", "b"))),
+        ("image_size", "crop_attr_names"),
+        [((444, 333), ("l", "r")), ((333, 444), ("t", "b"))],
     )
     def it_creates_a_pic_element_to_help(self, request, image_size, crop_attr_names):
         _get_or_add_image_ = method_mock(
@@ -474,7 +474,7 @@ class DescribePicturePlaceholder(object):
             return_value=(42, "bar", image_size),
         )
         picture_ph = PicturePlaceholder(
-            element("p:sp/(p:nvSpPr/p:cNvPr{id=2,name=foo},p:spPr/a:xfrm/a:ext{cx=99" ",cy=99})"),
+            element("p:sp/(p:nvSpPr/p:cNvPr{id=2,name=foo},p:spPr/a:xfrm/a:ext{cx=99,cy=99})"),
             None,
         )
 
@@ -635,3 +635,34 @@ class DescribeInheritedDimensionSiblings(object):
         body.height = Inches(0)
 
         assert body.height == 0
+
+
+class DescribePlaceholderGeometryCoercion(object):
+    """Placeholder position and size accept float lengths, as every other shape does."""
+
+    @staticmethod
+    def _body_placeholder():
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        return prs, slide.placeholders[1]
+
+    @pytest.mark.parametrize("dimension", ["left", "top", "width", "height"])
+    def it_accepts_a_length_computed_with_float_arithmetic(self, dimension):
+        from power_pptx.util import Inches
+
+        _, placeholder = self._body_placeholder()
+
+        setattr(placeholder, dimension, Inches(3) / 2)
+
+        assert getattr(placeholder, dimension) == Inches(1.5)
+
+    def but_it_changes_nothing_when_the_value_is_rejected(self):
+        prs, placeholder = self._body_placeholder()
+        before = placeholder._element.xml
+
+        with pytest.raises(TypeError):
+            placeholder.height = "tall"
+
+        assert placeholder._element.xml == before

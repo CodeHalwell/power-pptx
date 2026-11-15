@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0.0"]
+# -- 77.0.0 is the first setuptools with SPDX `license` expressions (PEP 639) --
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -16,30 +17,36 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Office/Business :: Office Suites",
     "Topic :: Software Development :: Libraries",
 ]
+# -- These floors are the oldest releases the test suite passes on. The
+# -- `lowest-deps` CI job installs exactly these on the oldest supported
+# -- Python, so raise a floor here only together with the code that needs it.
+# -- Pillow 10.1 is the first with a scalable default font and the text
+# -- measurement calls `power_pptx.text` relies on.
 dependencies = [
-    "Pillow>=3.3.2",
-    "XlsxWriter>=0.5.7",
-    "lxml>=3.1.0",
+    "Pillow>=10.1.0",
+    "XlsxWriter>=1.3.7",
+    "lxml>=4.6.3",
     "typing_extensions>=4.9.0",
 ]
 description = "Create, read, and update PowerPoint 2007+ (.pptx) files. Actively-maintained fork of python-pptx, published as power-pptx."
 dynamic = ["version"]
 keywords = ["powerpoint", "ppt", "pptx", "openxml", "office", "presentation"]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
 html = ["playwright>=1.40"]
@@ -57,8 +64,12 @@ Roadmap = "https://github.com/codehalwell/power-pptx/blob/master/ROADMAP.md"
 Upstream = "https://github.com/scanny/python-pptx"
 UpstreamDocumentation = "https://python-pptx.readthedocs.io/en/latest/"
 
-[tool.black]
-line-length = 100
+[tool.complexipy]
+# -- Every function in the library, its tests and the examples keeps a cognitive
+# -- complexity of 15 or less. CI runs `complexipy` with no arguments, which reads
+# -- this table; run the same locally before pushing.
+paths = ["src", "tests", "examples"]
+max-complexity-allowed = 15
 
 [tool.pyright]
 exclude = [
@@ -71,7 +82,7 @@ include = [
 ]
 ignore =  []
 pythonPlatform = "All"
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 reportImportCycles = false
 reportUnnecessaryCast = true
 reportUnnecessaryTypeIgnoreComment = true
@@ -128,6 +139,11 @@ exclude = [
     # -- spec/ has some ad-hoc discovery code that is not disciplined --
     "spec",
 ]
+
+[tool.ruff.format]
+# -- Ruff also formats Python code blocks inside Markdown. The skill's examples
+# -- are written to be read (compact calls, aligned comments), so leave them be.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [

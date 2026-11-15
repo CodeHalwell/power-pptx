@@ -264,6 +264,15 @@ class _TableLayout:
     family: str | None = None
 
 
+@dataclass(frozen=True)
+class _CellFont:
+    """The face that measures one table row's cells."""
+
+    family: str | None
+    path: str | None
+    bold: bool
+
+
 @dataclass
 class _Face:
     family: str | None
@@ -324,97 +333,124 @@ def _insets(value):
     return tuple(round(v) for v in values)
 
 
+def _is_finite_positive(value):
+    return math.isfinite(value) and value > 0
+
+
+def _is_finite_non_negative(value):
+    return math.isfinite(value) and value >= 0
+
+
+def _is_positive_int(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def _validate(node, context, names):
-    if not isinstance(node, (Container, TextBlock, NativeContent, DataTable)):
-        raise TypeError("children must be native Component objects")
+    kind = _kind_of(node)
     if id(node) in names:
         raise ValueError("Component trees cannot contain cycles or reuse the same instance")
     names.add(id(node))
-    for value in (node.width, node.height):
-        if value is not None and (not math.isfinite(value) or value <= 0):
-            raise ValueError("component dimensions must be finite and positive")
-    if not math.isfinite(node.grow) or node.grow < 0:
-        raise ValueError("grow must be finite and non-negative")
+    _validate_size(node)
     if node.name is not None:
         if node.name in names:
             raise ValueError(f"Duplicate component name: {node.name!r}")
         names.add(node.name)
-    if isinstance(node, Container):
-        _insets(node.padding)
-        if (
-            not math.isfinite(node.gap)
-            or node.gap < 0
-            or not math.isfinite(node.radius)
-            or node.radius < 0
-        ):
-            raise ValueError("gap and radius must be non-negative")
-        if node.direction not in {"horizontal", "vertical"}:
-            raise ValueError("direction must be horizontal or vertical")
-        if node.align not in {"start", "center", "end", "stretch"}:
-            raise ValueError("align must be start, center, end, or stretch")
-        if node.justify not in {"start", "center", "end", "space-between"}:
-            raise ValueError("justify must be start, center, end, or space-between")
-        context.color(node.fill)
-        context.color(node.border)
-        if node.fill_last:
-            if node.direction != "vertical":
-                raise ValueError("fill_last applies to vertical containers")
-            if node.children and node.children[-1].height is not None:
-                raise ValueError("fill_last needs a last child without a fixed height")
-        for child in node.children:
-            _validate(child, context, names)
-    elif isinstance(node, TextBlock):
-        context.color(node.color)
-        if node.align not in {"left", "center", "right", "justify"}:
-            raise ValueError("invalid text align")
-        if node.anchor not in {"top", "middle", "bottom"}:
-            raise ValueError("invalid text anchor")
-        if node.case not in {None, "upper", "lower"}:
-            raise ValueError("case must be 'upper', 'lower', or None")
-        if not math.isfinite(node.letter_spacing):
-            raise ValueError("letter_spacing must be finite")
-        resolve_weight(node.weight, node.bold)
-    elif isinstance(node, DataTable):
-        _validate_table(node, context)
+    kind.validate(node, context, names)
 
 
-def _validate_table(node, context):
-    if not node.rows or not all(len(row) == len(node.rows[0]) for row in node.rows):
-        raise ValueError("DataTable rows must be non-empty and rectangular")
-    count = len(node.rows[0])
-    if count == 0:
-        raise ValueError("DataTable rows need at least one column")
+def _validate_size(node):
+    """Check the sizing options every kind of component shares."""
+    for value in (node.width, node.height):
+        if value is not None and not _is_finite_positive(value):
+            raise ValueError("component dimensions must be finite and positive")
+    if not _is_finite_non_negative(node.grow):
+        raise ValueError("grow must be finite and non-negative")
+
+
+def _validate_container(node, context, names):
+    _insets(node.padding)
+    if not (_is_finite_non_negative(node.gap) and _is_finite_non_negative(node.radius)):
+        raise ValueError("gap and radius must be non-negative")
+    if node.direction not in {"horizontal", "vertical"}:
+        raise ValueError("direction must be horizontal or vertical")
+    if node.align not in {"start", "center", "end", "stretch"}:
+        raise ValueError("align must be start, center, end, or stretch")
+    if node.justify not in {"start", "center", "end", "space-between"}:
+        raise ValueError("justify must be start, center, end, or space-between")
+    context.color(node.fill)
+    context.color(node.border)
+    if node.fill_last:
+        _validate_fill_last(node)
+    for child in node.children:
+        _validate(child, context, names)
+
+
+def _validate_fill_last(node):
+    if node.direction != "vertical":
+        raise ValueError("fill_last applies to vertical containers")
+    if node.children and node.children[-1].height is not None:
+        raise ValueError("fill_last needs a last child without a fixed height")
+
+
+def _validate_text(node, context, names):
+    context.color(node.color)
+    if node.align not in {"left", "center", "right", "justify"}:
+        raise ValueError("invalid text align")
+    if node.anchor not in {"top", "middle", "bottom"}:
+        raise ValueError("invalid text anchor")
+    if node.case not in {None, "upper", "lower"}:
+        raise ValueError("case must be 'upper', 'lower', or None")
+    if not math.isfinite(node.letter_spacing):
+        raise ValueError("letter_spacing must be finite")
+    resolve_weight(node.weight, node.bold)
+
+
+def _validate_table(node, context, names):
+    count = _table_column_count(node)
     if node.columns is not None and (
-        len(node.columns) != count or any(not math.isfinite(w) or w <= 0 for w in node.columns)
+        len(node.columns) != count or not all(_is_finite_positive(w) for w in node.columns)
     ):
         raise ValueError("DataTable columns must give one positive weight per column")
-    aligns = [node.align] * count if isinstance(node.align, str) else list(node.align)
+    aligns = _column_aligns(node, count)
     if len(aligns) != count or any(a not in {"left", "center", "right"} for a in aligns):
         raise ValueError("DataTable align must be left/center/right, once or per column")
-    lines = node.max_lines
-    if lines is not None and (isinstance(lines, bool) or not isinstance(lines, int) or lines < 1):
-        raise ValueError("max_lines must be a positive integer or None")
-    if node.truncate and node.max_lines is None:
-        raise ValueError("truncate=True needs max_lines")
-    if isinstance(node.size_pt, bool) or not isinstance(node.size_pt, int) or node.size_pt < 1:
-        raise ValueError("size_pt must be a positive integer")
-    if not math.isfinite(node.line_spacing) or node.line_spacing <= 0:
-        raise ValueError("line_spacing must be finite and positive")
+    _validate_cell_text(node)
     _insets(node.cell_padding)
     for value in (node.color, node.header_color, node.header_fill, node.fill, node.border):
         context.color(value)
 
 
+def _table_column_count(node):
+    """The number of columns in a table's rows, which must form a rectangle."""
+    if not node.rows or not all(len(row) == len(node.rows[0]) for row in node.rows):
+        raise ValueError("DataTable rows must be non-empty and rectangular")
+    count = len(node.rows[0])
+    if count == 0:
+        raise ValueError("DataTable rows need at least one column")
+    return count
+
+
+def _column_aligns(node, count):
+    """One alignment per column, from a single value or a per-column sequence."""
+    return [node.align] * count if isinstance(node.align, str) else list(node.align)
+
+
+def _validate_cell_text(node):
+    """Check the options that size and cut the text in a table's cells."""
+    if node.max_lines is not None and not _is_positive_int(node.max_lines):
+        raise ValueError("max_lines must be a positive integer or None")
+    if node.truncate and node.max_lines is None:
+        raise ValueError("truncate=True needs max_lines")
+    if not _is_positive_int(node.size_pt):
+        raise ValueError("size_pt must be a positive integer")
+    if not _is_finite_positive(node.line_spacing):
+        raise ValueError("line_spacing must be finite and positive")
+
+
 def _table_layout(node, width, context):
     count = len(node.rows[0])
     weights = list(node.columns) if node.columns is not None else [1.0] * count
-    total = sum(weights)
-    widths, cursor, cumulative = [], 0, 0.0
-    for weight in weights:
-        cumulative += weight
-        edge = round(width * cumulative / total)
-        widths.append(edge - cursor)
-        cursor = edge
+    widths = _apportion(width, weights)
     t, r, b, left_pad = _insets(node.cell_padding)
     family = context.font(node)
     lookup = family or "Calibri"
@@ -428,56 +464,72 @@ def _table_layout(node, width, context):
                     f"Font {lookup!r} is unavailable; install it or register its folder"
                 )
             estimated = True
-        row_lines, row_height = [], 0
-        for column, value in enumerate(row):
-            inner = widths[column] - left_pad - r
-            if inner <= 0:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} padding consumes a column"
-                )
-            text = "" if value is None else str(value)
-            if node.truncate:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    text = truncate_text(
-                        text,
-                        Emu(inner),
-                        max_lines=node.max_lines or 1,
-                        size_pt=node.size_pt,
-                        font_family=family,
-                        font_file=path,
-                        bold=bold,
-                    )
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    m = measure_text(
-                        text,
-                        Emu(inner),
-                        size_pt=node.size_pt,
-                        font_family=family,
-                        font_file=path,
-                        bold=bold,
-                        line_spacing=node.line_spacing,
-                    )
-            except ValueError as exc:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} cell ({row_index}, {column}) cannot fit: {exc}"
-                ) from None
-            if node.max_lines is not None and len(m.lines) > node.max_lines:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} cell ({row_index}, {column}) needs "
-                    f"{len(m.lines)} lines; max_lines is {node.max_lines}"
-                )
-            row_lines.append(m.lines)
-            line = _rendered_line_height(path, node.size_pt, node.line_spacing)
-            row_height = max(row_height, line * len(m.lines))
-        heights.append(row_height + t + b)
+        font = _CellFont(family, path, bold)
+        row_lines = [
+            _cell_lines(node, (row_index, column), value, widths[column] - left_pad - r, font)
+            for column, value in enumerate(row)
+        ]
+        line = _rendered_line_height(path, node.size_pt, node.line_spacing)
+        heights.append(line * max(len(cell) for cell in row_lines) + t + b)
         lines.append(row_lines)
     regular = find_font_file(lookup)
     return _TableLayout(
         widths, heights, lines, node.size_pt, estimated, drawing_family(family, regular)
     )
+
+
+def _cell_lines(node, cell, value, inner, font):
+    """The lines a table cell's text is drawn in, `inner` wide.
+
+    `cell` is the cell's (row, column), for error messages. With ``truncate``
+    the text is first cut to ``max_lines`` with an ellipsis.
+    """
+    if inner <= 0:
+        raise LayoutOverflowError(f"DataTable {node.name or ''!r} padding consumes a column")
+    text = "" if value is None else str(value)
+    if node.truncate:
+        text = _quietly(
+            truncate_text,
+            text,
+            Emu(inner),
+            max_lines=node.max_lines or 1,
+            size_pt=node.size_pt,
+            font_family=font.family,
+            font_file=font.path,
+            bold=font.bold,
+        )
+    try:
+        m = _quietly(
+            measure_text,
+            text,
+            Emu(inner),
+            size_pt=node.size_pt,
+            font_family=font.family,
+            font_file=font.path,
+            bold=font.bold,
+            line_spacing=node.line_spacing,
+        )
+    except ValueError as exc:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} cell {cell} cannot fit: {exc}"
+        ) from None
+    if node.max_lines is not None and len(m.lines) > node.max_lines:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} cell {cell} needs "
+            f"{len(m.lines)} lines; max_lines is {node.max_lines}"
+        )
+    return m.lines
+
+
+def _quietly(function, *args, **kwargs):
+    """Call `function` with warnings silenced.
+
+    A table reports a font it had to estimate in ``estimated_fonts`` rather
+    than warning once per cell.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return function(*args, **kwargs)
 
 
 def _rendered_line_height(font_file, size_pt, line_spacing):
@@ -586,27 +638,38 @@ def _row_widths(node, available, context):
 
 
 def _measure(node, width, context):
+    """The height `node` takes at `width`: its own height when it fixes one."""
     if node.height is not None:
         return int(node.height)
-    if isinstance(node, TextBlock):
-        return int(_text_measure(node, width, 10**12, context).height)
-    if isinstance(node, DataTable):
-        return sum(_table_layout(node, width, context).heights)
-    if isinstance(node, Container):
-        t, r, b, left_pad = _insets(node.padding)
-        inner = width - left_pad - r
-        if inner <= 0:
-            raise LayoutOverflowError("Container padding consumes its width")
-        if node.direction == "horizontal":
-            widths = _row_widths(node, inner, context)
-            heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
-            return t + b + max(heights, default=0)
-        return (
-            t
-            + b
-            + sum(_measure(c, c.width or inner, context) for c in node.children)
-            + node.gap * max(0, len(node.children) - 1)
-        )
+    return _kind_of(node).height(node, width, context)
+
+
+def _text_height(node, width, context):
+    return int(_text_measure(node, width, 10**12, context).height)
+
+
+def _table_height(node, width, context):
+    return sum(_table_layout(node, width, context).heights)
+
+
+def _container_height(node, width, context):
+    t, r, b, left_pad = _insets(node.padding)
+    inner = width - left_pad - r
+    if inner <= 0:
+        raise LayoutOverflowError("Container padding consumes its width")
+    if node.direction == "horizontal":
+        widths = _row_widths(node, inner, context)
+        heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
+        return t + b + max(heights, default=0)
+    return (
+        t
+        + b
+        + sum(_measure(c, c.width or inner, context) for c in node.children)
+        + node.gap * max(0, len(node.children) - 1)
+    )
+
+
+def _native_height(node, width, context):
     raise TypeError("NativeContent requires a height")
 
 
@@ -618,21 +681,49 @@ def _plan(node, bbox, context, stretched=False):
     if bbox.width <= 0 or bbox.height <= 0:
         raise LayoutOverflowError("Component regions must have positive dimensions")
     plan = _Plan(node, bbox)
-    if isinstance(node, TextBlock):
-        plan.text = _text_measure(node, bbox.width, bbox.height, context)
-        return plan
-    if isinstance(node, DataTable):
-        plan.table = _table_layout(node, bbox.width, context)
-        if sum(plan.table.heights) > bbox.height:
-            raise LayoutOverflowError(
-                f"DataTable {node.name or ''!r} needs {sum(plan.table.heights) / 12700:.1f}pt; "
-                f"its region is {bbox.height / 12700:.1f}pt"
-            )
-        return plan
-    if not isinstance(node, Container):
-        return plan
+    _kind_of(node).plan(plan, context, stretched)
+    return plan
+
+
+def _plan_text(plan, context, stretched):
+    plan.text = _text_measure(plan.node, plan.bbox.width, plan.bbox.height, context)
+
+
+def _plan_table(plan, context, stretched):
+    node, bbox = plan.node, plan.bbox
+    plan.table = _table_layout(node, bbox.width, context)
+    if sum(plan.table.heights) > bbox.height:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} needs {sum(plan.table.heights) / 12700:.1f}pt; "
+            f"its region is {bbox.height / 12700:.1f}pt"
+        )
+
+
+def _plan_container(plan, context, stretched):
+    """Lay the children out along the container's direction inside its padding.
+
+    `stretched` says the parent row made this container taller than its
+    content, which is when a ragged last panel is worth a warning.
+    """
+    node, bbox = plan.node, plan.bbox
     if node.radius > min(bbox.width, bbox.height) / 2:
         raise LayoutOverflowError("Container radius exceeds half its shorter side")
+    inner = _content_box(node, bbox)
+    widths, heights = _child_sizes(node, inner, context)
+    spare = _spare_length(node, inner, widths, heights)
+    spare = _absorb_spare(node, heights, spare, stretched, context)
+    horizontal = node.direction == "horizontal"
+    cursor, gap = _justify(node, spare)
+    for child, w, h in zip(node.children, widths, heights):
+        shift = _cross_shift(node, inner, w, h)
+        w, h, child_stretched = _stretch(node, child, inner, w, h)
+        child_box = _child_box(inner, horizontal, cursor, shift, w, h)
+        plan.children.append(_plan(child, child_box, context, child_stretched))
+        cursor += (w if horizontal else h) + gap
+
+
+def _content_box(node, bbox):
+    """The region inside the container's padding, which must not be empty."""
     t, r, b, left_pad = _insets(node.padding)
     inner = BBox(
         Emu(bbox.left + left_pad),
@@ -642,147 +733,229 @@ def _plan(node, bbox, context, stretched=False):
     )
     if inner.width <= 0 or inner.height <= 0:
         raise LayoutOverflowError("Container padding consumes its region")
-    horizontal = node.direction == "horizontal"
-    widths = (
-        _row_widths(node, inner.width, context)
-        if horizontal
-        else [c.width or inner.width for c in node.children]
-    )
+    return inner
+
+
+def _child_sizes(node, inner, context):
+    """Each child's width and measured height before spare space is shared."""
+    if node.direction == "horizontal":
+        widths = _row_widths(node, inner.width, context)
+    else:
+        widths = [c.width or inner.width for c in node.children]
     heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
+    return widths, heights
+
+
+def _spare_length(node, inner, widths, heights):
+    """Length left along the flow once children and gaps are placed.
+
+    Raises when the children overrun the region in either direction.
+    """
+    horizontal = node.direction == "horizontal"
     sizes = widths if horizontal else heights
     available = inner.width if horizontal else inner.height
     spare = available - sum(sizes) - node.gap * max(0, len(sizes) - 1)
     if spare < 0 or any(w > inner.width for w in widths) or any(h > inner.height for h in heights):
         raise LayoutOverflowError(f"Container {node.name or ''!r} content exceeds its region")
-    grows = sum(c.grow for c in node.children) if not horizontal else 0
-    if grows:
-        allocated = 0
-        cumulative = 0.0
-        for i, child in enumerate(node.children):
-            cumulative += child.grow
-            edge = round(spare * cumulative / grows)
-            heights[i] += edge - allocated
-            allocated = edge
-        spare = 0
-    elif not horizontal and node.fill_last and node.children:
+    return spare
+
+
+def _absorb_spare(node, heights, spare, stretched, context):
+    """Give a column's spare height to growing children or to its last child.
+
+    Updates `heights` in place and returns the spare length left for
+    ``justify`` to distribute. Rows keep all of theirs.
+    """
+    if node.direction == "horizontal":
+        return spare
+    grows = [c.grow for c in node.children]
+    if sum(grows):
+        for i, share in enumerate(_apportion(spare, grows)):
+            heights[i] += share
+        return 0
+    if node.fill_last and node.children:
         heights[-1] += spare
-        spare = 0
-    elif (
-        not horizontal
-        and stretched
-        and spare > RAGGED_TOLERANCE
-        and node.justify == "start"
-        and not _is_panel(node)
-        and node.children
-        and _is_panel(node.children[-1])
-    ):
+        return 0
+    if stretched and _leaves_ragged_bottom(node, spare):
         label = f"Column {node.name!r}" if node.name else "A column"
         context.warnings.append(
             f"{label} ends {spare / 12700:.1f}pt above the bottom of "
             "its row, so its last panel won't share a bottom edge with its neighbours; "
             "set grow on its last child or fill_last=True"
         )
-    gap = node.gap
-    offset = 0
+    return spare
+
+
+def _leaves_ragged_bottom(node, spare):
+    """Whether a column's last panel would stop visibly short of the column's end."""
+    return (
+        spare > RAGGED_TOLERANCE
+        and node.justify == "start"
+        and not _is_panel(node)
+        and bool(node.children)
+        and _is_panel(node.children[-1])
+    )
+
+
+def _apportion(total, weights):
+    """Split `total` into whole parts in proportion to `weights`.
+
+    Each boundary is rounded from the running sum of weights, so rounding
+    errors never accumulate and the parts add up to the rounded total.
+    """
+    whole = sum(weights)
+    parts, allocated, cumulative = [], 0, 0.0
+    for weight in weights:
+        cumulative += weight
+        edge = round(total * cumulative / whole)
+        parts.append(edge - allocated)
+        allocated = edge
+    return parts
+
+
+def _justify(node, spare):
+    """The offset of the first child along the flow, and the gap between children."""
+    count = len(node.children)
     if node.justify == "center":
-        offset = spare / 2
-    elif node.justify == "end":
-        offset = spare
-    elif node.justify == "space-between" and len(sizes) > 1:
-        gap += spare / (len(sizes) - 1)
-    cursor = offset
-    for child, w, h in zip(node.children, widths, heights):
-        cross = inner.height - h if horizontal else inner.width - w
-        shift = cross / 2 if node.align == "center" else cross if node.align == "end" else 0
-        child_stretched = False
-        if node.align == "stretch":
-            if horizontal and child.height is None:
-                child_stretched = inner.height > h
-                h = inner.height
-            elif not horizontal and child.width is None:
-                w = inner.width
-        child_box = BBox(
-            Emu(round(inner.left + (cursor if horizontal else shift))),
-            Emu(round(inner.top + (shift if horizontal else cursor))),
-            Emu(w),
-            Emu(h),
+        return spare / 2, node.gap
+    if node.justify == "end":
+        return spare, node.gap
+    if node.justify == "space-between" and count > 1:
+        return 0, node.gap + spare / (count - 1)
+    return 0, node.gap
+
+
+def _cross_shift(node, inner, width, height):
+    """How far ``align`` moves a child across the flow from the content edge."""
+    if node.align not in ("center", "end"):
+        return 0
+    room = inner.height - height if node.direction == "horizontal" else inner.width - width
+    return room / 2 if node.align == "center" else room
+
+
+def _stretch(node, child, inner, width, height):
+    """A child's size after ``align="stretch"``, and whether a row made it taller.
+
+    A child stretches across the flow unless it fixes that dimension itself.
+    """
+    if node.align != "stretch":
+        return width, height, False
+    if node.direction == "vertical":
+        return (inner.width if child.width is None else width), height, False
+    if child.height is None:
+        return width, inner.height, inner.height > height
+    return width, height, False
+
+
+def _child_box(inner, horizontal, along, across, width, height):
+    """A child's region, offset `along` the flow and `across` it from the content box."""
+    if horizontal:
+        return BBox(
+            Emu(round(inner.left + along)), Emu(round(inner.top + across)), Emu(width), Emu(height)
         )
-        plan.children.append(_plan(child, child_box, context, child_stretched))
-        cursor += (w if horizontal else h) + gap
-    return plan
+    return BBox(
+        Emu(round(inner.left + across)), Emu(round(inner.top + along)), Emu(width), Emu(height)
+    )
 
 
 def _draw(plan, slide, context, result):
-    node, bbox = plan.node, plan.bbox
     start = len(result.shapes)
-    background = None
-    if isinstance(node, TextBlock):
-        m = plan.text
-        face = _face(node, context)
-        shape = slide.shapes.add_text(
-            bbox,
-            text="\v".join(m.lines),
-            size_pt=m.font_size_pt,
-            font=face.draw_family,
-            color=context.color(node.color),
-            bold=face.draw_bold,
-            italic=node.italic,
-            align=node.align,
-            anchor=node.anchor,
-            margin_pt=0,
-        )
-        shape.text_frame.auto_size = MSO_AUTO_SIZE.NONE
-        # Bake measured lines so Office cannot introduce extra wrapping (most
-        # visible on intrinsically sized badges and narrow card copy).
-        shape.text_frame.word_wrap = False
-        for paragraph in shape.text_frame.paragraphs:
-            paragraph.line_spacing = node.line_spacing
-            paragraph.space_before = paragraph.space_after = Pt(0)
-            if node.letter_spacing:
-                for run in paragraph.runs:
-                    run.font.letter_spacing = Emu(int(node.letter_spacing))
-        if m.used_fallback or face.estimated:
-            result.estimated_fonts.append(node.name or node.text[:40])
-        result.shapes.append(shape)
-    elif isinstance(node, Container):
-        if node.fill is not None or node.border is not None:
-            background = slide.shapes.add_shape(
-                MSO_SHAPE.ROUNDED_RECTANGLE if node.radius else MSO_SHAPE.RECTANGLE, *bbox
-            )
-            if node.fill is not None:
-                background.fill_hex(context.color(node.fill))
-            else:
-                background.fill.background()
-            if node.border is not None:
-                background.line_hex(context.color(node.border), weight_pt=0.75)
-            else:
-                background.line.fill.background()
-            background.shadow.clear()
-            if node.radius:
-                background.corner_radius = Emu(node.radius)
-            result.shapes.append(background)
-        for child in plan.children:
-            _draw(child, slide, context, result)
-        if background is not None:
-            for child_shape in result.shapes[start + 1 :]:
-                background.allow_overlap_with(child_shape)
-    elif isinstance(node, DataTable):
-        result.shapes.append(_draw_table(node, plan, slide, context))
-        if plan.table.estimated:
-            result.estimated_fonts.append(node.name or "DataTable")
-    elif isinstance(node, NativeContent):
-        before = len(slide.shapes)
-        node.builder(slide, bbox)
-        result.shapes.extend(list(slide.shapes)[before:])
-    if node.name is not None:
-        created = result.shapes[start:]
-        if created:
-            created[0].name = node.name
-            result.named[node.name] = created[0]
+    _kind_of(plan.node).draw(plan, slide, context, result)
+    _name_first_shape(plan.node, result, start)
 
 
-def _draw_table(node, plan, slide, context):
-    layout, bbox = plan.table, plan.bbox
+def _name_first_shape(node, result, start):
+    """Name a named node's first shape (created from index `start` on) after it."""
+    if node.name is None:
+        return
+    created = result.shapes[start:]
+    if created:
+        created[0].name = node.name
+        result.named[node.name] = created[0]
+
+
+def _draw_text(plan, slide, context, result):
+    node, m = plan.node, plan.text
+    face = _face(node, context)
+    shape = slide.shapes.add_text(
+        plan.bbox,
+        text="\v".join(m.lines),
+        size_pt=m.font_size_pt,
+        font=face.draw_family,
+        color=context.color(node.color),
+        bold=face.draw_bold,
+        italic=node.italic,
+        align=node.align,
+        anchor=node.anchor,
+        margin_pt=0,
+    )
+    _bake_lines(shape.text_frame, node)
+    if m.used_fallback or face.estimated:
+        result.estimated_fonts.append(node.name or node.text[:40])
+    result.shapes.append(shape)
+
+
+def _bake_lines(text_frame, node):
+    """Keep the measured lines and spacing exactly as they were measured."""
+    text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    # Bake measured lines so Office cannot introduce extra wrapping (most
+    # visible on intrinsically sized badges and narrow card copy).
+    text_frame.word_wrap = False
+    for paragraph in text_frame.paragraphs:
+        paragraph.line_spacing = node.line_spacing
+        paragraph.space_before = paragraph.space_after = Pt(0)
+        if node.letter_spacing:
+            for run in paragraph.runs:
+                run.font.letter_spacing = Emu(int(node.letter_spacing))
+
+
+def _draw_container(plan, slide, context, result):
+    panel = None
+    if _is_panel(plan.node):
+        panel = _add_panel(plan.node, plan.bbox, slide, context)
+        result.shapes.append(panel)
+    first_child = len(result.shapes)
+    for child in plan.children:
+        _draw(child, slide, context, result)
+    if panel is not None:
+        for child_shape in result.shapes[first_child:]:
+            panel.allow_overlap_with(child_shape)
+
+
+def _add_panel(node, bbox, slide, context):
+    """The filled and/or bordered shape behind a container's children."""
+    panel = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE if node.radius else MSO_SHAPE.RECTANGLE, *bbox
+    )
+    if node.fill is not None:
+        panel.fill_hex(context.color(node.fill))
+    else:
+        panel.fill.background()
+    if node.border is not None:
+        panel.line_hex(context.color(node.border), weight_pt=0.75)
+    else:
+        panel.line.fill.background()
+    panel.shadow.clear()
+    if node.radius:
+        panel.corner_radius = Emu(node.radius)
+    return panel
+
+
+def _draw_data_table(plan, slide, context, result):
+    result.shapes.append(_add_table(plan, slide, context))
+    if plan.table.estimated:
+        result.estimated_fonts.append(plan.node.name or "DataTable")
+
+
+def _draw_native(plan, slide, context, result):
+    before = len(slide.shapes)
+    plan.node.builder(slide, plan.bbox)
+    result.shapes.extend(list(slide.shapes)[before:])
+
+
+def _add_table(plan, slide, context):
+    """A native table with the planned column widths, row heights and cell lines."""
+    node, layout, bbox = plan.node, plan.table, plan.bbox
     count = len(layout.widths)
     frame = slide.shapes.add_table(
         len(node.rows),
@@ -799,28 +972,75 @@ def _draw_table(node, plan, slide, context):
     for row, height in zip(table.rows, layout.heights):
         row.height = Emu(height)
     t, r, b, left_pad = _insets(node.cell_padding)
-    aligns = [node.align] * count if isinstance(node.align, str) else list(node.align)
+    margin = (t / 12700, r / 12700, b / 12700, left_pad / 12700)
+    aligns = _column_aligns(node, count)
     for row_index, row_lines in enumerate(layout.lines):
         is_header = node.header and row_index == 0
         for column, lines in enumerate(row_lines):
             cell = table.cell(row_index, column)
             cell.text = "\v".join(lines)
-            fill = node.header_fill if is_header else node.fill
-            cell.format(
-                fill=context.color(fill) if fill is not None else "none",
-                color=context.color(node.header_color if is_header else node.color),
-                font=layout.family,
-                size_pt=layout.font_size_pt,
-                bold=is_header,
-                align=aligns[column],
-                anchor="top",
-                margin=(t / 12700, r / 12700, b / 12700, left_pad / 12700),
-                # Lines are baked; re-wrapping with other metrics would outgrow the row.
-                word_wrap=False,
+            _format_cell(
+                cell, node, layout, context, header=is_header, align=aligns[column], margin=margin
             )
-            for paragraph in cell.text_frame.paragraphs:
-                paragraph.line_spacing = node.line_spacing
-                paragraph.space_before = paragraph.space_after = Pt(0)
-            if node.border is not None:
-                cell.borders.outer(Pt(0.75), context.color(node.border))
     return frame
+
+
+def _format_cell(cell, node, layout, context, *, header, align, margin):
+    """Style a header or body cell so its baked lines render as measured."""
+    fill = node.header_fill if header else node.fill
+    cell.format(
+        fill=context.color(fill) if fill is not None else "none",
+        color=context.color(node.header_color if header else node.color),
+        font=layout.family,
+        size_pt=layout.font_size_pt,
+        bold=header,
+        align=align,
+        anchor="top",
+        margin=margin,
+        # Lines are baked; re-wrapping with other metrics would outgrow the row.
+        word_wrap=False,
+    )
+    for paragraph in cell.text_frame.paragraphs:
+        paragraph.line_spacing = node.line_spacing
+        paragraph.space_before = paragraph.space_after = Pt(0)
+    if node.border is not None:
+        cell.borders.outer(Pt(0.75), context.color(node.border))
+
+
+# -- kinds of node -----------------------------------------------------------
+
+
+def _nothing(*_args):
+    """A layout phase that a kind of node has no part in."""
+
+
+@dataclass(frozen=True)
+class _Kind:
+    """What each layout phase does with one kind of node.
+
+    ``validate(node, context, names)`` checks the node's own options (and a
+    container's children); ``height(node, width, context)`` measures a node
+    with no fixed height; ``plan(plan, context, stretched)`` fills in what
+    drawing needs for the node's region; ``draw(plan, slide, context,
+    result)`` creates its shapes.
+    """
+
+    validate: Callable[..., None]
+    height: Callable[..., int]
+    plan: Callable[..., None]
+    draw: Callable[..., None]
+
+
+_KINDS = (
+    (Container, _Kind(_validate_container, _container_height, _plan_container, _draw_container)),
+    (TextBlock, _Kind(_validate_text, _text_height, _plan_text, _draw_text)),
+    (NativeContent, _Kind(_nothing, _native_height, _nothing, _draw_native)),
+    (DataTable, _Kind(_validate_table, _table_height, _plan_table, _draw_data_table)),
+)
+
+
+def _kind_of(node) -> _Kind:
+    for cls, kind in _KINDS:
+        if isinstance(node, cls):
+            return kind
+    raise TypeError("children must be native Component objects")

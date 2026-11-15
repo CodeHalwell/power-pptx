@@ -6,13 +6,14 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { useMemo } from "react";
+import { SITE } from "@/lib/site";
 import { useSiteTheme } from "@/lib/theme";
 
 const metrics = [
   { label: "Public API modules", value: "24", progress: 92 },
   { label: "Diagram recipes", value: "6", progress: 70 },
-  { label: "Skill reference docs", value: "16", progress: 84 },
-  { label: "Python versions", value: "3.9–3.13", progress: 100 },
+  { label: "Skill reference docs", value: "20", progress: 84 },
+  { label: "Python versions", value: SITE.python, progress: 100 },
 ];
 
 /**

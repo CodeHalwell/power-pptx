@@ -122,8 +122,7 @@ class DescribeConnector(object):
     def begin_x_get_fixture(self, request):
         x, cx, flipH, expected_value = request.param
         cxnSp = element(
-            "p:cxnSp/p:spPr/a:xfrm{flipH=%d}/(a:off{x=%d,y=6},a:ext{cx=%d,cy"
-            "=32})" % (flipH, x, cx)
+            "p:cxnSp/p:spPr/a:xfrm{flipH=%d}/(a:off{x=%d,y=6},a:ext{cx=%d,cy=32})" % (flipH, x, cx)
         )
         connector = Connector(cxnSp, None)
         return connector, expected_value
@@ -174,8 +173,7 @@ class DescribeConnector(object):
     def begin_y_get_fixture(self, request):
         y, cy, flipV, expected_value = request.param
         cxnSp = element(
-            "p:cxnSp/p:spPr/a:xfrm{flipV=%d}/(a:off{x=6,y=%d},a:ext{cx=32,cy"
-            "=%d})" % (flipV, y, cy)
+            "p:cxnSp/p:spPr/a:xfrm{flipV=%d}/(a:off{x=6,y=%d},a:ext{cx=32,cy=%d})" % (flipV, y, cy)
         )
         connector = Connector(cxnSp, None)
         return connector, expected_value
@@ -272,8 +270,7 @@ class DescribeConnector(object):
     def end_x_get_fixture(self, request):
         x, cx, flipH, expected_value = request.param
         cxnSp = element(
-            "p:cxnSp/p:spPr/a:xfrm{flipH=%d}/(a:off{x=%d,y=6},a:ext{cx=%d,cy"
-            "=60})" % (flipH, x, cx)
+            "p:cxnSp/p:spPr/a:xfrm{flipH=%d}/(a:off{x=%d,y=6},a:ext{cx=%d,cy=60})" % (flipH, x, cx)
         )
         connector = Connector(cxnSp, None)
         return connector, expected_value
@@ -324,8 +321,7 @@ class DescribeConnector(object):
     def end_y_get_fixture(self, request):
         y, cy, flipV, expected_value = request.param
         cxnSp = element(
-            "p:cxnSp/p:spPr/a:xfrm{flipV=%d}/(a:off{x=6,y=%d},a:ext{cx=32,cy"
-            "=%d})" % (flipV, y, cy)
+            "p:cxnSp/p:spPr/a:xfrm{flipV=%d}/(a:off{x=6,y=%d},a:ext{cx=32,cy=%d})" % (flipV, y, cy)
         )
         connector = Connector(cxnSp, None)
         return connector, expected_value

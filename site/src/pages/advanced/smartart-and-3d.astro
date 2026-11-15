@@ -160,8 +160,10 @@ deck.save("badge.pptx")`;
     the visual sequence in most layouts. Each entry is the concatenation of every text run inside
     that node, and only <code>node</code> and <code>asst</code> nodes are included — the
     structural points SmartArt uses for connectors and layout scaffolding are filtered out, so the
-    list you read is the list you write. Print it once against your template before wiring up a
-    generator; it is the contract everything else depends on.
+    list you read is the list you write. That includes diagrams as PowerPoint saves them, whose
+    content nodes carry no explicit type, and a node nobody has typed into yet (it shows a
+    <code>[Text]</code> prompt), which reads as <code>""</code>. Print the list once against your
+    template before wiring up a generator; it is the contract everything else depends on.
   </p>
 
   <h2 id="set-text">Replacing the text</h2>
@@ -193,6 +195,15 @@ deck.save("badge.pptx")`;
     whether or not you touch it. Reads never mutate.
   </p>
   <Code code={snippet3} />
+  <p>
+    PowerPoint 2010 and later also save a <em>cached drawing</em> of the diagram
+    (<code>diagrams/drawing#.xml</code>), the shapes it was last laid out as, and viewers display
+    that cache — LibreOffice always does. <code>set_text</code> replaces the text there too, so the
+    old names do not linger on screen. The cached shapes keep the size and font size they were
+    fitted to for the old text until PowerPoint lays the diagram out again on the next edit, so
+    keep replacement text close in length to what it replaces, and render the slide to check the
+    fit when it matters.
+  </p>
 
   <h2 id="three-d">3-D: bevels</h2>
   <p>
@@ -224,6 +235,14 @@ deck.save("badge.pptx")`;
     either member therefore <em>removes</em> the element or attribute instead of writing the
     token, which is the schema-valid way to say "no bevel" and "no explicit material". You get the
     intuitive behaviour and a clean file; nothing to remember at the call site.
+  </p>
+  <p>
+    Python <code>None</code> clears one property at a time: <code>bevel_top.preset = None</code>
+    keeps an explicit width and height. Clearing the last one removes the bevel too, because an
+    empty <code>&lt;a:bevelT/&gt;</code> is not "no bevel" but the schema default, a 6pt circle.
+    Widths, heights and depths may be floats such as <code>Pt(6) / 2</code>, rounded to whole EMU,
+    and a rejected value — negative, not a number, a preset that is not a
+    <code>BevelPreset</code> — leaves the shape untouched rather than half-built.
   </p>
 
   <h2 id="extrusion">Extrusion and contour</h2>

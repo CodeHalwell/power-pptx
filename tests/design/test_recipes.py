@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 
 import pytest
@@ -12,6 +13,7 @@ from power_pptx.design.recipes import (
     chart_slide,
     code_slide,
     comparison_slide,
+    figure_slide,
     image_hero_slide,
     kpi_slide,
     quote_slide,
@@ -23,13 +25,12 @@ from power_pptx.design.recipes import (
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
-from power_pptx.enum.text import PP_ALIGN
-from power_pptx.util import Pt
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
+from power_pptx.text import clear_registered_fonts, register_font_dir
+from power_pptx.util import Inches, Pt
+from power_pptx.validation import iter_schema_violations
 
-
-_TEST_IMAGE = os.path.join(
-    os.path.dirname(__file__), "..", "test_files", "monty-truth.png"
-)
+_TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
 
 
 @pytest.fixture
@@ -79,12 +80,7 @@ def _runs(slide):
 
 
 def _paragraph_texts(slide):
-    return [
-        p.text
-        for sh in slide.shapes
-        if sh.has_text_frame
-        for p in sh.text_frame.paragraphs
-    ]
+    return [p.text for sh in slide.shapes if sh.has_text_frame for p in sh.text_frame.paragraphs]
 
 
 class DescribeTitleSlide:
@@ -199,9 +195,16 @@ class DescribeKpiSlide:
             for run in p.runs
             if "%" in run.text
         ]
-        colors = {run.font.color.rgb for run in delta_runs}
-        assert RGBColor(0x00, 0x85, 0x3E) in colors
-        assert RGBColor(0xB0, 0x00, 0x20) in colors
+        up, down = (run.font.color.rgb for run in delta_runs)
+        # The palette's negative (#B00020) reads on the card surface and is
+        # used as given.  Its positive (#00853E) is 4.3:1 there, so it is
+        # darkened just enough to reach 4.5:1 — still the same green.
+        assert down == RGBColor(0xB0, 0x00, 0x20)
+        assert up != down
+        assert up[1] > up[0]
+        assert up[1] > up[2]
+        assert (up[0], up[2]) <= (0x00, 0x3E)
+        assert 0x70 <= up[1] <= 0x85
 
     def it_treats_fraction_deltas_as_percentages(self, prs):
         slide = kpi_slide(
@@ -251,9 +254,7 @@ class DescribeKpiSlide:
             kpis=[{"label": "ARR", "value": "$182M"}],
             tokens=tokens,
         )
-        card = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        )
+        card = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE)
         assert card.shadow.blur_radius == Pt(8)
         assert card.shadow.distance == Pt(2)
 
@@ -299,20 +300,12 @@ class DescribeImageHeroSlide:
         assert pics[0].height == prs.slide_height
 
     def it_renders_the_caption_when_provided(self, prs):
-        slide = image_hero_slide(
-            prs, title="T", image=_TEST_IMAGE, caption="A short caption"
-        )
+        slide = image_hero_slide(prs, title="T", image=_TEST_IMAGE, caption="A short caption")
         assert any("A short caption" in t for t in _paragraph_texts(slide))
 
     def it_uses_the_token_primary_color_for_the_band(self, prs, tokens):
-        slide = image_hero_slide(
-            prs, title="T", image=_TEST_IMAGE, tokens=tokens
-        )
-        bands = [
-            s
-            for s in slide.shapes
-            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        slide = image_hero_slide(prs, title="T", image=_TEST_IMAGE, tokens=tokens)
+        bands = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert bands
         assert bands[0].fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
 
@@ -330,9 +323,7 @@ class DescribeSectionDivider:
     def it_renders_progress_dots(self, prs):
         slide = section_divider(prs, title="X", progress=(3, 7))
         # 1 backdrop rectangle + 7 dots = 8 auto-shapes
-        autoshapes = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        autoshapes = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert len(autoshapes) == 1 + 7
 
     def it_rejects_invalid_progress(self, prs):
@@ -343,30 +334,32 @@ class DescribeSectionDivider:
 class DescribeChartSlide:
     def it_appends_a_slide_with_a_chart(self, prs):
         slide = chart_slide(
-            prs, title="Revenue", chart_type="line",
+            prs,
+            title="Revenue",
+            chart_type="line",
             categories=["Q1", "Q2", "Q3"],
             series=[{"name": "Rev", "values": [10, 20, 30]}],
         )
-        graphic_frames = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART
-        ]
+        graphic_frames = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART]
         assert len(graphic_frames) == 1
 
     def it_supports_known_chart_types(self, prs):
         for kind in ("line", "bar", "column", "pie", "area"):
             slide = chart_slide(
-                prs, title="x", chart_type=kind,
+                prs,
+                title="x",
+                chart_type=kind,
                 categories=["A", "B"],
                 series=[{"name": "S", "values": [1, 2]}],
             )
-            assert any(
-                s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes
-            )
+            assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes)
 
     def it_rejects_unknown_chart_types(self, prs):
         with pytest.raises(ValueError, match="Unknown chart_type"):
             chart_slide(
-                prs, title="x", chart_type="radar",
+                prs,
+                title="x",
+                chart_type="radar",
                 categories=["A"],
                 series=[{"name": "S", "values": [1]}],
             )
@@ -375,13 +368,12 @@ class DescribeChartSlide:
 class DescribeTableSlide:
     def it_appends_a_slide_with_a_table(self, prs):
         slide = table_slide(
-            prs, title="T",
+            prs,
+            title="T",
             columns=["A", "B"],
             rows=[["1", "2"], ["3", "4"]],
         )
-        tables = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ]
+        tables = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE]
         assert len(tables) == 1
         # 2 data rows + 1 header = 3 rows
         assert len(tables[0].table.rows) == 3
@@ -389,13 +381,13 @@ class DescribeTableSlide:
 
     def it_uses_token_palette_for_header(self, prs, tokens):
         slide = table_slide(
-            prs, title="T",
-            columns=["A"], rows=[["1"]],
+            prs,
+            title="T",
+            columns=["A"],
+            rows=[["1"]],
             tokens=tokens,
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         header_cell = table.cell(0, 0)
         assert header_cell.fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
 
@@ -424,15 +416,23 @@ class DescribeCodeSlide:
                     if r.text == "x = 1":
                         code_runs.append(r)
         assert code_runs
-        assert "Consolas" in (code_runs[0].font.name or "") \
-            or "Cascadia" in (code_runs[0].font.name or "") \
-            or "monospace" in (code_runs[0].font.name or "")
+        # One real family, not a CSS-style stack ("Consolas, Menlo, monospace"
+        # is a single unknown font name to PowerPoint and LibreOffice).
+        assert code_runs[0].font.name in (
+            "Cascadia Code",
+            "Consolas",
+            "Menlo",
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "Courier New",
+        )
 
 
 class DescribeTimelineSlide:
     def it_renders_one_marker_per_milestone(self, prs):
         slide = timeline_slide(
-            prs, title="T",
+            prs,
+            title="T",
             milestones=[
                 {"date": "Q1", "label": "Spec", "done": True},
                 {"date": "Q2", "label": "Build"},
@@ -440,26 +440,23 @@ class DescribeTimelineSlide:
             ],
         )
         # 1 rail + 3 dots = 4 auto-shapes
-        autoshapes = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        autoshapes = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert len(autoshapes) == 4
 
     def it_tints_done_milestones_with_positive_color(self, prs, tokens):
         slide = timeline_slide(
-            prs, title="T",
+            prs,
+            title="T",
             milestones=[{"date": "Q1", "label": "Spec", "done": True}],
             tokens=tokens,
         )
         # Find the milestone dot (small oval).
         ovals = [
-            s for s in slide.shapes
+            s
+            for s in slide.shapes
             if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.height < 914400
         ]
-        assert any(
-            o.fill.fore_color.rgb == RGBColor(0x00, 0x85, 0x3E)
-            for o in ovals
-        )
+        assert any(o.fill.fore_color.rgb == RGBColor(0x00, 0x85, 0x3E) for o in ovals)
 
     def it_rejects_empty_milestones(self, prs):
         with pytest.raises(ValueError, match="at least one"):
@@ -469,8 +466,10 @@ class DescribeTimelineSlide:
 class DescribeComparisonSlide:
     def it_renders_left_and_right_columns_with_matched_rows(self, prs):
         slide = comparison_slide(
-            prs, title="X",
-            left_heading="Old", right_heading="New",
+            prs,
+            title="X",
+            left_heading="Old",
+            right_heading="New",
             rows=[
                 {"left": "L1", "right": "R1"},
                 {"left": "L2", "right": "R2"},
@@ -486,61 +485,57 @@ class DescribeChartSlidePolish:
 
     def it_disables_the_legend_when_asked(self, prs):
         chart_slide(
-            prs, title="x", chart_type="line",
+            prs,
+            title="x",
+            chart_type="line",
             categories=["A", "B"],
             series=[{"name": "S", "values": [1, 2]}],
             legend=False,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         assert gframe.chart.has_legend is False
 
     def it_smooths_a_line_chart(self, prs):
         chart_slide(
-            prs, title="x", chart_type="line",
+            prs,
+            title="x",
+            chart_type="line",
             categories=["A", "B"],
             series=[{"name": "S", "values": [1, 2]}],
             smooth=True,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         assert all(s.smooth for s in gframe.chart.series)
 
     def it_applies_a_named_palette(self, prs):
         chart_slide(
-            prs, title="x", chart_type="column",
+            prs,
+            title="x",
+            chart_type="column",
             categories=["A", "B"],
-            series=[{"name": "S1", "values": [1, 2]},
-                    {"name": "S2", "values": [3, 4]}],
+            series=[{"name": "S1", "values": [1, 2]}, {"name": "S2", "values": [3, 4]}],
             chart_palette="modern",
         )
         # Palette application is best-effort but mustn't blow up.
-        assert any(
-            s.shape_type == MSO_SHAPE_TYPE.CHART for s in prs.slides[-1].shapes
-        )
+        assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in prs.slides[-1].shapes)
 
     def it_derives_a_chart_palette_from_tokens(self, prs, tokens):
         # No explicit chart_palette → recipe walks tokens.palette and
         # paints every series.
         chart_slide(
-            prs, title="x", chart_type="column",
+            prs,
+            title="x",
+            chart_type="column",
             categories=["A", "B"],
-            series=[{"name": "S1", "values": [1, 2]},
-                    {"name": "S2", "values": [3, 4]}],
+            series=[{"name": "S1", "values": [1, 2]}, {"name": "S2", "values": [3, 4]}],
             tokens=tokens,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         # Verify each series has a solid spPr fill (i.e. palette was
         # actually applied — the default chart style leaves the spPr
         # absent and series pull their colours from the theme).
         from power_pptx.enum.dml import MSO_FILL_TYPE
+
         fills = [s.format.fill.type for s in gframe.chart.series]
         assert all(f == MSO_FILL_TYPE.SOLID for f in fills)
 
@@ -550,14 +545,13 @@ class DescribeTableSlidePolish:
 
     def it_applies_explicit_column_width_fractions(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["A", "B", "C"],
             rows=[["1", "2", "3"]],
             widths=[0.5, 0.25, 0.25],
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         cols = list(table.columns)
         # Col 0 should be ~2x wider than col 1.
         ratio = int(cols[0].width) / int(cols[1].width)
@@ -565,27 +559,25 @@ class DescribeTableSlidePolish:
 
     def it_right_aligns_numeric_columns(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["Region", "Revenue"],
             rows=[["NA", "$10"]],
             aligns=["left", "right"],
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         revenue_para = table.cell(1, 1).text_frame.paragraphs[0]
         assert revenue_para.alignment == PP_ALIGN.RIGHT
 
     def it_renders_a_totals_row(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["Region", "Q1", "Q2"],
             rows=[["NA", "10", "20"], ["EU", "5", "15"]],
             totals={"label": "Total", "values": [15, 35]},
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         # Header + 2 data rows + 1 totals row = 4 rows.
         assert len(table.rows) == 4
         footer = table.cell(3, 0).text_frame.text
@@ -595,21 +587,21 @@ class DescribeTableSlidePolish:
 
     def it_accepts_explicit_totals_row(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["A", "B"],
             rows=[["1", "2"]],
             totals={"row": ["Sum", "X"]},
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         assert "Sum" in table.cell(2, 0).text_frame.text
         assert "X" in table.cell(2, 1).text_frame.text
 
     def it_rejects_a_misshapen_explicit_totals_row(self, prs):
         with pytest.raises(ValueError, match="totals.row"):
             table_slide(
-                prs, title="t",
+                prs,
+                title="t",
                 columns=["A", "B"],
                 rows=[["1", "2"]],
                 totals={"row": ["only-one"]},
@@ -618,8 +610,10 @@ class DescribeTableSlidePolish:
     def it_rejects_unknown_align(self, prs):
         with pytest.raises(ValueError, match="align"):
             table_slide(
-                prs, title="t",
-                columns=["A"], rows=[["1"]],
+                prs,
+                title="t",
+                columns=["A"],
+                rows=[["1"]],
                 aligns=["middle"],
             )
 
@@ -642,13 +636,13 @@ class DescribeIsMarkupString:
     def it_recognises_html_documents(self):
         from power_pptx.design.recipes import _is_markup_string
 
-        assert _is_markup_string('<html><body>...</body></html>') is True
+        assert _is_markup_string("<html><body>...</body></html>") is True
 
     def it_rejects_filesystem_paths(self):
         from power_pptx.design.recipes import _is_markup_string
 
-        assert _is_markup_string('/tmp/foo.png') is False
-        assert _is_markup_string('charts/foo.svg') is False
+        assert _is_markup_string("/tmp/foo.png") is False
+        assert _is_markup_string("charts/foo.svg") is False
 
     def it_rejects_non_string_inputs(self):
         from power_pptx.design.recipes import _is_markup_string
@@ -684,3 +678,1435 @@ class DescribeIsMarkupStringAdditional:
         # pattern is treated as a path (preserves docstring intent).
         assert _is_markup_string("<<<weird") is False
         assert _is_markup_string("<1file") is False
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: readable defaults, fitting, validation, contrast
+# ---------------------------------------------------------------------------
+
+_FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
+_PRESETS = ("modern_light", "modern_dark", "corporate_navy", "vibrant")
+_WIDE = (Inches(13.333), Inches(7.5))
+
+
+def _luminance(rgb):
+    def channel(value):
+        c = value / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
+
+
+def _contrast(rgb_a, rgb_b):
+    la, lb = _luminance(rgb_a), _luminance(rgb_b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _wide(prs):
+    prs.slide_width, prs.slide_height = _WIDE
+    return prs
+
+
+def _text_boxes(slide):
+    return [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX]
+
+
+def _autoshapes(slide):
+    return [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
+
+
+def _schema_violations(prs):
+    buf = io.BytesIO()
+    prs.save(buf)
+    return list(iter_schema_violations(buf.getvalue()))
+
+
+@pytest.fixture
+def outfit_tokens():
+    """Tokens set in a font shipped with the tests, so fitted sizes are exact."""
+    register_font_dir(_FONTS_DIR)
+    yield DesignTokens.from_dict(
+        {
+            "palette": {
+                "primary": "#3B5BDB",
+                "neutral": "#1F2933",
+                "muted": "#7B8794",
+                "surface": "#F5F7FA",
+                "on_primary": "#FFFFFF",
+                "positive": "#0CA678",
+                "negative": "#E03131",
+            },
+            "typography": {
+                "heading": {"family": "Outfit", "size": Pt(32), "bold": True},
+                "body": {"family": "Outfit", "size": Pt(16)},
+            },
+        }
+    )
+    clear_registered_fonts()
+
+
+@pytest.fixture
+def no_mono_fonts(monkeypatch):
+    """Pretend no monospace candidate is installed: default family, 0.6em advance."""
+    monkeypatch.setattr("power_pptx.text.fonts.font_is_installed", lambda *a, **k: False)
+    monkeypatch.setattr("power_pptx.text.fonts.find_font_file", lambda *a, **k: None)
+
+
+def _code_box(slide):
+    return _text_boxes(slide)[-1]
+
+
+def _code_panel(slide):
+    return _autoshapes(slide)[-1]
+
+
+class DescribeCodeSlideDefaults:
+    """`code_slide` is readable and monospace with no tokens at all."""
+
+    def it_is_readable_without_tokens(self, prs):
+        slide = code_slide(prs, title="t", code="print(1)")
+
+        panel_fill = _code_panel(slide).fill.fore_color.rgb
+        run = _code_box(slide).text_frame.paragraphs[0].runs[0]
+        # was #222222 text on a #141418 panel: 1.2:1
+        assert _contrast(run.font.color.rgb, panel_fill) >= 4.5
+
+    def it_names_the_first_installed_monospace_family(self, prs, monkeypatch):
+        monkeypatch.setattr(
+            "power_pptx.text.fonts.font_is_installed",
+            lambda name, *a, **k: name in ("Menlo", "Courier New"),
+        )
+        slide = code_slide(prs, title="t", code="x = 1")
+
+        assert _code_box(slide).text_frame.paragraphs[0].runs[0].font.name == "Menlo"
+
+    def it_falls_back_to_one_default_family_when_none_is_installed(self, prs, no_mono_fonts):
+        slide = code_slide(prs, title="t", code="x = 1")
+
+        name = _code_box(slide).text_frame.paragraphs[0].runs[0].font.name
+        assert name == "Consolas"
+        assert "," not in name
+
+    def it_flags_the_run_fixed_pitch_so_a_missing_font_stays_monospace(self, prs):
+        slide = code_slide(prs, title="t", code="x = 1")
+
+        latin = _code_box(slide).text_frame.paragraphs[0].runs[0]._r.rPr.latin
+        assert latin.get("pitchFamily") == "49"
+
+    def it_lets_the_caller_name_the_font(self, prs):
+        slide = code_slide(prs, title="t", code="x = 1", font="JetBrains Mono")
+
+        runs = [r for p in _code_box(slide).text_frame.paragraphs for r in p.runs]
+        assert {r.font.name for r in runs} == {"JetBrains Mono"}
+
+    def it_expands_tabs_so_indentation_has_a_known_width(self, prs):
+        slide = code_slide(prs, title="t", code="if x:\n\treturn 1")
+
+        assert _code_box(slide).text_frame.paragraphs[1].text == "    return 1"
+
+    def it_produces_schema_valid_xml(self, prs):
+        code_slide(prs, title="t", code="x = 1\ny = 2", language="python")
+
+        assert _schema_violations(prs) == []
+
+
+class DescribeCodeSlideColours:
+    """Text and highlight colours are chosen from the panel, not a fixed dark theme."""
+
+    @pytest.mark.parametrize("preset", [None, *_PRESETS])
+    def it_keeps_every_code_colour_readable_on_the_panel(self, prs, preset):
+        pytest.importorskip("pygments")
+        tokens = DesignTokens.from_preset(preset) if preset else None
+        code = "def train(model):\n    # go\n    return model.fit('x', 42, None)\n"
+
+        slide = code_slide(prs, title="t", code=code, language="python", tokens=tokens)
+
+        panel_fill = _code_panel(slide).fill.fore_color.rgb
+        runs = [r for p in _code_box(slide).text_frame.paragraphs for r in p.runs]
+        colours = {r.font.color.rgb for r in runs}
+        assert len(colours) > 1  # it really is highlighted
+        # the dark-theme set was 1.8-1.9:1 on the light presets
+        assert min(_contrast(c, panel_fill) for c in colours) >= 4.5
+        assert not [i for i in slide.lint().issues if i.code == "LowContrast"]
+
+    def it_uses_the_palette_text_colour_when_it_already_reads(self, prs, tokens):
+        slide = code_slide(prs, title="t", code="x = 1", tokens=tokens)
+
+        run = _code_box(slide).text_frame.paragraphs[0].runs[0]
+        assert run.font.color.rgb == RGBColor(0x22, 0x22, 0x22)  # tokens' neutral
+
+
+class DescribeCodeSlideFit:
+    """The snippet is fitted to the panel instead of running off the slide."""
+
+    def _rows_fit(self, slide):
+        box = _code_box(slide)
+        tf = box.text_frame
+        pitch = tf.paragraphs[0].line_spacing
+        inner_h = box.height - tf.margin_top - tf.margin_bottom
+        return len(tf.paragraphs) * pitch <= inner_h
+
+    def it_keeps_the_default_size_when_the_snippet_fits(self, prs, no_mono_fonts):
+        slide = code_slide(prs, title="t", code="x = 1\ny = 2")
+
+        sizes = {r.font.size for p in _code_box(slide).text_frame.paragraphs for r in p.runs}
+        assert sizes == {Pt(14)}
+
+    def it_shrinks_a_long_snippet_until_every_line_fits(self, prs, no_mono_fonts):
+        code = "\n".join(f"line_{i} = {i}" for i in range(30))
+
+        slide = code_slide(prs, title="t", code=code)
+
+        tf = _code_box(slide).text_frame
+        sizes = {r.font.size for p in tf.paragraphs for r in p.runs}
+        assert len(sizes) == 1
+        assert Pt(9) <= sizes.pop() < Pt(14)
+        assert [p.text for p in tf.paragraphs] == code.splitlines()
+        assert self._rows_fit(slide)
+
+    def it_prefers_a_size_at_which_no_line_wraps(self, prs, no_mono_fonts):
+        # 100 characters need 11pt or less to stay on one row of a 10in slide.
+        slide = code_slide(prs, title="t", code="x" * 100)
+
+        box = _code_box(slide)
+        size = box.text_frame.paragraphs[0].runs[0].font.size
+        inner_w = box.width - box.text_frame.margin_left - box.text_frame.margin_right
+        assert Pt(9) <= size < Pt(14)
+        assert 100 * 0.6 * size <= inner_w
+
+    def it_truncates_with_a_marker_when_the_snippet_cannot_fit(self, prs, no_mono_fonts):
+        code = "\n".join(f"line_{i} = {i}" for i in range(60))
+
+        slide = code_slide(prs, title="t", code=code)
+
+        tf = _code_box(slide).text_frame
+        shown = len(tf.paragraphs) - 1
+        assert 0 < shown < 60
+        assert tf.paragraphs[-1].text == f"… (+{60 - shown} more lines)"
+        assert [p.text for p in tf.paragraphs[:-1]] == code.splitlines()[:shown]
+        assert {r.font.size for p in tf.paragraphs for r in p.runs} == {Pt(9)}
+        # the 60 lines used to run off the panel and the slide
+        assert self._rows_fit(slide)
+        assert _code_box(slide).top + _code_box(slide).height <= prs.slide_height
+
+    def it_raises_instead_of_truncating_when_asked(self, prs, no_mono_fonts):
+        code = "\n".join(f"line_{i} = {i}" for i in range(60))
+
+        with pytest.raises(ValueError, match=r"60 lines of code do not fit.*; \d+ fit"):
+            code_slide(prs, title="t", code=code, overflow="raise")
+        assert len(prs.slides) == 0
+
+    def it_rejects_an_unknown_overflow_mode(self, prs):
+        with pytest.raises(ValueError, match="overflow must be"):
+            code_slide(prs, title="t", code="x", overflow="clip")
+
+
+def _milestones(n, long=False):
+    labels = [
+        "Private alpha with design partners",
+        "Public beta",
+        "General availability and pricing launch",
+        "EU region",
+        "SOC 2 Type II",
+        "Marketplace",
+        "Mobile apps",
+        "Enterprise tier",
+    ]
+    return [
+        {"date": f"Q{i % 4 + 1} 2026", "label": labels[i] if long else f"Phase {i + 1}"}
+        for i in range(n)
+    ]
+
+
+class DescribeTimelineSlideLayout:
+    """Labels stay on the slide and clear of the rail for typical milestone counts."""
+
+    @pytest.mark.parametrize("wide", [False, True])
+    @pytest.mark.parametrize("n", range(1, 9))
+    def it_keeps_every_shape_on_the_slide(self, prs, wide, n):
+        if wide:
+            _wide(prs)
+        slide = timeline_slide(prs, title="Roadmap", milestones=_milestones(n))
+
+        for shape in slide.shapes:
+            assert shape.left >= 0
+            assert shape.left + shape.width <= prs.slide_width
+            assert shape.top >= 0
+            assert shape.top + shape.height <= prs.slide_height
+
+    @pytest.mark.parametrize("wide", [False, True])
+    @pytest.mark.parametrize("n", range(2, 9))
+    @pytest.mark.parametrize("long", [False, True])
+    def it_lints_clean_from_two_to_eight_milestones(self, prs, wide, n, long):
+        if wide:
+            _wide(prs)
+        slide = timeline_slide(
+            prs,
+            title="Roadmap",
+            milestones=_milestones(n, long),
+            tokens=DesignTokens.from_preset("modern_light"),
+        )
+
+        # was: OffSlide errors for 2-4 milestones (2-6 on 16:9) and
+        # ShapeCollision warnings between labels, rail and markers
+        assert [str(issue) for issue in slide.lint().issues] == []
+
+    def it_builds_through_from_spec_with_lint_raise(self):
+        from power_pptx.compose import from_spec
+
+        prs = from_spec(
+            {
+                "lint": "raise",
+                "slides": [
+                    {
+                        "layout": "timeline",
+                        "title": "Roadmap",
+                        "milestones": [
+                            {"date": "Q1", "label": "Alpha"},
+                            {"date": "Q2", "label": "Beta"},
+                            {"date": "Q3", "label": "GA"},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        assert len(prs.slides) == 1
+
+    def it_ends_labels_above_the_rail_before_the_marker(self, prs):
+        slide = timeline_slide(prs, title="Roadmap", milestones=_milestones(4, long=True))
+
+        dots = [s for s in _autoshapes(slide) if s.width == s.height]
+        boxes = _text_boxes(slide)[1:]  # [0] is the title
+        assert len(dots) == len(boxes) == 4
+        for i, (dot, box) in enumerate(zip(dots, boxes)):
+            assert abs((box.left + box.width / 2) - (dot.left + dot.width / 2)) <= 2
+            if i % 2 == 0:
+                # above the rail: the box stops short of the marker and its
+                # text is bottom-anchored, so extra lines grow upwards
+                assert box.top + box.height < dot.top
+                assert box.text_frame.vertical_anchor == MSO_ANCHOR.BOTTOM
+            else:
+                assert box.top > dot.top + dot.height
+                assert box.text_frame.vertical_anchor == MSO_ANCHOR.TOP
+
+    def it_puts_the_date_and_label_in_one_box_per_milestone(self, prs):
+        slide = timeline_slide(
+            prs, title="T", milestones=[{"date": "Q1", "label": "Alpha"}, {"label": "Beta"}]
+        )
+
+        boxes = _text_boxes(slide)[1:]
+        assert [[p.text for p in b.text_frame.paragraphs] for b in boxes] == [
+            ["Q1", "Alpha"],
+            ["Beta"],
+        ]
+
+    def it_declares_the_markers_on_the_rail_as_one_lint_group(self, prs):
+        slide = timeline_slide(prs, title="T", milestones=_milestones(3))
+
+        groups = {s.lint_group for s in _autoshapes(slide)}
+        assert len(groups) == 1
+        assert None not in groups
+
+    def it_rejects_more_milestones_than_fit(self, prs):
+        with pytest.raises(ValueError, match="60 milestones do not fit.*at most 15 fit"):
+            timeline_slide(prs, title="T", milestones=_milestones(8) * 7 + _milestones(4))
+        assert len(prs.slides) == 0
+
+
+class DescribeRecipeCapacity:
+    """Too many items raise, saying how many fit, instead of writing bad geometry."""
+
+    def it_rejects_more_kpis_than_fit_in_a_row(self, prs):
+        kpis = [{"label": f"k{i}", "value": str(i)} for i in range(37)]
+
+        # 37 KPIs used to write cx="-4943" (120+ schema violations)
+        with pytest.raises(ValueError, match="37 KPIs do not fit.*at most 9 fit"):
+            kpi_slide(prs, title="t", kpis=kpis)
+        assert len(prs.slides) == 0
+
+    @pytest.mark.parametrize(("wide", "most"), [(False, 9), (True, 12)])
+    def it_writes_valid_positive_sizes_at_the_most_kpis_that_fit(self, prs, wide, most):
+        if wide:
+            _wide(prs)
+        kpis = [{"label": f"k{i}", "value": f"${i}M", "delta": 0.1} for i in range(most)]
+
+        slide = kpi_slide(prs, title="t", kpis=kpis)
+
+        assert all(s.width > 0 and s.height > 0 for s in slide.shapes)
+        assert _schema_violations(prs) == []
+        with pytest.raises(ValueError, match=f"at most {most} fit"):
+            kpi_slide(prs, title="t", kpis=kpis + [{"label": "x", "value": "1"}])
+
+    def it_rejects_more_comparison_rows_than_fit(self, prs):
+        rows = [{"left": f"l{i}", "right": f"r{i}"} for i in range(49)]
+
+        # 49 rows used to write a negative cy
+        with pytest.raises(ValueError, match="49 rows do not fit.*at most 21 fit"):
+            comparison_slide(prs, title="t", left_heading="A", right_heading="B", rows=rows)
+        assert len(prs.slides) == 0
+
+    def it_writes_valid_positive_sizes_at_the_most_comparison_rows(self, prs):
+        rows = [{"left": f"l{i}", "right": f"r{i}"} for i in range(21)]
+
+        slide = comparison_slide(prs, title="t", left_heading="A", right_heading="B", rows=rows)
+
+        assert all(s.width > 0 and s.height > 0 for s in slide.shapes)
+        assert max(s.top + s.height for s in slide.shapes) <= prs.slide_height
+        assert _schema_violations(prs) == []
+
+    def it_rejects_a_table_with_more_rows_than_fit(self, prs):
+        rows = [[f"Region {i}", f"${i}M", "ok"] for i in range(40)]
+
+        # 40 rows used to show 15 and run the rest off the slide
+        with pytest.raises(ValueError, match=r"40 rows do not fit.*; \d+ fit"):
+            table_slide(prs, title="t", columns=["Region", "Revenue", "Note"], rows=rows)
+        assert len(prs.slides) == 0
+
+    def it_rejects_a_table_with_more_columns_than_fit(self, prs):
+        with pytest.raises(ValueError, match="60 columns do not fit.*at most 22 fit"):
+            table_slide(prs, title="t", columns=[f"c{i}" for i in range(60)], rows=[])
+
+    def it_rejects_more_bullets_than_fit(self, prs):
+        bullets = [f"Bullet number {i} with some reasonably long text" for i in range(30)]
+
+        # 30 bullets used to be left to autofit, which shrank them to ~5pt
+        with pytest.raises(ValueError, match=r"30 bullets do not fit.*; \d+ fit"):
+            bullet_slide(prs, title="t", bullets=bullets)
+        assert len(prs.slides) == 0
+
+    def it_rejects_more_progress_dots_than_fit(self, prs):
+        with pytest.raises(ValueError, match="200 progress dots does not fit"):
+            section_divider(prs, title="t", progress=(1, 200))
+        assert len(prs.slides) == 0
+
+
+class DescribeBakedFit:
+    """Known text is measured and its fitting size written, not left to autofit."""
+
+    def it_bakes_a_fitting_size_into_a_long_title(self, prs, outfit_tokens):
+        title = "A title long enough that it cannot sit on one line at its token size " * 2
+
+        slide = title_slide(prs, title=title, tokens=outfit_tokens)
+
+        run = _runs(slide)[0]
+        assert Pt(9) <= run.font.size < Pt(32)
+
+    def it_leaves_a_title_that_fits_at_its_token_size(self, prs, outfit_tokens):
+        slide = title_slide(prs, title="Q4 Review", tokens=outfit_tokens)
+
+        assert _runs(slide)[0].font.size == Pt(32)
+
+    def it_shrinks_bullets_to_fit_but_never_below_nine_points(self, prs, outfit_tokens):
+        bullets = [f"Bullet number {i} with some text" for i in range(16)]
+
+        slide = bullet_slide(prs, title="t", bullets=bullets, tokens=outfit_tokens)
+
+        body = _text_boxes(slide)[-1]
+        sizes = {r.font.size for p in body.text_frame.paragraphs for r in p.runs}
+        assert len(sizes) == 1
+        size = sizes.pop()
+        assert Pt(9) <= size < Pt(16)
+        # the paragraphs, at the baked size and spacing, fit the body box
+        gap = body.text_frame.paragraphs[0].space_after
+        inner_h = body.height - body.text_frame.margin_top - body.text_frame.margin_bottom
+        assert 16 * (size * 1.26 + gap) <= inner_h
+
+    def it_keeps_the_body_size_for_a_short_bullet_list(self, prs, outfit_tokens):
+        slide = bullet_slide(prs, title="t", bullets=["One", "Two"], tokens=outfit_tokens)
+
+        body = _text_boxes(slide)[-1]
+        assert {r.font.size for p in body.text_frame.paragraphs for r in p.runs} == {Pt(16)}
+        assert body.text_frame.paragraphs[0].space_after == Pt(6)
+
+    def it_sets_one_value_size_across_a_kpi_row(self, prs, outfit_tokens):
+        _wide(prs)
+        kpis = [{"label": f"Metric {i}", "value": f"${i * 37}M"} for i in range(8)]
+
+        slide = kpi_slide(prs, title="t", kpis=kpis, tokens=outfit_tokens)
+
+        value_sizes = {r.font.size for r in _runs(slide) if r.text.startswith("$")}
+        # "$0M" fits larger than "$259M"; the row uses the smaller for all
+        assert len(value_sizes) == 1
+        assert Pt(9) <= value_sizes.pop() < Pt(32)
+
+    def it_sets_one_row_size_across_a_comparison(self, prs, outfit_tokens):
+        rows = [
+            {"left": f"Old way number {i} which is slow", "right": f"New {i}"} for i in range(16)
+        ]
+
+        slide = comparison_slide(
+            prs,
+            title="t",
+            left_heading="Before",
+            right_heading="After",
+            rows=rows,
+            tokens=outfit_tokens,
+        )
+
+        row_sizes = {r.font.size for r in _runs(slide) if r.text.startswith(("Old way", "New "))}
+        assert len(row_sizes) == 1
+        assert Pt(9) <= row_sizes.pop() < Pt(16)
+
+    def it_fits_a_twenty_row_table_inside_the_slide(self, prs, outfit_tokens):
+        rows = [[f"Region {i}", f"${i}M", "ok"] for i in range(18)]
+
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["Region", "Revenue", "Note"],
+            rows=rows,
+            tokens=outfit_tokens,
+        )
+
+        frame = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE)
+        table = frame.table
+        sizes = {
+            r.font.size
+            for row in table.rows
+            for cell in row.cells
+            for p in cell.text_frame.paragraphs
+            for r in p.runs
+        }
+        assert min(sizes) >= Pt(9)
+        assert max(sizes) < Pt(16)
+        heights = [row.height for row in table.rows]
+        assert frame.top + sum(heights) <= prs.slide_height - Inches(0.5) + 19
+        # each row is tall enough for a line of its text plus the cell insets
+        line = max(sizes) * 1.26
+        assert min(heights) >= line + Inches(0.1) - 19
+
+    def it_gives_wrapping_rows_the_height_their_text_needs(self, prs, outfit_tokens):
+        long_note = "a longer note that has to wrap in a narrow column " * 2
+        rows = [["A", long_note], ["B", "ok"], ["C", "ok"], ["D", "ok"], ["E", "ok"]]
+
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["Key", "Note"],
+            rows=rows,
+            widths=[3, 1],
+            tokens=outfit_tokens,
+        )
+
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+        heights = [row.height for row in table.rows]
+        assert heights[1] > heights[2] == heights[3]
+
+
+class DescribeTableSlideWidths:
+    """`widths` reads bare numbers as weights and Length values as exact widths."""
+
+    def _widths(self, prs, widths, n_cols=3):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=list("ABCDE")[:n_cols],
+            rows=[["1"] * n_cols],
+            widths=widths,
+        )
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+        return [int(c.width) for c in table.columns]
+
+    @pytest.mark.parametrize(
+        "widths",
+        [[50, 25, 25], [0.5, 0.25, 0.25], [2, 1, 1], [10, 5, 5], [4572000, 2286000, 2286000]],
+    )
+    def it_reads_bare_numbers_as_relative_weights(self, prs, widths):
+        table_w = int(prs.slide_width - Inches(1.2))
+
+        cols = self._widths(prs, widths)
+
+        # [50, 25, 25] used to be 50, 25 and 25 EMU: an invisible table
+        assert sum(cols) == table_w
+        assert cols[0] == pytest.approx(table_w / 2, abs=2)
+        assert cols[1] == pytest.approx(table_w / 4, abs=2)
+        assert cols[2] == pytest.approx(table_w / 4, abs=2)
+
+    def it_reads_five_three_two_as_weights_too(self, prs):
+        table_w = int(prs.slide_width - Inches(1.2))
+
+        cols = self._widths(prs, [5, 3, 2])
+
+        # used to be 1 EMU / 5.28in / 3.52in
+        assert cols == pytest.approx([table_w * 0.5, table_w * 0.3, table_w * 0.2], abs=2)
+
+    def it_splits_the_remainder_between_unspecified_columns(self, prs):
+        table_w = int(prs.slide_width - Inches(1.2))
+
+        cols = self._widths(prs, [0.5, 0.25])
+
+        # used to be 5.87in / 2.93in / 0
+        assert cols == pytest.approx([table_w / 2, table_w / 4, table_w / 4], abs=2)
+        assert self._widths(prs, [0.5]) == pytest.approx(
+            [table_w / 2, table_w / 4, table_w / 4], abs=2
+        )
+
+    def it_keeps_length_values_exact_and_shares_the_rest_by_weight(self, prs):
+        table_w = int(prs.slide_width - Inches(1.2))
+
+        cols = self._widths(prs, [Inches(2), 2, 1])
+
+        rest = table_w - Inches(2)
+        assert cols[0] == Inches(2)
+        assert cols[1:] == pytest.approx([rest * 2 / 3, rest / 3], abs=2)
+        assert self._widths(prs, [Inches(1), Inches(2), Inches(3)]) == [
+            Inches(1),
+            Inches(2),
+            Inches(3),
+        ]
+
+    @pytest.mark.parametrize(
+        ("widths", "message"),
+        [
+            ([0, 0, 0], "widths\\[0\\] must be a positive number"),
+            ([1, -1, 1], "widths\\[1\\] must be a positive number"),
+            ([1, "wide", 1], "widths\\[1\\] must be a positive number"),
+            ([1, float("nan"), 1], "widths\\[1\\] must be a positive number"),
+            ([True, 1, 1], "widths\\[0\\] must be a positive number"),
+            ([1, 1, 1, 1], "4 entries for 3 columns"),
+            ([0.5, 0.5], "leaves no room"),
+            ([5, 3], "leaves no room"),
+            ([Inches(20), 1, 1], "leave no room"),
+            ([Inches(0), 1, 1], "widths\\[0\\] must be positive"),
+        ],
+    )
+    def it_rejects_widths_that_would_hide_a_column(self, prs, widths, message):
+        with pytest.raises(ValueError, match=message):
+            self._widths(prs, widths)
+        assert len(prs.slides) == 0
+
+    def it_accepts_weights_through_from_spec(self):
+        from power_pptx.compose import from_spec
+
+        prs = from_spec(
+            {
+                "slides": [
+                    {
+                        "layout": "table",
+                        "title": "T",
+                        "columns": ["a", "b", "c"],
+                        "rows": [["1", "2", "3"]],
+                        "widths": [50, 25, 25],
+                    }
+                ]
+            }
+        )
+
+        table = next(s for s in prs.slides[0].shapes if getattr(s, "has_table", False)).table
+        cols = [int(c.width) for c in table.columns]
+        assert cols[0] == pytest.approx(2 * cols[1], abs=2)
+        assert min(cols) > Inches(1)
+
+    def it_centres_cell_text_vertically_in_rows_taller_than_their_text(self, prs):
+        slide = table_slide(prs, title="t", columns=["a", "b"], rows=[[1, 2]])
+
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+        anchors = {cell.vertical_anchor for row in table.rows for cell in row.cells}
+        assert anchors == {MSO_ANCHOR.MIDDLE}
+
+    def it_rejects_a_row_with_more_values_than_columns(self, prs):
+        with pytest.raises(ValueError, match="rows\\[1\\] has 3 values for 2 columns"):
+            table_slide(prs, title="t", columns=["a", "b"], rows=[[1, 2], [1, 2, 3]])
+
+
+def _png(tmp_path, name, size):
+    from PIL import Image
+
+    path = tmp_path / name
+    Image.new("RGB", size, "#3366CC").save(path)
+    return path
+
+
+class DescribeFigureSlideFit:
+    """Figures keep their aspect ratio by default; `fit=` chooses otherwise."""
+
+    def _picture(self, slide):
+        return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+
+    def _area(self, prs):
+        top = Inches(1.6)
+        return Inches(0.6), top, prs.slide_width - Inches(1.2), prs.slide_height - top - Inches(0.5)
+
+    @pytest.mark.parametrize("size", [(400, 400), (200, 800), (800, 200)])
+    def it_contains_the_figure_in_the_content_area(self, prs, tmp_path, size):
+        left, top, width, height = self._area(prs)
+
+        slide = figure_slide(prs, title="t", figure=str(_png(tmp_path, "f.png", size)))
+
+        pic = self._picture(slide)
+        # a 400x400 PNG used to be stretched to 8.80in x 5.40in
+        assert pic.width / pic.height == pytest.approx(size[0] / size[1], rel=1e-3)
+        assert pic.left >= left
+        assert pic.top >= top
+        assert pic.left + pic.width <= left + width
+        assert pic.top + pic.height <= top + height
+        assert pic.width == width or pic.height == height
+        # centred in the area
+        assert pic.left + pic.width / 2 == pytest.approx(left + width / 2, abs=2)
+        assert pic.top + pic.height / 2 == pytest.approx(top + height / 2, abs=2)
+
+    def it_stretches_only_when_asked(self, prs, tmp_path):
+        left, top, width, height = self._area(prs)
+
+        slide = figure_slide(
+            prs, title="t", figure=str(_png(tmp_path, "f.png", (400, 400))), fit="stretch"
+        )
+
+        pic = self._picture(slide)
+        assert (pic.left, pic.top, pic.width, pic.height) == (left, top, width, height)
+
+    def it_can_cover_the_area_by_cropping(self, prs, tmp_path):
+        left, top, width, height = self._area(prs)
+
+        slide = figure_slide(
+            prs, title="t", figure=str(_png(tmp_path, "f.png", (400, 400))), fit="cover"
+        )
+
+        pic = self._picture(slide)
+        assert (pic.left, pic.top, pic.width, pic.height) == (left, top, width, height)
+        assert pic.crop_left == pic.crop_right == 0
+        assert pic.crop_top == pic.crop_bottom
+        assert pic.crop_top == pytest.approx((1 - height / width) / 2, abs=1e-5)
+
+    def it_rejects_an_unknown_fit(self, prs, tmp_path):
+        with pytest.raises(ValueError, match="fit must be one of"):
+            figure_slide(prs, title="t", figure=str(_png(tmp_path, "f.png", (4, 4))), fit="zoom")
+        assert len(prs.slides) == 0
+
+    def it_accepts_raw_image_bytes(self, prs, tmp_path):
+        blob = _png(tmp_path, "f.png", (400, 200)).read_bytes()
+
+        slide = figure_slide(prs, title="t", figure=blob)  # used to raise TypeError
+
+        pic = self._picture(slide)
+        assert pic.width / pic.height == pytest.approx(2.0, rel=1e-3)
+
+    def it_accepts_a_binary_file_like_object(self, prs, tmp_path):
+        stream = io.BytesIO(_png(tmp_path, "f.png", (400, 200)).read_bytes())
+
+        slide = figure_slide(prs, title="t", figure=stream)  # used to raise TypeError
+
+        assert self._picture(slide).image.size == (400, 200)
+
+    def it_still_rejects_what_it_cannot_dispatch(self, prs):
+        with pytest.raises(TypeError, match="raw image bytes"):
+            figure_slide(prs, title="t", figure=12345)
+
+
+class _PlotlyLike:
+    """Stands in for a Plotly figure: dispatched to the Plotly adapter by `.to_image`."""
+
+    def to_image(self, **kwargs):  # pragma: no cover - the options are rejected first
+        raise AssertionError("not reached")
+
+
+class DescribeFigureSlideFailure:
+    """A figure that cannot be embedded leaves no half-built slide behind."""
+
+    @pytest.mark.parametrize(
+        ("figure", "options", "error"),
+        [
+            (12345, {}, TypeError),  # no adapter takes it
+            ("no/such/figure.png", {}, FileNotFoundError),  # a missing path
+            (b"\x00\x01 not an image", {}, OSError),  # unreadable bytes
+            (_PlotlyLike(), {"plotly_options": {"backend": "nope"}}, ValueError),
+            (_PlotlyLike(), {"plotly_options": {"dpi": 300}}, TypeError),
+        ],
+        ids=["kind", "missing-path", "unreadable-bytes", "plotly-option", "unknown-option"],
+    )
+    def it_removes_the_slide_and_reraises(self, prs, figure, options, error):
+        prs.slides.add_slide(prs.slide_layouts[6])
+        before = _schema_violations(prs)
+
+        with pytest.raises(error):
+            figure_slide(prs, title="Title", figure=figure, **options)
+
+        assert len(prs.slides) == 1
+        assert _schema_violations(prs) == before == []
+
+    def it_keeps_the_deck_sections_as_they_were(self, prs):
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.sections.add("Only", start_slide_index=0)
+        before = prs.sections[0].slide_ids
+
+        with pytest.raises(TypeError):
+            figure_slide(prs, title="Title", figure=12345)
+
+        assert prs.sections[0].slide_ids == before
+
+    def it_reraises_the_original_error(self, prs):
+        with pytest.raises(TypeError, match="can't dispatch a figure of type 'int'") as exc:
+            figure_slide(prs, title="Title", figure=12345)
+
+        assert exc.value.__context__ is None
+        assert len(prs.slides) == 0
+
+    def it_removes_the_slide_when_the_transition_is_unknown_too(self, prs, tmp_path):
+        with pytest.raises(ValueError, match="Unknown transition"):
+            figure_slide(
+                prs, title="t", figure=str(_png(tmp_path, "f.png", (4, 4))), transition="nope"
+            )
+
+        assert len(prs.slides) == 0
+
+
+class DescribeItemValidation:
+    """Malformed item dicts raise instead of rendering blank cards, markers and rows."""
+
+    def it_rejects_kpi_items_with_the_wrong_keys(self, prs):
+        with pytest.raises(ValueError) as exc:
+            kpi_slide(prs, title="t", kpis=[{"name": "ARR", "val": "$182M"}])
+
+        message = str(exc.value)
+        assert message.startswith("kpi_slide: kpis[0]")
+        assert "'val' (did you mean 'value'?)" in message
+        assert "'name'" in message
+        assert "missing required key(s) 'label', 'value'" in message
+        assert len(prs.slides) == 0  # used to add a slide with blank cards
+
+    def it_rejects_milestones_with_the_wrong_keys(self, prs):
+        with pytest.raises(ValueError, match=r"timeline_slide: milestones\[1\].*'when'"):
+            timeline_slide(
+                prs,
+                title="t",
+                milestones=[{"date": "Q1", "label": "A"}, {"when": "Q2", "title": "B"}],
+            )
+        assert len(prs.slides) == 0
+
+    def it_rejects_comparison_rows_with_the_wrong_keys(self, prs):
+        with pytest.raises(ValueError, match=r"comparison_slide: rows\[0\].*'after'.*'before'"):
+            comparison_slide(
+                prs,
+                title="t",
+                left_heading="A",
+                right_heading="B",
+                rows=[{"before": "slow", "after": "fast"}],
+            )
+        assert len(prs.slides) == 0
+
+    def it_rejects_chart_series_with_the_wrong_keys(self, prs):
+        with pytest.raises(ValueError) as exc:
+            chart_slide(
+                prs,
+                title="t",
+                categories=["Q1", "Q2"],
+                series=[{"label": "ARR", "data": [1, 2]}],
+            )
+
+        message = str(exc.value)
+        assert message.startswith("chart_slide: series[0]")
+        assert "missing required key(s) 'name', 'values'" in message
+        assert len(prs.slides) == 0  # used to chart a series ('', [])
+
+    def it_rejects_items_that_are_not_mappings(self, prs):
+        with pytest.raises(ValueError, match=r"kpis\[0\] must be a mapping"):
+            kpi_slide(prs, title="t", kpis=["ARR"])
+        with pytest.raises(ValueError, match="kpis must be a list of mappings"):
+            kpi_slide(prs, title="t", kpis={"label": "ARR", "value": "1"})
+
+    def it_reports_bad_items_through_from_spec_with_the_slide_index(self):
+        from power_pptx.compose import from_spec
+
+        with pytest.raises(ValueError, match=r"slides\[0\]: kpi_slide: kpis\[0\]"):
+            from_spec({"slides": [{"layout": "kpi", "title": "T", "kpis": [{"name": "ARR"}]}]})
+
+    def it_rejects_a_bare_string_of_bullets(self, prs):
+        with pytest.raises(ValueError, match="bullets must be a list of strings"):
+            bullet_slide(prs, title="t", bullets="one two")
+
+    def it_charts_none_values_as_gaps(self, prs):
+        slide = chart_slide(
+            prs,
+            title="t",
+            categories=["Q1", "Q2", "Q3"],
+            series=[{"name": "ARR", "values": [1, None, 3]}],  # used to raise TypeError
+        )
+
+        chart = next(s for s in slide.shapes if s.has_chart).chart
+        assert list(chart.plots[0].series[0].values) == [1.0, None, 3.0]
+        assert _schema_violations(prs) == []
+
+    def it_rejects_non_numeric_chart_values(self, prs):
+        with pytest.raises(ValueError, match=r"series\[0\] 'values' must be numbers or None"):
+            chart_slide(prs, title="t", categories=["Q1"], series=[{"name": "A", "values": ["x"]}])
+
+    def it_does_not_document_a_chart_type_it_rejects(self):
+        assert "scatter" in chart_slide.__doc__  # explained, not offered
+        assert '``"scatter"``' not in chart_slide.__doc__
+
+
+def _text_on(slide, surface_shape):
+    """Runs of the text boxes lying inside *surface_shape*, plus its own runs."""
+    left, top = surface_shape.left, surface_shape.top
+    right, bottom = left + surface_shape.width, top + surface_shape.height
+    runs = []
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        inside = (
+            shape.left >= left
+            and shape.top >= top
+            and shape.left + shape.width <= right
+            and shape.top + shape.height <= bottom
+        )
+        if inside:
+            runs += [r for p in shape.text_frame.paragraphs for r in p.runs if r.text]
+    return runs
+
+
+class DescribePresetContrast:
+    """Recipe text meets 4.5:1 on the surface it is drawn on, under every preset."""
+
+    @pytest.mark.parametrize("preset", _PRESETS)
+    def it_keeps_kpi_text_readable_on_the_card(self, prs, preset):
+        tokens = DesignTokens.from_preset(preset)
+
+        slide = kpi_slide(
+            prs,
+            title="Metrics",
+            tokens=tokens,
+            kpis=[
+                {"label": "ARR", "value": "$182M", "delta": 0.27},
+                {"label": "Churn", "value": "2%", "delta": -0.03},
+            ],
+        )
+
+        card = _autoshapes(slide)[0]
+        fill = card.fill.fore_color.rgb
+        runs = _text_on(slide, card)
+        assert {r.text for r in runs} == {"$182M", "ARR", "+27%"}
+        # label contrast used to be 2.2-3.4:1 under all four presets
+        assert min(_contrast(r.font.color.rgb, fill) for r in runs) >= 4.5
+        assert not [i for i in slide.lint().issues if i.code == "LowContrast"]
+
+    @pytest.mark.parametrize("preset", _PRESETS)
+    def it_keeps_the_section_divider_text_readable(self, prs, preset):
+        tokens = DesignTokens.from_preset(preset)
+
+        slide = section_divider(prs, title="Part two", eyebrow="PART TWO", tokens=tokens)
+
+        backdrop = _autoshapes(slide)[0].fill.fore_color.rgb
+        runs = [r for r in _runs(slide) if r.text]
+        # vibrant and modern_dark used to be 3.55 and 4.41:1
+        assert min(_contrast(r.font.color.rgb, backdrop) for r in runs) >= 4.5
+        assert not [i for i in slide.lint().issues if i.code == "LowContrast"]
+
+    @pytest.mark.parametrize("preset", _PRESETS)
+    def it_keeps_comparison_headings_and_rows_readable(self, prs, preset):
+        tokens = DesignTokens.from_preset(preset)
+
+        slide = comparison_slide(
+            prs,
+            title="Cmp",
+            left_heading="Before",
+            right_heading="After",
+            rows=[{"left": "slow", "right": "fast"}],
+            tokens=tokens,
+        )
+
+        bands = [s for s in _autoshapes(slide) if s.text_frame.text in ("Before", "After")]
+        assert len(bands) == 2
+        for band in bands:
+            run = band.text_frame.paragraphs[0].runs[0]
+            assert _contrast(run.font.color.rgb, band.fill.fore_color.rgb) >= 4.5
+        assert not [i for i in slide.lint().issues if i.code == "LowContrast"]
+
+    @pytest.mark.parametrize("preset", _PRESETS)
+    def it_keeps_table_header_and_banded_rows_readable(self, prs, preset):
+        tokens = DesignTokens.from_preset(preset)
+
+        slide = table_slide(
+            prs,
+            title="T",
+            columns=["a", "b"],
+            rows=[[1, 2], [3, 4]],
+            tokens=tokens,
+            totals={"label": "Total", "values": [6]},
+        )
+
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+        for row_idx in (0, 1, 3):  # header, first banded row, totals
+            cell = table.cell(row_idx, 0)
+            run = cell.text_frame.paragraphs[0].runs[0]
+            assert _contrast(run.font.color.rgb, cell.fill.fore_color.rgb) >= 4.5
+
+    def it_leaves_a_palette_that_already_contrasts_untouched(self, prs, tokens):
+        slide = kpi_slide(
+            prs, title="Metrics", kpis=[{"label": "ARR", "value": "$182M"}], tokens=tokens
+        )
+
+        colours = {r.text: r.font.color.rgb for r in _runs(slide)}
+        assert colours["$182M"] == RGBColor(0x3C, 0x2F, 0x80)  # primary, 10:1 on surface
+
+
+class DescribeBlankLayoutFallback:
+    """Recipes start from an empty slide even when no layout is named "Blank"."""
+
+    def it_prefers_a_layout_without_placeholders_when_blank_is_renamed(self, prs):
+        prs.slide_layouts.get_by_name("Blank").name = "Leer"
+
+        slide = title_slide(prs, title="x")
+
+        # used to land on the last layout, "Vertical Title and Text"
+        assert slide.slide_layout.name == "Leer"
+        assert len(slide.placeholders) == 0
+
+    def it_removes_inherited_placeholders_when_every_layout_has_some(self, prs):
+        layouts = prs.slide_layouts
+        layouts.remove(layouts.get_by_name("Blank"))
+
+        slide = bullet_slide(prs, title="x", bullets=["a"])
+
+        assert len(slide.placeholders) == 0
+        assert [s.shape_type for s in slide.shapes] == [MSO_SHAPE_TYPE.TEXT_BOX] * 2
+        assert _schema_violations(prs) == []
+
+    def it_still_uses_the_layout_named_blank(self, prs):
+        slide = title_slide(prs, title="x")
+
+        assert slide.slide_layout.name == "Blank"
+
+
+class DescribeRecipeDeckRoundTrip:
+    """Every recipe's new XML survives save -> open -> save and validates."""
+
+    def _deck(self):
+        prs = _wide(Presentation())
+        tokens = DesignTokens.from_preset("modern_light")
+        title_slide(prs, title="Q4 Review", subtitle="April 2026", tokens=tokens)
+        bullet_slide(prs, title="Highlights", bullets=["One", "Two"], tokens=tokens)
+        kpi_slide(
+            prs,
+            title="KPIs",
+            tokens=tokens,
+            kpis=[{"label": "ARR", "value": "$182M", "delta": 0.27}],
+        )
+        table_slide(
+            prs,
+            title="Table",
+            columns=["a", "b"],
+            rows=[[1, 2]],
+            widths=[2, 1],
+            totals={"label": "Total", "values": [2]},
+            tokens=tokens,
+        )
+        code_slide(prs, title="Code", code="x = 1\n" * 80, language="python", tokens=tokens)
+        timeline_slide(prs, title="Roadmap", milestones=_milestones(5), tokens=tokens)
+        comparison_slide(
+            prs,
+            title="Cmp",
+            left_heading="A",
+            right_heading="B",
+            rows=[{"left": "l", "right": "r"}],
+            tokens=tokens,
+        )
+        section_divider(prs, title="Part two", progress=(2, 5), tokens=tokens)
+        chart_slide(
+            prs,
+            title="Chart",
+            categories=["Q1", "Q2"],
+            series=[{"name": "ARR", "values": [1, None]}],
+            tokens=tokens,
+        )
+        return prs
+
+    def it_round_trips(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(self._deck)
+
+    def it_validates_against_the_schema(self):
+        assert _schema_violations(self._deck()) == []
+
+
+# ---------------------------------------------------------------------------
+# Input handling and fallbacks: the branches each recipe takes on unusual input
+# ---------------------------------------------------------------------------
+
+
+def _chart(slide):
+    return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART).chart
+
+
+def _table(slide):
+    return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+
+
+_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
+    '<rect width="200" height="100" fill="#3C2F80"/></svg>'
+)
+
+
+class DescribeChartSlideInputs:
+    """`chart_slide` validates series values and degrades gracefully on styling."""
+
+    @pytest.mark.parametrize(("values", "kind"), [("123", "str"), (5, "int"), ({"a": 1}, "dict")])
+    def it_rejects_series_values_that_are_not_a_list(self, prs, values, kind):
+        with pytest.raises(
+            ValueError, match=rf"series\[0\] 'values' must be a list of numbers, got {kind}$"
+        ):
+            chart_slide(prs, title="t", categories=["a"], series=[{"name": "s", "values": values}])
+        assert len(prs.slides) == 0
+
+    def it_rejects_series_values_that_are_not_numbers(self, prs):
+        with pytest.raises(
+            ValueError,
+            match=r"series\[1\] 'values' must be numbers or None: could not convert",
+        ):
+            chart_slide(
+                prs,
+                title="t",
+                categories=["a", "b"],
+                series=[{"name": "s", "values": [1, 2]}, {"name": "u", "values": [1, "x"]}],
+            )
+        assert len(prs.slides) == 0
+
+    def it_colours_pie_slices_by_category(self, prs):
+        slide = chart_slide(
+            prs,
+            title="t",
+            chart_type="pie",
+            categories=["a", "b", "c"],
+            series=[{"name": "s", "values": [1, 2, 3]}],
+            chart_palette=["#FF0000", "#00FF00", "#0000FF"],
+        )
+
+        points = _chart(slide).plots[0].series[0].points
+        assert [str(p.format.fill.fore_color.rgb) for p in points] == ["FF0000", "00FF00", "0000FF"]
+
+    @pytest.mark.parametrize("chart_type", ["column", "doughnut"])
+    def it_keeps_the_default_colours_when_the_palette_is_unknown(self, prs, chart_type):
+        slide = chart_slide(
+            prs,
+            title="t",
+            chart_type=chart_type,
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            chart_palette="no-such-palette",
+        )
+
+        series = _chart(slide).plots[0].series[0]
+        assert series.format.fill.type is None
+        assert [p.format.fill.type for p in series.points] == [None, None]
+
+    @pytest.mark.parametrize("data_labels", [True, False])
+    def it_turns_data_labels_on_for_every_plot_only_when_asked(self, prs, data_labels):
+        slide = chart_slide(
+            prs,
+            title="t",
+            chart_type="column",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            data_labels=data_labels,
+        )
+
+        assert [p.has_data_labels for p in _chart(slide).plots] == [data_labels]
+
+    def it_smooths_line_marker_charts_but_leaves_other_types_alone(self, prs):
+        line = chart_slide(
+            prs,
+            title="t",
+            chart_type="line_markers",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            smooth=True,
+        )
+        area = chart_slide(
+            prs,
+            title="t",
+            chart_type="area",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            smooth=True,
+        )
+
+        assert [s.smooth for s in _chart(line).series] == [True]
+        assert "smooth" not in _chart(area)._chartSpace.xml
+
+
+class DescribeTableSlideInputs:
+    """`table_slide` rejects malformed rows and widths before building anything."""
+
+    def it_rejects_a_single_string_as_columns(self, prs):
+        with pytest.raises(ValueError, match="columns must be a list of header strings"):
+            table_slide(prs, title="t", columns="abc", rows=[])
+
+    @pytest.mark.parametrize(("row", "kind"), [("abc", "str"), ({"a": 1}, "dict"), (5, "int")])
+    def it_rejects_a_row_that_is_not_a_list(self, prs, row, kind):
+        with pytest.raises(
+            ValueError, match=rf"rows\[1\] must be a list with one value per column, got {kind}"
+        ):
+            table_slide(prs, title="t", columns=["a"], rows=[["x"], row])
+        assert len(prs.slides) == 0
+
+    def it_pads_a_short_row_with_empty_cells(self, prs):
+        slide = table_slide(prs, title="t", columns=["a", "b", "c"], rows=[[1]])
+
+        table = _table(slide)
+        assert [table.cell(1, c).text_frame.text for c in range(3)] == ["1", "", ""]
+
+    @pytest.mark.parametrize("widths", [5, "123"])
+    def it_rejects_widths_that_are_not_a_list(self, prs, widths):
+        with pytest.raises(ValueError, match="widths must be a list of numbers or Length values"):
+            table_slide(prs, title="t", columns=["a", "b"], rows=[], widths=widths)
+
+    def it_says_how_many_wrapped_rows_fit_when_the_table_overflows(self, prs, outfit_tokens):
+        long_note = "a longer note that has to wrap in a narrow column " * 2
+
+        # one line per row would fit; it is the wrapping that overflows
+        with pytest.raises(
+            ValueError, match="10 rows do not fit on the slide at the 9pt minimum; 8 fit"
+        ):
+            table_slide(
+                prs,
+                title="t",
+                columns=["Key", "Note"],
+                rows=[["A", long_note]] * 10,
+                widths=[3, 1],
+                tokens=outfit_tokens,
+            )
+        assert len(prs.slides) == 0
+
+    @pytest.mark.parametrize("banded", [True, False])
+    def it_tints_every_other_row_only_when_banded(self, prs, tokens, banded):
+        from power_pptx.enum.dml import MSO_FILL_TYPE
+
+        slide = table_slide(
+            prs, title="t", columns=["a"], rows=[[1], [2], [3]], banded=banded, tokens=tokens
+        )
+
+        table = _table(slide)
+        fills = [table.cell(r, 0).fill.type for r in (1, 2, 3)]
+        tinted = MSO_FILL_TYPE.SOLID if banded else MSO_FILL_TYPE.BACKGROUND
+        assert fills == [tinted, MSO_FILL_TYPE.BACKGROUND, tinted]
+        if banded:
+            assert table.cell(1, 0).fill.fore_color.rgb == RGBColor(0xF4, 0xF2, 0xFB)
+
+    def it_rejects_an_unknown_align_before_adding_a_slide(self, prs):
+        with pytest.raises(ValueError, match=r"align\[1\] must be one of"):
+            table_slide(
+                prs, title="t", columns=["a", "b"], rows=[[1, 2]], aligns=["left", "middle"]
+            )
+        # used to leave a half-built slide (title and an unfilled table) behind
+        assert len(prs.slides) == 0
+
+    def it_aligns_columns_past_the_end_of_aligns_to_the_left(self, prs):
+        slide = table_slide(
+            prs,
+            title="t",
+            columns=["a", "b", "c"],
+            rows=[[1, 2, 3]],
+            aligns=[PP_ALIGN.RIGHT, "Center"],
+        )
+
+        table = _table(slide)
+        assert [table.cell(1, c).text_frame.paragraphs[0].alignment for c in range(3)] == [
+            PP_ALIGN.RIGHT,
+            PP_ALIGN.CENTER,
+            PP_ALIGN.LEFT,
+        ]
+
+
+class DescribeCodeSlideHighlighting:
+    """Syntax highlighting maps Pygments tokens to colours and falls back to plain text."""
+
+    def it_falls_back_to_plain_text_for_an_unknown_language(self, prs):
+        slide = code_slide(prs, title="t", code="x = 1\ny = 2", language="no-such-language")
+
+        paras = _code_box(slide).text_frame.paragraphs
+        assert [[r.text for r in p.runs] for p in paras] == [["x = 1"], ["y = 2"]]
+        assert len({r.font.color.rgb for p in paras for r in p.runs}) == 1
+
+    def it_splits_highlighted_runs_at_newlines_inside_a_token(self):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        lines = _pygments_highlight("const a = `x\ny`;\n", "javascript", dark=False)
+
+        assert [[text for text, _ in line] for line in lines] == [
+            ["const", " ", "a", " ", "=", " ", "`", "x"],
+            ["y", "`", ";"],
+            [],
+        ]
+        template = RGBColor(0xA3, 0x15, 0x15)  # light-panel string colour
+        assert lines[0][-1] == ("x", template)
+        assert lines[1][0] == ("y", template)
+
+    @pytest.mark.parametrize(
+        ("dark", "string"),
+        [(True, RGBColor(0xCE, 0x91, 0x78)), (False, RGBColor(0xA3, 0x15, 0x15))],
+    )
+    def it_colours_a_token_by_its_nearest_mapped_ancestor(self, dark, string):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        lines = _pygments_highlight("s = 'a'\n", "python", dark=dark)
+
+        # String.Single has no entry of its own and takes String's colour;
+        # an operator maps to None, the plain-text colour.
+        assert lines[0] == [
+            ("s", None),
+            (" ", None),
+            ("=", None),
+            (" ", None),
+            ("'", string),
+            ("a", string),
+            ("'", string),
+        ]
+
+    @pytest.mark.parametrize("language", [None, "", "no-such-language"])
+    def it_returns_none_without_a_usable_language(self, language):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        assert _pygments_highlight("x = 1", language) is None
+
+    def it_returns_none_when_pygments_is_not_installed(self, monkeypatch):
+        import sys
+
+        from power_pptx.design.recipes import _pygments_highlight
+
+        monkeypatch.setitem(sys.modules, "pygments", None)
+
+        assert _pygments_highlight("x = 1", "python") is None
+
+    def it_returns_none_when_lexing_fails(self, monkeypatch):
+        import pygments
+
+        from power_pptx.design.recipes import _pygments_highlight
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("lexer failure")
+
+        monkeypatch.setattr(pygments, "lex", explode)
+
+        assert _pygments_highlight("x = 1", "python") is None
+
+
+class DescribeTimelineSlideLabels:
+    """Milestone labels share one size, and empty parts are left out."""
+
+    _LONG = "General availability and pricing launch across every region we serve "
+
+    def _label_runs(self, slide):
+        return [
+            [(r.text, r.font.size) for p in box.text_frame.paragraphs for r in p.runs]
+            for box in _text_boxes(slide)[1:]
+        ]
+
+    def it_sets_every_label_to_the_size_the_longest_needs(self, prs, outfit_tokens):
+        slide = timeline_slide(
+            prs,
+            title="t",
+            tokens=outfit_tokens,
+            milestones=[
+                {"date": "Q1", "label": "Alpha"},
+                {"date": "Q2", "label": self._LONG * 4},
+                {"label": "GA"},
+            ],
+        )
+
+        runs = self._label_runs(slide)
+        assert [[text[:5] for text, _ in box] for box in runs] == [
+            ["Q1", "Alpha"],
+            ["Q2", "Gener"],
+            ["GA"],
+        ]
+        # -- body is 16pt; the long label needs 13pt at the 1.2 em line pitch
+        # -- PowerPoint and LibreOffice give a shape --
+        assert {size for box in runs for _, size in box} == {Pt(13)}
+        assert all(
+            box.text_frame.auto_size != MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            for box in _text_boxes(slide)[1:]
+        )
+
+    def it_sets_the_minimum_and_autofit_when_a_label_cannot_fit(self, prs, outfit_tokens):
+        slide = timeline_slide(
+            prs,
+            title="t",
+            tokens=outfit_tokens,
+            milestones=[{"date": "Q1", "label": self._LONG * 10}, {"label": "Beta"}],
+        )
+
+        runs = self._label_runs(slide)
+        assert {size for box in runs for _, size in box} == {Pt(9)}
+        assert all(
+            box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            for box in _text_boxes(slide)[1:]
+        )
+
+    def it_draws_a_marker_but_no_label_for_an_empty_milestone(self, prs):
+        slide = timeline_slide(
+            prs, title="t", milestones=[{"label": "a"}, {"label": ""}, {"label": "c"}]
+        )
+
+        assert len(_autoshapes(slide)) == 4  # rail + three markers
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["a"],
+            ["c"],
+        ]
+
+    def it_leaves_out_an_empty_date(self, prs):
+        slide = timeline_slide(
+            prs,
+            title="t",
+            milestones=[{"label": "a", "date": None}, {"label": "b", "date": ""}],
+        )
+
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["a"],
+            ["b"],
+        ]
+
+    def it_shows_a_falsy_label_or_date_as_written(self, prs):
+        # ``{"label": 0}`` used to draw a marker with no label at all.
+        slide = timeline_slide(
+            prs,
+            title="t",
+            milestones=[{"label": 0}, {"label": False, "date": 0}, {"label": None}],
+        )
+
+        assert len(_autoshapes(slide)) == 4  # rail + three markers
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["0"],
+            ["0", "False"],
+        ]
+
+
+class DescribeFigureSlideSources:
+    """`figure_slide` embeds SVG from a path or a text-returning reader."""
+
+    def _svg_picture(self, slide):
+        picture = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+        assert "svgBlip" in picture.element.xml
+        return picture
+
+    @pytest.fixture(autouse=True)
+    def _rasterizer(self, monkeypatch):
+        """Stand in for the optional cairosvg, as tests/test_svg_picture.py does.
+
+        Rasterising only produces the PNG fallback, which these tests do not
+        look at; the core suite runs without the optional dependency.
+        """
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 1), "white").save(buffer, format="PNG")
+        monkeypatch.setattr("power_pptx._svg.rasterize_svg", lambda *a, **k: buffer.getvalue())
+
+    def it_embeds_an_svg_file_by_path(self, prs, tmp_path):
+        path = tmp_path / "figure.svg"
+        path.write_text(_SVG)
+
+        slide = figure_slide(prs, title="t", figure=str(path))
+
+        picture = self._svg_picture(slide)
+        assert picture.width / picture.height == pytest.approx(2.0, rel=1e-3)
+
+    def it_reads_a_file_like_object_that_returns_text(self, prs):
+        class Reader:
+            def read(self):
+                return _SVG
+
+        slide = figure_slide(prs, title="t", figure=Reader())
+
+        self._svg_picture(slide)

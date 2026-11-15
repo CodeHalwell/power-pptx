@@ -17,8 +17,15 @@ HEAD = RGBColor(0x0B, 0x24, 0x47)
 
 def build():
     prs = deck()
+    _zebra_table(prs)
+    _border_helpers(prs)
+    _merged_cells(prs)
+    _sizes_and_unset_border(prs)
+    return prs
 
-    # --- Slide 1: big zebra table with header + per-edge borders ---------
+
+def _zebra_table(prs):
+    """Slide 1: big zebra table with header + per-edge borders."""
     s = blank(prs)
     rows, cols = 12, 6
     shape = s.shapes.add_table(rows, cols, Inches(0.5), Inches(0.5),
@@ -45,7 +52,9 @@ def build():
             cell.borders.bottom.color.rgb = LIGHT
             cell.borders.bottom.width = Pt(0.5)
 
-    # --- Slide 2: borders helpers (all / outer / none) + diagonals -------
+
+def _border_helpers(prs):
+    """Slide 2: borders helpers (all / outer / none) + diagonals."""
     s = blank(prs)
     shape = s.shapes.add_table(4, 4, Inches(1), Inches(1),
                                Inches(11), Inches(5))
@@ -63,7 +72,9 @@ def build():
     table.cell(1, 2).borders.diagonal_up.color.rgb = RGBColor(0x10, 0xB9, 0x81)
     table.cell(1, 2).borders.diagonal_up.width = Pt(1.5)
 
-    # --- Slide 3: merged cells -------------------------------------------
+
+def _merged_cells(prs):
+    """Slide 3: merged cells."""
     s = blank(prs)
     shape = s.shapes.add_table(5, 5, Inches(1), Inches(1),
                                Inches(11), Inches(5))
@@ -83,7 +94,9 @@ def build():
             if not cell.is_spanned and not cell.text:
                 cell.text = f"{r},{c}"
 
-    # --- Slide 4: column widths / row heights + read-back of unset border -
+
+def _sizes_and_unset_border(prs):
+    """Slide 4: column widths / row heights + read-back of unset border."""
     s = blank(prs)
     shape = s.shapes.add_table(3, 3, Inches(1), Inches(2),
                                Inches(11), Inches(3))
@@ -100,8 +113,6 @@ def build():
     for r in range(3):
         for c in range(3):
             table.cell(r, c).text = f"{r}{c}"
-
-    return prs
 
 
 if __name__ == "__main__":

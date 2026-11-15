@@ -6,7 +6,7 @@ import pytest
 
 from power_pptx.oxml.shapes.autoshape import CT_Shape
 from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectFrame
-from power_pptx.oxml.shapes.groupshape import CT_GroupShape
+from power_pptx.oxml.shapes.groupshape import CT_GroupShape, _arrivals_fit, _remember_end
 from power_pptx.oxml.shapes.picture import CT_Picture
 
 from ...unitutil.cxml import element, xml
@@ -295,3 +295,308 @@ class DescribeCT_GroupShape(object):
     @pytest.fixture
     def spTree(self):
         return element("p:spTree")
+
+
+# ---------------------------------------------------------------------------
+# Shape-id allocation: the cached cursor must notice shapes added behind its back
+# ---------------------------------------------------------------------------
+
+
+def _slide_with_shapes(n=2):
+    from power_pptx import Presentation
+    from power_pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.util import Inches
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    for i in range(n):
+        slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(i), Inches(1), Inches(1), Inches(1))
+    return prs, slide
+
+
+def _add_rect(shapes):
+    from power_pptx.enum.shapes import MSO_SHAPE
+    from power_pptx.util import Inches
+
+    return shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(1), Inches(1))
+
+
+def _all_ids(slide):
+    return [int(v) for v in slide.shapes._spTree.xpath("//@id") if v.isdigit()]
+
+
+def _foreign_shape(id_):
+    """A shape element with id `id_` that did not come through the allocator."""
+    return element(
+        "p:sp/(p:nvSpPr/(p:cNvPr{id=%d,name=Copy},p:cNvSpPr,p:nvPr),"
+        "p:spPr/a:xfrm/(a:off{x=0,y=0},a:ext{cx=914400,cy=914400}))" % id_
+    )
+
+
+class DescribeCT_GroupShapeIdAllocation:
+    """`allocate_shape_id()` never hands out an id already used on the slide."""
+
+    def it_notices_a_shape_appended_by_the_deepcopy_idiom(self):
+        # Regression: the common copy idiom `spTree.append(deepcopy(elm))` after
+        # any API add produced ids like [2, 3, 3].
+        import copy
+
+        prs, slide = _slide_with_shapes(1)
+        other = prs.slides.add_slide(prs.slide_layouts[6])
+        _add_rect(other.shapes)
+        source = _add_rect(other.shapes)  # -- id 3 on the other slide
+
+        slide.shapes._spTree.append(copy.deepcopy(source._element))
+        added = _add_rect(slide.shapes)
+
+        ids = [shape.shape_id for shape in slide.shapes]
+        assert ids == [2, 3, 4]
+        assert added.shape_id == 4
+
+    @pytest.mark.parametrize("where", ["start", "after_grpSpPr", "end", "before_extLst"])
+    def it_notices_a_shape_put_at_either_end_of_the_tree(self, where):
+        prs, slide = _slide_with_shapes(3)
+        spTree = slide.shapes._spTree
+        stranger = _foreign_shape(500)
+        if where == "end":
+            spTree.append(stranger)
+        elif where == "before_extLst":
+            spTree.append(element("p:extLst"))
+            spTree.insert_element_before(stranger, "p:extLst")
+        else:
+            spTree.insert(2, stranger)  # -- right after nvGrpSpPr and grpSpPr
+
+        assert _add_rect(slide.shapes).shape_id == 501
+
+    def it_notices_several_shapes_appended_at_once(self):
+        prs, slide = _slide_with_shapes(2)
+        spTree = slide.shapes._spTree
+        for id_ in (40, 41, 90, 42):
+            spTree.append(_foreign_shape(id_))
+
+        assert _add_rect(slide.shapes).shape_id == 91
+
+    def it_notices_more_new_shapes_than_it_follows_one_by_one(self):
+        prs, slide = _slide_with_shapes(2)
+        spTree = slide.shapes._spTree
+        for id_ in range(100, 130):
+            spTree.append(_foreign_shape(id_))
+
+        assert _add_rect(slide.shapes).shape_id == 130
+
+    def it_notices_shapes_that_replaced_the_ones_it_remembered(self):
+        prs, slide = _slide_with_shapes(3)
+        spTree = slide.shapes._spTree
+        for sp in spTree.xpath("p:sp"):
+            spTree.remove(sp)
+        spTree.append(_foreign_shape(77))
+
+        assert _add_rect(slide.shapes).shape_id == 78
+
+    def it_notices_a_shape_appended_to_the_group_it_adds_to(self):
+        prs, slide = _slide_with_shapes(1)
+        group = slide.shapes.add_group_shape()
+        _add_rect(group.shapes)
+        group._element.append(_foreign_shape(300))
+
+        assert _add_rect(group.shapes).shape_id == 301
+
+    def it_notices_a_top_level_arrival_when_adding_to_a_group(self):
+        prs, slide = _slide_with_shapes(1)
+        group = slide.shapes.add_group_shape()
+        _add_rect(group.shapes)
+        slide.shapes._spTree.append(_foreign_shape(300))
+
+        assert _add_rect(group.shapes).shape_id == 301
+
+    def it_notices_a_group_arriving_with_shapes_inside(self):
+        import copy
+
+        prs, slide = _slide_with_shapes(1)
+        group = slide.shapes.add_group_shape()
+        for _ in range(3):
+            _add_rect(group.shapes)
+        clone = copy.deepcopy(group._element)
+        for i, cNvPr in enumerate(clone.xpath(".//p:cNvPr")):
+            cNvPr.set("id", str(200 + i))
+        slide.shapes._spTree.append(clone)
+
+        assert _add_rect(slide.shapes).shape_id == 204
+
+    def it_never_hands_out_the_same_id_twice(self):
+        # Even before the shape it was reserved for is inserted, and even when
+        # the shape that held the highest id is deleted again.
+        prs, slide = _slide_with_shapes(2)
+        spTree = slide.shapes._spTree
+        reserved = spTree.allocate_shape_id()
+        assert spTree.allocate_shape_id() == reserved + 1
+
+        last = slide.shapes[-1]
+        last_id = last.shape_id
+        spTree.remove(last._element)
+        assert _add_rect(slide.shapes).shape_id > reserved + 1 > last_id
+
+    def it_notices_ids_already_in_a_group_it_has_not_added_to_yet(self):
+        prs, slide = _slide_with_shapes(1)
+        group = slide.shapes.add_group_shape()
+        group._element.append(_foreign_shape(400))
+
+        assert _add_rect(group.shapes).shape_id == 401
+
+    def it_rescans_when_it_has_no_record_of_the_container_ends(self):
+        prs, slide = _slide_with_shapes(2)
+        spTree = slide.shapes._spTree
+        middle = slide.shapes[0]._element
+        middle.addnext(_foreign_shape(600))  # -- in the middle: not seen locally
+        del spTree.getroottree().getroot()._pptx_shape_id_ends
+
+        assert _add_rect(slide.shapes).shape_id == 601
+
+    def but_it_still_rescans_after_invalidate_shape_id_cache(self):
+        prs, slide = _slide_with_shapes(4)
+        spTree = slide.shapes._spTree
+        middle = slide.shapes[1]._element
+        middle.addnext(_foreign_shape(900))  # -- in the middle: not seen locally
+
+        spTree.invalidate_shape_id_cache()
+
+        assert _add_rect(slide.shapes).shape_id == 901
+
+    def it_keeps_api_ids_clear_of_every_id_already_present(self):
+        prs, slide = _slide_with_shapes(3)
+        spTree = slide.shapes._spTree
+        group = slide.shapes.add_group_shape()
+        _add_rect(group.shapes)
+        for step in range(40):
+            present = set(_all_ids(slide))
+            kind = step % 4
+            if kind == 0:
+                spTree.append(_foreign_shape(1000 + 10 * step))
+            elif kind == 1:
+                group._element.append(_foreign_shape(1000 + 10 * step))
+            else:
+                shapes = group.shapes if kind == 2 else slide.shapes
+                assert _add_rect(shapes).shape_id not in present
+        ids = _all_ids(slide)
+        assert len(ids) == len(set(ids))
+
+    def it_does_not_rescan_or_walk_the_slide_on_ordinary_adds(self, monkeypatch):
+        # Adding 2,000 shapes to one slide took ~0.2 s; the self-check must not
+        # make that quadratic. In steady state it re-reads no shape at all.
+        from power_pptx.oxml.shapes import groupshape
+
+        prs, slide = _slide_with_shapes(0)
+        _add_rect(slide.shapes)  # -- primes the cache: the one full scan
+        calls = {"rescan": 0, "inspect": 0}
+        rescan, inspect = CT_GroupShape._rescan_ids, groupshape._max_id_in
+
+        def counting_rescan(self, root, floor):
+            calls["rescan"] += 1
+            return rescan(self, root, floor)
+
+        def counting_inspect(elm):
+            calls["inspect"] += 1
+            return inspect(elm)
+
+        monkeypatch.setattr(CT_GroupShape, "_rescan_ids", counting_rescan)
+        monkeypatch.setattr(groupshape, "_max_id_in", counting_inspect)
+        group = slide.shapes.add_group_shape()
+        for _ in range(300):
+            _add_rect(slide.shapes)
+            _add_rect(group.shapes)
+
+        assert calls == {"rescan": 0, "inspect": 1}  # -- the new group, once
+
+
+def _shape_tree(*ids, ext_lst=False):
+    """A `p:spTree` holding a foreign shape for each of `ids`, then maybe a `p:extLst`."""
+    spTree = element("p:spTree/(p:nvGrpSpPr,p:grpSpPr)")
+    for id_ in ids:
+        spTree.append(_foreign_shape(id_))
+    if ext_lst:
+        spTree.append(element("p:extLst"))
+    return spTree
+
+
+class Describe_arrivals_fit:
+    """`_arrivals_fit()` says False (unchanged), True (changed, fits) or None (distrust)."""
+
+    @pytest.mark.parametrize("from_end", [False, True])
+    def it_reports_an_end_that_has_not_changed(self, from_end):
+        spTree = _shape_tree(2, 3, 4, 5)
+        remembered = _remember_end(spTree, from_end)
+
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is False
+
+    def it_reports_arrivals_at_either_end_with_lower_ids_as_a_change(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        spTree.insert(2, _foreign_shape(1))
+        spTree.append(_foreign_shape(3))
+
+        assert _arrivals_fit(spTree, head, False, 5) is True
+        assert _arrivals_fit(spTree, tail, True, 5) is True
+
+    def it_distrusts_an_arrival_with_a_higher_id(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        spTree.insert(2, _foreign_shape(9))
+        spTree.append(_foreign_shape(9))
+
+        assert _arrivals_fit(spTree, head, False, 5) is None
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    @pytest.mark.parametrize(("arrivals", "expected"), [(8, True), (9, None)])
+    def it_follows_only_so_many_arrivals_one_by_one(self, arrivals, expected):
+        spTree = _shape_tree(2, 3, 4, 5)
+        tail = _remember_end(spTree, True)
+        for _ in range(arrivals):
+            spTree.append(_foreign_shape(1))
+
+        assert _arrivals_fit(spTree, tail, True, 5) is expected
+
+    def it_distrusts_an_end_whose_remembered_shapes_are_all_gone(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        tail = _remember_end(spTree, True)
+        for sp in list(spTree)[-3:]:
+            spTree.remove(sp)
+
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    def it_reports_a_change_when_only_the_outermost_shapes_are_gone(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        shapes = list(spTree)[2:]
+        spTree.remove(shapes[0])
+        spTree.remove(shapes[-1])
+
+        assert _arrivals_fit(spTree, head, False, 5) is True
+        assert _arrivals_fit(spTree, tail, True, 5) is True
+
+    @pytest.mark.parametrize("from_end", [False, True])
+    def it_examines_every_shape_of_a_container_that_held_none(self, from_end):
+        spTree = _shape_tree(ext_lst=True)
+        remembered = _remember_end(spTree, from_end)
+
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is False
+
+        spTree.insert(2, _foreign_shape(4))
+        spTree.insert(2, _foreign_shape(3))
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is True
+
+        spTree.insert(3, _foreign_shape(9))
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is None
+
+    def it_looks_past_an_extLst_at_the_end(self):
+        spTree = _shape_tree(2, 3, 4, 5, ext_lst=True)
+        tail = _remember_end(spTree, True)
+        spTree.append(_foreign_shape(9))  # -- after the extLst
+
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    def but_not_past_the_grpSpPr_at_the_start(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head = _remember_end(spTree, False)
+        spTree.insert(0, _foreign_shape(9))  # -- before the nvGrpSpPr
+
+        assert _arrivals_fit(spTree, head, False, 5) is False

@@ -6,8 +6,8 @@ from power_pptx.dml.color import _LazyColorFormat
 from power_pptx.dml.fill import FillFormat
 from power_pptx.enum.dml import MSO_LINE_JOIN_STYLE
 from power_pptx.oxml.ns import qn
-from power_pptx.util import Emu, lazyproperty
-
+from power_pptx.oxml.simpletypes import ST_LineWidth
+from power_pptx.util import Emu, _coerce_emu, lazyproperty
 
 _JOIN_TAG = {
     MSO_LINE_JOIN_STYLE.ROUND: "a:round",
@@ -175,8 +175,11 @@ class LineFormat(object):
 
     @width.setter
     def width(self, emu):
-        if emu is None:
-            emu = 0
+        # -- a float is rounded to whole EMU (`Pt(3) / 2` is a float), and the
+        # -- value is checked before `<a:ln>` is created so a rejected width
+        # -- leaves the shape untouched
+        emu = 0 if emu is None else _coerce_emu(emu)
+        ST_LineWidth.validate(emu)
         ln = self._get_or_add_ln()
         ln.w = emu
 

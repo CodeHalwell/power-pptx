@@ -54,6 +54,15 @@ comparison_columns(
     ],
 )`;
 
+const snippet5 = `horizontal_pipeline(
+    slide, BBox.from_inches(0.5, 2.5, 6, 1),
+    steps=[f"Step number {i}" for i in range(8)],
+    min_size_pt=12,                 # the smallest label you will accept
+)
+# ValueError: horizontal_pipeline (8 steps): the label 'Step number 0' does not
+#   fit its 0.44in x 0.83in text area at 12pt. Use a larger bbox, fewer or
+#   shorter labels, or a lower min_size_pt.`;
+
 ---
 
 <DocsLayout
@@ -81,10 +90,26 @@ comparison_columns(
   <h2 id="comparison">Comparison columns</h2>
   <Code code={snippet4} />
 
+  <h2 id="fitting">When the content does not fit</h2>
+  <p>
+    Labels start at <code>size_pt</code> and shrink to fit their node — for
+    <code>hub_and_spoke</code> and <code>cycle</code>, the text area inside the circle, without
+    breaking a word. When a label cannot be set at <code>min_size_pt</code> (6pt by default),
+    because there are too many steps for the box or a label is too long, the recipe raises
+    <code>ValueError</code> and adds nothing to the slide:
+  </p>
+  <Code code={snippet5} />
+  <p>
+    <code>min_size_pt=</code> is accepted by <code>horizontal_pipeline</code>,
+    <code>vertical_pipeline</code>, <code>hub_and_spoke</code>, <code>cycle</code> and
+    <code>decision_tree</code>; raise it to insist on a readable floor, and split the diagram
+    across slides when it refuses.
+  </p>
+
   <h2 id="tips">Tips</h2>
   <ul>
     <li>Recipes return the shapes they create, so you can restyle individual nodes afterwards.</li>
     <li>Size the <code>BBox</code> generously and let the recipe distribute the nodes; use <code>bb.inset()</code> to keep diagrams off the slide chrome.</li>
-    <li>Combine with <code>slide.tidy()</code> before save so any accidental collisions get reported.</li>
+    <li>Combine with <code>slide.tidy()</code> before save so any accidental collisions get reported. Cycle nodes do not overlap and <code>decision_tree</code> arrows do not cross cards, so the recipes themselves lint clean.</li>
   </ul>
 </DocsLayout>

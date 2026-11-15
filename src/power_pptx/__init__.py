@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import power_pptx.exc as exceptions
 from power_pptx.api import Presentation
 from power_pptx.audit import AuditReport, audit
-from power_pptx.geometry import BBox
 from power_pptx.design.components import (
     ArticleCard,
     Gauge,
@@ -30,6 +29,7 @@ from power_pptx.design.figures import (
     add_plotly_figure,
     add_svg_figure,
 )
+from power_pptx.geometry import BBox
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.package import PartFactory
 from power_pptx.parts.chart import ChartPart
@@ -43,6 +43,7 @@ from power_pptx.parts.diagram import (
 from power_pptx.parts.image import ImagePart
 from power_pptx.parts.media import MediaPart
 from power_pptx.parts.presentation import PresentationPart
+from power_pptx.parts.presprops import PresentationPropertiesPart
 from power_pptx.parts.slide import (
     NotesMasterPart,
     NotesSlidePart,
@@ -55,7 +56,7 @@ from power_pptx.parts.slide import (
 if TYPE_CHECKING:
     from power_pptx.opc.package import Part
 
-__version__ = "2.14.0"
+__version__ = "2.15.0"
 
 sys.modules["power_pptx.exceptions"] = exceptions
 del sys
@@ -95,6 +96,7 @@ content_type_to_part_class_map: dict[str, type[Part]] = {
     CT.PML_PRES_MACRO_MAIN: PresentationPart,
     CT.PML_TEMPLATE_MAIN: PresentationPart,
     CT.PML_SLIDESHOW_MAIN: PresentationPart,
+    CT.PML_PRES_PROPS: PresentationPropertiesPart,
     CT.OPC_CORE_PROPERTIES: CorePropertiesPart,
     CT.PML_NOTES_MASTER: NotesMasterPart,
     CT.PML_NOTES_SLIDE: NotesSlidePart,
@@ -145,6 +147,7 @@ del (
     SlideMasterPart,
     ThemePart,
     PresentationPart,
+    PresentationPropertiesPart,
     CT,
     PartFactory,
 )

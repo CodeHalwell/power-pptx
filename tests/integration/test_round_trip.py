@@ -39,7 +39,9 @@ class DescribeRoundTrip:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         Column(
             [
-                TextBlock("Eyebrow", letter_spacing=Pt(1.4), case="upper", size_pt=9, min_size_pt=9),
+                TextBlock(
+                    "Eyebrow", letter_spacing=Pt(1.4), case="upper", size_pt=9, min_size_pt=9
+                ),
                 DataTable([["Region", "Revenue"], ["EMEA", "£4.2m"]], max_lines=1, truncate=True),
             ]
         ).render(slide, BBox(Inches(0.5), Inches(0.5), Inches(5), Inches(3)))
@@ -103,9 +105,7 @@ class DescribeRoundTrip:
 class DescribeNonMutatingColorReadsRoundTrip:
     """Reading `Font.color` properties must not corrupt the round-trip."""
 
-    @pytest.mark.parametrize(
-        "prop", ["type", "rgb", "theme_color", "brightness"]
-    )
+    @pytest.mark.parametrize("prop", ["type", "rgb", "theme_color", "brightness"])
     def it_does_not_alter_a_decks_xml_after_a_color_read(self, prop):
         # -- compose a fresh deck and snapshot the post-save bytes --
         prs = Presentation()
@@ -121,9 +121,7 @@ class DescribeNonMutatingColorReadsRoundTrip:
 
         assert round_trip_diff(prs) == {}
 
-    @pytest.mark.parametrize(
-        "prop", ["type", "rgb", "theme_color", "brightness"]
-    )
+    @pytest.mark.parametrize("prop", ["type", "rgb", "theme_color", "brightness"])
     def it_does_not_alter_a_shapes_xml_after_a_line_color_read(self, prop):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -236,9 +234,7 @@ class DescribeErgonomicsRoundTrip:
     def it_round_trips_formatted_table_cells(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        table = slide.shapes.add_table(
-            3, 2, Inches(1), Inches(1), Inches(6), Inches(2)
-        ).table
+        table = slide.shapes.add_table(3, 2, Inches(1), Inches(1), Inches(6), Inches(2)).table
         for r in range(3):
             for c in range(2):
                 table.cell(r, c).text = "r%dc%d" % (r, c)
@@ -249,10 +245,112 @@ class DescribeErgonomicsRoundTrip:
     def it_round_trips_cells_styled_before_they_were_populated(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        table = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(6), Inches(1.5)
-        ).table
+        table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(6), Inches(1.5)).table
         table.format_cells(rows=0, color="#FFFFFF", bold=True, size_pt=12, align="center")
         for c in range(2):
             table.cell(0, c).text = "header %d" % c
+        assert_round_trip(prs)
+
+
+class DescribeSlidePartRenamingRoundTrip:
+    """`prs.slides` renumbers slide parts on first use; the package must stay consistent."""
+
+    def _saved(self, prs) -> bytes:
+        import io
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        return buf.getvalue()
+
+    def _member_names(self, pptx_bytes: bytes) -> list[str]:
+        import io
+        import zipfile
+
+        with zipfile.ZipFile(io.BytesIO(pptx_bytes)) as z:
+            return z.namelist()
+
+    def _deck_with_a_gap_in_its_slide_numbering(self) -> bytes:
+        """Slides saved as slide1.xml and slide3.xml (the middle one was deleted)."""
+        prs = Presentation()
+        for title in ("first", "second", "third"):
+            prs.slides.add_slide(prs.slide_layouts[5]).shapes.title.text = title
+        sldIdLst = prs.slides._sldIdLst
+        prs.part.drop_rel(sldIdLst[1].rId)
+        sldIdLst.remove(sldIdLst[1])
+        saved = self._saved(prs)
+        assert "ppt/slides/slide3.xml" in self._member_names(saved)
+        assert "ppt/slides/slide2.xml" not in self._member_names(saved)
+        return saved
+
+    def it_keeps_relationships_in_step_when_slides_are_renamed_after_a_save(self):
+        # Regression: a relationship remembered its target's partname from
+        # the first save, so after `prs.slides` renamed slide3 -> slide2 the
+        # second save wrote the part as slide2.xml but the presentation's
+        # .rels still said slide3.xml, and the deck lost that slide.
+        import io
+
+        prs = Presentation(io.BytesIO(self._deck_with_a_gap_in_its_slide_numbering()))
+        self._saved(prs)
+        assert len(prs.slides) == 2
+
+        resaved = self._saved(prs)
+
+        names = self._member_names(resaved)
+        assert "ppt/slides/slide2.xml" in names
+        assert "ppt/slides/slide3.xml" not in names
+        reopened = Presentation(io.BytesIO(resaved))
+        assert [s.shapes.title.text for s in reopened.slides] == ["first", "third"]
+
+    def it_does_not_write_two_parts_under_one_name_when_a_slide_part_is_unlisted(self):
+        # A slide part reachable from the package (here: the target of a
+        # slide-jump link) but absent from p:sldIdLst keeps its partname when
+        # the listed slides are renumbered, so slide3 -> slide2 used to land
+        # on top of it and the zip got two members called slide2.xml.
+        import io
+        from collections import Counter
+
+        prs = Presentation()
+        for title in ("first", "second", "third"):
+            prs.slides.add_slide(prs.slide_layouts[5]).shapes.title.text = title
+        button = prs.slides[0].shapes.add_textbox(Inches(1), Inches(4), Inches(2), Inches(1))
+        button.click_action.target_slide = prs.slides[1]
+        sldIdLst = prs.slides._sldIdLst
+        prs.part.drop_rel(sldIdLst[1].rId)
+        sldIdLst.remove(sldIdLst[1])
+        saved = self._saved(prs)
+        assert sorted(n for n in self._member_names(saved) if n.startswith("ppt/slides/s")) == [
+            "ppt/slides/slide1.xml",
+            "ppt/slides/slide2.xml",
+            "ppt/slides/slide3.xml",
+        ]
+
+        reopened = Presentation(io.BytesIO(saved))
+        assert len(reopened.slides) == 2
+        resaved = self._saved(reopened)
+
+        names = self._member_names(resaved)
+        assert [n for n, count in Counter(names).items() if count > 1] == []
+        again = Presentation(io.BytesIO(resaved))
+        assert [s.shapes.title.text for s in again.slides] == ["first", "third"]
+        assert again.slides[0].shapes[1].click_action.target_slide.shapes.title.text == "second"
+        assert [
+            again.slides[0].part.partname,
+            again.slides[1].part.partname,
+            again.slides[0].shapes[1].click_action.target_slide.part.partname,
+        ] == ["/ppt/slides/slide1.xml", "/ppt/slides/slide2.xml", "/ppt/slides/slide3.xml"]
+
+    def it_round_trips_text_fitted_by_lint_auto_fix(self):
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        text = "Revenue grew faster than forecast across every region this quarter " * 3
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(3), Inches(1)).text = text
+        fixed = slide.shapes.add_textbox(Inches(4), Inches(0.5), Inches(3), Inches(1))
+        fixed.text_frame.word_wrap = True
+        fixed.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        fixed.text = text
+        table = slide.shapes.add_table(2, 2, Inches(4), Inches(2), Inches(4), Inches(0.8)).table
+        table.cell(1, 1).text = text
+        assert len(slide.tidy()) == 3
         assert_round_trip(prs)

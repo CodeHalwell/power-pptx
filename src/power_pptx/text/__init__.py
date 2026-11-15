@@ -5,6 +5,7 @@ from power_pptx.text.fonts import (
     register_font_dir,
     register_font_family,
     registered_font_dirs,
+    registered_font_files,
 )
 from power_pptx.text.measurement import TextMeasurement, measure_text, truncate_text
 
@@ -15,5 +16,6 @@ __all__ = [
     "register_font_dir",
     "register_font_family",
     "registered_font_dirs",
+    "registered_font_files",
     "truncate_text",
 ]

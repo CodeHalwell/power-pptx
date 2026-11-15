@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from typing import Iterator
 
 import pytest
 from lxml import etree
@@ -53,9 +54,7 @@ def _deck_with_every_chart_type():
         data.categories = ["A", "B", "C"]
         data.add_series("S1", (1.0, 2.0, 3.0))
         data.add_series("S2", (1.5, 1.8, 2.2))
-        slide.shapes.add_chart(
-            chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data
-        )
+        slide.shapes.add_chart(chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data)
     return prs
 
 
@@ -100,8 +99,7 @@ class DescribeEndParaRPrLang:
         for filename, body in _walk_xml_parts(deck_blob):
             for match in with_attrs.finditer(body):
                 assert b"lang=" in match.group(0), (
-                    f"{filename} emitted <a:endParaRPr> without lang: "
-                    f"{match.group(0)!r}"
+                    f"{filename} emitted <a:endParaRPr> without lang: {match.group(0)!r}"
                 )
 
 
@@ -117,9 +115,7 @@ class DescribeStrictHookList:
         # Smoke check that the deck has the parts we think it does;
         # if zero charts were registered, the more-targeted tests
         # above would pass vacuously.
-        chart_parts = [
-            f for f, _ in _walk_xml_parts(deck_blob) if "/charts/chart" in f
-        ]
+        chart_parts = [f for f, _ in _walk_xml_parts(deck_blob) if "/charts/chart" in f]
         assert len(chart_parts) >= 11
 
 
@@ -148,41 +144,56 @@ def assert_powerpoint_strict_compliance(pptx_bytes):
             tree = etree.fromstring(body)
         except etree.XMLSyntaxError:
             continue
+        _assert_paragraphs_are_terminated(filename, tree)
+        _assert_endParaRPr_has_lang(filename, tree)
+        _assert_xfrm_coords_are_integers(filename, tree)
 
-        # Rule 1 — non-empty <a:p> need either a text run or endParaRPr.
-        for p in tree.iter(f"{A}p"):
-            has_run = p.find(f"{A}r") is not None
-            has_fld = p.find(f"{A}fld") is not None  # field run counts
-            has_br = p.find(f"{A}br") is not None  # line break counts
-            has_end = p.find(f"{A}endParaRPr") is not None
-            if not (has_run or has_fld or has_br or has_end):
-                raise AssertionError(
-                    f"{filename}: <a:p> has neither a text run nor "
-                    f"<a:endParaRPr> — PowerPoint will prompt to Repair "
-                    f"the file."
-                )
 
-        # Rule 2 — every <a:endParaRPr> must carry lang.
-        for endpr in tree.iter(f"{A}endParaRPr"):
-            assert endpr.get("lang"), (
-                f"{filename}: <a:endParaRPr> missing lang attribute "
-                f"(would trigger PowerPoint Repair?)"
+def _assert_paragraphs_are_terminated(filename: str, tree: etree._Element) -> None:
+    """Rule 1 — non-empty <a:p> need either a text run or endParaRPr."""
+    for p in tree.iter(f"{A}p"):
+        has_run = p.find(f"{A}r") is not None
+        has_fld = p.find(f"{A}fld") is not None  # field run counts
+        has_br = p.find(f"{A}br") is not None  # line break counts
+        has_end = p.find(f"{A}endParaRPr") is not None
+        if not (has_run or has_fld or has_br or has_end):
+            raise AssertionError(
+                f"{filename}: <a:p> has neither a text run nor "
+                f"<a:endParaRPr> — PowerPoint will prompt to Repair "
+                f"the file."
             )
 
-        # Rule 3 — xfrm coordinates must be integer-valued strings.
-        for tag in XFRM_TAGS:
-            for elt in tree.iter(f"{A}{tag}"):
-                for attr in ("x", "y", "cx", "cy"):
-                    v = elt.get(attr)
-                    if v is None:
-                        continue
-                    assert "." not in v and "e" not in v.lower(), (
-                        f"{filename}: <a:{tag}> {attr}={v!r} is not "
-                        f"integer-valued (would trigger PowerPoint "
-                        f"Repair?). Likely cause: float coordinate "
-                        f"passed to a shape constructor — check for "
-                        f"`/` instead of `//` in the calling code."
-                    )
+
+def _assert_endParaRPr_has_lang(filename: str, tree: etree._Element) -> None:
+    """Rule 2 — every <a:endParaRPr> must carry lang."""
+    for endpr in tree.iter(f"{A}endParaRPr"):
+        assert endpr.get("lang"), (
+            f"{filename}: <a:endParaRPr> missing lang attribute (would trigger PowerPoint Repair?)"
+        )
+
+
+def _assert_xfrm_coords_are_integers(filename: str, tree: etree._Element) -> None:
+    """Rule 3 — xfrm coordinates must be integer-valued strings."""
+    for tag, attr, v in _xfrm_coords(tree):
+        message = (
+            f"{filename}: <a:{tag}> {attr}={v!r} is not "
+            f"integer-valued (would trigger PowerPoint "
+            f"Repair?). Likely cause: float coordinate "
+            f"passed to a shape constructor — check for "
+            f"`/` instead of `//` in the calling code."
+        )
+        assert "." not in v, message
+        assert "e" not in v.lower(), message
+
+
+def _xfrm_coords(tree: etree._Element) -> Iterator[tuple[str, str, str]]:
+    """Yield `(tag, attr, value)` for each coordinate set on an xfrm offset or extent."""
+    for tag in XFRM_TAGS:
+        for elt in tree.iter(f"{A}{tag}"):
+            for attr in ("x", "y", "cx", "cy"):
+                v = elt.get(attr)
+                if v is not None:
+                    yield tag, attr, v
 
 
 class DescribeIssue0FamilyRegressions:
@@ -202,7 +213,11 @@ class DescribeIssue0FamilyRegressions:
         data.add_series("S", (1, 2))
         chart = slide.shapes.add_chart(
             XL_CHART_TYPE.BAR_CLUSTERED,
-            Inches(1), Inches(1), Inches(5), Inches(4), data,
+            Inches(1),
+            Inches(1),
+            Inches(5),
+            Inches(4),
+            data,
         ).chart
         chart.plots[0].has_data_labels = True
         chart.plots[0].data_labels.show_value = True
@@ -242,16 +257,20 @@ class DescribeIssue0FamilyRegressions:
         # Direct property-setter path — `shape.width = float_value`
         # would have written a float-valued `cx` attribute pre-fix.
         from power_pptx.enum.shapes import MSO_SHAPE
+
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         shape = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(1), Inches(1), Inches(2), Inches(1),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
         )
         shape.left = Inches(0.5) + 0.1  # produces a float
         shape.top = Inches(0.5) + 0.1
-        shape.width = (Inches(4.0) + 0.5)  # produces a float
-        shape.height = (Inches(2.0) + 0.5)
+        shape.width = Inches(4.0) + 0.5  # produces a float
+        shape.height = Inches(2.0) + 0.5
         buf = io.BytesIO()
         prs.save(buf)
         assert_powerpoint_strict_compliance(buf.getvalue())

@@ -10,12 +10,12 @@ export const SITE = {
   tagline: "Create PowerPoint decks from Python — that actually fit.",
   description:
     "power-pptx is the actively-maintained fork of python-pptx. Build, mutate, lint, theme, animate and render PowerPoint (.pptx) decks from Python — with space-aware authoring so text never overflows its box.",
-  version: "2.14.0",
+  version: "2.15.0",
   github: "https://github.com/CodeHalwell/power-pptx",
   pypi: "https://pypi.org/project/power-pptx/",
   upstreamDocs: "https://python-pptx.readthedocs.io/en/latest/",
   license: "MIT",
-  python: "3.9 – 3.13",
+  python: "3.10 – 3.15",
 } as const;
 
 export interface NavLink {
@@ -51,6 +51,7 @@ export const DOCS_SIDEBAR: SidebarSection[] = [
         href: withBase("/advanced/space-aware-authoring"),
       },
       { label: "Common Pitfalls", href: withBase("/advanced/common-pitfalls") },
+      { label: "Slides & Presentations", href: withBase("/advanced/slides") },
       { label: "Text & Typography", href: withBase("/advanced/text-and-typography") },
       { label: "Geometry & Arrows", href: withBase("/advanced/geometry-and-arrows") },
       { label: "Placeholders & Notes", href: withBase("/advanced/placeholders") },

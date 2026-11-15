@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from power_pptx.dml.color import ColorFormat
+from power_pptx.dml.effect import _validated_length, _validated_rgb
 from power_pptx.enum.dml import BevelPreset, PresetMaterial
 
 if TYPE_CHECKING:
@@ -48,7 +49,10 @@ class _LazyThreeDColorFormat:
 
     @rgb.setter
     def rgb(self, value: RGBColor) -> None:
-        self._ensure_cf().rgb = value
+        # -- validate first: a rejected colour must not leave an empty
+        # -- `<a:extrusionClr/>` (schema-invalid) or a stray scene3d/sp3d behind
+        rgb = _validated_rgb(value)
+        self._ensure_cf().rgb = rgb
 
     @property
     def theme_color(self) -> MSO_THEME_COLOR:
@@ -59,6 +63,10 @@ class _LazyThreeDColorFormat:
 
     @theme_color.setter
     def theme_color(self, value: MSO_THEME_COLOR) -> None:
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        # -- raises for a value that has no XML form, before anything is created
+        MSO_THEME_COLOR.to_xml(value)
         self._ensure_cf().theme_color = value
 
     def _existing_cf(self) -> ColorFormat | None:
@@ -75,6 +83,9 @@ class _BevelFormat:
     All reads are non-mutating: when the bevel element is absent, ``preset`` returns ``None``
     and the dimension properties return ``None``.  Writing any property lazily creates the bevel
     element (and its ``<a:sp3d>`` parent if required).
+
+    Assigning ``None`` clears a property, and clearing the last one removes the bevel element:
+    an empty ``<a:bevelT/>`` is not "no bevel" but the schema default, a 6 pt circle bevel.
     """
 
     def __init__(
@@ -97,9 +108,7 @@ class _BevelFormat:
     def preset(self, value: BevelPreset | None) -> None:
         if value is None:
             # -- unset the preset attribute; keep any bevel dimensions in place.
-            bevel = self._peek()
-            if bevel is not None:
-                bevel.prst = None  # type: ignore[assignment]
+            self._clear("prst")
         elif value is BevelPreset.NONE or value == BevelPreset.NONE.value:
             # -- ``BevelPreset.NONE`` means "no bevel". Its ``xml_value`` is the
             # -- token ``"none"``, which the OOXML ``ST_BevelPresetType``
@@ -111,6 +120,8 @@ class _BevelFormat:
             # -- would otherwise coerce that int back into the invalid token.
             self._remove()
         else:
+            # -- reject a non-member before the bevel element is created
+            BevelPreset.to_xml(value)
             self._ensure().prst = value  # type: ignore[assignment]
 
     @property
@@ -122,11 +133,10 @@ class _BevelFormat:
     @width.setter
     def width(self, value: Length | None) -> None:
         if value is None:
-            bevel = self._peek()
-            if bevel is not None:
-                bevel.w = None  # type: ignore[assignment]
+            self._clear("w")
         else:
-            self._ensure().w = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._ensure().w = emu  # type: ignore[assignment]
 
     @property
     def height(self) -> Length | None:
@@ -137,11 +147,19 @@ class _BevelFormat:
     @height.setter
     def height(self, value: Length | None) -> None:
         if value is None:
-            bevel = self._peek()
-            if bevel is not None:
-                bevel.h = None  # type: ignore[assignment]
+            self._clear("h")
         else:
-            self._ensure().h = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._ensure().h = emu  # type: ignore[assignment]
+
+    def _clear(self, attr_name: str) -> None:
+        """Remove `attr_name` from the bevel element, and the element once it is bare."""
+        bevel = self._peek()
+        if bevel is None:
+            return
+        bevel.attrib.pop(attr_name, None)
+        if not bevel.attrib:
+            self._remove()
 
 
 class ThreeDFormat:
@@ -216,7 +234,8 @@ class ThreeDFormat:
             if sp3d is not None:
                 sp3d.extrusionH = None  # type: ignore[assignment]
         else:
-            self._get_or_add_sp3d().extrusionH = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_sp3d().extrusionH = emu  # type: ignore[assignment]
 
     @property
     def extrusion_color(self) -> _LazyThreeDColorFormat:
@@ -253,7 +272,8 @@ class ThreeDFormat:
             if sp3d is not None:
                 sp3d.contourW = None  # type: ignore[assignment]
         else:
-            self._get_or_add_sp3d().contourW = value  # type: ignore[assignment]
+            emu = _validated_length(value)
+            self._get_or_add_sp3d().contourW = emu  # type: ignore[assignment]
 
     @property
     def contour_color(self) -> _LazyThreeDColorFormat:
@@ -285,11 +305,7 @@ class ThreeDFormat:
 
     @preset_material.setter
     def preset_material(self, value: PresetMaterial | None) -> None:
-        if (
-            value is None
-            or value is PresetMaterial.NONE
-            or value == PresetMaterial.NONE.value
-        ):
+        if value is None or value is PresetMaterial.NONE or value == PresetMaterial.NONE.value:
             # -- ``PresetMaterial.NONE`` means "no explicit material". Its
             # -- ``xml_value`` is the token ``"none"``, which the OOXML
             # -- ``ST_PresetMaterialType`` enumeration does not allow — writing
@@ -303,6 +319,8 @@ class ThreeDFormat:
             if sp3d is not None:
                 sp3d.prstMaterial = None  # type: ignore[assignment]
         else:
+            # -- reject a non-member before scene3d/sp3d are created
+            PresetMaterial.to_xml(value)
             self._get_or_add_sp3d().prstMaterial = value  # type: ignore[assignment]
 
     # ------------------------------------------------------------------

@@ -275,8 +275,14 @@ class DescribeThreeDFormat:
         td.bevel_top.preset = BevelPreset.SOFT_ROUND
         td.extrusion_height = Pt(6)
         scene3d = spPr.scene3d
-        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}camera")) == 1
-        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}lightRig")) == 1
+        assert (
+            len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}camera"))
+            == 1
+        )
+        assert (
+            len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}lightRig"))
+            == 1
+        )
 
     # ------------------------------------------------------------------
     # contour_width / contour_color
@@ -325,3 +331,103 @@ class Describe_BevelFormat:
         )
         bevel.preset = BevelPreset.NONE
         assert calls == [True]
+
+
+class DescribeThreeDFormatLengthsAndAtomicity:
+    """Float lengths are accepted; a rejected value leaves no 3-D XML behind."""
+
+    @pytest.mark.parametrize(
+        ("setter", "getter"),
+        [
+            (
+                lambda td, v: setattr(td.bevel_top, "width", v),
+                lambda td: td.bevel_top.width,
+            ),
+            (
+                lambda td, v: setattr(td.bevel_top, "height", v),
+                lambda td: td.bevel_top.height,
+            ),
+            (
+                lambda td, v: setattr(td.bevel_bottom, "width", v),
+                lambda td: td.bevel_bottom.width,
+            ),
+            (
+                lambda td, v: setattr(td, "extrusion_height", v),
+                lambda td: td.extrusion_height,
+            ),
+            (
+                lambda td, v: setattr(td, "contour_width", v),
+                lambda td: td.contour_width,
+            ),
+        ],
+        ids=["bevel_top.width", "bevel_top.height", "bevel_bottom.width", "extrusion", "contour"],
+    )
+    def it_accepts_a_float_length(self, setter, getter):
+        td = ThreeDFormat(element("p:spPr"))
+        half = Pt(6) / 2
+        assert isinstance(half, float)
+
+        setter(td, half)
+
+        assert getter(td) == Emu(38100)
+
+    @pytest.mark.parametrize(
+        ("assign", "exc"),
+        [
+            (lambda td: setattr(td.bevel_top, "width", -1), ValueError),
+            (lambda td: setattr(td.bevel_top, "width", 10**15), ValueError),
+            (lambda td: setattr(td.bevel_top, "height", "tall"), TypeError),
+            (lambda td: setattr(td.bevel_top, "preset", "circle"), ValueError),
+            (lambda td: setattr(td.bevel_bottom, "preset", 999), ValueError),
+            (lambda td: setattr(td, "extrusion_height", -1), ValueError),
+            (lambda td: setattr(td, "contour_width", True), TypeError),
+            (lambda td: setattr(td, "preset_material", "metal"), ValueError),
+            (lambda td: setattr(td, "extrusion_color", "nope"), ValueError),
+            (lambda td: setattr(td.contour_color, "rgb", (1, 2)), ValueError),
+            (lambda td: setattr(td.contour_color, "theme_color", 999), ValueError),
+        ],
+        ids=[
+            "bevel-width-negative",
+            "bevel-width-huge",
+            "bevel-height-str",
+            "bevel-preset-str",
+            "bevel-preset-int",
+            "extrusion-negative",
+            "contour-bool",
+            "material-str",
+            "extrusion-colour",
+            "contour-colour",
+            "contour-theme-colour",
+        ],
+    )
+    def it_leaves_the_shape_untouched_when_the_value_is_rejected(self, assign, exc):
+        # A half-built hierarchy is not neutral: an empty <a:bevelT/> renders as
+        # the default circle bevel and an empty <a:extrusionClr/> is invalid.
+        spPr = element("p:spPr")
+
+        with pytest.raises(exc):
+            assign(ThreeDFormat(spPr))
+
+        assert spPr.xml == xml("p:spPr")
+
+    def it_removes_the_bevel_when_its_last_property_is_cleared(self):
+        spPr = element("p:spPr/a:sp3d/a:bevelT{prst=circle}")
+
+        ThreeDFormat(spPr).bevel_top.preset = None
+
+        # -- an empty <a:bevelT/> is the schema default: a 6 pt circle bevel
+        assert spPr.sp3d.bevelT is None
+
+    def it_removes_the_bevel_however_its_properties_are_cleared(self):
+        spPr = element("p:spPr")
+        td = ThreeDFormat(spPr)
+        td.bevel_bottom.preset = BevelPreset.SLOPE
+        td.bevel_bottom.width = Pt(4)
+        td.bevel_bottom.height = Pt(2)
+
+        td.bevel_bottom.width = None
+        td.bevel_bottom.preset = None
+        assert spPr.sp3d.bevelB is not None  # -- `h` is still explicit
+        td.bevel_bottom.height = None
+
+        assert spPr.sp3d.bevelB is None

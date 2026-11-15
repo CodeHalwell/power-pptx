@@ -18,3 +18,5 @@ tags
 
 # Claude Code agent worktrees (transient, harness-managed)
 .claude/worktrees/
+# complexipy's result cache
+.complexipy_cache/

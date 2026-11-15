@@ -74,9 +74,16 @@ is looked up separately, so a bold `TextBlock` measures with the bold file.
 If a registered name is an alias (`"Brand Sans"` for Outfit files), components
 write the files' own family (`"Outfit"`) into the deck. Otherwise Office, which
 has never heard of the alias, would substitute a different font.
-Registered folders are also handed to LibreOffice by `render_slides` and
-`power-pptx review`. Avoid `TextBlock(font_file=...)` for multi-style text:
-one file then measures every style.
+`register_font_family` registers just the files you name, not the folder they
+are in (`registered_font_files()` lists them). Registered folders and files are
+also handed to LibreOffice by `render_slides` and `power-pptx review`. Avoid
+`TextBlock(font_file=...)` for multi-style text: one file then measures every
+style.
+
+Family names match case-insensitively and in any language the font names
+itself (`"文泉驿正黑"` finds WenQuanYi Zen Hei). Faces inside `.ttc` / `.otc`
+collections, as most macOS system fonts are, are found too. Changing
+`POWER_PPTX_FONT_DIRS` takes effect on the next lookup.
 
 ## Tracked labels, weights, and case
 
@@ -142,7 +149,12 @@ metrics = measure_text("A short heading", Inches(6), size_pt=28,
 it forbids additional wrapping. `max_lines` sets the total visual line budget.
 An unsatisfiable fit raises before changing formatting. `measure_text` is
 read-only and returns `lines`, dimensions, chosen size, font path, and fallback
-status. Measure with the actual bold/italic style. Whole words must fit.
+status. Measure with the actual bold/italic style. Lines break as renderers
+break them (spaces, hyphens, long-path slashes, between CJK characters). A
+word wider than `width` raises unless `break_long_words=True`, which splits it
+at the edge as a renderer does. `line_spacing` is the paragraph's own spacing
+(default `1.2`, as `TextBlock` writes; `None` for single-spaced text, or a
+length such as `Pt(20)`); pass `in_table=True` for text in a table cell.
 
 ## Explicit HTML annotations
 
@@ -190,6 +202,9 @@ the native desktop face.
 Supported types: column, bar, line, area, pie, doughnut. Series values must match
 the categories and be finite numbers or null. Options: colors, title, legend.
 It uses a minimal native chart style; HTML chart styling is not translated.
+The native chart has no fill or outline of its own, so a background colour,
+border, gradient or radius on the chart region itself is rejected; put the
+card behind it on an unmarked parent.
 The browser region must already contain a visual for a meaningful reference.
 
 `table` builds editable cells, merges, column/row dimensions, basic cell fonts,
@@ -205,7 +220,7 @@ Original views are saved by `reference_dir` for render comparisons.
 ```python
 from power_pptx import add_plotly_figure
 add_plotly_figure(slide, figure, *bbox, backend="browser", format="svg",
-                  browser_path="/usr/bin/chromium", width_px=1100, height_px=400)
+                  width_px=1100, height_px=400)   # browser_path= picks a Chromium
 # figure_slide(..., plotly_options={"backend": "browser"}) also works.
 ```
 
@@ -244,9 +259,16 @@ images, `manifest.json`, `index.html`, and `REVIEW.md`. XSDs ship in the package
 no repository test modules are needed. Missing explicit fonts are warnings;
 use `--font-policy error` for a strict gate. Theme/implicit fonts are outside
 this font inventory's scope. `--fail-on-warnings` also gates audit warnings.
+The round-trip check opens and saves the deck, then compares each part's
+content, relationships and content type. It passes for decks written by
+PowerPoint or other tools as long as nothing is lost or altered.
 Nonzero exit means an automated failure; batch processing continues and writes
-an aggregate index. Reused output directories list only this run's pages.
-Existing unrelated files remain, so consume the manifest instead of globbing.
+an aggregate index. Reusing an output directory replaces the previous review:
+its slide PNGs, contact sheets, PDF and reference/difference images are
+removed before the new ones are written, so `slides/` holds exactly the pages
+in the manifest. Files the review doesn't write are left alone. A run that
+fails before anything is reviewed (an unreadable input, say) rewrites only
+`manifest.json` and `index.html`.
 
 Python equivalents: `power_pptx.validation.validate_presentation(prs)` and
 `power_pptx.review.review_presentation(prs, out_dir="review")`.
@@ -263,7 +285,8 @@ automatically.
 Set `SOURCE_DATE_EPOCH` (seconds since 1970) and two builds of the same input
 are byte-identical. It pins zip entry times, the default package core
 properties, and the created/modified dates inside embedded chart workbooks.
-Use it for content-hash caching and for diffing generated decks.
+Section ids, random GUIDs otherwise, are derived from each section's name and
+position. Use it for content-hash caching and for diffing generated decks.
 
 **Inspect every rendered slide**, including full-resolution images where type
 is small. Check wrapping, clipping, contrast, composition, native chart/table

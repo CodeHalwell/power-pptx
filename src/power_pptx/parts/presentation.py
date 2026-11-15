@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from typing import IO, TYPE_CHECKING, Iterable
 
+from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
 from power_pptx.opc.packuri import PackURI
@@ -14,6 +16,18 @@ from power_pptx.util import lazyproperty
 if TYPE_CHECKING:
     from power_pptx.parts.coreprops import CorePropertiesPart
     from power_pptx.slide import NotesMaster, Slide, SlideLayout, SlideMaster
+
+
+# The main part of a presentation, a template and a slide show is the same
+# `p:presentation` XML; only its content type says which of the three the file
+# is. PowerPoint checks that against the file extension and refuses a file
+# where the two disagree, so the content type has to follow the name a deck is
+# saved under.
+_MAIN_CONTENT_TYPE_FOR_EXT = {
+    ".pptx": CT.PML_PRESENTATION_MAIN,
+    ".potx": CT.PML_TEMPLATE_MAIN,
+    ".ppsx": CT.PML_SLIDESHOW_MAIN,
+}
 
 
 class PresentationPart(XmlPart):
@@ -98,17 +112,51 @@ class PresentationPart(XmlPart):
         in the `rIds` sequence. The name portion is always `slide`. The number part forms a
         continuous sequence starting at 1 (e.g. 1, 2, ... 10, ...). The extension is always
         `.xml`.
-        """
-        for idx, rId in enumerate(rIds):
-            slide_part = self.related_part(rId)
-            slide_part.partname = PackURI("/ppt/slides/slide%d.xml" % (idx + 1))
 
-    def save(self, path_or_stream: str | IO[bytes]):
+        Any *other* part of the package that already has one of those names is moved to the next
+        free slide partname. That happens when the package holds a slide part that is not listed
+        in `p:sldIdLst` (some tools leave such parts behind, and so did slide import in earlier
+        releases); left alone, it would end up sharing a partname with a listed slide and the two
+        would be saved as one zip member name.
+        """
+        slide_parts = [self.related_part(rId) for rId in rIds]
+        new_partnames = [
+            PackURI("/ppt/slides/slide%d.xml" % (idx + 1)) for idx in range(len(slide_parts))
+        ]
+        listed = set(slide_parts)
+        claimed = set(new_partnames)
+        displaced = [
+            part
+            for part in self.package.iter_parts()
+            if part not in listed and part.partname in claimed
+        ]
+
+        for slide_part, partname in zip(slide_parts, new_partnames):
+            slide_part.partname = partname
+
+        if not displaced:
+            return
+        taken = {part.partname for part in self.package.iter_parts()}
+        n = len(slide_parts) + 1
+        for part in displaced:
+            while "/ppt/slides/slide%d.xml" % n in taken:
+                n += 1
+            part.partname = PackURI("/ppt/slides/slide%d.xml" % n)
+            taken.add(part.partname)
+
+    def save(self, path_or_stream: str | os.PathLike[str] | IO[bytes]):
         """Save this presentation package to `path_or_stream`.
 
-        `path_or_stream` can be either a path to a filesystem location (a string) or a
-        file-like object.
+        `path_or_stream` can be either a path to a filesystem location (a string or path
+        object) or a file-like object.
+
+        The kind of file written follows the target: a path ending in `.potx` is saved as a
+        template, `.ppsx` as a slide show, and any other path or a file-like object as an
+        ordinary presentation. So a deck opened from a `.potx` and saved as `deck.pptx` is a
+        presentation PowerPoint will open, not a template under the wrong extension. A
+        macro-enabled presentation keeps its content type whatever the target.
         """
+        self._content_type = self._content_type_for(path_or_stream)
         self.package.save(path_or_stream)
 
     def slide_id(self, slide_part):
@@ -117,6 +165,18 @@ class PresentationPart(XmlPart):
             if self.related_part(sldId.rId) is slide_part:
                 return sldId.id
         raise ValueError("matching slide_part not found")
+
+    def _content_type_for(self, path_or_stream: str | os.PathLike[str] | IO[bytes]) -> str:
+        """Return the main-part content type to save this presentation with."""
+        current = self._content_type
+        if current not in _MAIN_CONTENT_TYPE_FOR_EXT.values():
+            # -- macro-enabled (or unrecognised): it describes what the package contains,
+            # -- e.g. a VBA project, which renaming the file does not change --
+            return current
+        if isinstance(path_or_stream, (str, os.PathLike)):
+            ext = os.path.splitext(os.fsdecode(path_or_stream))[1].lower()
+            return _MAIN_CONTENT_TYPE_FOR_EXT.get(ext, CT.PML_PRESENTATION_MAIN)
+        return CT.PML_PRESENTATION_MAIN
 
     @property
     def _next_slide_partname(self):
