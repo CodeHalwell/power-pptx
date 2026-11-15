@@ -43,6 +43,7 @@ from power_pptx.parts.diagram import (
 from power_pptx.parts.image import ImagePart
 from power_pptx.parts.media import MediaPart
 from power_pptx.parts.presentation import PresentationPart
+from power_pptx.parts.presprops import PresentationPropertiesPart
 from power_pptx.parts.slide import (
     NotesMasterPart,
     NotesSlidePart,
@@ -95,6 +96,7 @@ content_type_to_part_class_map: dict[str, type[Part]] = {
     CT.PML_PRES_MACRO_MAIN: PresentationPart,
     CT.PML_TEMPLATE_MAIN: PresentationPart,
     CT.PML_SLIDESHOW_MAIN: PresentationPart,
+    CT.PML_PRES_PROPS: PresentationPropertiesPart,
     CT.OPC_CORE_PROPERTIES: CorePropertiesPart,
     CT.PML_NOTES_MASTER: NotesMasterPart,
     CT.PML_NOTES_SLIDE: NotesSlidePart,
@@ -145,6 +147,7 @@ del (
     SlideMasterPart,
     ThemePart,
     PresentationPart,
+    PresentationPropertiesPart,
     CT,
     PartFactory,
 )

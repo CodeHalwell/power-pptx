@@ -419,3 +419,48 @@ print(slide.notes)                # "" when the slide has no notes
 `start_slide_index` claims every slide from that position to the deck
 end. `move` raises `IndexError` out of range; `reorder` raises
 `ValueError` unless given a clean permutation.
+
+## Running as a slide show
+
+### Slide-show settings (loop, kiosk)
+
+`prs.slide_show` is PowerPoint's *Set Up Slide Show* dialog. The settings
+live in `ppt/presProps.xml` (not `presentation.xml`); there is no need
+to edit that part by hand:
+
+```python
+show = prs.slide_show
+show.loop = True                # "Loop continuously until 'Esc'"
+show.show_type = "kiosk"        # "speaker" (default) | "window" | "kiosk"
+show.use_timings = True         # False = advance manually, ignore timings
+show.show_narration = True      # False = "Show without narration"
+show.show_animation = True      # False = "Show without animation"
+```
+
+A deck that has to run by itself on a display needs three things — the
+loop, a show type, and an advance time on the slides (`loop` alone only
+changes what happens after the last slide):
+
+```python
+from power_pptx.enum.presentation import MSO_TRANSITION
+
+prs.slide_show.loop = True
+prs.slide_show.show_type = "kiosk"        # full screen, a click does not advance
+prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # ms per slide
+```
+
+- The advance time belongs to each slide's transition. Name a transition
+  kind with it (`CUT` for no visible effect): LibreOffice ignores the
+  advance time of a slide whose transition has no kind.
+- `show_type` takes a string or a `PP_SLIDE_SHOW_TYPE` member
+  (`from power_pptx.enum.slide_show import PP_SLIDE_SHOW_TYPE`) and always
+  reads back as a member (`SPEAKER`, `WINDOW`, `KIOSK`). The bools take
+  `True`/`False` only — `show.loop = "false"` raises `TypeError`.
+- PowerPoint always loops a kiosk show; set `loop` too so other viewers
+  (LibreOffice honours `loop` and `use_timings`) do the same.
+- Reads never modify the deck. A deck with no settings reports
+  `loop=False`, `SPEAKER`, and `True` for the other three. The
+  `<p:showPr>` element — and `presProps.xml` itself, for a deck written by
+  a tool that leaves it out — is created on the first real change and
+  removed again when every setting is back at its default. Pen colour,
+  colour history, and extension lists in the same part are left alone.

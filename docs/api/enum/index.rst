@@ -32,6 +32,7 @@ can be found here:
    PpMediaType
    PpParagraphAlignment
    PpPlaceholderType
+   PpSlideShowType
 
    XlAxisCrosses
    XlCategoryType

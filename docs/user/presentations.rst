@@ -126,3 +126,81 @@ never reaches disk.  Only error-severity issues trigger it.
 
 The setting lives on the in-memory presentation and is not stored in the
 ``.pptx`` file, so re-opening the saved deck starts you back at ``"off"``.
+
+
+.. _slide-show-settings:
+
+Slide-show settings
+-------------------
+
+``prs.slide_show`` holds the settings of PowerPoint's *Set Up Slide Show*
+dialog: whether the show loops, how it is presented, and whether timings,
+narration and animation are used::
+
+    show = prs.slide_show
+    show.loop = True                # "Loop continuously until 'Esc'"
+    show.show_type = "kiosk"        # "speaker" (default), "window" or "kiosk"
+    show.use_timings = True         # False: advance manually, ignore timings
+    show.show_narration = True      # False: "Show without narration"
+    show.show_animation = True      # False: "Show without animation"
+
+These are stored in ``ppt/presProps.xml`` rather than ``ppt/presentation.xml``,
+which is why they used to need hand-edited XML.
+
+A looping display
+~~~~~~~~~~~~~~~~~
+
+A deck that has to run unattended on a screen -- built from live data and
+shown on a wall display, say -- needs three things: the loop, a show type,
+and an advance time on the slides.  ``loop`` alone only changes what happens
+after the last slide; something still has to move the show along::
+
+    from power_pptx.enum.presentation import MSO_TRANSITION
+
+    prs.slide_show.loop = True
+    prs.slide_show.show_type = "kiosk"
+    prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # 5 s a slide
+
+    prs.save("lobby.pptx")
+
+The advance time is a property of each slide's :ref:`transition
+<transitions>`, in milliseconds.  Give the transition a kind as well
+(``MSO_TRANSITION.CUT`` if you want no visible effect): LibreOffice ignores
+the advance time of a slide whose transition has no kind.
+
+Show types
+~~~~~~~~~~
+
+``show_type`` accepts a string or a member of
+:ref:`PP_SLIDE_SHOW_TYPE <PpSlideShowType>`, and always reads back as a
+member:
+
+==============  ================================================================
+``"speaker"``   Presented by a speaker, full screen.  The default.
+``"window"``    Browsed by an individual, in a window.
+``"kiosk"``     Browsed at a kiosk: full screen, and a click does not advance
+                the slide, so the slides need advance times or navigation
+                buttons.
+==============  ================================================================
+
+PowerPoint always loops a kiosk show.  Set ``loop`` as well, so that other
+viewers do the same.
+
+What reading and writing do to the file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Reading a setting never modifies the deck.  A presentation that has no
+slide-show settings reports what PowerPoint assumes for it: ``loop`` is
+|False|, ``show_type`` is ``SPEAKER`` and the other three are |True|.
+
+The ``<p:showPr>`` element is created the first time a setting is changed,
+and removed again once every setting is back at its default, so setting and
+resetting a value leaves the file as it was.  The same goes for
+``ppt/presProps.xml`` itself in a deck written by a tool that leaves the part
+out: it is added, with its relationship, when it is first needed.
+
+Everything else PowerPoint keeps in that part -- the pen colour, the
+recently-used colours, its extension lists -- is left untouched.
+
+The four on/off settings take |True| or |False| and nothing else;
+``show.loop = "false"`` raises |TypeError| rather than switching the loop on.

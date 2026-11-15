@@ -148,6 +148,12 @@ card.layer, badge.layer_above = "card", "card"   # also asserts z-order
 # --- validate at save time (off by default) ---
 prs.lint_on_save = "raise"                 # or "warn"; raises before writing
 
+# --- self-running show: loop + kiosk + timed advance ---
+from power_pptx.enum.presentation import MSO_TRANSITION
+prs.slide_show.loop = True                 # "Loop continuously until Esc"
+prs.slide_show.show_type = "kiosk"         # or "speaker" / "window"
+prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # ms per slide
+
 # --- whole-deck audit (markdown summary) ---
 print(audit(prs).markdown())
 

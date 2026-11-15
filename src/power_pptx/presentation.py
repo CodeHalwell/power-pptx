@@ -240,6 +240,30 @@ class Presentation(PartElementProxy):
         """
         return Sections(self._element, self)
 
+    @property
+    def slide_show(self):
+        """:class:`~power_pptx.slide_show.SlideShowSettings` for this presentation.
+
+        The settings in PowerPoint's *Set Up Slide Show* dialog: whether the
+        show loops, how it is presented, and whether timings, narration and
+        animation are used. A deck that has to run by itself on a display::
+
+            from power_pptx.enum.presentation import MSO_TRANSITION
+
+            prs.slide_show.loop = True                # start over after the last slide
+            prs.slide_show.show_type = "kiosk"        # full screen, self-running
+            prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # 5 s a slide
+
+        The settings are stored in ``ppt/presProps.xml`` rather than
+        ``ppt/presentation.xml``. Reading them never modifies the deck; the
+        ``<p:showPr>`` element (and the part, for a deck written by a tool
+        that leaves it out) is created only when a setting is changed, and is
+        removed again when every setting is back at its default.
+        """
+        from power_pptx.slide_show import SlideShowSettings
+
+        return SlideShowSettings(self.part)
+
     def import_slide(
         self,
         source_slide: Slide,
