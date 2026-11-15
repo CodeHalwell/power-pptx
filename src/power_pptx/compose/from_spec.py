@@ -78,6 +78,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Optional
 
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.exc import PythonPptxError
 
 if TYPE_CHECKING:
@@ -208,35 +209,10 @@ _LEGACY_SYNONYMS = (
     ("subtitle", "text"), ("left", "content_left"), ("right", "content_right")
 )
 
-# Lowercase transition name → MSO_TRANSITION_TYPE member name.
+# Lowercase transition name → MSO_TRANSITION_TYPE member name ("random_bar" →
+# "RANDOM_BAR"). Derived from the enum so a new kind needs no edit here.
 _TRANSITION_NAMES: dict[str, str] = {
-    "none": "NONE",
-    "fade": "FADE",
-    "push": "PUSH",
-    "wipe": "WIPE",
-    "split": "SPLIT",
-    "random_bar": "RANDOM_BAR",
-    "circle": "CIRCLE",
-    "dissolve": "DISSOLVE",
-    "checker": "CHECKER",
-    "diamond": "DIAMOND",
-    "plus": "PLUS",
-    "wedge": "WEDGE",
-    "zoom": "ZOOM",
-    "newsflash": "NEWSFLASH",
-    "cover": "COVER",
-    "strips": "STRIPS",
-    "cut": "CUT",
-    "blinds": "BLINDS",
-    "pull": "PULL",
-    "random": "RANDOM",
-    "wheel": "WHEEL",
-    "morph": "MORPH",
-    "fly_through": "FLY_THROUGH",
-    "vortex": "VORTEX",
-    "switch": "SWITCH",
-    "gallery": "GALLERY",
-    "conveyor": "CONVEYOR",
+    member.name.lower(): member.name for member in MSO_TRANSITION_TYPE
 }
 
 
@@ -1366,8 +1342,6 @@ def _set_transition(slide: Any, transition: Any, where: str = "transition") -> N
     key = _transition_name(transition, where)
     if key is None:
         return
-    from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
-
     slide.transition.kind = getattr(MSO_TRANSITION_TYPE, _TRANSITION_NAMES[key])
 
 

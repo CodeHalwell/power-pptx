@@ -529,6 +529,14 @@ class DescribeDidYouMeanHints:
         with pytest.raises(ValueError, match=r"did you mean 'fade'\?"):
             from_spec({"slides": [{"layout": "blank", "transition": "fadee"}]})
 
+    def it_accepts_every_transition_kind_by_its_lower_case_name(self):
+        from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
+
+        for kind in MSO_TRANSITION_TYPE:
+            prs = from_spec({"slides": [{"layout": "blank", "transition": kind.name.lower()}]})
+
+            assert prs.slides[0].transition.kind == kind
+
     def it_suggests_the_closest_slide_size(self):
         with pytest.raises(ValueError, match=r"did you mean 'widescreen'\?"):
             from_spec({"slide_size": "widescreeen", "slides": []})
