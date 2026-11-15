@@ -58,8 +58,9 @@ visual review complete the quality check:
    and bakes a fitting size into the XML *before* save.
 2. **`text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`** lets
    PowerPoint shrink at render time as a fallback.
-3. **`slide.lint()`** catches what slipped through; `auto_fix()`
-   nudges off-slide shapes back inside.
+3. **`slide.lint()`** catches what slipped through, measuring text with
+   the same metrics as `fit_text`; `slide.tidy()` nudges off-slide shapes
+   back inside and makes overflowing text fit.
 
 **Read `references/space-aware-authoring.md` first** if the user is
 generating decks from any dynamic input. It's the reason this skill
@@ -83,8 +84,12 @@ from power_pptx.util import Inches, Pt
 
 # --- open / save ---
 prs = Presentation()                       # new blank deck
-prs = Presentation("file.pptx")            # open existing
-prs.save("out.pptx")
+prs = Presentation("file.pptx")            # open existing (.potx / .ppsx too)
+prs.save("out.pptx")                       # "x.potx" / "x.ppsx" save a template / show
+
+# --- decks from a dict / JSON spec; safe=True when a model or user wrote it ---
+from power_pptx.compose import from_spec
+deck = from_spec(spec, safe=True)          # files must stay inside base_dir (cwd)
 
 # --- slide size (1"-56" a side; fit=True scales an oversize wall to fit) ---
 prs.set_slide_size(Inches(13.333), Inches(7.5))
@@ -96,7 +101,7 @@ slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
 slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
 slide.hidden = True                        # stays in the deck, skipped in the show
 copy = prs.slides.duplicate(slide)         # independent copy, right after it
-prs.slides.remove(slide)                   # + its links, section entry, notes, charts
+prs.slides.remove(copy)                    # + its links, section entry, notes, charts
 
 # --- geometry (BBox is splattable into add_*) ---
 bb = BBox.from_inches(1, 2, 8, 4)
@@ -203,9 +208,11 @@ That whole sheet fits on one screen — it's the working set.
 pip install power-pptx
 ```
 
-The `cairosvg` dependency is optional — install only if you want
-`add_svg_picture(...)` to auto-rasterise the PNG fallback. `pyyaml` is
-optional too — install only if you want `DesignTokens.from_yaml`.
+Python 3.9–3.14; Pillow (10.1+), lxml (4.6.2+) and XlsxWriter (1.3.7+)
+are installed with it. The `cairosvg` dependency is optional — install
+only if you want `add_svg_picture(...)` to auto-rasterise the PNG
+fallback. `pyyaml` is optional too — install only if you want
+`DesignTokens.from_yaml` or `compose.from_yaml`.
 
 ## Reference snippets
 
@@ -218,13 +225,13 @@ collections. Read just the file you need — they're self-contained.
 | `references/content-embedding.md` | **HTML/SVG authoring guide.** Preserve an HTML design as editable native objects, a faithful captured deck via `compose.from_html`, or a hybrid. Local assets, CSS selectors, readiness, fitting, SVG compatibility, and visual verification. |
 | `references/space-aware-authoring.md` | **READ THIS FIRST.** Pre-flight measurement (`fit_text`, `TextFitter.best_fit_font_size`), `auto_size` flags, the linter, and a robust layout pattern. **Phase 2 + Phase 6 text-fit estimator.** |
 | `references/geometry-and-arrows.md` | `BBox` value object (`columns`/`rows`/`split_h`/`grid`), `add_text` / `add_arrow` / `fill_hex` / `line_hex` convenience, `set_text_preserving_format`, `Picture.replace_with`, `Slide.tidy()`, diagram recipes (`horizontal_pipeline`, `hub_and_spoke`, `cycle`, `decision_tree`, `comparison_columns`), `audit(prs)`. **v2.8.** |
-| `references/lint.md` | Detail on `slide.lint()`, issue types, `auto_fix`, and the `from_spec(..., lint="raise")` hook. **Phase 2.** |
+| `references/lint.md` | Detail on `slide.lint()`, issue types and severities, `auto_fix` / `tidy`, declared overlaps, `lint_on_save`, the spec's `"lint": "raise"` field, and the `power-pptx lint` command. **Phase 2.** |
 | `references/design.md` | `DesignTokens`, `shape.style` facade, `Grid` / `Stack` layout primitives (geometry-safe placement), slide recipes (`title_slide`, `bullet_slide`, `kpi_slide`, `quote_slide`, `image_hero_slide`), starter pack. **Phase 9.** |
-| `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts. Quick-reference cheatsheet. |
+| `references/basics.md` | The 1.0.2 surface: `Presentation`, slides, placeholders, shapes, textboxes, tables, pictures, charts — plus slide size and its limits, removing / duplicating / hiding slides, sections, and slide-show settings. Quick-reference cheatsheet. |
 | `references/effects.md` | **The canonical fills-and-effects reference.** Shadow (including `shadow.clear()`), glow, soft edges, blur, reflection, alpha-tinted colors, gradient fills (linear / radial / rectangular / shape), line ends/caps/joins/compound. Other files link here rather than repeat it. **Phase 3 + Phase 6.** |
 | `references/animations.md` | `Entrance` / `Exit` / `Emphasis` presets, triggers, by-paragraph reveal, sequencing context manager, motion paths. **Phase 5.** |
 | `references/transitions.md` | Per-slide and deck-wide transitions including Morph and other `p14:` extensions. **Phase 4.** |
-| `references/compose.md` | `from_spec` (JSON authoring with built-in lint), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
+| `references/compose.md` | `from_spec` (JSON authoring with built-in lint, `SpecError`, `safe=True` for untrusted specs), `import_slide`, `apply_template`. **Phase 2 + Phase 7.** |
 | `references/theme.md` | Reading + writing the theme palette and fonts; `theme.apply(...)`; theme-aware color resolution via `power_pptx.inherit.resolve_color`. **Phase 6 + Phase 7.** |
 | `references/picture-effects.md` | Picture transparency / brightness / contrast / recolor (grayscale / sepia / washout / duotone) and SVG embedding. **Phase 6.** |
 | `references/charts.md` | Chart palettes, quick layouts, per-series gradient/pattern fills, plus the inherited chart API. **Phase 10.** |
@@ -284,7 +291,10 @@ from power_pptx import (
 8. **For released-version constraints**: pin `power-pptx>=2.8.0`
    when generating requirements files — that's the minimum that
    ships the `BBox`, `add_text`, `add_arrow`, `diagrams`, and
-   `audit` surface used in this skill. HTML section composition additionally
+   `audit` surface used in this skill. Code that uses the 2.15 additions
+   (`Slides.remove` / `duplicate`, `Slide.hidden`, `slide_show`,
+   `set_slide_size`, `from_spec(safe=True)`, `power-pptx lint`) needs
+   `power-pptx>=2.15.0`. HTML section composition additionally
    requires a build exposing `power_pptx.compose.from_html`; confirm that
    API exists when working with a pinned older installation.
 
@@ -314,12 +324,11 @@ tf.fit_text(font_family="Inter", max_size=24)
 # Braces: let PowerPoint shrink on the way down if a user later edits
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
-# Catch anything that slipped through. auto_fix() mutates the slide
-# (nudges OffSlide shapes in, autofits overflowing frames, restacks
-# contradicted layer declarations) and refreshes report.issues itself.
-slide.lint().auto_fix()
-report = slide.lint()
-errors = [i for i in report.issues if i.severity.value == "error"]
+# Catch anything that slipped through. tidy() lints and applies the safe
+# fixes (nudges OffSlide shapes in, makes overflowing text fit, restacks
+# contradicted layer declarations); lint again for what needs a person.
+slide.tidy()
+errors = [i for i in slide.lint().issues if i.severity == "error"]
 if errors:
     raise RuntimeError("\n".join(str(e) for e in errors))
 
@@ -329,6 +338,21 @@ prs.save("out.pptx")
 ## Recent additions worth knowing
 
 These changes ship after v2.5 and are easy to miss:
+
+- **2.15: deck surgery, show settings, a stricter linter.**
+  `prs.slides.remove(slide)` (its links, section entry and notes go with
+  it) and `prs.slides.duplicate(slide, index=None)`; `slide.hidden = True`;
+  `prs.slide_show.loop` / `.show_type = "kiosk"`; `.potx` / `.ppsx` open
+  and save; `power_pptx.exc.InvalidPackageError` for unreadable files;
+  `prs.set_slide_size(w, h, fit=True)` for walls beyond the 56" limit
+  (see `references/basics.md`). `slide.lint()` now measures
+  `TextOverflow` with `fit_text`'s metrics and checks auto-size frames
+  (overflow there is a WARNING); `tidy()` makes text fit;
+  `power-pptx lint deck.pptx` gates saved decks (`references/lint.md`).
+  `from_spec(spec, safe=True, base_dir=...)` for untrusted specs, and
+  `SpecError.path` says where a spec is wrong (`references/compose.md`).
+  Recipes raise `ValueError` for content that cannot fit; token bare
+  numbers are points.
 
 - **2.14: bundled fonts and measured typography.**
   `power_pptx.text.register_font_dir(path)` (or `POWER_PPTX_FONT_DIRS`)
@@ -392,6 +416,8 @@ These changes ship after v2.5 and are easy to miss:
   `(Inches(N) - gutter) / 2` style expressions can be passed straight
   through. Pre-2.6.1 these produced float-valued `<a:off>` / `<a:ext>`
   attributes that PowerPoint rejected with the "Repair?" dialog.
+  Placeholders are the exception: their setters raise `TypeError` for a
+  float, so write `placeholder.width = int(card_w)`.
 
 ## Anti-patterns to avoid
 
@@ -408,9 +434,10 @@ Flagging them up front saves the trial-and-error round.
   `slide.shapes.add_arrow(start, end, head="triangle")` — it sets the
   arrowhead, inset, edge routing, and colour in one call.
 - **Don't** size a diagram to a broken picture's bbox when there's an
-  enclosing card. The card area is what you want. Use
-  `picture.enclosing_container()` to find the right box, then
-  `picture.replace_with(builder)`.
+  enclosing card. The card area is what you want.
+  `picture.replace_with(builder)` always hands the builder the picture's
+  own box, so take `box = picture.enclosing_container()` first, then
+  `picture.delete()` and `builder(slide, box)`.
 - **Don't** delete a picture and then assume sibling shape indexes
   are stable. Process in reverse index order, or capture the shapes
   to mutate *before* iterating.
@@ -449,10 +476,18 @@ Flagging them up front saves the trial-and-error round.
 - **Don't** apply `font.letter_spacing` to native component runs after
   `render()`. Preflight never saw the tracking, so a label can overflow
   unnoticed. Pass `TextBlock(letter_spacing=...)` instead.
+- **Don't** delete a slide by editing `prs.slides._sldIdLst` and calling
+  `drop_rel`, or hide one with `slide._element.set("show", "0")`. The
+  first leaves an orphan slide in the package that links still reach.
+  Use `prs.slides.remove(slide)` and `slide.hidden = True`.
+- **Don't** build a spec an LLM or a user wrote with plain
+  `from_spec(spec)`: its `template`, `image` and `figure` paths can read
+  any file, and its HTML figures can fetch any URL. Pass `safe=True`
+  (with `base_dir=`) and hand `SpecError.path` back to the author.
 
 ## Common pitfalls
 
-- **Calling `shape.shadow.inherit`** raises `DeprecationWarning`. Read
+- **Calling `shape.shadow.inherit`** emits a `DeprecationWarning`. Read
   individual properties (`blur_radius`, `distance`, `direction`,
   `color`) and check for `None` instead; to *remove* a shadow call
   `shape.shadow.clear()`.
@@ -462,14 +497,32 @@ Flagging them up front saves the trial-and-error round.
   Pillow's default font. Check with
   `power_pptx.text.fonts.font_is_installed(...)`, register the project's
   font folder with `power_pptx.text.register_font_dir(...)`, or use
-  `strict=True`. `slide.lint()` is unaffected —
-  its overflow check is font-agnostic — which is why the lint pass is
-  worth keeping even when the metrics are exact.
-- **Bare-int sizes in `DesignTokens` typography** are interpreted as
-  **EMU**, not points. Use floats (`44.0`) or `Pt(44)` to mean
-  44-point font.
+  `strict=True`. `slide.lint()` measures with the same metrics, so it
+  shares the blind spot: an overflow measured with fallback metrics
+  has `issue.estimated == True` and says so in its message.
+- **`add_textbox` / `add_text` boxes grow to fit their text**
+  (`SHAPE_TO_FIT_TEXT`), and the linter checks the box they will grow
+  into: text taller or wider than the stored box is a `TextOverflow`
+  WARNING, and a box that grows past the slide edge is an `OffSlide`
+  ERROR. Give long text a real height, or `fit_text` it.
+- **Token lengths are points.** `"size": 44` and `44.0` both mean 44pt
+  in `DesignTokens`, JSON and YAML alike (only a bare integer of 12700 or
+  more is still read as EMU). Unknown token keys raise with a
+  did-you-mean hint.
+- **Recipes and diagrams raise `ValueError` for content that cannot
+  fit** (more than 9 KPIs in a row on a 4:3 slide, more than 21
+  comparison rows, a diagram label below 6pt) instead of shrinking it
+  unreadably — split it across slides. `table_slide(widths=[2, 1, 1])`
+  numbers are relative weights; pass `Inches(...)` for exact widths.
 - **Recipes use the Blank layout**, so `slide.shapes.title` is `None`.
   Address shapes by index (`slide.shapes[0]`, `slide.shapes[1]`, …).
+- **A slide is 1–56 inches a side.** `prs.slide_width = Inches(80)`
+  raises `ValueError`; for a pixel-sized LED wall use
+  `prs.set_slide_size(w, h, fit=True)` and scale coordinates by the
+  returned `.scale`.
+- **`pic.effects.recolor = "washout"` is PowerPoint's faded Washout.**
+  The hard black/white threshold it used to write is now
+  `"black_and_white"`.
 - **`add_svg_picture` without `cairosvg` and without a `png_fallback`**
   raises `CairoSvgUnavailable`. Either install cairosvg or supply a
   pre-rasterised PNG.
@@ -479,10 +532,12 @@ Flagging them up front saves the trial-and-error round.
   `LayerOrderViolation`, and snaps `OffGridDrift` only when called with
   `fix_grid_drift=True`. It will never
   touch `ShapeCollision`, `LowContrast`, `MinFontSize` or
-  `ZOrderAnomaly` — those need a designer. Prefer `tf.fit_text(...)`
-  *before* save over relying on the overflow fix.
-- **Slide thumbnails require `soffice` on PATH** (LibreOffice).
-  Otherwise you get `ThumbnailRendererUnavailable`.
+  `ZOrderAnomaly` — those need a designer — and shrinking text to fit
+  can leave it below 9pt, which then reports `MinFontSize`. Prefer
+  `tf.fit_text(...)` *before* save over relying on the overflow fix.
+- **Slide thumbnails require LibreOffice** (`soffice`, or else
+  `libreoffice`, on PATH, or `POWER_PPTX_SOFFICE`). Otherwise you get
+  `ThumbnailRendererUnavailable`.
 - **`MSO_PATTERN_TYPE.ERCENT_40`** is the upstream typo and emits a
   `DeprecationWarning`. Use `PERCENT_40`.
 - **Calling `chart.apply_palette` on a pie / doughnut** emits a
@@ -495,7 +550,11 @@ If the user has the `power-pptx` repo checked out alongside this
 skill, these paths are useful for source-of-truth lookup:
 
 - `src/power_pptx/lint.py` — `SlideLintReport`, `TextOverflow`, `OffSlide`,
-  `ShapeCollision`, `LayerOrderViolation`, `LintSeverity`.
+  `ShapeCollision`, `LayerOrderViolation`, `LintSeverity`;
+  `src/power_pptx/lint_cli.py` — the `power-pptx lint` command.
+- `src/power_pptx/slide.py` — `Slide.hidden`, `Slides.remove` /
+  `duplicate` / `move` / `reorder`, `lint()` / `tidy()`;
+  `src/power_pptx/slide_show.py` — `prs.slide_show`.
 - `src/power_pptx/shapes/base.py` — `lint_group`, `lint_skip`,
   `allow_overlap_with`, `layer` / `layer_above` (overlap intent).
 - `src/power_pptx/text/text.py`, `src/power_pptx/text/layout.py` — `fit_text`,
@@ -507,8 +566,9 @@ skill, these paths are useful for source-of-truth lookup:
   `Column`, `Card`, `TextBlock`, `DataTable`, `NativeContent`).
 - `src/power_pptx/animation.py` — `Entrance`, `Exit`, `Emphasis`,
   `MotionPath`, `SlideAnimations`.
-- `src/power_pptx/compose/` — `from_spec`, plus the `import_slide` /
-  `apply_template` re-exports.
+- `src/power_pptx/compose/` — `from_spec` / `from_yaml` (`safe=`,
+  `SpecError`), `from_html`, plus the `import_slide` / `apply_template`
+  re-exports.
 - `src/power_pptx/theme.py`, `src/power_pptx/inherit.py` — theme reader/writer and
   `resolve_color`.
 - `src/power_pptx/dml/effect.py`, `src/power_pptx/dml/picture.py`,
