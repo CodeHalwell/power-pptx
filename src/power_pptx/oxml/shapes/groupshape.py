@@ -285,8 +285,7 @@ class CT_GroupShape(BaseShapeElement):
             cursor = floor
         root._pptx_shape_id_cursor = cursor
         root._pptx_shape_id_ends = {
-            container: (_remember_end(container, False), _remember_end(container, True))
-            for container in self._watched_containers()
+            container: _remember_ends(container) for container in self._watched_containers()
         }
         return cursor
 
@@ -306,29 +305,8 @@ class CT_GroupShape(BaseShapeElement):
         if ends is None:
             return False
         for container in self._watched_containers():
-            remembered = ends.get(container)
-            if remembered is None:
-                # -- first use of this group since the last scan; everything in
-                # -- it is unseen, which for a group just created is nothing
-                if _max_id_in(container) > cursor:
-                    return False
-                ends[container] = (
-                    _remember_end(container, False),
-                    _remember_end(container, True),
-                )
-                continue
-            head, tail = remembered
-            head_changed = _arrivals_fit(container, head, False, cursor)
-            if head_changed is None:
+            if not _ends_still_fit(ends, container, cursor):
                 return False
-            tail_changed = _arrivals_fit(container, tail, True, cursor)
-            if tail_changed is None:
-                return False
-            if head_changed or tail_changed:
-                ends[container] = (
-                    _remember_end(container, False) if head_changed else head,
-                    _remember_end(container, True) if tail_changed else tail,
-                )
         return True
 
     @classmethod
@@ -417,6 +395,11 @@ def _max_id_in(elm) -> int:
     return max((int(s) for s in _ids_in(elm) if s.isdigit()), default=0)
 
 
+def _remember_ends(container) -> tuple:
+    """What to remember about both ends of `container`: `(head, tail)`."""
+    return _remember_end(container, False), _remember_end(container, True)
+
+
 def _remember_end(container, from_end: bool) -> tuple:
     """What to remember about one end of `container`: `(anchors, beyond)`.
 
@@ -437,6 +420,37 @@ def _remember_end(container, from_end: bool) -> tuple:
         if len(anchors) == _REMEMBERED_PER_END:
             break
     return tuple(anchors), beyond
+
+
+def _ends_still_fit(ends: dict, container, cursor: int) -> bool:
+    """True if nothing with an id above `cursor` has arrived at either end of `container`.
+
+    `ends` maps each watched container to what is remembered about its ends.
+    The entry for `container` is brought up to date when it has none yet or an
+    end has changed in a way that still fits.
+    """
+    remembered = ends.get(container)
+    if remembered is None:
+        # -- first use of this group since the last scan; everything in it is
+        # -- unseen, which for a group just created is nothing
+        if _max_id_in(container) > cursor:
+            return False
+        ends[container] = _remember_ends(container)
+        return True
+
+    head, tail = remembered
+    head_changed = _arrivals_fit(container, head, False, cursor)
+    if head_changed is None:
+        return False
+    tail_changed = _arrivals_fit(container, tail, True, cursor)
+    if tail_changed is None:
+        return False
+    if head_changed or tail_changed:
+        ends[container] = (
+            _remember_end(container, False) if head_changed else head,
+            _remember_end(container, True) if tail_changed else tail,
+        )
+    return True
 
 
 def _arrivals_fit(container, remembered: tuple, from_end: bool, cursor: int) -> bool | None:
