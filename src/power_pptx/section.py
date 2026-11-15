@@ -134,11 +134,7 @@ def _follow_slide_order(
         return
     sections = list(sectionLst.section_lst)
     in_deck = set(new_ids)
-    owner: dict[int, CT_Section] = {}
-    for section in sections:
-        for sldId in section.sldId_lst:
-            if sldId.id in in_deck:
-                owner.setdefault(sldId.id, section)
+    owner = _section_owners(sections, in_deck)
 
     if moved is None:
         block_order = _sections_as_blocks(sections, new_ids, owner)
@@ -151,7 +147,27 @@ def _follow_slide_order(
         anchored = _longest_increasing_run(new_ids, old_position)
     else:
         anchored = in_deck - moved
+    _write_members(sections, new_ids, _sections_after_placing(new_ids, anchored, owner))
 
+
+def _section_owners(sections: list[CT_Section], in_deck: set[int]) -> dict[int, CT_Section]:
+    """The section each slide of *in_deck* belongs to: the first of *sections* listing it."""
+    owner: dict[int, CT_Section] = {}
+    for section in sections:
+        for sldId in section.sldId_lst:
+            if sldId.id in in_deck:
+                owner.setdefault(sldId.id, section)
+    return owner
+
+
+def _sections_after_placing(
+    new_ids: list[int], anchored: set[int], owner: dict[int, CT_Section]
+) -> dict[int, CT_Section | None]:
+    """The section of each slide of *new_ids* once those not *anchored* have been placed.
+
+    An anchored slide keeps the section *owner* gives it; every other slide is
+    placed, in deck order, by :func:`_landing_section`.
+    """
     final: dict[int, CT_Section | None] = {
         slide_id: owner.get(slide_id) for slide_id in new_ids if slide_id in anchored
     }
@@ -162,16 +178,26 @@ def _follow_slide_order(
         after = next(
             (final[later] for later in new_ids[i + 1 :] if later in anchored), None
         )
-        own = owner.get(slide_id)
-        if own is not None and (own is before or own is after):
-            final[slide_id] = own
-        elif before is not None:
-            final[slide_id] = before
-        elif after is not None:
-            final[slide_id] = after
-        else:
-            final[slide_id] = own
-    _write_members(sections, new_ids, final)
+        final[slide_id] = _landing_section(owner.get(slide_id), before, after)
+    return final
+
+
+def _landing_section(
+    own: CT_Section | None, before: CT_Section | None, after: CT_Section | None
+) -> CT_Section | None:
+    """The section a moved slide of section *own* joins, landing between *before* and *after*.
+
+    It stays in its own section when it lands next to another member of it,
+    and otherwise joins the section of the slide before it (of the slide after
+    it, when it lands first or the slide before it is in no section).
+    """
+    if own is not None and (own is before or own is after):
+        return own
+    if before is not None:
+        return before
+    if after is not None:
+        return after
+    return own
 
 
 def _sections_as_blocks(
