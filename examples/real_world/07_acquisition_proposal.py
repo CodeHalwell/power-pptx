@@ -38,11 +38,16 @@ from _common import (
     divider,
     eyebrow,
     footer,
+    hairline_below,
     hex_rgb,
     lint_or_die,
     new_deck,
     section_title,
+    shade_cell,
+    status_cell,
     styled_card,
+    table_body_text,
+    table_header_row,
 )
 
 FOOTER = "Project Blueprint  |  Strictly confidential — M&A Committee"
@@ -264,39 +269,10 @@ def _synergies(prs) -> None:
     table.columns[2].width = Inches(2.4)
     table.columns[3].width = Inches(2.2)
 
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(13)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-
-    confidence_color = {"High": TOKENS.palette["positive"], "Medium": "#F59E0B", "Low": TOKENS.palette["negative"]}
+    table_header_row(table, rows[0], TOKENS, size=13)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
-            cell = table.cell(r, c)
-            cell.text = value
-            p = cell.text_frame.paragraphs[0]
-            p.font.size = Pt(12)
-            p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-            if c == 0:
-                p.font.bold = True
-            if c == 1:
-                p.font.bold = True
-                p.alignment = PP_ALIGN.RIGHT
-            if c == 3:
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb(confidence_color.get(value, TOKENS.palette["neutral"]))
-            cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            if r % 2 == 0:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            _synergy_cell(table.cell(r, c), r, c, value)
 
     note = slide.shapes.add_textbox(
         Inches(0.6), Inches(6.1), Inches(12.1), Inches(0.5),
@@ -308,6 +284,31 @@ def _synergies(prs) -> None:
     p.font.italic = True
     p.font.color.rgb = hex_rgb(TOKENS.palette["muted"])
     footer(slide, FOOTER, "6", TOKENS)
+
+
+#: Synergy confidence -> text colour for the "Confidence" column.
+CONFIDENCE_COLOR = {
+    "High": TOKENS.palette["positive"],
+    "Medium": "#F59E0B",
+    "Low": TOKENS.palette["negative"],
+}
+
+
+def _synergy_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold synergy names, right-aligned values, confidence coloured by level."""
+    p = table_body_text(cell, value, TOKENS)
+    if c == 0:
+        p.font.bold = True
+    if c == 1:
+        p.font.bold = True
+        p.alignment = PP_ALIGN.RIGHT
+    if c == 3:
+        p.font.bold = True
+        p.font.color.rgb = hex_rgb(CONFIDENCE_COLOR.get(value, TOKENS.palette["neutral"]))
+    cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
+    hairline_below(cell)
 
 
 def _valuation(prs) -> None:
@@ -335,42 +336,42 @@ def _valuation(prs) -> None:
     table.columns[0].width = Inches(4.6)
     for c in (1, 2, 3): table.columns[c].width = Inches(2.5)
 
-    for c, label in enumerate(rows[0]):
+    table_header_row(table, rows[0], TOKENS, size=13)
+    _highlight_base_case_header(table, len(rows[0]))
+    for r, row in enumerate(rows[1:], start=1):
+        for c, value in enumerate(row):
+            _valuation_cell(table.cell(r, c), r, c, value)
+    footer(slide, FOOTER, "7", TOKENS)
+
+
+BASE_CASE_COLUMN = 2
+
+
+def _highlight_base_case_header(table, n_cols: int) -> None:
+    """Accent the base-case header and centre the scenario headers."""
+    for c in range(n_cols):
         cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
         p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(13)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        if c == 2:
+        if c == BASE_CASE_COLUMN:
             cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["accent"])
             p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
         p.alignment = PP_ALIGN.CENTER if c > 0 else PP_ALIGN.LEFT
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-    for r, row in enumerate(rows[1:], start=1):
-        for c, value in enumerate(row):
-            cell = table.cell(r, c)
-            cell.text = value
-            p = cell.text_frame.paragraphs[0]
-            p.font.size = Pt(12)
-            p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-            if c == 0:
-                p.font.bold = True
-            else:
-                p.alignment = PP_ALIGN.CENTER
-            if c == 2:
-                p.font.bold = True
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb("#F9F4DC")
-            cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            if r % 2 == 0 and c != 2:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
-    footer(slide, FOOTER, "7", TOKENS)
+
+
+def _valuation_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold metric names, centred scenarios, a tinted bold base-case column."""
+    p = table_body_text(cell, value, TOKENS)
+    if c == 0:
+        p.font.bold = True
+    else:
+        p.alignment = PP_ALIGN.CENTER
+    if c == BASE_CASE_COLUMN:
+        p.font.bold = True
+        shade_cell(cell, "#F9F4DC")
+    cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    if r % 2 == 0 and c != BASE_CASE_COLUMN:
+        shade_cell(cell, TOKENS.palette["surface"])
+    hairline_below(cell)
 
 
 def _diligence(prs) -> None:
@@ -400,44 +401,34 @@ def _diligence(prs) -> None:
     table.columns[2].width = Inches(1.4)
     table.columns[3].width = Inches(6.3)
 
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(12)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-
-    status_bg = {"Green": TOKENS.palette["positive"], "Amber": "#F59E0B", "Red": TOKENS.palette["negative"]}
+    table_header_row(table, rows[0], TOKENS)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
             cell = table.cell(r, c)
             if c == 2:
-                cell.text = value.upper()
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(status_bg[value])
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(11)
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb("#FFFFFF")
-                p.alignment = PP_ALIGN.CENTER
+                status_cell(cell, value.upper(), DILIGENCE_STATUS[value])
             else:
-                cell.text = value
-                p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(11)
-                p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-                if c == 0:
-                    p.font.bold = True
-                if r % 2 == 0:
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
+                _finding_cell(cell, r, c, value)
             cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            hairline_below(cell)
     footer(slide, FOOTER, "8", TOKENS)
+
+
+#: Workstream status -> fill for the diligence "Status" column.
+DILIGENCE_STATUS = {
+    "Green": TOKENS.palette["positive"],
+    "Amber": "#F59E0B",
+    "Red": TOKENS.palette["negative"],
+}
+
+
+def _finding_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold workstream names on zebra-striped rows."""
+    p = table_body_text(cell, value, TOKENS, size=11)
+    if c == 0:
+        p.font.bold = True
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
 
 
 def _integration(prs) -> None:
