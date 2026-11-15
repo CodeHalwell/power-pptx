@@ -82,6 +82,8 @@ from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.exc import PythonPptxError
 
 if TYPE_CHECKING:
+    import inspect
+
     from power_pptx.presentation import Presentation
 
 
@@ -1079,6 +1081,7 @@ _KEY_VALIDATORS: dict[str, Callable[[Any, str], Any]] = {
         _text,
     ),
     **dict.fromkeys(("legend", "smooth", "data_labels", "banded"), _flag),
+    "transition": _transition_name,
     "figure_format": _one_of("auto", "svg", "png"),
     "bullets": _bullet_items,
     "kpis": _mapping_items(_KPI_EXAMPLE),
@@ -1097,6 +1100,13 @@ _KEY_VALIDATORS: dict[str, Callable[[Any, str], Any]] = {
 _LAYOUT_VALIDATORS: dict[tuple[str, str], Callable[[Any, str], Any]] = {
     ("table", "rows"): _table_rows,
     ("comparison", "rows"): _mapping_items(_COMPARISON_ROW_EXAMPLE),
+}
+
+# Spec key → validator, for keys that name a file the recipe reads: which
+# files a spec may name depends on the call's safe mode and base directory.
+_FILE_VALIDATORS: dict[str, Callable[[Any, str, _Context], Any]] = {
+    "image": _image_source,
+    "figure": _figure_source,
 }
 
 
@@ -1141,26 +1151,59 @@ def _add_recipe_slide(
         )
 
     given = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
+    parameters = inspect.signature(recipe).parameters
+    _check_recipe_keys(given, parameters, layout_name, where)
+    kwargs = _recipe_kwargs(given, layout_name, tokens, where=where, ctx=ctx)
 
-    # Fail closed on typos: any kwarg the recipe doesn't accept is an
-    # error.  Recipes accept ``tokens`` and ``transition`` consistently,
-    # so this catches misspelled content keys (``subtitlz``, ``millestones``)
-    # that previously silently no-op'd.
-    sig = inspect.signature(recipe)
-    accepts_var_kw = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
-    if not accepts_var_kw:
-        accepted = set(sig.parameters) - {"prs"}
-        unknown = set(given) - accepted
-        if unknown:
-            raise _spec_error(
-                where,
-                f"layout {layout_name!r}: unknown spec keys "
-                f"{_format_unknown(unknown, accepted)}. "
-                f"Accepted: {sorted(accepted)}.",
-            )
+    if "bullets" in kwargs:
+        kwargs["bullets"] = _flat_bullets(kwargs["bullets"], f"{where}.bullets")
+    if layout_name == "table":
+        _check_table_row_lengths(kwargs["columns"], kwargs["rows"], where)
+    if ctx.safe:
+        # Untrusted spec: captures run offline whether or not the slide
+        # mentions capture options at all.
+        for key in _CAPTURE_TARGETS:
+            if key in parameters:
+                kwargs.setdefault(key, {"allow_network": False})
 
+    return recipe(prs, **kwargs)
+
+
+def _check_recipe_keys(
+    given: Mapping[str, Any],
+    parameters: Mapping[str, inspect.Parameter],
+    layout_name: str,
+    where: str,
+) -> None:
+    """Reject a spec key the recipe has no parameter for.
+
+    Fail closed on typos: any kwarg the recipe doesn't accept is an
+    error.  Recipes accept ``tokens`` and ``transition`` consistently,
+    so this catches misspelled content keys (``subtitlz``, ``millestones``)
+    that previously silently no-op'd.
+    """
+    if any(p.kind is p.VAR_KEYWORD for p in parameters.values()):
+        return
+    accepted = set(parameters) - {"prs"}
+    unknown = set(given) - accepted
+    if unknown:
+        raise _spec_error(
+            where,
+            f"layout {layout_name!r}: unknown spec keys "
+            f"{_format_unknown(unknown, accepted)}. "
+            f"Accepted: {sorted(accepted)}.",
+        )
+
+
+def _recipe_kwargs(
+    given: Mapping[str, Any],
+    layout_name: str,
+    tokens: Any,
+    *,
+    where: str,
+    ctx: _Context,
+) -> dict[str, Any]:
+    """Return the recipe keyword arguments for a slide's *given* keys, each checked."""
     kwargs: dict[str, Any] = {}
     for key, value in given.items():
         path = f"{where}.{key}"
@@ -1169,43 +1212,42 @@ def _add_recipe_slide(
             kwargs[key] = (
                 None if value is None else _resolve_tokens(value, where=path, ctx=ctx, base=tokens)
             )
-        elif value is None:
-            continue
-        elif key == "transition":
-            kwargs[key] = _transition_name(value, path)
-        elif key in _CAPTURE_TARGETS:
-            kwargs[key] = _capture_options(key, value, path, ctx)
-        elif key == "image":
-            kwargs[key] = _image_source(value, path, ctx)
-        elif key == "figure":
-            kwargs[key] = _figure_source(value, path, ctx)
-        else:
-            validator = _LAYOUT_VALIDATORS.get((layout_name, key)) or _KEY_VALIDATORS.get(key)
-            kwargs[key] = value if validator is None else validator(value, path)
+        elif value is not None:
+            kwargs[key] = _recipe_value(key, value, path, layout_name, ctx)
     # Spec-level tokens flow through unless the slide opts out / overrides.
     kwargs.setdefault("tokens", tokens)
+    return kwargs
 
-    if "bullets" in kwargs:
-        kwargs["bullets"] = _flat_bullets(kwargs["bullets"], f"{where}.bullets")
-    if layout_name == "table":
-        # The recipe draws exactly ``len(columns)`` cells per row, so a
-        # longer row would lose its tail without a word.
-        width = len(kwargs["columns"])
-        for index, row in enumerate(kwargs["rows"]):
-            if len(row) > width:
-                raise _spec_error(
-                    f"{where}.rows[{index}]",
-                    f"has {len(row)} cells but the table has {width} columns "
-                    f"({kwargs['columns']!r}); the extra cells would be dropped",
-                )
-    if ctx.safe:
-        # Untrusted spec: captures run offline whether or not the slide
-        # mentions capture options at all.
-        for key in _CAPTURE_TARGETS:
-            if key in sig.parameters:
-                kwargs.setdefault(key, {"allow_network": False})
 
-    return recipe(prs, **kwargs)
+def _recipe_value(key: str, value: Any, path: str, layout_name: str, ctx: _Context) -> Any:
+    """Return the checked recipe argument for one spec *key*.
+
+    A key no validator knows is passed through as written: what goes in it
+    is the recipe's contract.
+    """
+    if key in _CAPTURE_TARGETS:
+        return _capture_options(key, value, path, ctx)
+    file_validator = _FILE_VALIDATORS.get(key)
+    if file_validator is not None:
+        return file_validator(value, path, ctx)
+    validator = _LAYOUT_VALIDATORS.get((layout_name, key)) or _KEY_VALIDATORS.get(key)
+    return value if validator is None else validator(value, path)
+
+
+def _check_table_row_lengths(columns: list[Any], rows: list[Any], where: str) -> None:
+    """Reject a table row with more cells than the table has columns.
+
+    The recipe draws exactly ``len(columns)`` cells per row, so a
+    longer row would lose its tail without a word.
+    """
+    width = len(columns)
+    for index, row in enumerate(rows):
+        if len(row) > width:
+            raise _spec_error(
+                f"{where}.rows[{index}]",
+                f"has {len(row)} cells but the table has {width} columns "
+                f"({columns!r}); the extra cells would be dropped",
+            )
 
 
 def _add_legacy_slide(
