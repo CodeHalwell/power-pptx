@@ -620,19 +620,48 @@ def _plan(node, bbox, context, stretched=False):
     plan = _Plan(node, bbox)
     if isinstance(node, TextBlock):
         plan.text = _text_measure(node, bbox.width, bbox.height, context)
-        return plan
-    if isinstance(node, DataTable):
-        plan.table = _table_layout(node, bbox.width, context)
-        if sum(plan.table.heights) > bbox.height:
-            raise LayoutOverflowError(
-                f"DataTable {node.name or ''!r} needs {sum(plan.table.heights) / 12700:.1f}pt; "
-                f"its region is {bbox.height / 12700:.1f}pt"
-            )
-        return plan
-    if not isinstance(node, Container):
-        return plan
+    elif isinstance(node, DataTable):
+        _plan_table(plan, context)
+    elif isinstance(node, Container):
+        _plan_container(plan, context, stretched)
+    return plan
+
+
+def _plan_table(plan, context):
+    node, bbox = plan.node, plan.bbox
+    plan.table = _table_layout(node, bbox.width, context)
+    if sum(plan.table.heights) > bbox.height:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} needs {sum(plan.table.heights) / 12700:.1f}pt; "
+            f"its region is {bbox.height / 12700:.1f}pt"
+        )
+
+
+def _plan_container(plan, context, stretched):
+    """Lay the children out along the container's direction inside its padding.
+
+    `stretched` says the parent row made this container taller than its
+    content, which is when a ragged last panel is worth a warning.
+    """
+    node, bbox = plan.node, plan.bbox
     if node.radius > min(bbox.width, bbox.height) / 2:
         raise LayoutOverflowError("Container radius exceeds half its shorter side")
+    inner = _content_box(node, bbox)
+    widths, heights = _child_sizes(node, inner, context)
+    spare = _spare_length(node, inner, widths, heights)
+    spare = _absorb_spare(node, heights, spare, stretched, context)
+    horizontal = node.direction == "horizontal"
+    cursor, gap = _justify(node, spare)
+    for child, w, h in zip(node.children, widths, heights):
+        shift = _cross_shift(node, inner, w, h)
+        w, h, child_stretched = _stretch(node, child, inner, w, h)
+        child_box = _child_box(inner, horizontal, cursor, shift, w, h)
+        plan.children.append(_plan(child, child_box, context, child_stretched))
+        cursor += (w if horizontal else h) + gap
+
+
+def _content_box(node, bbox):
+    """The region inside the container's padding, which must not be empty."""
     t, r, b, left_pad = _insets(node.padding)
     inner = BBox(
         Emu(bbox.left + left_pad),
@@ -642,74 +671,129 @@ def _plan(node, bbox, context, stretched=False):
     )
     if inner.width <= 0 or inner.height <= 0:
         raise LayoutOverflowError("Container padding consumes its region")
-    horizontal = node.direction == "horizontal"
-    widths = (
-        _row_widths(node, inner.width, context)
-        if horizontal
-        else [c.width or inner.width for c in node.children]
-    )
+    return inner
+
+
+def _child_sizes(node, inner, context):
+    """Each child's width and measured height before spare space is shared."""
+    if node.direction == "horizontal":
+        widths = _row_widths(node, inner.width, context)
+    else:
+        widths = [c.width or inner.width for c in node.children]
     heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
+    return widths, heights
+
+
+def _spare_length(node, inner, widths, heights):
+    """Length left along the flow once children and gaps are placed.
+
+    Raises when the children overrun the region in either direction.
+    """
+    horizontal = node.direction == "horizontal"
     sizes = widths if horizontal else heights
     available = inner.width if horizontal else inner.height
     spare = available - sum(sizes) - node.gap * max(0, len(sizes) - 1)
     if spare < 0 or any(w > inner.width for w in widths) or any(h > inner.height for h in heights):
         raise LayoutOverflowError(f"Container {node.name or ''!r} content exceeds its region")
-    grows = sum(c.grow for c in node.children) if not horizontal else 0
-    if grows:
-        allocated = 0
-        cumulative = 0.0
-        for i, child in enumerate(node.children):
-            cumulative += child.grow
-            edge = round(spare * cumulative / grows)
-            heights[i] += edge - allocated
-            allocated = edge
-        spare = 0
-    elif not horizontal and node.fill_last and node.children:
+    return spare
+
+
+def _absorb_spare(node, heights, spare, stretched, context):
+    """Give a column's spare height to growing children or to its last child.
+
+    Updates `heights` in place and returns the spare length left for
+    ``justify`` to distribute. Rows keep all of theirs.
+    """
+    if node.direction == "horizontal":
+        return spare
+    grows = [c.grow for c in node.children]
+    if sum(grows):
+        for i, share in enumerate(_apportion(spare, grows)):
+            heights[i] += share
+        return 0
+    if node.fill_last and node.children:
         heights[-1] += spare
-        spare = 0
-    elif (
-        not horizontal
-        and stretched
-        and spare > RAGGED_TOLERANCE
-        and node.justify == "start"
-        and not _is_panel(node)
-        and node.children
-        and _is_panel(node.children[-1])
-    ):
+        return 0
+    if stretched and _leaves_ragged_bottom(node, spare):
         label = f"Column {node.name!r}" if node.name else "A column"
         context.warnings.append(
             f"{label} ends {spare / 12700:.1f}pt above the bottom of "
             "its row, so its last panel won't share a bottom edge with its neighbours; "
             "set grow on its last child or fill_last=True"
         )
-    gap = node.gap
-    offset = 0
+    return spare
+
+
+def _leaves_ragged_bottom(node, spare):
+    """Whether a column's last panel would stop visibly short of the column's end."""
+    return (
+        spare > RAGGED_TOLERANCE
+        and node.justify == "start"
+        and not _is_panel(node)
+        and bool(node.children)
+        and _is_panel(node.children[-1])
+    )
+
+
+def _apportion(total, weights):
+    """Split `total` into whole parts in proportion to `weights`.
+
+    Each boundary is rounded from the running sum of weights, so rounding
+    errors never accumulate and the parts add up to the rounded total.
+    """
+    whole = sum(weights)
+    parts, allocated, cumulative = [], 0, 0.0
+    for weight in weights:
+        cumulative += weight
+        edge = round(total * cumulative / whole)
+        parts.append(edge - allocated)
+        allocated = edge
+    return parts
+
+
+def _justify(node, spare):
+    """The offset of the first child along the flow, and the gap between children."""
+    count = len(node.children)
     if node.justify == "center":
-        offset = spare / 2
-    elif node.justify == "end":
-        offset = spare
-    elif node.justify == "space-between" and len(sizes) > 1:
-        gap += spare / (len(sizes) - 1)
-    cursor = offset
-    for child, w, h in zip(node.children, widths, heights):
-        cross = inner.height - h if horizontal else inner.width - w
-        shift = cross / 2 if node.align == "center" else cross if node.align == "end" else 0
-        child_stretched = False
-        if node.align == "stretch":
-            if horizontal and child.height is None:
-                child_stretched = inner.height > h
-                h = inner.height
-            elif not horizontal and child.width is None:
-                w = inner.width
-        child_box = BBox(
-            Emu(round(inner.left + (cursor if horizontal else shift))),
-            Emu(round(inner.top + (shift if horizontal else cursor))),
-            Emu(w),
-            Emu(h),
+        return spare / 2, node.gap
+    if node.justify == "end":
+        return spare, node.gap
+    if node.justify == "space-between" and count > 1:
+        return 0, node.gap + spare / (count - 1)
+    return 0, node.gap
+
+
+def _cross_shift(node, inner, width, height):
+    """How far ``align`` moves a child across the flow from the content edge."""
+    if node.align not in ("center", "end"):
+        return 0
+    room = inner.height - height if node.direction == "horizontal" else inner.width - width
+    return room / 2 if node.align == "center" else room
+
+
+def _stretch(node, child, inner, width, height):
+    """A child's size after ``align="stretch"``, and whether a row made it taller.
+
+    A child stretches across the flow unless it fixes that dimension itself.
+    """
+    if node.align != "stretch":
+        return width, height, False
+    if node.direction == "vertical":
+        return (inner.width if child.width is None else width), height, False
+    if child.height is None:
+        return width, inner.height, inner.height > height
+    return width, height, False
+
+
+def _child_box(inner, horizontal, along, across, width, height):
+    """A child's region, offset `along` the flow and `across` it from the content box."""
+    if horizontal:
+        return BBox(
+            Emu(round(inner.left + along)), Emu(round(inner.top + across)), Emu(width), Emu(height)
         )
-        plan.children.append(_plan(child, child_box, context, child_stretched))
-        cursor += (w if horizontal else h) + gap
-    return plan
+    return BBox(
+        Emu(round(inner.left + across)), Emu(round(inner.top + along)), Emu(width), Emu(height)
+    )
 
 
 def _draw(plan, slide, context, result):
