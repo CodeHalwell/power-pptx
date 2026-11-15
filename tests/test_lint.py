@@ -3446,3 +3446,556 @@ class DescribeMalformedGeometry:
         assert geometry[0].severity == LintSeverity.ERROR
         assert geometry[0].value_emu == -int(Inches(3))
         assert slide.tidy() == []
+
+
+# ---------------------------------------------------------------------------
+# Characterisation: behaviour on the less travelled paths of the linter
+# ---------------------------------------------------------------------------
+
+
+def _style(size=18.0, spacing=0.0, caps=False):
+    from power_pptx.lint import _RunStyle
+
+    return _RunStyle(size=size, font_file=None, spacing=spacing, caps=caps, line_em=1.2)
+
+
+def _qn(tag):
+    from power_pptx.oxml.ns import qn
+
+    return qn(tag)
+
+
+def _measure(slide, shape):
+    from power_pptx.lint import _measure_text_body, _shape_text_target, _TextEnv
+
+    env = _TextEnv(slide)
+    target = _shape_text_target(env, shape)
+    return _measure_text_body(
+        env, target.tx_body, target.body, target.levels, target.width, target.height
+    )
+
+
+class _Unreadable:
+    """A shape-like object whose every attribute read fails."""
+
+    def __getattr__(self, name):
+        raise RuntimeError(name)
+
+
+class DescribeConnectorPathGeometry:
+    def it_routes_an_elbow_connector_through_its_adjustment_point(self):
+        from lxml import etree
+
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        elbow = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(1), Inches(5), Inches(3)
+        )
+        geom = elbow._element.spPr.find(_qn("a:prstGeom"))
+        etree.SubElement(geom.find(_qn("a:avLst")), _qn("a:gd"), name="adj1", fmla="val 25000")
+
+        path = _connector_path(elbow)
+
+        one, two, three, five = (int(Inches(v)) for v in (1, 2, 3, 5))
+        assert path == [
+            ((one, one), (two, one)),
+            ((two, one), (two, three)),
+            ((two, three), (five, three)),
+        ]
+
+    def it_takes_the_midpoint_when_the_adjustment_is_unreadable(self):
+        from lxml import etree
+
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        curve = slide.shapes.add_connector(
+            MSO_CONNECTOR.CURVE, Inches(5), Inches(1), Inches(1), Inches(3)
+        )
+        geom = curve._element.spPr.find(_qn("a:prstGeom"))
+        etree.SubElement(geom.find(_qn("a:avLst")), _qn("a:gd"), name="adj1", fmla="val x")
+
+        path = _connector_path(curve)
+
+        assert [start for start, _ in path] == [
+            (int(Inches(5)), int(Inches(1))),
+            (int(Inches(3)), int(Inches(1))),
+            (int(Inches(3)), int(Inches(3))),
+        ]
+
+    def it_draws_a_two_segment_bend(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        bend = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(3), Inches(4), Inches(1)
+        )
+        bend._element.spPr.find(_qn("a:prstGeom")).set("prst", "bentConnector2")
+
+        path = _connector_path(bend)
+
+        one, three, four = (int(Inches(v)) for v in (1, 3, 4))
+        assert path == [((one, three), (four, three)), ((four, three), (four, one))]
+
+    def but_it_has_no_path_for_an_unknown_bend_or_a_rotated_connector(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        odd = slide.shapes.add_connector(
+            MSO_CONNECTOR.ELBOW, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        odd._element.spPr.find(_qn("a:prstGeom")).set("prst", "bentConnector4")
+        turned = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        turned.rotation = 30
+
+        assert _connector_path(odd) is None
+        assert _connector_path(turned) is None
+
+    def and_it_has_no_path_for_a_negative_extent_or_an_unreadable_shape(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+        from power_pptx.lint import _connector_path
+
+        _, slide = _new_blank_slide()
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(3)
+        )
+        line._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+
+        assert _connector_path(line) is None
+        assert _connector_path(_Unreadable()) is None  # pyright: ignore[reportArgumentType]
+
+
+class DescribeTextLayoutUnits:
+    def it_breaks_on_either_side_of_each_wide_character(self):
+        from power_pptx.lint import _text_atoms
+
+        atoms = _text_atoms([("ab ABC漢字DEF  gh", _style())])
+
+        assert [[text for text, _ in pieces] for _, _, _, pieces in atoms] == [
+            ["ab"],
+            ["ABC"],
+            ["漢"],
+            ["字"],
+            ["DEF"],
+            ["gh"],
+        ]
+        # Only an atom that follows whitespace owes a space before it.
+        spaces = [space for _, _, space, _ in atoms]
+        assert spaces[0] == 0.0
+        assert spaces[1] > 0.0
+        assert spaces[2:5] == [0.0, 0.0, 0.0]
+        assert spaces[5] == spaces[1]
+
+    def it_keeps_a_word_that_changes_style_as_one_atom(self):
+        from power_pptx.lint import _text_atoms
+
+        small, large = _style(10), _style(30)
+
+        atoms = _text_atoms([("Rev", small), ("enue", large), (" up", small)])
+
+        assert [[text for text, _ in pieces] for _, _, _, pieces in atoms] == [
+            ["Rev", "enue"],
+            ["up"],
+        ]
+        assert atoms[0][1] == pytest.approx(36.0)
+
+    def it_measures_a_line_that_cannot_wrap_run_by_run(self):
+        from power_pptx.lint import _ref_space_width, _text_width, _wrap_fragments
+
+        style = _style()
+        space = _ref_space_width(None) * style.size / 100
+
+        lines = _wrap_fragments(
+            [("Alpha", style), ("  ", style), ("beta", style), (" gamma", style)],
+            1.0,
+            1.0,
+            False,
+        )
+
+        expected = _text_width("Alpha", style) + space + _text_width("beta", style)
+        expected += space + _text_width("gamma", style)
+        assert lines == [(pytest.approx(expected), pytest.approx(21.6))]
+
+    def but_a_line_with_no_visible_text_has_no_lines(self):
+        from power_pptx.lint import _wrap_fragments
+
+        assert _wrap_fragments([("   ", _style()), ("", _style())], 1.0, 1.0, False) == []
+        assert _wrap_fragments([("   ", _style())], 100.0, 100.0, True) == []
+
+    def it_measures_an_unwrapped_line_of_whitespace_as_an_empty_line(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=4, height=2)
+        box.text_frame.word_wrap = False
+        box.text_frame.text = "Alpha\v   \vbeta"
+        _set_font(box.text_frame, "Inter", 20)
+
+        measure = _measure(slide, box)
+
+        # The blank line is as tall as the break that ends it, which has the
+        # default 18pt size: _set_font only sizes the runs.
+        assert measure.lines == 3
+        assert measure.text_h == pytest.approx((24 + 21.6 + 24) * 12700)
+
+
+class DescribeTextSourceResolution:
+    def it_uses_the_sizes_a_frames_own_list_style_sets(self):
+        from lxml import etree
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=1)
+        box.text_frame.text = _SENTENCE
+        lst = box._element.txBody.find(_qn("a:lstStyle"))
+        level = etree.SubElement(lst, _qn("a:lvl1pPr"))
+        etree.SubElement(level, _qn("a:defRPr"), sz="4000")
+        assert _overflows(slide) != []
+
+        lst.remove(level)
+
+        assert _overflows(slide) == []
+
+    def it_reads_only_the_frames_own_sources_for_a_shape_it_cannot_ask(self):
+        from power_pptx.lint import _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        env = _TextEnv(slide)
+        tx_body = box._element.txBody
+
+        body_prs, levels = env.sources(_Unreadable(), tx_body)  # pyright: ignore
+
+        assert body_prs == [tx_body.find(_qn("a:bodyPr"))]
+        assert levels == [env.default_style()]
+
+    def it_stops_at_a_base_placeholder_it_cannot_read(self):
+        from power_pptx.lint import _TextEnv
+
+        class Placeholder:
+            is_placeholder = True
+
+            def __init__(self, element):
+                self._element = element
+
+            @property
+            def _base_placeholder(self):
+                raise KeyError("layout placeholder")
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        title = slide.shapes.title
+        title.text_frame.text = "Title"
+        env = _TextEnv(slide)
+
+        _, levels = env.sources(Placeholder(title._element), title._element.txBody)  # pyright: ignore
+
+        assert levels == [env.master_style("title"), env.default_style()]
+
+    def it_skips_a_base_placeholder_that_has_no_text_body(self):
+        from copy import deepcopy
+
+        from power_pptx.lint import _TextEnv
+
+        class Base:
+            is_placeholder = True
+
+            def __init__(self, element, base):
+                self._element = element
+                self._base_placeholder = base
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        title = slide.shapes.title
+        title.text_frame.text = "Title"
+        master_title = title._base_placeholder._base_placeholder
+        bare = deepcopy(title._base_placeholder._element)
+        bare.remove(bare.txBody)
+        shape = Base(title._element, Base(bare, master_title))
+        env = _TextEnv(slide)
+
+        body_prs, levels = env.sources(shape, title._element.txBody)  # pyright: ignore
+
+        assert body_prs == [
+            title._element.txBody.find(_qn("a:bodyPr")),
+            master_title._element.txBody.find(_qn("a:bodyPr")),
+        ]
+        assert levels[-2:] == [env.master_style("title"), env.default_style()]
+
+
+class DescribeUniformTextDetection:
+    def it_treats_a_frame_with_one_whole_point_style_as_fit_text_output(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, "Inter", 18)
+
+        assert _measure(slide, box).uniform == ("Inter", False, False, 18, None)
+
+    @pytest.mark.parametrize("attr", [("spc", "200"), ("cap", "all")])
+    def but_not_one_with_letter_spacing_or_capitals(self, attr):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, "Inter", 18)
+        box.text_frame.paragraphs[0].runs[0]._r.get_or_add_rPr().set(*attr)
+
+        assert _measure(slide, box).uniform is None
+
+
+class DescribeTableRowMeasurementEdges:
+    def it_has_nothing_to_measure_in_a_shape_that_is_not_a_table(self):
+        from power_pptx.chart.data import CategoryChartData
+        from power_pptx.enum.chart import XL_CHART_TYPE
+        from power_pptx.lint import _table_row_needs, _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1), Inches(1))
+        data = CategoryChartData()
+        data.categories = ["a", "b"]
+        data.add_series("s", (1, 2))
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(4), Inches(3), data
+        )
+
+        assert _table_row_needs(_TextEnv(slide), box) == []
+        assert _table_row_needs(_TextEnv(slide), chart) == []
+
+    def it_skips_a_row_whose_height_is_unreadable(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 1, Inches(1), Inches(1), Inches(2), Inches(0.6))
+        for row in range(2):
+            frame.table.cell(row, 0).text = _long_text(2)
+            _set_font(frame.table.cell(row, 0).text_frame, outfit, 14)
+        frame.table._tbl.tr_lst[0].set("h", "tall")
+
+        issues = _overflows(slide)
+
+        assert [(i.row, i.col) for i in issues] == [(1, 0)]
+
+    def it_treats_a_cell_with_unreadable_merge_attributes_as_merged(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 2, Inches(1), Inches(1), Inches(4), Inches(0.3))
+        for col in range(2):
+            frame.table.cell(0, col).text = _long_text(2)
+            _set_font(frame.table.cell(0, col).text_frame, outfit, 14)
+        frame.table.cell(0, 0)._tc.set("gridSpan", "wide")
+
+        issues = _overflows(slide)
+
+        # The unreadable cell is skipped and counts as one grid column.
+        assert [(i.row, i.col) for i in issues] == [(0, 1)]
+
+
+class DescribeAutoFixWhenTheIssueIsStale:
+    """``auto_fix`` re-measures, so an issue the slide no longer has fixes nothing."""
+
+    @staticmethod
+    def _overflowing_box(slide, outfit):
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _long_text(3)
+        _set_font(box.text_frame, outfit, 24)
+        return box
+
+    def it_leaves_a_frame_whose_text_now_fits(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        assert _codes(report.issues) == [("TextOverflow", "error")]
+        box.text_frame.text = "Short"
+        before = box._element.xml
+
+        assert report.auto_fix() == []
+        assert box._element.xml == before
+
+    def it_leaves_a_frame_whose_text_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        box.text_frame.text = ""
+
+        assert report.auto_fix() == []
+
+    def it_leaves_a_shape_whose_text_frame_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        box = self._overflowing_box(slide, outfit)
+        report = slide.lint()
+        box._element.remove(box._element.txBody)
+
+        assert report.auto_fix() == []
+
+    def it_leaves_a_table_row_that_now_fits_or_is_gone(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 1, Inches(1), Inches(1), Inches(3), Inches(0.6))
+        frame.table.cell(1, 0).text = _long_text(3)
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 14)
+        report = slide.lint()
+        assert [i.row for i in report.issues if isinstance(i, TextOverflow)] == [1]
+        frame.table.cell(1, 0).text = "ok"
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 8)
+
+        assert report.auto_fix() == []
+
+        frame.table.cell(1, 0).text = _long_text(3)
+        _set_font(frame.table.cell(1, 0).text_frame, outfit, 14)
+        report = slide.lint()
+        assert [i.row for i in report.issues if isinstance(i, TextOverflow)] == [1]
+        tbl = frame.table._tbl
+        tbl.remove(tbl.tr_lst[1])
+
+        assert report.auto_fix() == []
+
+
+class DescribeAutoFixLimits:
+    def it_will_not_bake_a_size_below_one_point(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=0.6)
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 20)
+        tiny = box.text_frame.paragraphs[0].add_run()
+        tiny.text = " fine print"
+        tiny.font.size = Pt(1.5)
+        tiny.font.name = outfit
+        assert "TextOverflow" in {i.code for i in slide.lint().issues}
+        before = box._element.xml
+
+        assert slide.tidy() == []
+        assert box._element.xml == before
+
+    def it_cannot_store_a_font_scale_on_a_frame_without_body_properties(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        tx_body = box._element.txBody
+        tx_body.remove(tx_body.find(_qn("a:bodyPr")))
+        assert _codes(slide.lint().issues) == [("TextOverflow", "error")]
+
+        assert slide.tidy() == []
+
+    def it_does_not_move_a_shape_with_a_negative_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(-1), Inches(1), Inches(3), Inches(1))
+        bar._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+        report = slide.lint()
+        assert {i.code for i in report.issues} == {"InvalidGeometry", "OffSlide"}
+
+        assert report.auto_fix() == []
+        assert int(bar.left) == -int(Inches(1))
+
+    def it_snaps_a_drifted_top_edge_onto_the_grid(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(0.5 + 2 * n), Inches(3), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(8.5), Inches(3) + 70000, Inches(1), Inches(1))
+        report = slide.lint()
+        assert [(i.axis, i.shapes[0]) for i in report.issues if isinstance(i, OffGridDrift)] == [
+            ("top", drifted)
+        ]
+
+        fixes = report.auto_fix(fix_grid_drift=True)
+
+        assert fixes == [
+            f"Snapped '{drifted.name}' top edge from {int(Inches(3)) + 70000} to "
+            f"{int(Inches(3))} EMU (grid)."
+        ]
+        assert int(drifted.top) == int(Inches(3))
+
+    def it_previews_a_grid_snap_without_moving_the_shape(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(0.5 + 2 * n), Inches(3), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(8.5), Inches(3) + 70000, Inches(1), Inches(1))
+
+        fixes = slide.lint().auto_fix(dry_run=True, fix_grid_drift=True)
+
+        assert len(fixes) == 1
+        assert int(drifted.top) == int(Inches(3)) + 70000
+
+
+class DescribeMinFontSizeEdges:
+    def it_ignores_a_shape_it_cannot_read(self):
+        from power_pptx.lint import _check_min_font_size
+
+        assert _check_min_font_size(_Unreadable()) == []  # pyright: ignore[reportArgumentType]
+
+    def it_ignores_runs_without_a_size_of_their_own(self):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "inherits its size"
+        box.text_frame.paragraphs[0].runs[0]._r.get_or_add_rPr().set("sz", "0")
+
+        assert [i for i in slide.lint().issues if isinstance(i, MinFontSize)] == []
+
+
+class DescribeContrastBackdropEdges:
+    @staticmethod
+    def _label(slide, rgb, left=2, top=2):
+        box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(2), Inches(0.5))
+        box.text_frame.text = "Label"
+        box.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(*rgb)
+        return box
+
+    def it_does_not_judge_text_on_its_own_gradient_fill(self):
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        label = self._label(slide, (0xF8, 0xF8, 0xF8))
+        assert [type(i) for i in slide.lint().issues] == [LowContrast]
+
+        label.fill.gradient()
+
+        assert slide.lint().issues == []
+
+    def it_looks_past_a_card_whose_shadow_alone_reaches_the_text(self):
+        _, slide = _new_blank_slide()
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        card = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(0.9))
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        card.shadow.blur_radius = Pt(40)
+        below = self._label(slide, (0xF8, 0xF8, 0xF8), left=1, top=2.05)
+        beside = self._label(slide, (0xF8, 0xF8, 0xF8), left=4.05, top=1)
+
+        report = slide.lint(include_effect_bleed=True, disable=["ShapeCollisionShadow"])
+
+        assert [(type(i), i.shapes) for i in report.issues] == [
+            (LowContrast, (below,)),
+            (LowContrast, (beside,)),
+        ]
+
+
+class DescribeLintSkipInsideGroups:
+    def it_silences_an_issue_on_a_shape_inside_a_group(self, outfit):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 24)
+        assert len(_overflows(slide)) == 1
+
+        box.lint_skip = {"TextOverflow"}
+
+        assert _overflows(slide) == []
+
+
+class DescribeMinSeverityMember:
+    def it_accepts_a_severity_member_as_the_threshold(self):
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(-1), Inches(1), Inches(1), Inches(1))
+        label = slide.shapes.add_textbox(Inches(5), Inches(5), Inches(2), Inches(1))
+        label.text_frame.text = "x"
+        label.text_frame.paragraphs[0].runs[0].font.size = Pt(6)
+
+        warnings = slide.lint(min_severity=LintSeverity.WARNING).issues
+        errors = slide.lint(min_severity=LintSeverity.ERROR).issues
+
+        assert [i.code for i in warnings] == ["OffSlide", "MinFontSize"]
+        assert [i.code for i in errors] == ["OffSlide"]
