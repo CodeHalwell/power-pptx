@@ -115,6 +115,29 @@ class DescribeReviewPresentationReuse:
         assert (reused / "notes.txt").read_bytes() == b"from before"
 
 
+    def but_it_never_removes_the_references_it_was_given(self, reused):
+        # -- an earlier run's pages handed back in as this run's references --
+        references = reused / "slides"
+
+        report = review_presentation(
+            _deck(),
+            out_dir=reused,
+            reference_dir=references,
+            soffice_bin="/absent/soffice",
+        )
+
+        assert report.has_errors
+        assert sorted(p.name for p in references.iterdir()) == [
+            "cover.png",
+            "slide-00.png",
+            "slide-00.psd",
+            "slide-01.png",
+            "slide-02.png",
+            "slide-03.png",
+        ]
+        assert not (reused / "differences").exists()
+
+
 class DescribeReviewCli:
     def it_keeps_the_last_review_when_the_input_cannot_be_read(self, reused, tmp_path):
         missing = tmp_path / "missing.pptx"

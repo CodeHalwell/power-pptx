@@ -320,7 +320,8 @@ def _pages_by_slide(
     """
     if len(pages) == slide_count:
         return dict(enumerate(pages))
-    visible = [index for index in range(slide_count) if index not in set(hidden)]
+    hidden_indexes = set(hidden)
+    visible = [index for index in range(slide_count) if index not in hidden_indexes]
     if hidden and len(pages) == len(visible):
         return dict(zip(visible, pages))
     raise ThumbnailRendererError(

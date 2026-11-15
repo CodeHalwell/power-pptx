@@ -49,8 +49,13 @@ _SLIDE_IMAGE = re.compile(r"slide-\d{2,}\.png")
 _CONTACT_SHEET = re.compile(r"contact-\d{2,}\.png")
 
 
-def _clear_previous_run(out):
-    """Remove from *out* the files an earlier review wrote there, and nothing else."""
+def _clear_previous_run(out, keep=None):
+    """Remove from *out* the files an earlier review wrote there, and nothing else.
+
+    *keep* is a folder this run reads from, such as its reference images. It
+    is left as it is even when it is one of the review's own folders (an
+    earlier run's ``slides/`` passed back in as the reference, say).
+    """
     if not out.is_dir():
         return
     for path in out.iterdir():
@@ -60,6 +65,8 @@ def _clear_previous_run(out):
     for name in _RUN_IMAGE_DIRS:
         folder = out / name
         if folder.is_symlink() or not folder.is_dir():
+            continue
+        if keep is not None and folder.resolve() == Path(keep).resolve():
             continue
         for path in folder.iterdir():
             if _SLIDE_IMAGE.fullmatch(path.name) and (path.is_file() or path.is_symlink()):
@@ -259,7 +266,8 @@ def review_presentation(
     When ``out_dir`` is reused, the files an earlier review wrote there are
     removed first (its slide PNGs, contact sheets, PDF, reference and
     difference images), so the directory holds exactly this run. Files the
-    review does not write are left alone.
+    review does not write are left alone, and so is ``reference_dir`` when it
+    is one of those folders.
     ``font_dirs`` are registered for font checks and handed to LibreOffice, as
     are folders already registered with ``register_font_dir``.
     """
@@ -288,6 +296,8 @@ def review_presentation(
         raise ValueError("Review output cannot overwrite its input presentation")
     if reference_dir is not None and not Path(reference_dir).is_dir():
         raise ValueError("reference_dir must be an existing directory")
+    # -- remembered because `reference_dir` is repointed for HTML references --
+    given_reference_dir = reference_dir
     data = presentation_bytes(source)
     validation = validate_presentation(
         data, check_schema=check_schema, check_fonts=font_policy != "ignore"
@@ -374,7 +384,7 @@ def review_presentation(
         # Copy only this run's staging files. The manifest never discovers
         # images by globbing an output directory from a previous run, and the
         # previous run's own files are removed so the directory matches it.
-        _clear_previous_run(out)
+        _clear_previous_run(out, keep=given_reference_dir)
         shutil.copytree(stage, out, dirs_exist_ok=True)
     return ReviewReport(out, manifest)
 
