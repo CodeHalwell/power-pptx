@@ -676,88 +676,16 @@ class SlideLintReport:
         * ``LowContrast``, ``MinFontSize``, ``ZOrderAnomaly``,
           ``MasterPlaceholderCollision`` — require designer judgment.
         """
-        fixes: list[str] = []
-        slide_w, slide_h = _slide_dimensions(self._slide)
-        text_env = _TextEnv(self._slide)
-
-        # Cross-issue de-dup: a single shape can pop several OffSlide
-        # issues (left + right, or top + bottom) and the per-issue loop
-        # would otherwise fire twice for the same nudge.  Tracking
-        # already-clamped shapes by id keeps the fix descriptions and
-        # the resulting position consistent.
-        clamped: set[int] = set()
-        # Same idea for layer restacks: at most one move per shape per
-        # auto_fix pass, so interacting declarations can't ping-pong.
-        restacked: set[int] = set()
-
+        fixer = _AutoFixer(self._slide, dry_run=dry_run, fix_grid_drift=fix_grid_drift)
+        issues = list(self._issues)
         # Text first: resizing a shape to its text or growing a table row
-        # changes geometry the OffSlide fix below has to work from.
-        for issue in list(self._issues):
+        # changes geometry the OffSlide fix has to work from.
+        for issue in issues:
             if isinstance(issue, TextOverflow):
-                desc = _fix_text_overflow(text_env, issue, dry_run)
-                if desc is not None:
-                    fixes.append(desc)
-
-        for issue in list(self._issues):
-            if isinstance(issue, OffSlide):
-                shape = issue.shapes[0]
-                shape_key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
-                if shape_key in clamped:
-                    continue
-                desc = _fix_off_slide(text_env, shape, slide_w, slide_h, dry_run)
-                if desc is not None:
-                    fixes.append(desc)
-                    clamped.add(shape_key)
-
-            elif isinstance(issue, LayerOrderViolation):
-                above, below = issue.shapes[0], issue.shapes[1]
-                above_el = above._element  # pyright: ignore[reportPrivateUsage]
-                below_el = below._element  # pyright: ignore[reportPrivateUsage]
-                # Only restack shapes that are actually siblings; a
-                # cross-container pair (one inside a group) has no
-                # single ordering to fix and is left for the author.
-                if above_el.getparent() is not below_el.getparent():
-                    continue
-                # A shape already moved by an earlier violation is left
-                # alone: with three-plus layers the moves interact, and
-                # re-running lint after the first pass gives a truer
-                # picture than stacking speculative restacks.
-                if id(above_el) in restacked:
-                    continue
-                desc = (
-                    f"Restacked '{above.name}' above '{below.name}' to honour "
-                    f"layer_above={issue.layer!r}."
-                )
-                # Record the move before the dry_run gate, so a preview
-                # reports exactly the fixes a real run would apply --
-                # matching how the OffSlide branch populates ``clamped``.
-                restacked.add(id(above_el))
-                fixes.append(desc)
-                if not dry_run:
-                    # ``addnext`` moves the element rather than copying
-                    # it, so this is a reorder, not a duplication.
-                    below_el.addnext(above_el)
-
-            elif isinstance(issue, OffGridDrift) and fix_grid_drift:
-                shape = issue.shapes[0]
-                if issue.axis == "left":
-                    old, new = int(shape.left), issue.grid_emu
-                    desc = (
-                        f"Snapped '{shape.name}' left edge from {old} to "
-                        f"{new} EMU (grid)."
-                    )
-                    fixes.append(desc)
-                    if not dry_run:
-                        shape.left = Emu(new)
-                elif issue.axis == "top":
-                    old, new = int(shape.top), issue.grid_emu
-                    desc = (
-                        f"Snapped '{shape.name}' top edge from {old} to "
-                        f"{new} EMU (grid)."
-                    )
-                    fixes.append(desc)
-                    if not dry_run:
-                        shape.top = Emu(new)
+                fixer.fix_text(issue)
+        for issue in issues:
+            fixer.fix_geometry(issue)
+        fixes = fixer.fixes
 
         # Refresh ``issues`` so the residual punch list is just
         # ``report.issues`` (no extra ``slide.lint()`` call needed).
@@ -3146,6 +3074,85 @@ def _fix_table_row(env: _TextEnv, shape: BaseShape, row_idx: int, dry_run: bool)
             shape.table.rows[row_idx].height = Emu(new_h)  # type: ignore[attr-defined]
         return f"Grew row {row_idx} of '{shape.name}' from {row_h} to {new_h} EMU to fit its text."
     return None
+
+
+class _AutoFixer:
+    """Applies :meth:`SlideLintReport.auto_fix`'s fixes one issue at a time.
+
+    Collects a description of each fix in `fixes`.  A shape is moved at most
+    once per pass: one shape can be off two edges (left and right) at once,
+    and with three or more layers restacks interact, so re-linting after a
+    pass gives a truer picture than stacking speculative moves.
+    """
+
+    def __init__(self, slide: Slide, *, dry_run: bool, fix_grid_drift: bool):
+        self._slide_w, self._slide_h = _slide_dimensions(slide)
+        self._env = _TextEnv(slide)
+        self._dry_run = dry_run
+        self._fix_grid_drift = fix_grid_drift
+        self._clamped: set[int] = set()
+        self._restacked: set[int] = set()
+        self.fixes: list[str] = []
+
+    def fix_text(self, issue: TextOverflow) -> None:
+        """Make the text `issue` reports fit; see :func:`_fix_text_overflow`."""
+        self._record(_fix_text_overflow(self._env, issue, self._dry_run))
+
+    def fix_geometry(self, issue: LintIssue) -> None:
+        """Fix `issue` when it is an off-slide shape, a layer-order or a grid-drift issue."""
+        if isinstance(issue, OffSlide):
+            self._record(self._clamp(issue))
+        elif isinstance(issue, LayerOrderViolation):
+            self._record(self._restack(issue))
+        elif isinstance(issue, OffGridDrift) and self._fix_grid_drift:
+            self._record(self._snap(issue))
+
+    def _record(self, fix: str | None) -> None:
+        if fix is not None:
+            self.fixes.append(fix)
+
+    def _clamp(self, issue: OffSlide) -> str | None:
+        shape = issue.shapes[0]
+        key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
+        if key in self._clamped:
+            return None
+        fix = _fix_off_slide(self._env, shape, self._slide_w, self._slide_h, self._dry_run)
+        if fix is not None:
+            self._clamped.add(key)
+        return fix
+
+    def _restack(self, issue: LayerOrderViolation) -> str | None:
+        """Move the shape that declared ``layer_above`` to just after the layer it named."""
+        above, below = issue.shapes[0], issue.shapes[1]
+        above_el = above._element  # pyright: ignore[reportPrivateUsage]
+        below_el = below._element  # pyright: ignore[reportPrivateUsage]
+        # Only siblings are restacked: a pair across containers (one inside a
+        # group) has no single ordering to fix and is left for the author.
+        if above_el.getparent() is not below_el.getparent() or id(above_el) in self._restacked:
+            return None
+        # Recorded before the dry_run gate, so a preview reports exactly the
+        # fixes a real run would apply.
+        self._restacked.add(id(above_el))
+        fix = (
+            f"Restacked '{above.name}' above '{below.name}' to honour "
+            f"layer_above={issue.layer!r}."
+        )
+        if not self._dry_run:
+            # ``addnext`` moves the element rather than copying it, so this
+            # is a reorder, not a duplication.
+            below_el.addnext(above_el)
+        return fix
+
+    def _snap(self, issue: OffGridDrift) -> str | None:
+        """Move the drifted left or top edge of a shape onto the grid line."""
+        shape, axis = issue.shapes[0], issue.axis
+        if axis not in ("left", "top"):
+            return None
+        old, new = int(getattr(shape, axis)), issue.grid_emu
+        fix = f"Snapped '{shape.name}' {axis} edge from {old} to {new} EMU (grid)."
+        if not self._dry_run:
+            setattr(shape, axis, Emu(new))
+        return fix
 
 
 # Minimum overlap fraction to report a collision (avoids noise from barely
