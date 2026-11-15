@@ -249,11 +249,12 @@ is deliberate, so the built deck lints clean without a manual pass. All
 three mechanisms from `lint.md` are spec-level fields:
 
 ```python
-{"name": "badge", ..., "lint_group": "kpi-1"}          # n-ary tag
-{"name": "badge", ..., "allow_overlap_with": "card"}   # one pair
-{"name": "badge", ..., "allow_overlap_with": ["card", "rule"]}
-{"name": "card",  ..., "layer": "card"}                # asserts z-order
-{"name": "badge", ..., "layer_above": "card"}
+# -- **geometry stands for the entry's other keys (shape, left, top, ...) --
+{"name": "badge", **geometry, "lint_group": "kpi-1"}          # n-ary tag
+{"name": "badge", **geometry, "allow_overlap_with": "card"}   # one pair
+{"name": "badge", **geometry, "allow_overlap_with": ["card", "rule"]}
+{"name": "card",  **geometry, "layer": "card"}                # asserts z-order
+{"name": "badge", **geometry, "layer_above": "card"}
 ```
 
 `allow_overlap_with` names other shapes by their spec `name`, not by
