@@ -121,6 +121,10 @@ class Presentation(PartElementProxy):
         deck was opened from, so ``Presentation("brand.potx")`` saved as ``"deck.pptx"`` is a
         presentation, not a template with the wrong extension.
 
+        Saving to a file-path is all-or-nothing. The package is written to a temporary file in
+        the same directory and moved into place once it is complete, so if anything fails
+        along the way an existing file at that path is left exactly as it was.
+
         When :attr:`lint_on_save` is ``"warn"`` or ``"raise"``, every slide is
         linted before anything is written; in ``"raise"`` mode a
         :class:`~power_pptx.exc.LintError` propagates and no file is written.

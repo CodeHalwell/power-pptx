@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import posixpath
+import secrets
+import stat
 import zipfile
 import zlib
 from typing import IO, TYPE_CHECKING, Any, Container, Sequence
@@ -68,26 +71,38 @@ class PackageReader(Container[bytes]):
 class PackageWriter:
     """Writes a zip-format OPC package to `pkg_file`.
 
-    `pkg_file` can be either a path to a zip file (a string) or a file-like object. `pkg_rels` is
-    the |_Relationships| object containing relationships for the package. `parts` is a sequence of
-    |Part| subtype instance to be written to the package.
+    `pkg_file` can be either a path to a zip file (a string or path object) or a file-like
+    object. `pkg_rels` is the |_Relationships| object containing relationships for the package.
+    `parts` is a sequence of |Part| subtype instance to be written to the package.
 
     Its single API classmethod is :meth:`write`. This class is not intended to be instantiated.
     """
 
-    def __init__(self, pkg_file: str | IO[bytes], pkg_rels: _Relationships, parts: Sequence[Part]):
+    def __init__(
+        self,
+        pkg_file: str | os.PathLike[str] | IO[bytes],
+        pkg_rels: _Relationships,
+        parts: Sequence[Part],
+    ):
         self._pkg_file = pkg_file
         self._pkg_rels = pkg_rels
         self._parts = parts
 
     @classmethod
     def write(
-        cls, pkg_file: str | IO[bytes], pkg_rels: _Relationships, parts: Sequence[Part]
+        cls,
+        pkg_file: str | os.PathLike[str] | IO[bytes],
+        pkg_rels: _Relationships,
+        parts: Sequence[Part],
     ) -> None:
         """Write a physical package (.pptx file) to `pkg_file`.
 
         The serialized package contains `pkg_rels` and `parts`, a content-types stream based on
         the content type of each part, and a .rels file for each part that has relationships.
+
+        Writing to a path is all-or-nothing: the package is written to a temporary file beside
+        the destination and moved into place only once it is complete, so a failure part-way
+        leaves whatever was at the path before exactly as it was.
         """
         cls(pkg_file, pkg_rels, parts)._write()
 
@@ -317,7 +332,7 @@ class _PhysPkgWriter:
     """Base class for physical package writer objects."""
 
     @classmethod
-    def factory(cls, pkg_file: str | IO[bytes]) -> _ZipPkgWriter:
+    def factory(cls, pkg_file: str | os.PathLike[str] | IO[bytes]) -> _ZipPkgWriter:
         """Return |_PhysPkgWriter| subtype instance appropriage for `pkg_file`.
 
         Currently the only subtype is `_ZipPkgWriter`, but a `_DirPkgWriter` could be implemented
@@ -333,21 +348,47 @@ class _PhysPkgWriter:
 
 
 class _ZipPkgWriter(_PhysPkgWriter):
-    """Implements |PhysPkgWriter| interface for a zip-file (.pptx file) OPC package."""
+    """Implements |PhysPkgWriter| interface for a zip-file (.pptx file) OPC package.
 
-    def __init__(self, pkg_file: str | IO[bytes]):
+    When `pkg_file` is a path, the archive is written to a temporary file in the same directory
+    and takes the destination's place only on a clean exit from the context (`os.replace()`,
+    which is atomic). Should anything fail while the package is being written, the temporary
+    file is removed and the destination is left exactly as it was: either the previous good
+    file or no file, never a truncated one.
+
+    A file-like `pkg_file` is written to directly; what a caller's stream holds after a failure
+    is the caller's to deal with.
+    """
+
+    def __init__(self, pkg_file: str | os.PathLike[str] | IO[bytes]):
         self._pkg_file = pkg_file
+        # -- both set by `_zipf` when the archive is being written to a temporary file --
+        self._temp_path: str | None = None
+        self._final_path: str | None = None
 
     def __enter__(self) -> _ZipPkgWriter:
         """Enable use as a context-manager. Opening zip for writing happens here."""
         return self
 
-    def __exit__(self, *exc: list[Any]) -> None:
+    def __exit__(self, *exc: Any) -> None:
         """Close the zip archive on exit from context.
 
         Closing flushes any pending physical writes and releasing any resources it's using.
+        On a clean exit the finished archive is then moved to its destination; on an exception
+        (including one raised by the close itself) it is discarded instead.
         """
-        self._zipf.close()
+        failed = bool(exc) and exc[0] is not None
+        try:
+            self._zipf.close()
+            if not failed and self._temp_path is not None and self._final_path is not None:
+                os.replace(self._temp_path, self._final_path)
+                self._temp_path = None
+        finally:
+            # -- still set means the archive did not make it to its destination --
+            if self._temp_path is not None:
+                with contextlib.suppress(OSError):
+                    os.remove(self._temp_path)
+                self._temp_path = None
 
     def write(self, pack_uri: PackURI, blob: bytes) -> None:
         """Write `blob` to zip package with membername corresponding to `pack_uri`."""
@@ -365,8 +406,57 @@ class _ZipPkgWriter(_PhysPkgWriter):
     def _zipf(self) -> zipfile.ZipFile:
         """`ZipFile` instance open for writing."""
         return zipfile.ZipFile(
-            self._pkg_file, "w", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False
+            self._write_target(), "w", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False
         )
+
+    def _write_target(self) -> str | IO[bytes]:
+        """Return what the archive is to be written to: a temporary sibling file where possible.
+
+        A stream is returned as it is. So is a path that cannot or must not be replaced: one
+        that names something other than a regular file (a device such as `/dev/null`, a named
+        pipe, a directory), or one in a directory where no sibling file can be created. Those
+        are written to in place, as they always were.
+        """
+        pkg_file = self._pkg_file
+        if isinstance(pkg_file, os.PathLike):
+            pkg_file = os.fsdecode(pkg_file)
+        if not isinstance(pkg_file, str):
+            return pkg_file
+
+        # -- follow symlinks, so it is the file linked to that gets replaced, not the link --
+        final_path = os.path.realpath(pkg_file)
+        if os.path.lexists(final_path) and not os.path.isfile(final_path):
+            return pkg_file
+
+        directory, filename = os.path.split(final_path)
+        temp_path = None
+        for _ in range(100):
+            candidate = os.path.join(directory, ".%s.%s.tmp" % (filename, secrets.token_hex(4)))
+            try:
+                # -- created like any new file would be, so the usual permissions (umask) apply
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+            except FileExistsError:
+                continue
+            except OSError:
+                # -- e.g. a read-only or missing directory: writing in place either works
+                # -- (the file itself is writable) or raises the error the caller expects
+                return pkg_file
+            os.close(fd)
+            temp_path = candidate
+            break
+        if temp_path is None:  # pragma: no cover - 100 random names all taken
+            return pkg_file
+
+        # -- a file that is being replaced keeps its permissions (and owner, where allowed) --
+        with contextlib.suppress(OSError):
+            existing = os.stat(final_path)
+            os.chmod(temp_path, stat.S_IMODE(existing.st_mode))
+            chown = getattr(os, "chown", None)
+            if chown is not None:
+                chown(temp_path, existing.st_uid, existing.st_gid)
+
+        self._temp_path, self._final_path = temp_path, final_path
+        return temp_path
 
 
 class _ContentTypesItem:
