@@ -1487,12 +1487,10 @@ def _check_off_slide(
 # ---------------------------------------------------------------------------
 
 _EMU_PER_PT = 12700
-#: Height of a single-spaced line as a multiple of its font size.  This is the
-#: figure ``TextFrame.fit_text`` reserves per line and the pitch LibreOffice
-#: renders at 100% line spacing, whatever the typeface.  The text engine's
-#: ``measure_text`` uses the font's own line height instead, which is smaller
-#: for many faces; a line is measured at the smaller of the two (see
-#: :func:`_line_em`), so text overflows only when it overflows under both.
+#: Height of a single-spaced line in a shape as a multiple of its font size:
+#: the pitch PowerPoint and LibreOffice render at 100% line spacing, whatever
+#: the typeface, and what the text engine reserves.  Table cells differ (see
+#: :func:`_line_em`).
 _LINE_PITCH = 1.2
 #: Family assumed when a run names no typeface and the theme supplies none —
 #: the same default ``fit_text`` applies.
@@ -1629,25 +1627,31 @@ def _ref_width(text: str, font_file: str | None) -> int:
 
 
 @functools.lru_cache(maxsize=1024)
-def _line_em(font_file: str | None) -> float:
+def _line_em(font_file: str | None, in_table: bool = False) -> float:
     """Single-spaced line height for *font_file*, as a multiple of the font size.
 
-    Two models of a line are in use: ``fit_text`` and LibreOffice reserve 1.2
-    × the size whatever the face, while ``measure_text`` — and the native
-    components that size their boxes with it — reserve the font's own line
-    height.  The smaller of the two is used, so a line counts as overflowing
-    only when it overflows under both, and no frame the engine sized is
-    reported because the other model is a few percent taller.
+    The text engine's model, which is how the renderers lay text out: 1.2 x
+    the size in a shape whatever the face, and in a table cell the taller of
+    that and the font's own ascent plus descent.  Asking the engine keeps the
+    two in step, so a frame ``fit_text`` or ``measure_text`` sized is never
+    reported because lint assumed a different line height.
     """
+    if not in_table:
+        return _LINE_PITCH
     from power_pptx.text.measurement import measure_text
 
     try:
         engine = measure_text(
-            "Ty", Emu(10**12), size_pt=_REF_SIZE_PT, font_file=font_file, line_spacing=1.0
+            "Ty",
+            Emu(10**12),
+            size_pt=_REF_SIZE_PT,
+            font_file=font_file,
+            line_spacing=None,
+            in_table=True,
         ).height / (_REF_SIZE_PT * _EMU_PER_PT)
     except Exception:
         return _LINE_PITCH
-    return min(_LINE_PITCH, engine) if engine > 0 else _LINE_PITCH
+    return max(_LINE_PITCH, engine)
 
 
 @functools.lru_cache(maxsize=1024)
@@ -2167,11 +2171,14 @@ def _measure_text_body(
     levels: list,
     width: float,
     height: float,
+    in_table: bool = False,
 ) -> _TextMeasure | None:
     """Lay `tx_body` out in a `width` × `height` frame and report its extent.
 
     `body` supplies the insets, wrapping, columns and any stored autofit
     scale; pass a modified copy to ask "would it fit at this scale?".
+    `in_table` measures a table cell, whose lines are as tall as the font's
+    own ascent and descent when that is more than 1.2 em.
     Returns ``None`` when there is nothing to measure: no visible text, a
     frame with no room inside its insets, or stacked WordArt text.
     """
@@ -2211,7 +2218,7 @@ def _measure_text_body(
             font_file=font_file,
             spacing=spacing * _EMU_PER_PT / 100.0,
             caps=caps,
-            line_em=_line_em(font_file),
+            line_em=_line_em(font_file, in_table),
         )
 
     def gap(value, line_pt: float) -> float:
@@ -2543,7 +2550,7 @@ def _table_row_needs(env: _TextEnv, shape: BaseShape) -> list[tuple[int, int, fl
             body = _table_cell_body(tc)
             # Measured against a notional frame: only the text height matters
             # here, the row height is compared by the caller.
-            measure = _measure_text_body(env, tx_body, body, levels, width, 10**9)
+            measure = _measure_text_body(env, tx_body, body, levels, width, 10**9, True)
             if measure is None:
                 continue
             needed = measure.text_h + body.t_ins + body.b_ins

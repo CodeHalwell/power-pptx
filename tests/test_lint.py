@@ -2640,39 +2640,42 @@ class DescribeTextOverflowAgreesWithFitText:
         assert box.text_frame.auto_size == MSO_AUTO_SIZE.NONE
         assert box.text_frame.paragraphs[0].runs[0].font.size == before
 
-    def it_agrees_with_a_box_sized_by_measure_text(self, outfit, monkeypatch):
-        # measure_text, and the native components built on it, reserve the
-        # font's own line height; fit_text and LibreOffice reserve 1.2 em.
-        # For a face whose own line height is smaller, a box sized by the
-        # engine must not be reported because the other model is taller.
-        import power_pptx.lint as lint_module
-        import power_pptx.text.measurement as measurement
+    def it_agrees_with_a_box_sized_by_measure_text(self, outfit):
+        # measure_text, and the native components built on it, size boxes with
+        # the same line model lint applies, so a box the engine sized is never
+        # reported, and one line more than it was sized for always is.
         from power_pptx.text import measure_text
 
-        monkeypatch.setattr(measurement, "_line_height_em", lambda font_file: 1.1)
-        lint_module._line_em.cache_clear()
-        try:
-            text = "Revenue grew faster than forecast"
-            m = measure_text(text, Inches(2.5), size_pt=20, font_family=outfit, line_spacing=1.2)
-            assert len(m.lines) == 2
-            _, slide = _new_blank_slide()
-            box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2.5), m.height)
-            box.text_frame.word_wrap = True
-            box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
-            for side in ("left", "top", "right", "bottom"):
-                setattr(box.text_frame, f"margin_{side}", 0)
-            box.text_frame.text = text
-            box.text_frame.paragraphs[0].line_spacing = 1.2
-            _set_font(box.text_frame, outfit, 20)
+        text = "Revenue grew faster than forecast"
+        m = measure_text(text, Inches(2.5), size_pt=20, font_family=outfit, line_spacing=1.2)
+        assert len(m.lines) == 2
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2.5), m.height)
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        for side in ("left", "top", "right", "bottom"):
+            setattr(box.text_frame, f"margin_{side}", 0)
+        box.text_frame.text = text
+        box.text_frame.paragraphs[0].line_spacing = 1.2
+        _set_font(box.text_frame, outfit, 20)
 
-            assert _overflows(slide) == []
+        assert _overflows(slide) == []
 
-            # One more line than the box was measured for still overflows.
-            box.text_frame.text = text + " in every region"
-            _set_font(box.text_frame, outfit, 20)
-            assert len(_overflows(slide)) == 1
-        finally:
-            lint_module._line_em.cache_clear()
+        box.text_frame.text = text + " in every region"
+        _set_font(box.text_frame, outfit, 20)
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_fonts_own_line_height_in_a_table_cell(self, outfit):
+        # In a table cell a line is the taller of 1.2 em and the font's own
+        # ascent plus descent, as the engine measures it with in_table=True.
+        # Outfit's own line height is about 1.26 em.
+        import power_pptx.lint as lint_module
+        from power_pptx.text.fonts import find_font_file
+
+        font_file = find_font_file(outfit, False, False)
+
+        assert lint_module._line_em(font_file) == pytest.approx(1.2)
+        assert lint_module._line_em(font_file, in_table=True) > 1.25
 
     def it_still_flags_the_same_text_one_size_too_large(self, outfit):
         _, slide = _new_blank_slide()
