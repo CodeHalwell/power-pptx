@@ -127,21 +127,18 @@ generated `.pptx` opens correctly in PowerPoint:
   does not. For decks meant to be thumbnail-reviewed on the same
   machine, prefer Unicode glyphs from the shipped DejaVu families
   (`•`, `→`, `★`, `‹›`, `■`, etc.) over emoji codepoints.
-* **Un-aligned text in fresh textboxes** renders centered instead of
-  left-aligned. A textbox created via `slide.shapes.add_textbox(...)`
-  has no `a:pPr/@algn` attribute; PowerPoint treats that as the
-  OOXML default (left), LibreOffice as centered. Set
-  `paragraph.alignment = PP_ALIGN.LEFT` explicitly to make
-  thumbnails match how PowerPoint will render the slide.
 * **`wrap="none" + spAutoFit` (the textbox default) re-centers under
   LibreOffice.** A fresh textbox has `<a:bodyPr wrap="none">
   <a:spAutoFit/></a:bodyPr>`. PowerPoint shrinks the box around the
   declared anchor; LibreOffice re-centers the shrunken box inside
   its original width, so a kicker line declared at
   `left=Inches(1.1), width=Inches(11)` renders near the middle of
-  the slide rather than the left edge. Setting `tf.word_wrap = True`
-  suppresses `spAutoFit` and keeps the declared geometry intact —
-  fold it into every textbox in a recipe-style helper.
+  the slide rather than the left edge — even with
+  `paragraph.alignment = PP_ALIGN.LEFT`. Setting `tf.word_wrap = True`
+  keeps the declared geometry intact (as does `slide.shapes.add_text`,
+  which wraps by default) — fold it into every textbox in a
+  recipe-style helper. A wrapping textbox with no alignment set renders
+  left-aligned in both applications.
 
 ## Errors
 
