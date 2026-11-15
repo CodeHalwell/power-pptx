@@ -185,26 +185,46 @@ def roundtrip_changes(first, second):
     return changed
 
 
+#: The parts whose explicit fonts are checked: slides and charts.
+_FONT_PARTS = ("ppt/slides/slide", "ppt/charts/chart")
+_LATIN = "{http://schemas.openxmlformats.org/drawingml/2006/main}latin"
+
+
 def _missing_fonts(blob):
     missing = set()
-    for name, data in _parts(blob).items():
-        if not name.endswith(".xml") or not name.startswith(
-            ("ppt/slides/slide", "ppt/charts/chart")
-        ):
-            continue
-        doc = parse_xml(data)
-        for node in doc.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}latin"):
-            family = node.get("typeface")
-            if not family or family.startswith("+"):
-                continue
-            parent = node.getparent()
-            if parent is None:
-                continue
-            bold = parent.get("b") == "1"
-            italic = parent.get("i") == "1"
-            if not font_is_installed(family, bold, italic):
-                missing.add(family + (" bold" if bold else "") + (" italic" if italic else ""))
+    for doc in _font_part_docs(blob):
+        for node in doc.iter(_LATIN):
+            font = _explicit_font(node)
+            if font is not None and not font_is_installed(*font):
+                missing.add(_font_label(*font))
     return sorted(missing)
+
+
+def _font_part_docs(blob):
+    """Yield the parsed slide and chart parts of package *blob*."""
+    for name, data in _parts(blob).items():
+        if name.endswith(".xml") and name.startswith(_FONT_PARTS):
+            yield parse_xml(data)
+
+
+def _explicit_font(latin):
+    """Return ``(family, bold, italic)`` for an ``a:latin`` naming a face, else |None|.
+
+    A theme font (``+mn-lt`` and the like) and an empty typeface name no face;
+    the style comes from the run properties the ``a:latin`` belongs to.
+    """
+    family = latin.get("typeface")
+    if not family or family.startswith("+"):
+        return None
+    properties = latin.getparent()
+    if properties is None:
+        return None
+    return family, properties.get("b") == "1", properties.get("i") == "1"
+
+
+def _font_label(family, bold, italic):
+    """Return how a missing face is listed, e.g. ``"Inter bold italic"``."""
+    return family + (" bold" if bold else "") + (" italic" if italic else "")
 
 
 def validate_presentation(
