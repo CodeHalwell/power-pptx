@@ -187,6 +187,12 @@ mean pixel error a gate; comparisons are otherwise advisory.
 Each output contains the PPTX, PDF, every slide PNG, contact sheets, gallery,
 ``manifest.json``, and ``REVIEW.md``. Validation covers bundled XSD/package
 checks, round-trip fidelity, layout audit, and explicit native font availability.
+Besides the XSDs (``ppt/presProps.xml`` included), the package checks report
+what PowerPoint would offer to repair: dangling relationships, parts missing
+from ``[Content_Types].xml``, id-list entries (``p:sldId``, ``p:sldLayoutId``,
+…) whose relationship is of the wrong type, duplicate shape ids, animation
+targets that name no shape on their slide, and parts that declare a DTD.
+Parts are parsed without resolving entities or using the network.
 The round-trip check opens and saves the deck and compares each part's content,
 relationships and content type, so decks written by PowerPoint or other tools
 pass as long as nothing is lost or altered.

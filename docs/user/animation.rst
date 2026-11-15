@@ -40,6 +40,10 @@ Every preset accepts an optional ``trigger`` and ``delay``::
     Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS,
                   delay=500)
 
+``delay`` and ``duration`` are milliseconds.  A float is rounded to the
+nearest millisecond, and a negative or out-of-range time raises
+:class:`ValueError`.
+
 Entrance / exit / emphasis presets
 ----------------------------------
 
@@ -142,3 +146,21 @@ left out and raises :class:`ValueError` for anything that is not such a
 path.  ``svg`` accepts the wider SVG set (``M L H V C Q Z``, either case)
 and converts it; arcs (``A``) and smooth curves (``S``, ``T``) are not
 supported and raise :class:`ValueError`.
+
+Reading and removing effects
+----------------------------
+
+``slide.animations`` iterates over every effect on the slide, whether this
+library added it or PowerPoint did, wherever it sits in the timing tree::
+
+    for effect in slide.animations:
+        effect.kind, effect.preset, effect.trigger, effect.shape
+
+    slide.animations.clear()            # remove every effect
+    slide.animations.purge_orphans()    # remove effects on shapes now gone
+
+``preset`` is ``None`` for an effect this library has no name for.  Effects
+written by releases before 2.15 used preset numbers that did not match
+PowerPoint's, so they can read back as a different ``preset``.  Deleting a
+shape or a movie, or ungrouping, already removes the timing nodes that
+pointed at it; ``purge_orphans()`` is for shapes removed by other means.

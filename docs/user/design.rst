@@ -35,6 +35,10 @@ for brand tokens — palette, typography, radii, shadows, and spacings::
         "spacings": {"sm": 8, "md": 16, "lg": 32},
     })
 
+Palette colours may be hex strings (with or without ``#``), |RGBColor|
+values, or ``(r, g, b)`` triples, including the ``[r, g, b]`` lists JSON and
+YAML produce.
+
 Length-valued fields — typography ``size``, ``radii``, ``spacings`` and a
 shadow's ``blur_radius`` / ``distance`` — accept a
 :class:`~power_pptx.util.Length` (``Pt(8)``, ``Emu(101600)``,

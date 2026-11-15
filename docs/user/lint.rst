@@ -24,8 +24,9 @@ For a whole deck, iterate the slides yourself::
     for slide in prs.slides:
         all_issues.extend(slide.lint().issues)
 
-or call :func:`power_pptx.audit`, which adds checks the slide linter does not
-make — pictures that are broken or larger than ``size_warn_bytes``, slides
+or call :func:`power_pptx.audit() <power_pptx.audit.audit>`, which adds
+checks the slide linter does not make — pictures that are broken or larger
+than ``size_warn_bytes``, slides
 with nothing but decoration on them, and fonts outside a conservative list of
 commonly installed ones (each reported once per slide; theme references such
 as ``+mn-lt`` count as the theme font they stand for)::
@@ -70,7 +71,8 @@ Issue types
   than its text, are a WARNING: |pp| only writes the auto-size flag, so the
   stored geometry is stale, but a renderer repairs it when the deck is
   opened or the text edited.  ``ratio``, ``dimension``, ``overflow_pt`` and
-  ``auto_size`` describe the overflow.
+  ``auto_size`` describe the overflow; for a table row, ``row`` and ``col``
+  name the cell with the most text.
 * :class:`power_pptx.lint.OffSlide` — a shape is wholly or partly outside the
   slide bounds.  A rotated shape is judged by the area its rotated frame
   covers, and a ``SHAPE_TO_FIT_TEXT`` shape by the box it grows into (down
@@ -87,10 +89,12 @@ Issue types
   baseline) is aligned there on purpose and not flagged.  Auto-fixable with
   ``auto_fix(fix_grid_drift=True)``, which snaps the drifted edge onto the
   grid.
-* :class:`power_pptx.lint.LowContrast` — text and resolved background fill
-  have a WCAG contrast ratio below 4.5:1.  Resolves only solid RGB fills
-  (theme colors and gradients are skipped silently to avoid false
-  positives).
+* :class:`power_pptx.lint.LowContrast` — text and the colour painted behind
+  it (the shape's own fill, a filled card drawn beneath it, or the slide's
+  background) have a WCAG contrast ratio below 4.5:1.  Only an explicit RGB
+  text colour on a solid RGB backdrop is judged; theme colours, gradients,
+  translucent fills, pictures and partial covers are skipped rather than
+  guessed at.
 * :class:`power_pptx.lint.ZOrderAnomaly` — a shape with a fully opaque fill
   is drawn above a shape it visually contains, hiding the inner shape at
   render time.  A translucent fill hides nothing, and the declarations in
@@ -99,8 +103,9 @@ Issue types
   ``layer_above = "..."`` but is drawn *below* a shape in that layer, so it
   will be hidden at render time.  Severity ERROR, because the declaration
   records what the author meant and the drawing order is what failed to
-  deliver it.  Auto-fixable: :meth:`SlideLintReport.auto_fix` restacks the
-  declaring shape.  See :ref:`lint-groups`.
+  deliver it.  Auto-fixable:
+  :meth:`~power_pptx.lint.SlideLintReport.auto_fix` restacks the declaring
+  shape.  See :ref:`lint-groups`.
 * :class:`power_pptx.lint.MasterPlaceholderCollision` — a non-placeholder
   shape sits at exactly the position of a layout placeholder it should
   likely have inherited from instead of redrawing.
