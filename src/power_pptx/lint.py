@@ -2476,6 +2476,20 @@ class _TextTarget(NamedTuple):
     body: _BodyProps
     levels: list
 
+    def measure(self, env: _TextEnv, body: _BodyProps | None = None) -> _TextMeasure | None:
+        """Lay the text out in the frame, with `body` in place of its own settings if given."""
+        body = self.body if body is None else body
+        return _measure_text_body(env, self.tx_body, body, self.levels, self.width, self.height)
+
+
+class _FrameOverflow(NamedTuple):
+    """A text frame whose text does not fit it."""
+
+    target: _TextTarget
+    measure: _TextMeasure
+    over_w: float  # EMU by which the text is too wide (see :func:`_frame_overflow`)
+    over_h: float  # EMU by which it is too tall
+
 
 def _group_scale(element) -> tuple[float, float]:
     """Factor by which enclosing groups scale `element`'s own extents."""
@@ -2550,6 +2564,20 @@ def _frame_overflow(target: _TextTarget, measure: _TextMeasure) -> tuple[float, 
     if over_h and not over_w and _engine_says_it_fits(target.tx_body, measure):
         over_h = 0.0
     return over_w, over_h
+
+
+def _frame_overflow_of(env: _TextEnv, shape: BaseShape) -> _FrameOverflow | None:
+    """Measure the text frame of `shape`; ``None`` when it has none or its text fits."""
+    target = _shape_text_target(env, shape)
+    if target is None:
+        return None
+    measure = target.measure(env)
+    if measure is None:
+        return None
+    over_w, over_h = _frame_overflow(target, measure)
+    if not over_w and not over_h:
+        return None
+    return _FrameOverflow(target, measure, over_w, over_h)
 
 
 def _frame_overflow_issue(
@@ -2641,40 +2669,62 @@ def _table_row_needs(env: _TextEnv, shape: BaseShape) -> list[tuple[int, int, fl
             row_h = int(tr.h)
         except Exception:
             continue
-        worst: tuple[float, int, Any] | None = None
-        col_idx = 0
-        for tc in tr.tc_lst:
-            try:
-                span = max(1, int(tc.gridSpan))
-                merged = bool(tc.hMerge) or bool(tc.vMerge) or int(tc.rowSpan) > 1
-                tx_body = tc.txBody
-            except Exception:
-                span, merged, tx_body = 1, True, None
-            start = col_idx
-            col_idx += span
-            if merged or tx_body is None:
-                continue
-            width = sum(col_widths[start : start + span])
-            if width <= 0:
-                continue
-            levels = []
-            lst_style = tx_body.find(_T_LSTSTYLE)
-            if lst_style is not None and len(lst_style):
-                levels.append(lst_style)
-            if default_style is not None:
-                levels.append(default_style)
-            body = _table_cell_body(tc)
-            # Measured against a notional frame: only the text height matters
-            # here, the row height is compared by the caller.
-            measure = _measure_text_body(env, tx_body, body, levels, width, 10**9, True)
-            if measure is None:
-                continue
-            needed = measure.text_h + body.t_ins + body.b_ins
-            if worst is None or needed > worst[0]:
-                worst = (needed, start, measure)
+        worst = _tallest_cell(env, tr, col_widths, default_style)
         if worst is not None:
             needs.append((row_idx, row_h, worst[0], worst[1], worst[2]))
     return needs
+
+
+def _own_cells(tr) -> Iterator[tuple[Any, Any, int, int]]:
+    """Yield ``(tc, tx_body, first_column, column_span)`` for each cell of row `tr`.
+
+    Cells merged into another, and cells whose attributes cannot be read, are
+    left out but still take up their columns.
+    """
+    col_idx = 0
+    for tc in tr.tc_lst:
+        try:
+            span = max(1, int(tc.gridSpan))
+            merged = bool(tc.hMerge) or bool(tc.vMerge) or int(tc.rowSpan) > 1
+            tx_body = tc.txBody
+        except Exception:
+            span, merged, tx_body = 1, True, None
+        start = col_idx
+        col_idx += span
+        if not merged and tx_body is not None:
+            yield tc, tx_body, start, span
+
+
+def _tallest_cell(
+    env: _TextEnv, tr, col_widths: Sequence[int], default_style
+) -> tuple[float, int, Any] | None:
+    """``(needed_height, column, measure)`` of the cell of `tr` that needs the most height."""
+    worst: tuple[float, int, Any] | None = None
+    for tc, tx_body, start, span in _own_cells(tr):
+        width = sum(col_widths[start : start + span])
+        if width <= 0:
+            continue
+        need = _cell_need(env, tc, tx_body, width, default_style)
+        if need is not None and (worst is None or need[0] > worst[0]):
+            worst = (need[0], start, need[1])
+    return worst
+
+
+def _cell_need(env: _TextEnv, tc, tx_body, width: int, default_style) -> tuple[float, Any] | None:
+    """``(needed_height, measure)`` of a table cell `width` wide, margins included."""
+    levels = []
+    lst_style = _list_style(tx_body)
+    if lst_style is not None:
+        levels.append(lst_style)
+    if default_style is not None:
+        levels.append(default_style)
+    body = _table_cell_body(tc)
+    # Measured against a notional frame: only the text height matters here,
+    # the row height is compared by the caller.
+    measure = _measure_text_body(env, tx_body, body, levels, width, 10**9, True)
+    if measure is None:
+        return None
+    return measure.text_h + body.t_ins + body.b_ins, measure
 
 
 class _TextFinding(NamedTuple):
@@ -2706,41 +2756,44 @@ def _analyse_text(env: _TextEnv, shape: BaseShape) -> _TextFinding:
     growth = _NO_GROWTH
     for member in _iter_text_shapes([shape]):
         if getattr(member, "has_table", False):
-            grow_h = 0.0
-            for row_idx, row_h, needed, col_idx, measure in _table_row_needs(env, member):
-                over = needed - row_h
-                if over <= measure.lines * _LINE_TOLERANCE_EMU or row_h <= 0:
-                    continue
-                grow_h += over
-                issues.append(
-                    TextOverflow(
-                        member,
-                        needed / row_h,
-                        severity=LintSeverity.WARNING,
-                        overflow_pt=over / _EMU_PER_PT,
-                        missing_font=measure.missing_font,
-                        row=row_idx,
-                        col=col_idx,
-                    )
-                )
+            row_issues, grow_h = _table_overflows(env, member)
+            issues.extend(row_issues)
             if member is shape and grow_h:
                 growth = (0.0, 0.0, 0.0, grow_h)
             continue
-        target = _shape_text_target(env, member)
-        if target is None:
+        overflow = _frame_overflow_of(env, member)
+        if overflow is None:
             continue
-        measure = _measure_text_body(
-            env, target.tx_body, target.body, target.levels, target.width, target.height
-        )
-        if measure is None:
-            continue
-        over_w, over_h = _frame_overflow(target, measure)
-        if not over_w and not over_h:
-            continue
-        issues.append(_frame_overflow_issue(target, measure, over_w, over_h))
-        if member is shape and measure.body.autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
-            growth = _auto_size_growth(measure, over_w, over_h)
+        issues.append(_frame_overflow_issue(*overflow))
+        if member is shape and overflow.measure.body.autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
+            growth = _auto_size_growth(overflow.measure, overflow.over_w, overflow.over_h)
     return _TextFinding(issues, growth)
+
+
+def _table_overflows(env: _TextEnv, shape: BaseShape) -> tuple[list[LintIssue], float]:
+    """``TextOverflow`` for each row of the table in `shape` too short for its text.
+
+    Also returns the EMU by which the rows grow, together, when rendered.
+    """
+    issues: list[LintIssue] = []
+    grow_h = 0.0
+    for row_idx, row_h, needed, col_idx, measure in _table_row_needs(env, shape):
+        over = needed - row_h
+        if over <= measure.lines * _LINE_TOLERANCE_EMU or row_h <= 0:
+            continue
+        grow_h += over
+        issues.append(
+            TextOverflow(
+                shape,
+                needed / row_h,
+                severity=LintSeverity.WARNING,
+                overflow_pt=over / _EMU_PER_PT,
+                missing_font=measure.missing_font,
+                row=row_idx,
+                col=col_idx,
+            )
+        )
+    return issues, grow_h
 
 
 def _check_text_overflow(shape: BaseShape, env: _TextEnv | None = None) -> list[LintIssue]:
