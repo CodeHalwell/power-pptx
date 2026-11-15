@@ -487,7 +487,7 @@ def _line_height_em(font_file):
     if font_file is None:
         return 1.2
     try:
-        ascent, descent = ImageFont.truetype(font_file, 1000).getmetrics()
+        ascent, descent = _Fonts.font(font_file, 1000).getmetrics()
     except OSError:
         return 1.2
     return (ascent + descent) / 1000
@@ -714,7 +714,8 @@ class _Fonts(object):
                 # to the unsized bitmap default. Less accurate but at least
                 # never blows up.
                 return ImageFont.load_default()
-        return ImageFont.truetype(font_path, point_size)
+        # -- a face of a font collection other than its first carries its index --
+        return ImageFont.truetype(font_path, point_size, index=getattr(font_path, "face_index", 0))
 
 
 def _rendered_size(text, point_size, font_file):

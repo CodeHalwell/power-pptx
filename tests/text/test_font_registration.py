@@ -13,6 +13,7 @@ from power_pptx.text import (
     register_font_dir,
     register_font_family,
     registered_font_dirs,
+    registered_font_files,
     truncate_text,
 )
 from power_pptx.text.fonts import (
@@ -79,7 +80,14 @@ class DescribeRegisterFontFamily:
         assert find_font_file("Brand Sans", bold=True) == str(FONTS / "Outfit-Bold.ttf")
         assert find_font_file("Brand Sans", weight=500) == str(FONTS / "Tektur-Medium.ttf")
         assert find_font_file("Brand Sans", weight="bold") == str(FONTS / "Outfit-Bold.ttf")
-        assert str(FONTS) in registered_font_dirs()
+        assert registered_font_files() == (
+            str(FONTS / "Outfit-Regular.ttf"),
+            str(FONTS / "Outfit-Bold.ttf"),
+            str(FONTS / "Tektur-Medium.ttf"),
+        )
+        # -- the files' folder is not searched as a whole --
+        assert registered_font_dirs() == ()
+        assert find_font_file("Tektur") is None
 
     def it_rejects_missing_files(self, tmp_path):
         with pytest.raises(ValueError, match="does not exist"):
@@ -278,3 +286,112 @@ class DescribeRegisterFontFamilyCache:
         register_font_family("Brand Sans", regular=FONTS / "Outfit-Regular.ttf")
 
         assert find_font_file("Outfit") == str(FONTS / "Outfit-Regular.ttf")
+
+
+def _collection(*paths: Path) -> bytes:
+    """A TrueType collection (.ttc) holding the fonts at `paths`, in that order."""
+    import struct
+
+    fonts = [path.read_bytes() for path in paths]
+    directories = []
+    for data in fonts:
+        count = struct.unpack_from(">H", data, 4)[0]
+        directories.append(
+            (data[:12], [struct.unpack_from(">4sLLL", data, 12 + 16 * i) for i in range(count)])
+        )
+    header_size = 12 + 4 * len(fonts)
+    start = header_size + sum(12 + 16 * len(records) for _, records in directories)
+    body, out_directories = b"", []
+    for (offset_table, records), data in zip(directories, fonts):
+        directory = offset_table
+        for tag, checksum, offset, length in records:
+            directory += struct.pack(">4sLLL", tag, checksum, start + len(body), length)
+            body += data[offset : offset + length] + b"\0" * (-length % 4)
+        out_directories.append(directory)
+    offsets, position = [], header_size
+    for directory in out_directories:
+        offsets.append(position)
+        position += len(directory)
+    header = b"ttcf" + struct.pack(">HHL", 1, 0, len(fonts))
+    header += b"".join(struct.pack(">L", offset) for offset in offsets)
+    return header + b"".join(out_directories) + body
+
+
+class DescribeFontCollections:
+    def it_finds_every_face_of_a_ttc_collection(self, tmp_path):
+        from power_pptx.text.layout import _rendered_size
+
+        path = tmp_path / "pair.ttc"
+        path.write_bytes(_collection(FONTS / "Outfit-Regular.ttf", FONTS / "Tektur-Regular.ttf"))
+        register_font_dir(tmp_path)
+
+        outfit, tektur = find_font_file("Outfit"), find_font_file("Tektur")
+
+        assert outfit == str(path)
+        assert str(tektur) == str(path)
+        assert tektur != outfit
+        assert getattr(tektur, "face_index", 0) == 1
+        assert font_is_installed("Tektur")
+        assert font_face_family(tektur) == "Tektur"
+        assert _rendered_size("Revenue", 18, tektur) == _rendered_size(
+            "Revenue", 18, str(FONTS / "Tektur-Regular.ttf")
+        )
+
+
+class DescribeFontLookup:
+    def it_matches_family_names_case_insensitively(self):
+        register_font_dir(FONTS)
+
+        assert find_font_file("outfit") == str(FONTS / "Outfit-Regular.ttf")
+        assert find_font_file("OUTFIT", bold=True) == str(FONTS / "Outfit-Bold.ttf")
+        assert find_font_file("tektur", weight="medium") == str(FONTS / "Tektur-Medium.ttf")
+
+    def and_registered_families_too(self):
+        register_font_family("Brand Sans", regular=FONTS / "Outfit-Regular.ttf")
+
+        assert find_font_file("brand sans") == str(FONTS / "Outfit-Regular.ttf")
+
+    def it_notices_a_font_folder_added_to_the_environment_later(self, monkeypatch):
+        assert find_font_file("Outfit") is None  # builds the index
+
+        monkeypatch.setenv(FONT_DIRS_ENV, str(FONTS))
+
+        assert find_font_file("Outfit") == str(FONTS / "Outfit-Regular.ttf")
+
+    def it_does_not_search_the_folder_of_a_registered_file(self):
+        register_font_family("Brand Sans", regular=FONTS / "Outfit-Regular.ttf")
+
+        assert find_font_file("Tektur") is None
+        assert registered_font_dirs() == ()
+
+
+class DescribeNameTableLanguages:
+    def it_prefers_the_English_family_name(self):
+        from power_pptx.text.fonts import _NameTable
+
+        name_table = _name_table(
+            [(3, 1, 0x0409, "WenQuanYi Zen Hei"), (3, 1, 0x0404, "文泉驛正黑")]
+        )
+
+        assert name_table.family_name == "WenQuanYi Zen Hei"
+        assert name_table.family_aliases == ["文泉驛正黑"]
+        assert isinstance(name_table, _NameTable)
+
+
+def _name_table(records):
+    """A `_NameTable` over a synthetic 'name' table of (platform, name_id, language, text)."""
+    import io
+    import struct
+
+    from power_pptx.text.fonts import _NameTable, _Stream
+
+    strings, entries = b"", b""
+    for platform_id, name_id, language_id, text in records:
+        raw = text.encode("utf-16-be")
+        entries += struct.pack(
+            ">HHHHHH", platform_id, 1, language_id, name_id, len(raw), len(strings)
+        )
+        strings += raw
+    header = struct.pack(">HHH", 0, len(records), 6 + len(entries))
+    data = header + entries + strings
+    return _NameTable("name", _Stream(io.BytesIO(data)), 0, len(data))

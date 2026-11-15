@@ -838,6 +838,18 @@ class DescribeFontDirs:
         conf = Path(_soffice_env(tmp_path)["FONTCONFIG_FILE"]).read_text()
         assert f"<dir>{self.FONTS}</dir>" in conf
 
+    def it_passes_registered_files_without_their_folders(self, tmp_path):
+        from power_pptx.render import _soffice_env
+        from power_pptx.text import register_font_family
+
+        register_font_family("Brand Sans", regular=self.FONTS / "Outfit-Regular.ttf")
+
+        conf = Path(_soffice_env(tmp_path)["FONTCONFIG_FILE"]).read_text()
+        copies = tmp_path / ".fontconfig" / "files"
+        assert f"<dir>{copies}</dir>" in conf
+        assert f"<dir>{self.FONTS}</dir>" not in conf
+        assert [p.name for p in copies.iterdir()] == ["0-Outfit-Regular.ttf"]
+
     def it_rejects_missing_folders(self, tmp_path):
         from power_pptx.render import _soffice_env
 

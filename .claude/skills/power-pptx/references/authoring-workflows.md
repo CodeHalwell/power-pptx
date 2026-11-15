@@ -74,9 +74,16 @@ is looked up separately, so a bold `TextBlock` measures with the bold file.
 If a registered name is an alias (`"Brand Sans"` for Outfit files), components
 write the files' own family (`"Outfit"`) into the deck. Otherwise Office, which
 has never heard of the alias, would substitute a different font.
-Registered folders are also handed to LibreOffice by `render_slides` and
-`power-pptx review`. Avoid `TextBlock(font_file=...)` for multi-style text:
-one file then measures every style.
+`register_font_family` registers just the files you name, not the folder they
+are in (`registered_font_files()` lists them). Registered folders and files are
+also handed to LibreOffice by `render_slides` and `power-pptx review`. Avoid
+`TextBlock(font_file=...)` for multi-style text: one file then measures every
+style.
+
+Family names match case-insensitively and in any language the font names
+itself (`"文泉驿正黑"` finds WenQuanYi Zen Hei). Faces inside `.ttc` / `.otc`
+collections, as most macOS system fonts are, are found too. Changing
+`POWER_PPTX_FONT_DIRS` takes effect on the next lookup.
 
 ## Tracked labels, weights, and case
 

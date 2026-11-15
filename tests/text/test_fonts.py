@@ -546,6 +546,9 @@ class Describe_NameTable(object):
             "_read_name",
             side_effect=iter([(0, 1, "Foobar"), (3, 1, "Barfoo"), (9, 9, None)]),
         )
+        method_mock(
+            request, _NameTable, "_name_header", autospec=False, return_value=(3, 1, 0x409, 1, 0, 0)
+        )
         name_table = _NameTable(None, None, None, None)
 
         names = list(name_table._iter_names())

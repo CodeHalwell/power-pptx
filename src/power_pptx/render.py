@@ -131,7 +131,7 @@ def _soffice_env(
     """
     from xml.sax.saxutils import escape
 
-    from power_pptx.text.fonts import FontFiles, registered_font_dirs
+    from power_pptx.text.fonts import FontFiles, registered_font_dirs, registered_font_files
 
     extra: list[str] = []
     for directory in font_dirs or ():
@@ -140,6 +140,14 @@ def _soffice_env(
             raise ValueError(f"Font directory {path!r} does not exist")
         extra.append(path)
     extra.extend(registered_font_dirs())
+    files = registered_font_files()
+    if files:
+        # -- register_font_family files, without the rest of their folders --
+        copies = work_dir / ".fontconfig" / "files"
+        copies.mkdir(parents=True, exist_ok=True)
+        for number, font_file in enumerate(files):
+            shutil.copyfile(font_file, copies / f"{number}-{os.path.basename(font_file)}")
+        extra.append(str(copies))
     extra = list(dict.fromkeys(extra))
     if not extra:
         return None

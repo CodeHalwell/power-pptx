@@ -74,7 +74,11 @@ system-wide::
     register_font_dir("assets/fonts")   # or POWER_PPTX_FONT_DIRS=assets/fonts
 
 ``register_font_family("Inter", regular=..., bold=..., weights={"medium": ...})``
-maps explicit files per style. ``power-pptx review --font-dir assets/fonts`` and
+maps explicit files per style; only those files are registered, not their
+folder. Family names match case-insensitively and in any language a font names
+itself, faces inside ``.ttc`` collections are found, and a changed
+``POWER_PPTX_FONT_DIRS`` applies on the next lookup.
+``power-pptx review --font-dir assets/fonts`` and
 ``render_slides(prs, font_dirs=[...])`` pass extra folders to LibreOffice for
 that run only.
 
