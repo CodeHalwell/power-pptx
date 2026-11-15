@@ -264,6 +264,15 @@ class _TableLayout:
     family: str | None = None
 
 
+@dataclass(frozen=True)
+class _CellFont:
+    """The face that measures one table row's cells."""
+
+    family: str | None
+    path: str | None
+    bold: bool
+
+
 @dataclass
 class _Face:
     family: str | None
@@ -441,13 +450,7 @@ def _validate_cell_text(node):
 def _table_layout(node, width, context):
     count = len(node.rows[0])
     weights = list(node.columns) if node.columns is not None else [1.0] * count
-    total = sum(weights)
-    widths, cursor, cumulative = [], 0, 0.0
-    for weight in weights:
-        cumulative += weight
-        edge = round(width * cumulative / total)
-        widths.append(edge - cursor)
-        cursor = edge
+    widths = _apportion(width, weights)
     t, r, b, left_pad = _insets(node.cell_padding)
     family = context.font(node)
     lookup = family or "Calibri"
@@ -461,56 +464,72 @@ def _table_layout(node, width, context):
                     f"Font {lookup!r} is unavailable; install it or register its folder"
                 )
             estimated = True
-        row_lines, row_height = [], 0
-        for column, value in enumerate(row):
-            inner = widths[column] - left_pad - r
-            if inner <= 0:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} padding consumes a column"
-                )
-            text = "" if value is None else str(value)
-            if node.truncate:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    text = truncate_text(
-                        text,
-                        Emu(inner),
-                        max_lines=node.max_lines or 1,
-                        size_pt=node.size_pt,
-                        font_family=family,
-                        font_file=path,
-                        bold=bold,
-                    )
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    m = measure_text(
-                        text,
-                        Emu(inner),
-                        size_pt=node.size_pt,
-                        font_family=family,
-                        font_file=path,
-                        bold=bold,
-                        line_spacing=node.line_spacing,
-                    )
-            except ValueError as exc:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} cell ({row_index}, {column}) cannot fit: {exc}"
-                ) from None
-            if node.max_lines is not None and len(m.lines) > node.max_lines:
-                raise LayoutOverflowError(
-                    f"DataTable {node.name or ''!r} cell ({row_index}, {column}) needs "
-                    f"{len(m.lines)} lines; max_lines is {node.max_lines}"
-                )
-            row_lines.append(m.lines)
-            line = _rendered_line_height(path, node.size_pt, node.line_spacing)
-            row_height = max(row_height, line * len(m.lines))
-        heights.append(row_height + t + b)
+        font = _CellFont(family, path, bold)
+        row_lines = [
+            _cell_lines(node, (row_index, column), value, widths[column] - left_pad - r, font)
+            for column, value in enumerate(row)
+        ]
+        line = _rendered_line_height(path, node.size_pt, node.line_spacing)
+        heights.append(line * max(len(cell) for cell in row_lines) + t + b)
         lines.append(row_lines)
     regular = find_font_file(lookup)
     return _TableLayout(
         widths, heights, lines, node.size_pt, estimated, drawing_family(family, regular)
     )
+
+
+def _cell_lines(node, cell, value, inner, font):
+    """The lines a table cell's text is drawn in, `inner` wide.
+
+    `cell` is the cell's (row, column), for error messages. With ``truncate``
+    the text is first cut to ``max_lines`` with an ellipsis.
+    """
+    if inner <= 0:
+        raise LayoutOverflowError(f"DataTable {node.name or ''!r} padding consumes a column")
+    text = "" if value is None else str(value)
+    if node.truncate:
+        text = _quietly(
+            truncate_text,
+            text,
+            Emu(inner),
+            max_lines=node.max_lines or 1,
+            size_pt=node.size_pt,
+            font_family=font.family,
+            font_file=font.path,
+            bold=font.bold,
+        )
+    try:
+        m = _quietly(
+            measure_text,
+            text,
+            Emu(inner),
+            size_pt=node.size_pt,
+            font_family=font.family,
+            font_file=font.path,
+            bold=font.bold,
+            line_spacing=node.line_spacing,
+        )
+    except ValueError as exc:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} cell {cell} cannot fit: {exc}"
+        ) from None
+    if node.max_lines is not None and len(m.lines) > node.max_lines:
+        raise LayoutOverflowError(
+            f"DataTable {node.name or ''!r} cell {cell} needs "
+            f"{len(m.lines)} lines; max_lines is {node.max_lines}"
+        )
+    return m.lines
+
+
+def _quietly(function, *args, **kwargs):
+    """Call `function` with warnings silenced.
+
+    A table reports a font it had to estimate in ``estimated_fonts`` rather
+    than warning once per cell.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return function(*args, **kwargs)
 
 
 def _rendered_line_height(font_file, size_pt, line_spacing):
