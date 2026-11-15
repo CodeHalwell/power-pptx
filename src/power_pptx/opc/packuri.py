@@ -114,7 +114,9 @@ def numbered_partname_pieces(partname: str) -> tuple[str, str]:
 
     The pieces are plain strings meant to be concatenated around the number. They are not a
     printf-style template, so a `%` in the name (as in `"/ppt/media/my%20logo.png"`) needs no
-    escaping.
+    escaping. The digits of a percent-escape are never taken for the number:
+    `"/ppt/media/logo%20.png"` gives `("/ppt/media/logo%20", ".png")`, not a stem ending in a
+    bare `%`.
     """
     directory, _, filename = partname.rpartition("/")
     stem, dot, ext = filename.rpartition(".")
@@ -122,7 +124,10 @@ def numbered_partname_pieces(partname: str) -> tuple[str, str]:
         stem, suffix = filename, ""
     else:
         suffix = "." + ext
-    return "%s/%s" % (directory, stem.rstrip("0123456789")), suffix
+    # -- a trailing number starts no earlier than the end of the last `%HH` escape --
+    percent = stem.rfind("%")
+    escaped = percent + 3 if percent >= 0 else 0
+    return "%s/%s" % (directory, stem[:escaped] + stem[escaped:].rstrip("0123456789")), suffix
 
 
 PACKAGE_URI = PackURI("/")

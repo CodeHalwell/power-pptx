@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from power_pptx.opc.packuri import PackURI
+from power_pptx.opc.packuri import PackURI, numbered_partname_pieces
 
 
 class DescribePackURI(object):
@@ -92,3 +92,24 @@ class DescribePackURI(object):
     )
     def it_knows_the_uri_of_its_rels_part(self, uri: str, expected_value: str):
         assert PackURI(uri).rels_uri == expected_value
+
+
+class DescribeNumberedPartnamePieces:
+    @pytest.mark.parametrize(
+        ("partname", "expected"),
+        [
+            ("/ppt/charts/chart3.xml", ("/ppt/charts/chart", ".xml")),
+            ("/ppt/media/logo.png", ("/ppt/media/logo", ".png")),
+            ("/ppt/media/my%20logo12.png", ("/ppt/media/my%20logo", ".png")),
+            # -- the digits of a percent-escape are not the part's number --
+            ("/ppt/media/logo%20.png", ("/ppt/media/logo%20", ".png")),
+            ("/ppt/media/logo%2012.png", ("/ppt/media/logo%20", ".png")),
+            ("/ppt/media/logo%2A7", ("/ppt/media/logo%2A", "")),
+        ],
+    )
+    def it_splits_a_partname_around_its_trailing_number(self, partname, expected):
+        assert numbered_partname_pieces(partname) == expected
+
+    def it_never_leaves_a_bare_percent_sign_in_a_sibling_name(self):
+        stem, suffix = numbered_partname_pieces("/ppt/media/logo%20.png")
+        assert stem + "1" + suffix == "/ppt/media/logo%201.png"
