@@ -90,6 +90,18 @@ def _save_bytes(prs) -> bytes:
     return buf.getvalue()
 
 
+def _part_changed(name: str, p1: bytes | None, p2: bytes | None) -> bool:
+    """Whether a part differs between saves: XML after c14n, anything else raw."""
+    if p1 is None or p2 is None:
+        return True
+    if name.endswith((".xml", ".rels")):
+        try:
+            return _canon(p1) != _canon(p2)
+        except etree.XMLSyntaxError:
+            pass  # not well-formed: fall back to comparing the raw bytes
+    return p1 != p2
+
+
 def round_trip_diff(prs) -> dict[str, tuple]:
     first = _save_bytes(prs)
     reopened = Presentation(io.BytesIO(first))
@@ -98,17 +110,7 @@ def round_trip_diff(prs) -> dict[str, tuple]:
     diff: dict[str, tuple] = {}
     for name in set(parts1) | set(parts2):
         p1, p2 = parts1.get(name), parts2.get(name)
-        if p1 is None or p2 is None:
-            diff[name] = (p1, p2)
-            continue
-        if name.endswith((".xml", ".rels")):
-            try:
-                if _canon(p1) != _canon(p2):
-                    diff[name] = (p1, p2)
-            except etree.XMLSyntaxError:
-                if p1 != p2:
-                    diff[name] = (p1, p2)
-        elif p1 != p2:
+        if _part_changed(name, p1, p2):
             diff[name] = (p1, p2)
     return diff
 
