@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import pickle
 from decimal import Decimal
 
 import pytest
@@ -52,6 +54,34 @@ class DescribeLength(object):
     def units_fixture(self, request):
         emu, units_prop_name, expected_length_in_units = request.param
         return emu, units_prop_name, expected_length_in_units
+
+
+class DescribeLengthCopying(object):
+    """Copying or pickling a length keeps its value and its class.
+
+    Each would rebuild the length by calling its class with the stored EMU,
+    which a unit class converts again: ``deepcopy(Inches(1))`` came back as
+    836127360000 EMU. That broke any deep copy of a component tree or token.
+    """
+
+    @pytest.mark.parametrize(
+        "length", [Inches(1), Pt(4), Cm(2), Mm(3), Centipoints(250), Emu(5), Length(7)]
+    )
+    @pytest.mark.parametrize(
+        "duplicate",
+        [copy.copy, copy.deepcopy, lambda value: pickle.loads(pickle.dumps(value))],
+        ids=["copy", "deepcopy", "pickle"],
+    )
+    def it_keeps_the_value_and_class(self, length: Length, duplicate):
+        result = duplicate(length)
+
+        assert result == length
+        assert type(result) is type(length)
+
+    def and_it_copies_lengths_held_in_a_container(self):
+        sizes = {"title": Pt(36), "gap": Inches(0.25)}
+
+        assert copy.deepcopy(sizes) == sizes
 
 
 class DescribeCoerceEmu(object):

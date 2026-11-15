@@ -70,6 +70,13 @@ class Length(int):
     def __new__(cls, emu: int):
         return int.__new__(cls, emu)
 
+    def __reduce__(self):
+        # -- `copy`, `deepcopy` and `pickle` rebuild an int subclass by calling
+        # -- the class with the stored int. For a unit class that value is
+        # -- already EMU, so `Inches(914400)` would convert it a second time.
+        # -- Rebuild from the EMU value without running the unit conversion.
+        return (_length_from_emu, (type(self), int(self)))
+
     @property
     def inches(self) -> float:
         """Floating point length in inches."""
@@ -102,6 +109,14 @@ class Length(int):
     def pt(self) -> float:
         """Floating point length in points."""
         return self / float(self._EMUS_PER_PT)
+
+
+def _length_from_emu(cls: type[Length], emu: int) -> Length:
+    """Rebuild a length of class *cls* holding *emu*, without unit conversion.
+
+    Used by `Length.__reduce__`, so it must stay importable at module level.
+    """
+    return int.__new__(cls, emu)
 
 
 class Inches(Length):
