@@ -226,38 +226,16 @@ class _TemplateApplier:
         dst_layouts: list[SlideLayoutPart],
     ) -> None:
         """Replace the slide's layout relationship to point to a template layout."""
-        # Find the current layout rel and remove it
-        old_layout_rId: str | None = None
-        for rId, rel in list(slide_part.rels.items()):
-            if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT:
-                old_layout_rId = rId
-                break
+        # Find the current layout rel; it is removed below
+        old_layout_rId = _layout_rId(slide_part)
 
         # Determine current slide's layout info for matching
-        current_lo_name: str = ""
-        current_lo_type: str = ""
-        if old_layout_rId is not None:
-            old_lo_part: SlideLayoutPart = slide_part.related_part(old_layout_rId)  # type: ignore[assignment]
-            old_lo_element = getattr(old_lo_part, "_element", None)
-            if old_lo_element is not None:
-                current_lo_name = getattr(getattr(old_lo_element, "cSld", None), "name", "") or ""
-                current_lo_type = old_lo_element.get("type") or ""
+        current_lo_name, current_lo_type = _layout_name_and_type(slide_part, old_layout_rId)
 
         # Match: name, then type, then first
-        matched_dst_lo: SlideLayoutPart | None = None
-        for tpl_lo, dst_lo in zip(tpl_layouts, dst_layouts):
-            tpl_name = tpl_lo._element.cSld.name  # pyright: ignore[reportPrivateUsage]
-            if tpl_name == current_lo_name:
-                matched_dst_lo = dst_lo
-                break
-        if matched_dst_lo is None and current_lo_type:
-            for tpl_lo, dst_lo in zip(tpl_layouts, dst_layouts):
-                tpl_type = tpl_lo._element.get("type") or ""  # pyright: ignore[reportPrivateUsage]
-                if tpl_type == current_lo_type:
-                    matched_dst_lo = dst_lo
-                    break
-        if matched_dst_lo is None:
-            matched_dst_lo = dst_layouts[0]
+        matched_dst_lo = _matching_layout(
+            tpl_layouts, dst_layouts, current_lo_name, current_lo_type
+        )
 
         # Remove old layout relationship
         if old_layout_rId is not None:
@@ -311,3 +289,45 @@ class _TemplateApplier:
         )
         if new_theme is not None:
             prs_part.relate_to(new_theme, RT.THEME)
+
+
+def _layout_rId(slide_part: SlidePart) -> str | None:
+    """Return the rId of *slide_part*'s (first) layout relationship, or |None|."""
+    for rId, rel in list(slide_part.rels.items()):
+        if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT:
+            return rId
+    return None
+
+
+def _layout_name_and_type(slide_part: SlidePart, layout_rId: str | None) -> tuple[str, str]:
+    """Return the name and type of the layout *layout_rId* names, ``""`` for either it lacks."""
+    if layout_rId is None:
+        return "", ""
+    layout_part: SlideLayoutPart = slide_part.related_part(layout_rId)  # type: ignore[assignment]
+    element = getattr(layout_part, "_element", None)
+    if element is None:
+        return "", ""
+    name = getattr(getattr(element, "cSld", None), "name", "") or ""
+    return name, element.get("type") or ""
+
+
+def _matching_layout(
+    tpl_layouts: list[SlideLayoutPart],
+    dst_layouts: list[SlideLayoutPart],
+    name: str,
+    type_: str,
+) -> SlideLayoutPart:
+    """Return the copy of the template layout that best stands in for a slide's layout.
+
+    *dst_layouts* are the copies of *tpl_layouts*, in the same order.  The
+    template layout named *name* wins, then one of type *type_*, then the first.
+    """
+    for tpl_lo, dst_lo in zip(tpl_layouts, dst_layouts):
+        if tpl_lo._element.cSld.name == name:  # pyright: ignore[reportPrivateUsage]
+            return dst_lo
+    if type_:
+        for tpl_lo, dst_lo in zip(tpl_layouts, dst_layouts):
+            tpl_type = tpl_lo._element.get("type") or ""  # pyright: ignore[reportPrivateUsage]
+            if tpl_type == type_:
+                return dst_lo
+    return dst_layouts[0]
