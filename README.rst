@@ -277,7 +277,9 @@ regression test.
   surrounding card so the rebuild fills the right area.
   ``slide.tidy()`` is the one-call lint + safe auto-fix.
   ``slide.find_empty_region(...)`` returns an unused area for
-  greenfield placement.
+  greenfield placement.  ``prs.slides.remove(slide)`` deletes a slide
+  with its links, section entry and notes, and
+  ``prs.slides.duplicate(slide)`` adds an independent copy.
 
 * **Whole-deck audit** — ``power_pptx.audit(prs)`` returns an
   ``AuditReport`` with lint issues, broken pictures, empty slides,
