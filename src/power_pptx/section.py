@@ -335,39 +335,47 @@ class Sections(ParentedElementProxy):
         section ids are not unique GUIDs.
         """
         if id is not None:
-            if not _GUID_RE.match(id):
-                raise ValueError(
-                    "section id must be a brace-wrapped GUID like "
-                    "'{3E86B4F5-40E6-4F32-8B4D-BE3E1E4C8A27}'; got %r" % (id,)
-                )
-            if any(s.id.lower() == id.lower() for s in self._section_elms):
-                raise ValueError("section id %s is already used in this deck" % id)
-
+            self._check_new_id(id)
         was_unsectioned = not self._section_elms
         sectionLst = self._prs_elm.get_or_add_sectionLst()
         section_elm = sectionLst.add_section(name, section_id=id)
         section = Section(section_elm, self._prs)
-        if start_slide_index is not None:
-            slides = list(self._prs.slides)
-            claimed = slides[start_slide_index:]
-            # Sections don't overlap: take the claimed slides away from any
-            # earlier section before assigning them to the new one.
-            for other in self:
-                if other._element is section_elm:
-                    continue
-                for slide in claimed:
-                    other.remove_slide(slide)
-            for slide in claimed:
-                section.add_slide(slide)
-            # First section of the deck starting beyond slide 0: cover the
-            # preceding slides so the section list partitions the whole deck.
-            if was_unsectioned and start_slide_index > 0:
-                default_elm = sectionLst.add_section("Default Section")
-                section_elm.addprevious(default_elm)
-                default = Section(default_elm, self._prs)
-                for slide in slides[:start_slide_index]:
-                    default.add_slide(slide)
+        if start_slide_index is None:
+            return section
+
+        slides = list(self._prs.slides)
+        self._claim_slides(section, slides[start_slide_index:])
+        # First section of the deck starting beyond slide 0: cover the
+        # preceding slides so the section list partitions the whole deck.
+        if was_unsectioned and start_slide_index > 0:
+            default_elm = sectionLst.add_section("Default Section")
+            section_elm.addprevious(default_elm)
+            default = Section(default_elm, self._prs)
+            for slide in slides[:start_slide_index]:
+                default.add_slide(slide)
         return section
+
+    def _check_new_id(self, section_id: str) -> None:
+        """Raise |ValueError| unless *section_id* is a GUID no section of the deck has yet."""
+        if not _GUID_RE.match(section_id):
+            raise ValueError(
+                "section id must be a brace-wrapped GUID like "
+                "'{3E86B4F5-40E6-4F32-8B4D-BE3E1E4C8A27}'; got %r" % (section_id,)
+            )
+        if any(s.id.lower() == section_id.lower() for s in self._section_elms):
+            raise ValueError("section id %s is already used in this deck" % section_id)
+
+    def _claim_slides(self, section: Section, slides: list[Slide]) -> None:
+        """Make *slides* members of *section*, and of no other section."""
+        # Sections don't overlap: take the claimed slides away from any
+        # other section before assigning them to this one.
+        for other in self:
+            if other._element is section._element:
+                continue
+            for slide in slides:
+                other.remove_slide(slide)
+        for slide in slides:
+            section.add_slide(slide)
 
     def remove(self, section: Section) -> None:
         """Remove `section` from this collection.
