@@ -192,6 +192,61 @@ class DescribeGroupShapeSurface(object):
         with pytest.raises(ValueError, match="rotated or flipped"):
             group.ungroup()
 
+    @pytest.mark.parametrize("flip", ["flipH", "flipV"])
+    def it_raises_when_ungrouping_a_flipped_group(self, group, flip):
+        group._element.grpSpPr.xfrm.set(flip, "1")  # noqa: SLF001
+
+        with pytest.raises(ValueError, match="rotated or flipped"):
+            group.ungroup()
+
+    def it_raises_when_ungrouping_a_group_outside_any_shape_tree(self, group):
+        grpSp = group._element  # noqa: SLF001
+        grpSp.getparent().remove(grpSp)
+
+        with pytest.raises(ValueError, match="not in a shape tree"):
+            group.ungroup()
+
+    def it_ungroups_a_nested_group_into_the_group_holding_it(self, slide):
+        outer = slide.shapes.add_group_shape()
+        outer.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(1))
+        inner = outer.shapes.add_group_shape()
+        inner.shapes.add_shape(MSO_SHAPE.OVAL, Inches(2), Inches(2), Inches(1), Inches(1))
+        inner.shapes.add_shape(MSO_SHAPE.OVAL, Inches(4), Inches(3), Inches(2), Inches(1))
+        outer.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(7), Inches(5), Inches(1), Inches(1))
+
+        promoted = inner.ungroup()
+
+        members = list(outer.shapes)
+        assert [s.name for s in members] == [
+            "Rectangle 2", "Oval 4", "Oval 5", "Rectangle 6",
+        ]
+        assert [s.shape_id for s in promoted] == [5, 6]
+        assert [(int(s.left), int(s.top), int(s.width), int(s.height)) for s in promoted] == [
+            (Inches(2), Inches(2), Inches(1), Inches(1)),
+            (Inches(4), Inches(3), Inches(2), Inches(1)),
+        ]
+
+    def it_ungroups_an_empty_group_by_removing_it(self, slide):
+        group = slide.shapes.add_group_shape()
+
+        assert group.ungroup() == []
+        assert len(slide.shapes) == 0
+
+    def it_ungroups_without_scaling_when_the_child_extent_is_zero(self, slide, group):
+        grpSp = group._element  # noqa: SLF001
+        grpSp.chOff.x, grpSp.chOff.y = Emu(Inches(1)), Emu(Inches(1))
+        grpSp.chExt.cx, grpSp.chExt.cy = Emu(0), Emu(0)
+        grpSp.x, grpSp.y = Emu(Inches(3)), Emu(Inches(2))
+        grpSp.cx, grpSp.cy = Emu(Inches(8)), Emu(Inches(8))
+
+        promoted = group.ungroup()
+
+        # -- children at (1, 1) and (4, 2) in child space; scale 1 when chExt is 0 --
+        assert [(int(s.left), int(s.top), int(s.width), int(s.height)) for s in promoted] == [
+            (Inches(3), Inches(2), Inches(2), Inches(1)),
+            (Inches(6), Inches(3), Inches(1), Inches(1)),
+        ]
+
     def it_purges_the_animations_of_a_group_it_ungroups(self, slide, group):
         # The group's id disappears with it, so an effect that targeted the
         # group would be left pointing at a shape that no longer exists.
