@@ -244,6 +244,9 @@ images, `manifest.json`, `index.html`, and `REVIEW.md`. XSDs ship in the package
 no repository test modules are needed. Missing explicit fonts are warnings;
 use `--font-policy error` for a strict gate. Theme/implicit fonts are outside
 this font inventory's scope. `--fail-on-warnings` also gates audit warnings.
+The round-trip check opens and saves the deck, then compares each part's
+content, relationships and content type. It passes for decks written by
+PowerPoint or other tools as long as nothing is lost or altered.
 Nonzero exit means an automated failure; batch processing continues and writes
 an aggregate index. Reused output directories list only this run's pages.
 Existing unrelated files remain, so consume the manifest instead of globbing.

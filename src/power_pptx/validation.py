@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import posixpath
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -73,19 +75,102 @@ def _parts(data):
         return {name: package.read(name) for name in package.namelist()}
 
 
+_CONTENT_TYPES = "[Content_Types].xml"
+_PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+
 def _canonical(data):
     parser = etree.XMLParser(remove_blank_text=True, resolve_entities=False, no_network=True)
     return etree.tostring(etree.fromstring(data, parser), method="c14n2")
 
 
+def _relationships(name, data):
+    """Return the relationships declared by the ``.rels`` part *name*, order-free.
+
+    A package means the same whatever order its ``Relationship`` elements come
+    in and however an internal Target is spelled (``/ppt/media/a.png`` or
+    ``../media/a.png``), so each one is reduced to (Id, Type, resolved Target,
+    TargetMode). A counter rather than a set keeps a duplicated entry visible.
+    """
+    parser = etree.XMLParser(resolve_entities=False, no_network=True)
+    base = "/" + posixpath.dirname(posixpath.dirname(name))
+    relationships: Counter[tuple[str | None, str | None, str, str]] = Counter()
+    for rel in etree.fromstring(data, parser).iter("{%s}Relationship" % _PKG_REL_NS):
+        mode = rel.get("TargetMode") or "Internal"
+        target = rel.get("Target") or ""
+        if mode == "Internal":
+            target = posixpath.normpath(posixpath.join(base, target))
+        relationships[(rel.get("Id"), rel.get("Type"), target, mode)] += 1
+    return relationships
+
+
+def _content_types(parts):
+    """Return ``{part name: content type}`` as ``[Content_Types].xml`` resolves it.
+
+    The same type can be declared by a ``Default`` for the extension or an
+    ``Override`` for the part, in any order, so only the resolved type of each
+    part is comparable. Lookups ignore case, as the package reader does.
+    """
+    parser = etree.XMLParser(resolve_entities=False, no_network=True)
+    root = etree.fromstring(parts[_CONTENT_TYPES], parser)
+    defaults = {
+        (e.get("Extension") or "").lower(): e.get("ContentType")
+        for e in root.iter("{%s}Default" % _CT_NS)
+    }
+    overrides = {
+        (e.get("PartName") or "").lower(): e.get("ContentType")
+        for e in root.iter("{%s}Override" % _CT_NS)
+    }
+    resolved = {}
+    for name in parts:
+        if name == _CONTENT_TYPES or name.endswith("/"):
+            continue
+        content_type = overrides.get("/" + name.lower())
+        if content_type is None:
+            # -- everything after the last dot, so `_rels/.rels` has extension `rels` --
+            base = posixpath.basename(name)
+            content_type = defaults.get(base.rsplit(".", 1)[1].lower() if "." in base else "")
+        resolved[name] = content_type
+    return resolved
+
+
+def _same_part(name, a, b):
+    """True when part *name* means the same in both packages."""
+    if a == b:
+        return True
+    try:
+        if name.endswith(".rels"):
+            return _relationships(name, a) == _relationships(name, b)
+        if name.endswith(".xml"):
+            return _canonical(a) == _canonical(b)
+    except etree.XMLSyntaxError:
+        pass  # -- not XML despite its name, and the bytes already differ --
+    return False
+
+
 def roundtrip_changes(first, second):
+    """Return the names of the parts that differ between two saves of a package.
+
+    Parts are compared by what they mean, not by their bytes: XML parts in
+    canonical form, ``.rels`` parts as the relationships they declare, and
+    ``[Content_Types].xml`` by the content type it gives each part present in
+    both packages. The package writer sorts relationships and regenerates the
+    content-types stream, so a byte comparison of those would report every
+    package this library did not write. A part found in only one package is
+    always reported.
+    """
     before, after = _parts(first), _parts(second)
     changed = []
     for name in sorted(before.keys() | after.keys()):
         a, b = before.get(name), after.get(name)
-        if a is not None and b is not None and name.endswith((".xml", ".rels")):
-            a, b = _canonical(a), _canonical(b)
-        if a != b:
+        if a is None or b is None:
+            changed.append(name)
+        elif name == _CONTENT_TYPES:
+            types_a, types_b = _content_types(before), _content_types(after)
+            if any(types_a[part] != types_b[part] for part in types_a.keys() & types_b.keys()):
+                changed.append(name)
+        elif not _same_part(name, a, b):
             changed.append(name)
     return changed
 
@@ -125,6 +210,11 @@ def validate_presentation(
     package; no test checkout is needed. Missing explicit fonts are advisory.
     Malformed packages produce an error report instead of aborting a batch.
     Input files and in-memory presentation XML are never changed.
+
+    The round-trip check opens the package, saves it and lists the parts whose
+    content, relationships or content type differ, so it passes for a deck
+    from PowerPoint or any other producer that the library preserves. The
+    order of relationships and of content-type declarations is not content.
     """
     from power_pptx import Presentation
 
@@ -135,10 +225,13 @@ def validate_presentation(
             report.schema_violations = list(iter_schema_violations(data))
             report.schema_checked = True
         prs = Presentation(io.BytesIO(data))
-        report.slide_count = len(prs.slides)
         if check_roundtrip:
+            # -- Save before anything reads `prs`. `Presentation.slides` adds an
+            # -- empty `p:sldIdLst` to a deck without one and renames slide parts
+            # -- into sequence; neither is a change made by opening and saving.
             report.roundtrip_changed_parts = roundtrip_changes(data, presentation_bytes(prs))
             report.roundtrip_checked = True
+        report.slide_count = len(prs.slides)
         # The installed-font inventory below replaces audit's portability
         # heuristic, which warns about every face outside its common-font list.
         report.audit = audit(prs, check_fonts=False).to_dict()

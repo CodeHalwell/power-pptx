@@ -174,6 +174,9 @@ mean pixel error a gate; comparisons are otherwise advisory.
 Each output contains the PPTX, PDF, every slide PNG, contact sheets, gallery,
 ``manifest.json``, and ``REVIEW.md``. Validation covers bundled XSD/package
 checks, round-trip fidelity, layout audit, and explicit native font availability.
+The round-trip check opens and saves the deck and compares each part's content,
+relationships and content type, so decks written by PowerPoint or other tools
+pass as long as nothing is lost or altered.
 No test checkout is needed. Missing fonts warn by default; ``--font-policy error``
 fails on them. Theme/implicit font availability is outside this inventory.
 ``--font-dir assets/fonts`` (repeatable) registers a font folder for these checks
