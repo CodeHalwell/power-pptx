@@ -537,39 +537,28 @@ class TextFrame(Subshape):
         """
         texts: list[str] = []
         formats: list[ParagraphFormat] = []
-        chains: dict[int, list[_Element]] = {}
+        inherited: dict[int, list[_Element]] = {}
         for p in self._txBody.p_lst:
-            pPr = p.pPr
-            level = 0 if pPr is None else pPr.lvl
-            if level not in chains:
-                chains[level] = self._inherited_paragraph_styles(level)
-            chain: list[_Element] = ([] if pPr is None else [pPr]) + chains[level]
-            defaults = [d for d in (e.find(qn("a:defRPr")) for e in chain) if d is not None]
-            pieces: list[str] = []
-            tracking = 0
-            for child in p.content_children:
-                piece = child.text
-                if child.tag != qn("a:br"):
-                    rPr = child.find(qn("a:rPr"))
-                    props = defaults if rPr is None else [rPr, *defaults]
-                    if _first_attr(props, "cap") in ("all", "small"):
-                        piece = piece.upper()
-                    tracking = max(tracking, int(_first_attr(props, "spc") or 0) * 127)
-                pieces.append(piece)
-            texts.append("".join(pieces))
-            if line_spacing is None:
-                paragraph_spacing = _first_spacing(chain, "a:lnSpc")
-            else:
-                paragraph_spacing = line_spacing
-            formats.append(
-                ParagraphFormat(
-                    paragraph_spacing,
-                    _first_spacing(chain, "a:spcBef") or 0,
-                    _first_spacing(chain, "a:spcAft") or 0,
-                    tracking,
-                )
-            )
+            chain = self._paragraph_style_chain(p, inherited)
+            text, tracking = _measured_text(p, chain)
+            texts.append(text)
+            formats.append(_paragraph_format(chain, tracking, line_spacing))
         return "\n".join(texts), formats
+
+    def _paragraph_style_chain(
+        self, p: CT_TextParagraph, inherited: dict[int, list[_Element]]
+    ) -> list[_Element]:
+        """The paragraph-property elements `p` takes its formatting from, nearest first.
+
+        `inherited` holds the styles inherited at each level already looked up, and gets
+        the paragraph's level added when it is not among them.
+        """
+        pPr = p.pPr
+        level = 0 if pPr is None else pPr.lvl
+        if level not in inherited:
+            inherited[level] = self._inherited_paragraph_styles(level)
+        own: list[_Element] = [] if pPr is None else [pPr]
+        return own + inherited[level]
 
     def _inherited_paragraph_styles(self, level: int) -> list[_Element]:
         """The paragraph-property elements a paragraph at `level` inherits from, nearest first.
@@ -661,6 +650,46 @@ def _first_attr(elements: list[_Element], name: str) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def _measured_text(p: CT_TextParagraph, chain: list[_Element]) -> tuple[str, int]:
+    """The text of paragraph `p` as it is measured, and the widest tracking of its runs in EMU.
+
+    Runs set in capitals contribute their text upper-cased. `chain` is the paragraph's
+    style chain, whose default run properties apply where a run sets nothing itself.
+    """
+    defaults = [d for d in (e.find(qn("a:defRPr")) for e in chain) if d is not None]
+    pieces: list[str] = []
+    tracking = 0
+    for child in p.content_children:
+        if child.tag == qn("a:br"):
+            pieces.append(child.text)
+            continue
+        rPr = child.find(qn("a:rPr"))
+        props = defaults if rPr is None else [rPr, *defaults]
+        piece = child.text
+        if _first_attr(props, "cap") in ("all", "small"):
+            piece = piece.upper()
+        pieces.append(piece)
+        tracking = max(tracking, int(_first_attr(props, "spc") or 0) * 127)
+    return "".join(pieces), tracking
+
+
+def _paragraph_format(
+    chain: list[_Element], tracking: int, line_spacing: float | Length | None
+) -> ParagraphFormat:
+    """The |ParagraphFormat| of a paragraph with style `chain` and run `tracking`.
+
+    `line_spacing`, when given, replaces the paragraph's own.
+    """
+    if line_spacing is None:
+        line_spacing = _first_spacing(chain, "a:lnSpc")
+    return ParagraphFormat(
+        line_spacing,
+        _first_spacing(chain, "a:spcBef") or 0,
+        _first_spacing(chain, "a:spcAft") or 0,
+        tracking,
+    )
 
 
 def _first_spacing(chain: list[_Element], tag: str) -> float | Length | None:
