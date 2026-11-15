@@ -69,6 +69,15 @@ Things to note:
   overwrite the original file without a peep. You'll want to make sure that's
   what you intend.
 
+* A PowerPoint template (``.potx``) or slide show (``.ppsx``) opens the same
+  way. What gets written follows the name you save under: ``.potx`` saves a
+  template, ``.ppsx`` a slide show, and anything else, including a file-like
+  object, an ordinary presentation. So opening ``brand.potx`` and saving
+  ``deck.pptx`` gives you a presentation PowerPoint will open::
+
+      prs = Presentation('brand.potx')
+      prs.save('deck.pptx')
+
 
 Opening a 'file-like' presentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

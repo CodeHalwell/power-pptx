@@ -359,7 +359,7 @@ class Part(_RelatableMixin):
         """
         self._blob = blob
 
-    @lazyproperty
+    @property
     def content_type(self) -> str:
         """Content-type (MIME-type) of this part."""
         return self._content_type

@@ -110,10 +110,16 @@ class Presentation(PartElementProxy):
         # ---- the `not in` check above narrows `value` to `LintOnSaveMode` ----
         self._lint_on_save = value
 
-    def save(self, file: str | IO[bytes]):
+    def save(self, file: str | os.PathLike[str] | IO[bytes]):
         """Writes this presentation to `file`.
 
         `file` can be either a file-path or a file-like object open for writing bytes.
+
+        The extension of a file-path decides what kind of file is written: ``.potx`` saves a
+        template, ``.ppsx`` a slide show, and anything else an ordinary presentation. A
+        file-like object always receives an ordinary presentation. This holds whatever the
+        deck was opened from, so ``Presentation("brand.potx")`` saved as ``"deck.pptx"`` is a
+        presentation, not a template with the wrong extension.
 
         When :attr:`lint_on_save` is ``"warn"`` or ``"raise"``, every slide is
         linted before anything is written; in ``"raise"`` mode a

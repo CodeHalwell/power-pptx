@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import pathlib
+
 import pytest
 
+from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import Part
 from power_pptx.opc.packuri import PackURI
@@ -160,6 +164,33 @@ class DescribePresentationPart(object):
     def it_can_save_the_package_to_a_file(self, package_):
         PresentationPart(None, None, package_, None).save("prs.pptx")
         package_.save.assert_called_once_with("prs.pptx")
+
+    @pytest.mark.parametrize(
+        ("content_type", "target", "expected"),
+        [
+            (CT.PML_TEMPLATE_MAIN, "deck.pptx", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "brand.potx", CT.PML_TEMPLATE_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "show.PPSX", CT.PML_SLIDESHOW_MAIN),
+            (CT.PML_TEMPLATE_MAIN, pathlib.Path("out") / "deck.pptx", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, "deck.tmp", CT.PML_PRESENTATION_MAIN),
+            (CT.PML_TEMPLATE_MAIN, io.BytesIO(), CT.PML_PRESENTATION_MAIN),
+            (CT.PML_SLIDESHOW_MAIN, io.BytesIO(), CT.PML_PRESENTATION_MAIN),
+            (CT.PML_PRESENTATION_MAIN, "brand.potx", CT.PML_TEMPLATE_MAIN),
+            (CT.PML_PRESENTATION_MAIN, pathlib.Path("show.ppsx"), CT.PML_SLIDESHOW_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, "deck.pptx", CT.PML_PRES_MACRO_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, "brand.potx", CT.PML_PRES_MACRO_MAIN),
+            (CT.PML_PRES_MACRO_MAIN, io.BytesIO(), CT.PML_PRES_MACRO_MAIN),
+        ],
+    )
+    def it_saves_as_the_kind_of_package_its_target_calls_for(
+        self, package_, content_type, target, expected
+    ):
+        prs_part = PresentationPart(None, content_type, package_, None)
+
+        prs_part.save(target)
+
+        package_.save.assert_called_once_with(target)
+        assert prs_part.content_type == expected
 
     def it_can_add_a_new_slide(self, request, package_, slide_part_, slide_, relate_to_):
         slide_layout_ = instance_mock(request, SlideLayout)

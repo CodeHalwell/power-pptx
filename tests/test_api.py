@@ -7,7 +7,7 @@ import os
 import pytest
 
 import power_pptx
-from power_pptx.api import Presentation
+from power_pptx.api import Presentation, _is_pptx_package
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.parts.presentation import PresentationPart
 
@@ -84,3 +84,24 @@ class DescribePresentation(object):
     @pytest.fixture
     def prs_part_(self, request):
         return instance_mock(request, PresentationPart)
+
+
+class Describe_is_pptx_package(object):
+    """A template (.potx) and a slide show (.ppsx) are presentations too."""
+
+    @pytest.mark.parametrize(
+        ("content_type", "expected"),
+        [
+            (CT.PML_PRESENTATION_MAIN, True),
+            (CT.PML_PRES_MACRO_MAIN, True),
+            (CT.PML_TEMPLATE_MAIN, True),
+            (CT.PML_SLIDESHOW_MAIN, True),
+            (CT.WML_DOCUMENT_MAIN, False),
+            (CT.SML_SHEET_MAIN, False),
+            (CT.PML_SLIDE, False),
+        ],
+    )
+    def it_knows_which_main_parts_are_presentations(self, request, content_type, expected):
+        prs_part_ = instance_mock(request, PresentationPart, content_type=content_type)
+
+        assert _is_pptx_package(prs_part_) is expected

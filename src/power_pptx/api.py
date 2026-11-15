@@ -18,12 +18,20 @@ if TYPE_CHECKING:
     from power_pptx.parts.presentation import PresentationPart
 
 
-def Presentation(pptx: str | IO[bytes] | None = None) -> presentation.Presentation:
+def Presentation(
+    pptx: str | os.PathLike[str] | IO[bytes] | None = None,
+) -> presentation.Presentation:
     """
     Return a |Presentation| object loaded from *pptx*, where *pptx* can be
-    either a path to a ``.pptx`` file (a string) or a file-like object. If
-    *pptx* is missing or ``None``, the built-in default presentation
-    "template" is loaded.
+    either a path to a ``.pptx`` file (a string or path object) or a
+    file-like object. If *pptx* is missing or ``None``, the built-in default
+    presentation "template" is loaded.
+
+    A PowerPoint template (``.potx``) or slide show (``.ppsx``) opens the same
+    way.  What it is saved *as* follows the name given to
+    :meth:`~power_pptx.presentation.Presentation.save`: a path ending in
+    ``.potx`` writes a template, ``.ppsx`` a slide show, and anything else
+    (including a file-like object) an ordinary presentation.
     """
     if pptx is None:
         pptx = _default_pptx_path()
@@ -44,6 +52,16 @@ def _default_pptx_path() -> str:
 
 
 def _is_pptx_package(prs_part: PresentationPart):
-    """Return |True| if *prs_part* is a valid main document part, |False| otherwise."""
-    valid_content_types = (CT.PML_PRESENTATION_MAIN, CT.PML_PRES_MACRO_MAIN)
+    """Return |True| if *prs_part* is a valid main document part, |False| otherwise.
+
+    A presentation (``.pptx``), a macro-enabled presentation (``.pptm``), a
+    template (``.potx``) and a slide show (``.ppsx``) all have a
+    `p:presentation` main part and differ only in its content type.
+    """
+    valid_content_types = (
+        CT.PML_PRESENTATION_MAIN,
+        CT.PML_PRES_MACRO_MAIN,
+        CT.PML_TEMPLATE_MAIN,
+        CT.PML_SLIDESHOW_MAIN,
+    )
     return prs_part.content_type in valid_content_types
