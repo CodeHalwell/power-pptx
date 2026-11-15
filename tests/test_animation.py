@@ -359,6 +359,9 @@ class DescribeMotionPath:
             ("M 0 0 L 1 1 Z 5", "expected a command after 'Z'"),
             ("   ", "non-empty OOXML path"),
             (None, "non-empty OOXML path"),
+            # -- separators and nothing else used to raise IndexError --
+            (",", "no recognisable commands"),
+            (" , ,", "no recognisable commands"),
         ],
     )
     def it_rejects_a_custom_path_it_cannot_write_faithfully(self, slide_with_shape, path, message):

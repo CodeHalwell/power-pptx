@@ -2750,6 +2750,8 @@ def _normalise_motion_path(path: Any) -> str:
             "motion path must be a non-empty OOXML path string, e.g. 'M 0 0 L 0.5 0 E'"
         )
     tokens = _path_tokens(path, "motion path")
+    if not tokens:
+        raise ValueError(f"no recognisable commands in motion path {path!r}")
 
     out: list[str] = []
     cmd = ""
