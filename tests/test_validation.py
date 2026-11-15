@@ -11,6 +11,7 @@ from lxml import etree
 from power_pptx import Presentation
 from power_pptx.util import Inches
 from power_pptx.validation import (
+    iter_schema_violations,
     presentation_bytes,
     roundtrip_changes,
     schema_validation_available,
@@ -96,6 +97,33 @@ def _reversed_children(data):
     root = etree.fromstring(data)
     root[:] = reversed(root)
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+class DescribePresentationProperties:
+    """`ppt/presProps.xml` holds the slide-show settings and is validated too."""
+
+    def it_accepts_the_slide_show_settings_this_library_writes(self):
+        prs = deck()
+        prs.slide_show.loop = True
+        prs.slide_show.show_type = "kiosk"
+
+        violations = list(iter_schema_violations(presentation_bytes(prs)))
+
+        assert violations == []
+
+    def it_reports_a_malformed_presentation_properties_part(self):
+        prs = deck()
+        prs.slide_show.loop = True
+
+        def misorder(name, data):
+            # -- CT_PresentationProperties requires p:showPr before p:extLst --
+            if name != "ppt/presProps.xml":
+                return data
+            return _reversed_children(data)
+
+        data = _rewritten(presentation_bytes(prs), misorder)
+
+        assert any(part == "ppt/presProps.xml" for part, _ in iter_schema_violations(data))
 
 
 class DescribeUntrustedInput:

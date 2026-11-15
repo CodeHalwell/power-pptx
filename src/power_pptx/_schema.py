@@ -79,7 +79,7 @@ _CHECKED_PREFIXES = (
     "ppt/charts/chart",
     "ppt/theme/theme",
 )
-_CHECKED_EXACT = ("ppt/presentation.xml",)
+_CHECKED_EXACT = ("ppt/presentation.xml", "ppt/presProps.xml")
 
 _schema_cache: "dict[str, object]" = {}
 
