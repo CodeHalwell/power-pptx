@@ -680,6 +680,65 @@ class DescribeEntranceByParagraph:
         with pytest.raises(TypeError, match="parent chain"):
             Entrance.fade(slide, cell_tf, by_paragraph=True)
 
+    def it_finds_the_shape_beyond_a_parent_that_is_no_shape(self):
+        from power_pptx.text.text import TextFrame
+
+        class Holder:
+            def __init__(self, parent):
+                self._parent = parent
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        tb.text_frame.text = "one"
+        tf = TextFrame(tb.text_frame._txBody, Holder(Holder(tb)))
+
+        slide.animations.add_entrance("fade", tf, by_paragraph=True)
+
+        spids = {t.get("spid") for t in slide._element.iter(qn("p:spTgt"))}
+        assert spids == {str(tb.shape_id)}
+
+    def it_rejects_a_text_frame_whose_parent_chain_loops(self):
+        from power_pptx.text.text import TextFrame
+
+        class Loop:
+            def __init__(self):
+                self._parent = Hop(self)
+
+        class Hop:
+            def __init__(self, parent):
+                self._parent = parent
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        tf = TextFrame(tb.text_frame._txBody, Loop())
+
+        with pytest.raises(TypeError, match="parent chain reaches a shape; 'Loop' has no"):
+            slide.animations.add_entrance("fade", tf, by_paragraph=True)
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_rejects_a_shape_without_a_text_frame(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        line = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, 0, 0, Inches(1), Inches(1))
+
+        with pytest.raises(
+            TypeError, match="a text_frame and shape_id; got 'Connector'"
+        ):
+            slide.animations.add_entrance("fade", line, by_paragraph=True)
+
+    def it_rejects_an_object_with_a_text_frame_but_no_shape_id(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        table = slide.shapes.add_table(1, 1, Inches(1), Inches(1), Inches(4), Inches(2)).table
+
+        with pytest.raises(TypeError, match="a text_frame and shape_id; got '_Cell'"):
+            slide.animations.add_entrance("fade", table.cell(0, 0), by_paragraph=True)
+
     def it_rejects_a_text_frame_when_by_paragraph_is_false(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
