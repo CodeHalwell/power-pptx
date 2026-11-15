@@ -10,7 +10,8 @@ Public entry point::
 
 Issue types:
 
-* ``TextOverflow``             — text likely exceeds the text-frame bounds.
+* ``TextOverflow``             — text does not fit its text frame, measured
+  with the same font metrics ``TextFrame.fit_text`` uses.
 * ``ShapeCollision``           — two shapes' bounding boxes overlap.
 * ``OffSlide``                 — a shape extends outside the slide.
 * ``MinFontSize``              — a text run is below the legibility threshold.
@@ -35,11 +36,13 @@ Declaring intentional overlap (so the collision detector stays quiet)::
 
 from __future__ import annotations
 
-import math
+import functools
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
 from enum import Enum
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Sequence
 
 from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.util import Emu
@@ -105,21 +108,96 @@ class LintIssue:
 
 @dataclass
 class TextOverflow(LintIssue):
-    """Estimated text content exceeds the text frame's visible area."""
+    """Text does not fit the text frame (or table row) that holds it.
 
+    The text is laid out with the font metrics ``TextFrame.fit_text`` uses:
+    each run is measured at its effective size and typeface (run, then
+    paragraph, then the placeholder / master it inherits from), wrapped to
+    the frame width inside its insets, and stacked at the frame's line
+    spacing.
+
+    Severity depends on whether a renderer can repair the overflow.  A
+    fixed-size frame is an ERROR: the text spills in every renderer.  A frame
+    set to resize or shrink (``MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT`` /
+    ``TEXT_TO_FIT_SHAPE``) and a table row, which grows to fit, are a WARNING:
+    the stored geometry is stale, but the renderer adjusts it when the deck
+    is opened or the text is edited.
+    """
+
+    #: Extent the text needs divided by the extent available, along
+    #: :attr:`dimension`.  Always greater than 1.
     ratio: float = 1.0
+    #: ``"height"`` when the lines do not fit vertically, ``"width"`` when a
+    #: line is wider than the frame and word wrap is off.
+    dimension: str = "height"
+    #: How far the text runs past the frame, in points.
+    overflow_pt: float = 0.0
+    #: The frame's effective auto-size mode: ``"NONE"``,
+    #: ``"SHAPE_TO_FIT_TEXT"``, ``"TEXT_TO_FIT_SHAPE"``, or ``None`` when no
+    #: mode is set on the shape or anything it inherits from.
+    auto_size: str | None = None
+    #: True when a typeface was not installed, so the figures come from the
+    #: text engine's fallback metrics rather than the real font.
+    estimated: bool = False
+    #: Zero-based table row and column of the cell with the most text, for an
+    #: overflowing table row; ``None`` for a shape's own text frame.
+    row: int | None = None
+    col: int | None = None
 
-    def __init__(self, shape: BaseShape, ratio: float):
+    def __init__(
+        self,
+        shape: BaseShape,
+        ratio: float,
+        *,
+        severity: LintSeverity = LintSeverity.ERROR,
+        dimension: str = "height",
+        overflow_pt: float = 0.0,
+        auto_size: str | None = None,
+        missing_font: str | None = None,
+        row: int | None = None,
+        col: int | None = None,
+    ):
+        times = f"{ratio:.1f}" if ratio >= 1.15 else f"{ratio:.2f}"
+        if row is not None:
+            detail = (
+                f"row {row} needs {times}× its height for the text in cell "
+                f"({row}, {col}) ({overflow_pt:.0f}pt too short). Table rows grow to fit "
+                f"when rendered, so the table will be taller than its stored size."
+            )
+        elif dimension == "width":
+            detail = (
+                f"text is {times}× the text frame width with word wrap off "
+                f"({overflow_pt:.0f}pt too wide)."
+            )
+        else:
+            detail = f"text needs {times}× the text frame height ({overflow_pt:.0f}pt too tall)."
+        if row is None and auto_size == "SHAPE_TO_FIT_TEXT":
+            detail += (
+                " The shape is set to resize to its text, so it grows when rendered or "
+                "edited and its stored size is stale."
+            )
+        elif row is None and auto_size == "TEXT_TO_FIT_SHAPE":
+            detail += (
+                " The frame is set to shrink text on overflow, which PowerPoint only "
+                "applies when the text is next edited."
+            )
+        if missing_font is not None:
+            detail += (
+                f" Measured with fallback font metrics because {missing_font!r} is not installed."
+            )
         super().__init__(
-            severity=LintSeverity.ERROR,
+            severity=severity,
             code="TextOverflow",
-            message=(
-                f"Shape '{shape.name}': estimated text height is {ratio:.1f}× "
-                f"the text frame height."
-            ),
+            message=f"Shape '{shape.name}': {detail}",
             shapes=(shape,),
         )
         self.ratio = ratio
+        self.dimension = dimension
+        self.overflow_pt = overflow_pt
+        self.auto_size = auto_size
+        self.estimated = missing_font is not None
+        self.row = row
+        self.col = col
 
 
 @dataclass
@@ -863,7 +941,7 @@ _SARIF_LEVEL_BY_SEVERITY: dict[LintSeverity, str] = {
 #: rule's ``shortDescription``. Unknown codes fall back to the code
 #: itself so a new issue type still produces a valid (if terse) rule.
 _RULE_DESCRIPTIONS: dict[str, str] = {
-    "TextOverflow": "Estimated text content exceeds the text frame's visible area.",
+    "TextOverflow": "Text does not fit the text frame or table row that holds it.",
     "OffSlide": "A shape extends beyond the slide boundary.",
     "OffSlideShadow": "A shape's shadow bleed extends beyond the slide boundary.",
     "ShapeCollision": "Two shapes' bounding boxes overlap.",
@@ -1118,87 +1196,1049 @@ def _check_off_slide(
     return issues
 
 
-def _check_text_overflow(shape: BaseShape) -> list[LintIssue]:
-    """Return TextOverflow issues for *shape* using a simple line-count heuristic.
+# ---------------------------------------------------------------------------
+# Text measurement — lay a text frame out with the library's text engine.
+#
+# ``TextOverflow`` used to count characters at the first run's size.  It now
+# measures: every run at its effective size and typeface, words through the
+# same Pillow metrics ``TextFrame.fit_text`` and ``measure_text`` use, wrapped
+# to the frame width inside its insets, stacked at the paragraph's line
+# spacing.  Everything here reads the XML directly so that linting never adds
+# a ``<p:txBody>`` or ``<a:rPr>`` to the slide it is inspecting.
+# ---------------------------------------------------------------------------
 
-    Skips shapes with auto-size enabled or when no text frame is present.
-    The heuristic estimates the number of lines the text would require
-    (assuming ~60 characters per line at the default font size) and compares
-    that to the number of lines that fit in the text-frame height.
+_EMU_PER_PT = 12700
+#: Height of a single-spaced line as a multiple of its font size.  This is the
+#: figure ``TextFrame.fit_text`` reserves per line and the pitch PowerPoint and
+#: LibreOffice render at 100% line spacing, whatever the typeface.
+_LINE_PITCH = 1.2
+#: Family assumed when a run names no typeface and the theme supplies none —
+#: the same default ``fit_text`` applies.
+_DEFAULT_FAMILY = "Calibri"
+#: Words are measured once at this size and scaled: glyph advances are linear
+#: in the point size, and a large reference size keeps Pillow's whole-pixel
+#: rounding negligible while letting one measurement serve every size.
+_REF_SIZE_PT = 100
+#: Rounding slack when comparing a laid-out extent with the frame: OOXML
+#: stores exact line spacing in 1/100 pt, so allow that much per line.
+_LINE_TOLERANCE_EMU = _EMU_PER_PT // 100
+#: Slack for a line measured against the frame width with word wrap off.
+_WIDTH_TOLERANCE_EMU = _EMU_PER_PT // 2
+
+_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+_T_P = _A + "p"
+_T_R = _A + "r"
+_T_BR = _A + "br"
+_T_FLD = _A + "fld"
+_T_T = _A + "t"
+_T_RPR = _A + "rPr"
+_T_PPR = _A + "pPr"
+_T_DEFRPR = _A + "defRPr"
+_T_ENDPARARPR = _A + "endParaRPr"
+_T_LATIN = _A + "latin"
+_T_LNSPC = _A + "lnSpc"
+_T_SPCBEF = _A + "spcBef"
+_T_SPCAFT = _A + "spcAft"
+_T_SPCPCT = _A + "spcPct"
+_T_SPCPTS = _A + "spcPts"
+_T_BODYPR = _A + "bodyPr"
+_T_LSTSTYLE = _A + "lstStyle"
+_T_NOAUTOFIT = _A + "noAutofit"
+_T_NORMAUTOFIT = _A + "normAutofit"
+_T_SPAUTOFIT = _A + "spAutoFit"
+
+_UNSET: Any = object()
+_TOKEN_RE = re.compile(r"\s+|\S+")
+#: ``<a:bodyPr vert>`` values whose lines run top-to-bottom, so the frame's
+#: height is the line length and its width is what the lines stack across.
+_ROTATED_TEXT = frozenset({"vert", "vert270", "eaVert", "mongolianVert"})
+#: ``vert`` values that stack individual letters; not measured.
+_STACKED_TEXT = frozenset({"wordArtVert", "wordArtVertRtl"})
+
+
+class _RunStyle(NamedTuple):
+    """How one run of text is measured."""
+
+    size: float  # points, after any autofit font scale
+    font_file: str | None  # None: the text engine's fallback metrics
+    spacing: float  # extra EMU after each character (``<a:rPr spc>``)
+    caps: bool
+
+
+class _BodyProps(NamedTuple):
+    """Effective ``<a:bodyPr>`` settings of a text frame."""
+
+    l_ins: int
+    t_ins: int
+    r_ins: int
+    b_ins: int
+    wrap: bool
+    anchor: str  # "t", "ctr" or "b"
+    vert: str
+    cols: int
+    col_gap: int
+    #: Auto-size in effect, inherited through the placeholder chain.
+    autofit: MSO_AUTO_SIZE | None
+    #: Auto-size written on the shape itself (``None`` when inherited or unset).
+    own_autofit: MSO_AUTO_SIZE | None
+    font_scale: float  # 1.0 unless ``<a:normAutofit fontScale>`` says otherwise
+    ln_reduction: float  # ``<a:normAutofit lnSpcReduction>`` as a fraction
+
+
+class _TextMeasure(NamedTuple):
+    """The laid-out extent of a text frame against the space it has."""
+
+    text_w: float  # widest line, EMU
+    text_h: float  # height of all lines and paragraph spacing, EMU
+    avail_w: float  # line length available inside the insets, EMU
+    avail_h: float  # stacking extent available (all columns), EMU
+    lines: int
+    body: _BodyProps
+    align: str  # "l", "ctr" or "r" — where a non-wrapping line grows from
+    #: Typeface that was not installed, when fallback metrics were used.
+    missing_font: str | None
+    #: ``(family, bold, italic, point_size, line_spacing)`` when every run
+    #: shares one whole-point style and nothing but ``fit_text``'s own
+    #: settings shapes the layout; ``None`` otherwise.
+    uniform: tuple[str, bool, bool, int, float | None] | None
+
+    @property
+    def over_h(self) -> float:
+        """EMU by which the text is taller than the frame (0 when it fits)."""
+        over = self.text_h - self.avail_h
+        return over if over > self.lines * _LINE_TOLERANCE_EMU else 0.0
+
+    @property
+    def over_w(self) -> float:
+        """EMU by which a non-wrapping line is wider than the frame."""
+        if self.body.wrap:
+            return 0.0
+        over = self.text_w - self.avail_w
+        return over if over > _WIDTH_TOLERANCE_EMU else 0.0
+
+
+@functools.lru_cache(maxsize=65536)
+def _ref_width(text: str, font_file: str | None) -> int:
+    """Width in EMU of the single line `text` at the reference size.
+
+    Measured by :func:`power_pptx.text.measure_text`, so the font lookup, the
+    Pillow metrics and the fallback when no font file is available are the
+    text engine's own.  Passing a file rather than a family name keeps the
+    engine from warning about a missing family: linting a deck on a machine
+    without its fonts is routine, not something to warn about per word.
     """
-    issues: list[LintIssue] = []
-    if not shape.has_text_frame:
-        return issues
+    from power_pptx.text.measurement import measure_text
 
-    tf = shape.text_frame  # type: ignore[attr-defined]
-    # Skip when the shape auto-sizes (no overflow possible by definition)
-    if tf.auto_size in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE):
-        return issues
-
-    text = tf.text.replace("\v", "\n")
-    if not text.strip():
-        return issues
-
-    # Rough per-run font-size estimate: fall back to 18pt (914400 EMU/pt = 12700)
-    _PT_TO_EMU = 12700
-    _DEFAULT_FONT_PT = 18
     try:
-        first_run = tf.paragraphs[0].runs[0]
-        size = first_run.font.size if first_run._r.rPr is not None else None
-        font_pt = (size or (_DEFAULT_FONT_PT * _PT_TO_EMU)) / _PT_TO_EMU
-    except (IndexError, AttributeError):
-        font_pt = _DEFAULT_FONT_PT
-
-    # Estimate shape inner width/height in EMU, accounting for text-frame margins.
-    try:
-        frame_w = int(shape.width or 0) - int(tf.margin_left or 0) - int(tf.margin_right or 0)
-        frame_h = int(shape.height or 0) - int(tf.margin_top or 0) - int(tf.margin_bottom or 0)
+        return int(
+            measure_text(text, Emu(10**12), size_pt=_REF_SIZE_PT, font_file=font_file).width
+        )
     except Exception:
-        return issues
+        # An unreadable font file must not take the whole lint run down;
+        # half an em per character is the engine-free estimate of last resort.
+        return int(len(text) * 0.5 * _REF_SIZE_PT * _EMU_PER_PT)
 
-    if frame_w <= 0 or frame_h <= 0:
-        return issues
 
-    # Approximate character width at the given pt size.  The base 0.55×
-    # multiplier is a Calibri-ish average across mixed casing, but it
-    # systematically over-estimates short uppercase strings (badge /
-    # pill labels) where every character is an upper-case letter and
-    # there's only one line.  For short single-line strings (≤ 20
-    # chars), use a tighter 0.45× multiplier — see IMPROVEMENT_PLAN
-    # item 11 for the failure case ("MOST POPULAR" pill at 9pt).
-    has_newline = "\n" in text
-    short_single_line = (not has_newline) and len(text) <= 20
-    char_w_pt_mult = 0.45 if short_single_line else 0.55
-    char_w_emu = font_pt * char_w_pt_mult * _PT_TO_EMU
-    # Line height ~ 1.2 × font size
-    line_h_emu = font_pt * 1.2 * _PT_TO_EMU
-    spacing = tf.paragraphs[0].line_spacing
-    if isinstance(spacing, int):
-        line_h_emu = spacing or line_h_emu
-    elif isinstance(spacing, float):
-        line_h_emu = font_pt * spacing * _PT_TO_EMU
+@functools.lru_cache(maxsize=1024)
+def _ref_space_width(font_file: str | None) -> int:
+    """Width in EMU of one space at the reference size."""
+    return max(0, _ref_width("x x", font_file) - 2 * _ref_width("x", font_file))
 
-    chars_per_line = max(1, frame_w / char_w_emu)
-    # OOXML rounds exact line spacing to 1/100 pt; allow that quantization
-    # per authored line when comparing a browser-measured or native box.
-    tolerance = len(text.split("\n")) * _PT_TO_EMU / 100
-    lines_available = max(1, (frame_h + tolerance) / line_h_emu)
-    # When a line wraps, it occupies a whole-number line slot in the
-    # rendered frame — half a line of overflow still pushes content out.
-    # Counting the raw float (e.g. 1.5 lines for a 31-char line that
-    # wraps to two) under-counts overflow vs. ``lines_available`` (also
-    # a raw float), so a real two-line render slips past the check.
-    # ``ceil`` matches what the renderer does: each wrapped line is one
-    # full line of vertical space.  See IMPROVEMENTS item 7.
-    estimated_lines = sum(
-        1 if tf.word_wrap is False else max(1, math.ceil(len(line) / chars_per_line))
-        for line in text.split("\n")
+
+def _is_wide(char: str) -> bool:
+    """True for East Asian full-width characters, which occupy one em each."""
+    return unicodedata.east_asian_width(char) in ("W", "F")
+
+
+def _text_width(text: str, style: _RunStyle) -> float:
+    """Width in EMU of `text` (no spaces, no breaks) set in `style`."""
+    if style.caps:
+        text = text.upper()
+    scale = style.size / _REF_SIZE_PT
+    if text.isascii():
+        width = _ref_width(text, style.font_file) * scale
+    else:
+        # CJK ideographs and kana are one em wide in every font that has
+        # them; measuring them in a Latin face would report the width of its
+        # "missing glyph" box instead.
+        width = 0.0
+        narrow: list[str] = []
+        for char in text:
+            if _is_wide(char):
+                width += style.size * _EMU_PER_PT
+            else:
+                narrow.append(char)
+        if narrow:
+            width += _ref_width("".join(narrow), style.font_file) * scale
+    return width + style.spacing * len(text)
+
+
+_Atom = tuple  # (width, font_size, space_before, pieces)
+
+
+def _text_atoms(fragments: Sequence[tuple[str, _RunStyle]]) -> list[_Atom]:
+    """Split `fragments` into the unbreakable units a line is built from.
+
+    Each atom is ``(width, font_size, space_before, pieces)``.  A break is
+    allowed at whitespace and on either side of an East Asian wide character;
+    a word that changes style mid-way stays one atom.
+    """
+    atoms: list[_Atom] = []
+    pieces: list[tuple[str, _RunStyle]] = []
+    space = 0.0  # whitespace owed before the atom being built
+    pending = 0.0  # whitespace seen since the last atom was closed
+
+    def close() -> None:
+        nonlocal pieces
+        if pieces:
+            atoms.append(
+                (
+                    sum(_text_width(text, style) for text, style in pieces),
+                    max(style.size for _, style in pieces),
+                    space,
+                    pieces,
+                )
+            )
+            pieces = []
+
+    for text, style in fragments:
+        for token in _TOKEN_RE.findall(text):
+            if token.isspace():
+                close()
+                pending = max(
+                    pending,
+                    _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT + style.spacing,
+                )
+                continue
+            if token.isascii():
+                parts = [token]
+            else:
+                parts = []
+                run = ""
+                for char in token:
+                    if _is_wide(char):
+                        if run:
+                            parts.append(run)
+                            run = ""
+                        parts.append(char)
+                    else:
+                        run += char
+                if run:
+                    parts.append(run)
+            for part in parts:
+                if pieces and (_is_wide(part[0]) or _is_wide(pieces[-1][0][-1])):
+                    close()
+                if not pieces:
+                    space, pending = (pending if atoms else 0.0), 0.0
+                pieces.append((part, style))
+    close()
+    return atoms
+
+
+def _split_overlong(
+    pieces: Sequence[tuple[str, _RunStyle]], first_limit: float, limit: float
+) -> list[tuple[float, float]]:
+    """Break one over-wide word at characters, the way a renderer does.
+
+    Returns ``(width, font_size)`` for each line the word occupies.
+    """
+    lines: list[tuple[float, float]] = []
+    width = size = 0.0
+    cap = first_limit
+    for text, style in pieces:
+        for char in text:
+            char_width = _text_width(char, style)
+            if width > 0 and width + char_width > cap:
+                lines.append((width, size))
+                width = size = 0.0
+                cap = limit
+            width += char_width
+            size = max(size, style.size)
+    if width > 0:
+        lines.append((width, size))
+    return lines
+
+
+def _wrap_fragments(
+    fragments: Sequence[tuple[str, _RunStyle]], first_limit: float, limit: float, wrap: bool
+) -> list[tuple[float, float]]:
+    """Lay one explicit line of text out as ``(width, font_size)`` per rendered line.
+
+    Greedy first-fit, which is what ``TextFitter`` and the renderers do.  An
+    empty list means the fragments hold no visible text.
+    """
+    lines: list[tuple[float, float]] = []
+    width = size = 0.0
+    started = False
+    cap = first_limit
+    for atom_width, atom_size, space, pieces in _text_atoms(fragments):
+        if started and (not wrap or width + space + atom_width <= cap):
+            width += space + atom_width
+            size = max(size, atom_size)
+            continue
+        if started:
+            lines.append((width, size))
+            cap = limit
+        started = True
+        if wrap and atom_width > cap:
+            chunks = _split_overlong(pieces, cap, limit)
+            lines.extend(chunks[:-1])
+            if len(chunks) > 1:
+                cap = limit
+            width, size = chunks[-1]
+        else:
+            width, size = atom_width, atom_size
+    if started:
+        lines.append((width, size))
+    return lines
+
+
+def _fraction(value: str | None) -> float | None:
+    """Parse an OOXML percentage (``"90000"`` or ``"90%"``) as a fraction."""
+    if value is None:
+        return None
+    try:
+        if value.endswith("%"):
+            return float(value[:-1]) / 100.0
+        return float(value) / 100000.0
+    except ValueError:
+        return None
+
+
+def _int_attr(element, name: str) -> int | None:
+    value = element.get(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _bool_attr(element, name: str) -> bool | None:
+    value = element.get(name)
+    if value is None:
+        return None
+    return value in ("1", "true")
+
+
+#: Character properties: (size in 1/100 pt, bold, italic, typeface, letter
+#: spacing in 1/100 pt, all-caps).
+_CharProps = tuple
+_DEFAULT_CHAR_PROPS: _CharProps = (1800, False, False, None, 0, False)
+#: Paragraph properties: (line spacing, space before, space after, left
+#: margin, first-line indent, right margin, alignment).  A spacing value is
+#: ``("pct", fraction)``, ``("pts", emu)`` or ``None``.
+_ParaProps = tuple
+_DEFAULT_PARA_PROPS: _ParaProps = (None, None, None, 0, 0, 0, "l")
+
+
+def _apply_char_props(props: _CharProps, rpr) -> _CharProps:
+    """Return `props` overridden by whatever `rpr` (an ``a:rPr``-like element) sets."""
+    if rpr is None:
+        return props
+    size, bold, italic, face, spacing, caps = props
+    value = _int_attr(rpr, "sz")
+    if value is not None and value > 0:
+        size = value
+    flag = _bool_attr(rpr, "b")
+    if flag is not None:
+        bold = flag
+    flag = _bool_attr(rpr, "i")
+    if flag is not None:
+        italic = flag
+    value = _int_attr(rpr, "spc")
+    if value is not None:
+        spacing = value
+    cap = rpr.get("cap")
+    if cap is not None:
+        caps = cap == "all"
+    latin = rpr.find(_T_LATIN)
+    if latin is not None and latin.get("typeface"):
+        face = latin.get("typeface")
+    return (size, bold, italic, face, spacing, caps)
+
+
+def _spacing_value(element):
+    """Read an ``a:lnSpc`` / ``a:spcBef`` / ``a:spcAft`` element."""
+    pct = element.find(_T_SPCPCT)
+    if pct is not None:
+        fraction = _fraction(pct.get("val"))
+        return None if fraction is None else ("pct", fraction)
+    pts = element.find(_T_SPCPTS)
+    if pts is not None:
+        value = _int_attr(pts, "val")
+        return None if value is None else ("pts", value * _EMU_PER_PT / 100.0)
+    return None
+
+
+def _apply_para_props(props: _ParaProps, ppr) -> _ParaProps:
+    """Return `props` overridden by whatever `ppr` (an ``a:pPr``-like element) sets."""
+    if ppr is None:
+        return props
+    line, before, after, mar_l, indent, mar_r, align = props
+    for child in ppr:
+        tag = child.tag
+        if tag == _T_LNSPC:
+            line = _spacing_value(child) or line
+        elif tag == _T_SPCBEF:
+            before = _spacing_value(child) or before
+        elif tag == _T_SPCAFT:
+            after = _spacing_value(child) or after
+    value = _int_attr(ppr, "marL")
+    if value is not None:
+        mar_l = value
+    value = _int_attr(ppr, "indent")
+    if value is not None:
+        indent = value
+    value = _int_attr(ppr, "marR")
+    if value is not None:
+        mar_r = value
+    algn = ppr.get("algn")
+    if algn is not None:
+        align = algn
+    return (line, before, after, mar_l, indent, mar_r, align)
+
+
+class _TextEnv:
+    """The style sources text on one slide inherits from, resolved lazily.
+
+    One instance serves a whole lint run, so the presentation defaults, the
+    theme fonts and each font-file lookup are read once however many text
+    frames the slide holds.
+    """
+
+    def __init__(self, slide: Slide | None):
+        self._slide = slide
+        self._default_style: Any = _UNSET
+        self._theme_fonts: Any = _UNSET
+        self._master_styles: Any = _UNSET
+        self._font_files: dict[tuple[str, bool, bool], tuple[str | None, bool]] = {}
+        self._level_props: dict[tuple, tuple[_CharProps, _ParaProps, list]] = {}
+
+    def default_style(self):
+        """The presentation's ``<p:defaultTextStyle>``, or ``None``."""
+        if self._default_style is _UNSET:
+            style = None
+            try:
+                assert self._slide is not None
+                prs_elm = self._slide.part.package.presentation_part.presentation._element
+                style = prs_elm.find(_P + "defaultTextStyle")
+            except Exception:
+                style = None
+            self._default_style = style
+        return self._default_style
+
+    def master_style(self, ph_type: str | None):
+        """The master ``<p:txStyles>`` entry a placeholder of `ph_type` inherits."""
+        if self._master_styles is _UNSET:
+            styles = None
+            try:
+                assert self._slide is not None
+                master = self._slide.slide_layout.slide_master._element
+                styles = master.find(_P + "txStyles")
+            except Exception:
+                styles = None
+            self._master_styles = styles
+        styles = self._master_styles
+        if styles is None:
+            return None
+        if ph_type in ("title", "ctrTitle"):
+            name = "titleStyle"
+        elif ph_type in ("dt", "ftr", "sldNum", "hdr"):
+            name = "otherStyle"
+        else:
+            name = "bodyStyle"
+        return styles.find(_P + name)
+
+    def family(self, face: str | None) -> str:
+        """Resolve a typeface attribute (possibly a theme reference) to a family."""
+        if face and not face.startswith("+"):
+            return face
+        if self._theme_fonts is _UNSET:
+            fonts = None
+            try:
+                assert self._slide is not None
+                theme = self._slide.slide_layout.slide_master.part.theme
+                fonts = (theme.fonts.major, theme.fonts.minor)
+            except Exception:
+                fonts = None
+            self._theme_fonts = fonts
+        fonts = self._theme_fonts
+        if fonts is None:
+            return _DEFAULT_FAMILY
+        major, minor = fonts
+        if face and face.startswith("+mj"):
+            return major or minor or _DEFAULT_FAMILY
+        return minor or _DEFAULT_FAMILY
+
+    def font_file(self, family: str, bold: bool, italic: bool) -> tuple[str | None, bool]:
+        """Return ``(path, installed)`` for the face that measures `family`.
+
+        A missing bold or italic face falls back to another style of the same
+        family, since renderers synthesise those.  A family that is not
+        installed at all yields ``(None, False)``; the text engine then
+        measures with its fallback metrics, exactly as ``fit_text`` does.
+        """
+        key = (family, bold, italic)
+        found = self._font_files.get(key)
+        if found is None:
+            from power_pptx.text.fonts import find_font_file
+
+            path = None
+            for style in dict.fromkeys(
+                ((bold, italic), (bold, False), (False, italic), (False, False))
+            ):
+                try:
+                    path = find_font_file(family, *style)
+                except Exception:
+                    path = None
+                if path is not None:
+                    break
+            found = (path, path is not None)
+            self._font_files[key] = found
+        return found
+
+    def sources(self, shape: BaseShape | None, tx_body) -> tuple[list, list]:
+        """Return ``(body_prs, level_sources)`` for `tx_body`, nearest first.
+
+        `body_prs` are the ``<a:bodyPr>`` elements whose settings apply and
+        `level_sources` the elements holding ``<a:lvlNpPr>`` defaults: the
+        frame's own, then — for a placeholder — the layout and master
+        placeholders and the master text style, then the presentation default.
+        """
+        body_prs = []
+        levels = []
+        body_pr = tx_body.find(_T_BODYPR)
+        if body_pr is not None:
+            body_prs.append(body_pr)
+        lst_style = tx_body.find(_T_LSTSTYLE)
+        if lst_style is not None and len(lst_style):
+            levels.append(lst_style)
+        ph_type = _UNSET
+        if shape is not None:
+            try:
+                if shape.is_placeholder:
+                    ph = shape._element.ph  # pyright: ignore[reportPrivateUsage]
+                    ph_type = None if ph is None else ph.get("type")
+            except Exception:
+                ph_type = _UNSET
+        if ph_type is not _UNSET:
+            base: Any = shape
+            for _ in range(2):  # layout placeholder, then master placeholder
+                try:
+                    base = base._base_placeholder  # pyright: ignore[reportPrivateUsage]
+                    base_tx = None if base is None else base._element.txBody
+                except Exception:
+                    break
+                if base is None:
+                    break
+                if base_tx is None:
+                    continue
+                inherited = base_tx.find(_T_BODYPR)
+                if inherited is not None:
+                    body_prs.append(inherited)
+                inherited = base_tx.find(_T_LSTSTYLE)
+                if inherited is not None and len(inherited):
+                    levels.append(inherited)
+            master_style = self.master_style(ph_type)
+            if master_style is not None:
+                levels.append(master_style)
+        default_style = self.default_style()
+        if default_style is not None:
+            levels.append(default_style)
+        return body_prs, levels
+
+    def level_props(self, levels: list, level: int) -> tuple[_CharProps, _ParaProps]:
+        """Inherited character and paragraph properties for indent `level`."""
+        key = (tuple(id(source) for source in levels), level)
+        cached = self._level_props.get(key)
+        if cached is None:
+            tag = _A + "lvl%dpPr" % (level + 1)
+            char_props = _DEFAULT_CHAR_PROPS
+            para_props = _DEFAULT_PARA_PROPS
+            for source in reversed(levels):  # most general first
+                ppr = source.find(tag)
+                if ppr is None:
+                    continue
+                para_props = _apply_para_props(para_props, ppr)
+                char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+            # Keep `levels` alive with the entry so the ids in `key` stay unique.
+            cached = (char_props, para_props, levels)
+            self._level_props[key] = cached
+        return cached[0], cached[1]
+
+
+def _resolve_body_props(body_prs: Sequence) -> _BodyProps:
+    """Effective ``<a:bodyPr>`` settings from a nearest-first chain."""
+
+    def first(name: str) -> str | None:
+        for body_pr in body_prs:
+            value = body_pr.get(name)
+            if value is not None:
+                return value
+        return None
+
+    def inset(name: str, default: int) -> int:
+        value = first(name)
+        try:
+            return default if value is None else int(value)
+        except ValueError:
+            return default
+
+    autofit = own_autofit = None
+    font_scale, ln_reduction = 1.0, 0.0
+    for index, body_pr in enumerate(body_prs):
+        found = None
+        norm = body_pr.find(_T_NORMAUTOFIT)
+        if norm is not None:
+            found = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            font_scale = _fraction(norm.get("fontScale")) or 1.0
+            ln_reduction = _fraction(norm.get("lnSpcReduction")) or 0.0
+        elif body_pr.find(_T_SPAUTOFIT) is not None:
+            found = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+        elif body_pr.find(_T_NOAUTOFIT) is not None:
+            found = MSO_AUTO_SIZE.NONE
+        if found is not None:
+            autofit = found
+            if index == 0:
+                own_autofit = found
+            break
+
+    cols = 1
+    col_gap = 0
+    if body_prs:
+        cols = max(1, _int_attr(body_prs[0], "numCol") or 1)
+        col_gap = max(0, _int_attr(body_prs[0], "spcCol") or 0)
+    return _BodyProps(
+        l_ins=inset("lIns", 91440),
+        t_ins=inset("tIns", 45720),
+        r_ins=inset("rIns", 91440),
+        b_ins=inset("bIns", 45720),
+        wrap=first("wrap") != "none",
+        anchor=first("anchor") or "t",
+        vert=first("vert") or "horz",
+        cols=cols,
+        col_gap=col_gap,
+        autofit=autofit,
+        own_autofit=own_autofit,
+        font_scale=font_scale,
+        ln_reduction=ln_reduction,
     )
 
-    if estimated_lines > lines_available:
-        ratio = estimated_lines / lines_available
-        issues.append(TextOverflow(shape, ratio))
 
+def _has_visible_text(tx_body) -> bool:
+    return any(t.text and t.text.strip() for t in tx_body.iter(_T_T))
+
+
+def _measure_text_body(
+    env: _TextEnv,
+    tx_body,
+    body: _BodyProps,
+    levels: list,
+    width: float,
+    height: float,
+) -> _TextMeasure | None:
+    """Lay `tx_body` out in a `width` × `height` frame and report its extent.
+
+    `body` supplies the insets, wrapping, columns and any stored autofit
+    scale; pass a modified copy to ask "would it fit at this scale?".
+    Returns ``None`` when there is nothing to measure: no visible text, a
+    frame with no room inside its insets, or stacked WordArt text.
+    """
+    if body.vert in _STACKED_TEXT or not _has_visible_text(tx_body):
+        return None
+    inner_w = width - body.l_ins - body.r_ins
+    inner_h = height - body.t_ins - body.b_ins
+    if body.vert in _ROTATED_TEXT:
+        inner_w, inner_h = inner_h, inner_w
+    line_len = (inner_w - (body.cols - 1) * body.col_gap) / body.cols
+    if line_len <= 0 or inner_h <= 0:
+        return None
+
+    text_w = text_h = 0.0
+    line_count = 0
+    missing_font: str | None = None
+    styles_seen: set[tuple[str, bool, bool, int]] = set()
+    spacings_seen: set[float | None] = set()
+    plain = body.cols == 1 and body.wrap and body.vert == "horz" and body.font_scale == 1.0
+    first_align = None
+    paragraphs = tx_body.findall(_T_P)
+    last = len(paragraphs) - 1
+
+    def style_for(props: _CharProps, track: bool) -> _RunStyle:
+        nonlocal missing_font, plain
+        size, bold, italic, face, spacing, caps = props
+        family = env.family(face)
+        font_file, installed = env.font_file(family, bold, italic)
+        if track:
+            if not installed and missing_font is None:
+                missing_font = family
+            styles_seen.add((family, bold, italic, size))
+            if spacing or caps:
+                plain = False
+        return _RunStyle(
+            size=size / 100.0 * body.font_scale,
+            font_file=font_file,
+            spacing=spacing * _EMU_PER_PT / 100.0,
+            caps=caps,
+        )
+
+    def gap(value, size: float) -> float:
+        """Paragraph spacing in EMU; a percentage is of the line it adjoins."""
+        if value is None:
+            return 0.0
+        if value[0] == "pts":
+            return value[1]
+        return value[1] * size * _EMU_PER_PT * _LINE_PITCH
+
+    for index, paragraph in enumerate(paragraphs):
+        ppr = paragraph.find(_T_PPR)
+        level = 0 if ppr is None else min(8, max(0, _int_attr(ppr, "lvl") or 0))
+        char_props, para_props = env.level_props(levels, level)
+        if ppr is not None:
+            para_props = _apply_para_props(para_props, ppr)
+            char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+        line_spacing, before, after, mar_l, indent, mar_r, align = para_props
+        if first_align is None:
+            first_align = align
+        if mar_l or indent or mar_r:
+            plain = False
+        limit = max(1.0, line_len - mar_l - mar_r)
+        first_limit = max(1.0, limit - max(0, indent))
+
+        # -- split the paragraph into explicit lines at each <a:br> --
+        explicit: list[list[tuple[str, _RunStyle]]] = [[]]
+        break_sizes: list[float] = []
+        for child in paragraph:
+            tag = child.tag
+            if tag in (_T_R, _T_FLD):
+                t = child.find(_T_T)
+                text = "" if t is None else (t.text or "")
+                if not text:
+                    continue
+                style = style_for(
+                    _apply_char_props(char_props, child.find(_T_RPR)), bool(text.strip())
+                )
+                explicit[-1].append((text, style))
+            elif tag == _T_BR:
+                size = _apply_char_props(char_props, child.find(_T_RPR))[0]
+                break_sizes.append(size / 100.0 * body.font_scale)
+                explicit.append([])
+        # An empty line takes the height of the paragraph's end mark.
+        end_size = _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))[0]
+        end_size = end_size / 100.0 * body.font_scale
+
+        paragraph_h = 0.0
+        first_size = None
+        for line_index, fragments in enumerate(explicit):
+            lines = _wrap_fragments(
+                fragments, first_limit if line_index == 0 else limit, limit, body.wrap
+            )
+            if not lines:
+                lines = [
+                    (0.0, break_sizes[line_index] if line_index < len(break_sizes) else end_size)
+                ]
+            for line_width, size in lines:
+                if first_size is None:
+                    first_size = size
+                text_w = max(text_w, line_width + mar_l + mar_r)
+                if line_spacing is not None and line_spacing[0] == "pts":
+                    paragraph_h += line_spacing[1]
+                else:
+                    factor = 1.0 if line_spacing is None else line_spacing[1]
+                    factor = max(0.1, factor - body.ln_reduction)
+                    paragraph_h += size * _EMU_PER_PT * _LINE_PITCH * factor
+            line_count += len(lines)
+
+        space_before = gap(before, first_size or end_size) if index > 0 else 0.0
+        space_after = gap(after, first_size or end_size) if index < last else 0.0
+        text_h += space_before + paragraph_h + space_after
+        if space_before or space_after:
+            plain = False
+        if line_spacing is not None and line_spacing[0] == "pts":
+            plain = False
+        spacings_seen.add(None if line_spacing is None else line_spacing[1])
+
+    uniform = None
+    if plain and len(styles_seen) == 1 and len(spacings_seen) == 1:
+        family, bold, italic, size = next(iter(styles_seen))
+        if size % 100 == 0:
+            uniform = (family, bold, italic, size // 100, next(iter(spacings_seen)))
+    return _TextMeasure(
+        text_w=text_w,
+        text_h=text_h,
+        avail_w=line_len,
+        avail_h=inner_h * body.cols,
+        lines=line_count,
+        body=body,
+        align=first_align or "l",
+        missing_font=missing_font,
+        uniform=uniform,
+    )
+
+
+def _engine_says_it_fits(tx_body, measure: _TextMeasure) -> bool:
+    """Ask ``TextFitter`` — the engine behind ``fit_text`` — whether the text fits.
+
+    A frame ``fit_text`` has just sized must never be reported as overflowing,
+    so when the layout above finds a marginal overflow in a frame that looks
+    like ``fit_text`` output (one family, one whole-point size), the engine's
+    own verdict at that size is authoritative.  Only marginal cases are
+    referred: the two agree to within Pillow's pixel rounding, and re-wrapping
+    a frame the engine's way is far costlier than the layout above.
+    """
+    uniform = measure.uniform
+    if uniform is None or measure.over_w:
+        return False
+    line_h = measure.text_h / max(1, measure.lines)
+    if measure.over_h > max(1.5 * line_h, 0.15 * measure.avail_h):
+        return False
+    family, bold, italic, size, line_spacing = uniform
+    try:
+        from power_pptx.text.fonts import find_font_file
+        from power_pptx.text.layout import TextFitter
+
+        text = "\n".join(paragraph.text for paragraph in tx_body.findall(_T_P))
+        extents = (Emu(int(measure.avail_w)), Emu(int(measure.avail_h)))
+        font_file = find_font_file(family, bold, italic)
+        if line_spacing is None:
+            fitted = TextFitter.best_fit_font_size(text, extents, size, font_file)
+        else:
+            fitted = TextFitter.best_fit_font_size(
+                text, extents, size, font_file, min_size=size, line_spacing=line_spacing
+            )
+        return fitted == size
+    except Exception:
+        return False
+
+
+class _TextTarget(NamedTuple):
+    """A text body to measure and the frame it must fit."""
+
+    shape: BaseShape  # the shape reported in an issue
+    tx_body: Any
+    width: float  # frame extent on the slide, EMU
+    height: float
+    body: _BodyProps
+    levels: list
+
+
+def _group_scale(element) -> tuple[float, float]:
+    """Factor by which enclosing groups scale `element`'s own extents."""
+    scale_x = scale_y = 1.0
+    parent = element.getparent()
+    while parent is not None and parent.tag == _P + "grpSp":
+        try:
+            xfrm = parent.grpSpPr.xfrm
+            child_ext = None if xfrm is None else xfrm.chExt
+            if child_ext is not None and xfrm.ext is not None and child_ext.cx and child_ext.cy:
+                scale_x *= xfrm.ext.cx / child_ext.cx
+                scale_y *= xfrm.ext.cy / child_ext.cy
+        except Exception:
+            pass
+        parent = parent.getparent()
+    return scale_x, scale_y
+
+
+def _shape_text_target(env: _TextEnv, shape: BaseShape) -> _TextTarget | None:
+    """Return the measurable text frame of `shape`, or ``None`` if it has none.
+
+    Reads ``<p:txBody>`` straight off the element: ``shape.text_frame`` would
+    add an empty one to a shape that has none.
+    """
+    try:
+        if not shape.has_text_frame:
+            return None
+        element = shape._element  # pyright: ignore[reportPrivateUsage]
+        tx_body = element.txBody
+        if tx_body is None:
+            return None
+        width = float(shape.width or 0)
+        height = float(shape.height or 0)
+    except Exception:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    scale_x, scale_y = _group_scale(element)
+    body_prs, levels = env.sources(shape, tx_body)
+    return _TextTarget(
+        shape, tx_body, width * scale_x, height * scale_y, _resolve_body_props(body_prs), levels
+    )
+
+
+def _iter_text_shapes(shapes) -> Iterator[BaseShape]:
+    """Yield every shape that can hold text, descending into groups."""
+    for shape in shapes:
+        members = None
+        try:
+            if shape._element.tag == _P + "grpSp":  # pyright: ignore[reportPrivateUsage]
+                members = shape.shapes  # type: ignore[attr-defined]
+        except Exception:
+            members = None
+        if members is not None:
+            yield from _iter_text_shapes(members)
+        else:
+            yield shape
+
+
+def _auto_size_name(autofit: MSO_AUTO_SIZE | None) -> str | None:
+    return None if autofit is None else autofit.name
+
+
+def _frame_overflow_issue(target: _TextTarget, measure: _TextMeasure) -> LintIssue | None:
+    """Return the ``TextOverflow`` for a measured text frame, or ``None``."""
+    over_w, over_h = measure.over_w, measure.over_h
+    if not over_w and not over_h:
+        return None
+    if not over_w and _engine_says_it_fits(target.tx_body, measure):
+        return None
+    # Report the dimension that is further out; width only arises with
+    # word wrap off, where it is usually the whole story.
+    ratio_w = measure.text_w / measure.avail_w if over_w else 0.0
+    ratio_h = measure.text_h / measure.avail_h if over_h else 0.0
+    return TextOverflow(
+        target.shape,
+        max(ratio_w, ratio_h),
+        dimension="width" if ratio_w >= ratio_h else "height",
+        overflow_pt=(over_w if ratio_w >= ratio_h else over_h) / _EMU_PER_PT,
+        auto_size=_auto_size_name(measure.body.autofit),
+        missing_font=measure.missing_font,
+    )
+
+
+def _table_cell_body(tc) -> _BodyProps:
+    """Body properties of a table cell: its margins, always wrapping, no autofit."""
+    return _BodyProps(
+        l_ins=int(tc.marL),
+        t_ins=int(tc.marT),
+        r_ins=int(tc.marR),
+        b_ins=int(tc.marB),
+        wrap=True,
+        anchor="t",
+        vert="horz",
+        cols=1,
+        col_gap=0,
+        autofit=None,
+        own_autofit=None,
+        font_scale=1.0,
+        ln_reduction=0.0,
+    )
+
+
+def _table_row_needs(env: _TextEnv, shape: BaseShape) -> list[tuple[int, int, float, int, Any]]:
+    """Measure the text in each row of the table in `shape`.
+
+    Returns ``(row_idx, stored_height, needed_height, col_idx, measure)`` for
+    every row that holds text, where the needed height is that of its tallest
+    cell including the cell margins.  Cells that span several rows are left
+    out: their text is shared between rows the stored heights do not divide.
+    """
+    try:
+        tbl = shape._element.graphic.graphicData.tbl  # pyright: ignore[reportPrivateUsage]
+        if tbl is None:
+            return []
+        col_widths = [int(grid_col.w) for grid_col in tbl.tblGrid.gridCol_lst]
+        rows = list(tbl.tr_lst)
+    except Exception:
+        return []
+    needs: list[tuple[int, int, float, int, Any]] = []
+    default_style = env.default_style()
+    for row_idx, tr in enumerate(rows):
+        try:
+            row_h = int(tr.h)
+        except Exception:
+            continue
+        worst: tuple[float, int, Any] | None = None
+        col_idx = 0
+        for tc in tr.tc_lst:
+            try:
+                span = max(1, int(tc.gridSpan))
+                merged = bool(tc.hMerge) or bool(tc.vMerge) or int(tc.rowSpan) > 1
+                tx_body = tc.txBody
+            except Exception:
+                span, merged, tx_body = 1, True, None
+            start = col_idx
+            col_idx += span
+            if merged or tx_body is None:
+                continue
+            width = sum(col_widths[start : start + span])
+            if width <= 0:
+                continue
+            levels = []
+            lst_style = tx_body.find(_T_LSTSTYLE)
+            if lst_style is not None and len(lst_style):
+                levels.append(lst_style)
+            if default_style is not None:
+                levels.append(default_style)
+            body = _table_cell_body(tc)
+            # Measured against a notional frame: only the text height matters
+            # here, the row height is compared by the caller.
+            measure = _measure_text_body(env, tx_body, body, levels, width, 10**9)
+            if measure is None:
+                continue
+            needed = measure.text_h + body.t_ins + body.b_ins
+            if worst is None or needed > worst[0]:
+                worst = (needed, start, measure)
+        if worst is not None:
+            needs.append((row_idx, row_h, worst[0], worst[1], worst[2]))
+    return needs
+
+
+def _table_overflow_issues(env: _TextEnv, shape: BaseShape) -> list[LintIssue]:
+    """Return a ``TextOverflow`` warning for each table row too short for its text."""
+    issues: list[LintIssue] = []
+    for row_idx, row_h, needed, col_idx, measure in _table_row_needs(env, shape):
+        over = needed - row_h
+        if over <= measure.lines * _LINE_TOLERANCE_EMU or row_h <= 0:
+            continue
+        issues.append(
+            TextOverflow(
+                shape,
+                needed / row_h,
+                severity=LintSeverity.WARNING,
+                overflow_pt=over / _EMU_PER_PT,
+                missing_font=measure.missing_font,
+                row=row_idx,
+                col=col_idx,
+            )
+        )
+    return issues
+
+
+def _check_text_overflow(shape: BaseShape, env: _TextEnv | None = None) -> list[LintIssue]:
+    """Return TextOverflow issues for the text `shape` holds.
+
+    Covers the shape's own text frame, the text frames of every shape inside
+    it when it is a group, and each row when it is a table.  The text is laid
+    out with the text engine's font metrics (see :func:`_measure_text_body`);
+    a frame that ``TextFrame.fit_text`` has sized is never reported.
+    """
+    if env is None:
+        env = _TextEnv(None)
+    issues: list[LintIssue] = []
+    for member in _iter_text_shapes([shape]):
+        if getattr(member, "has_table", False):
+            issues.extend(_table_overflow_issues(env, member))
+            continue
+        target = _shape_text_target(env, member)
+        if target is None:
+            continue
+        # Frames that resize or shrink to fit are not checked yet.
+        if target.body.autofit in (
+            MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT,
+            MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE,
+        ):
+            continue
+        measure = _measure_text_body(
+            env, target.tx_body, target.body, target.levels, target.width, target.height
+        )
+        if measure is None:
+            continue
+        issue = _frame_overflow_issue(target, measure)
+        if issue is not None:
+            issues.append(issue)
     return issues
 
 
@@ -2365,13 +3405,14 @@ def lint_slide(
     issues: list[LintIssue] = []
     shapes = list(slide.shapes)
     bbox_fn = _effective_bbox if include_effect_bleed else _shape_bbox
+    text_env = _TextEnv(slide)
 
     for shape in shapes:
         if slide_w is not None and slide_h is not None:
             issues.extend(
                 _check_off_slide(shape, slide_w, slide_h, bbox_fn=bbox_fn)
             )
-        issues.extend(_check_text_overflow(shape))
+        issues.extend(_check_text_overflow(shape, text_env))
         issues.extend(_check_min_font_size(shape))
         issues.extend(_check_low_contrast(shape, slide))
 

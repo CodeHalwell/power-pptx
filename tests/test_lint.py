@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import io
+import os
+import random
 
 import pytest
 
 from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
+from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.lint import (
     LayerOrderViolation,
     LintSeverity,
@@ -20,6 +23,7 @@ from power_pptx.lint import (
     ShapeCollision,
     ShapeCollisionShadow,
     SlideLintReport,
+    TextOverflow,
     ZOrderAnomaly,
     _LEGACY_LINT_GROUP_ATTR,
     _LINT_EXT_URI,
@@ -2400,3 +2404,284 @@ class DescribeRaggedEdgePerRow:
 
         assert [i.shapes for i in issues] == [(short,)]
         assert issues[0].gap_emu == Inches(1)
+
+
+# ---------------------------------------------------------------------------
+# TextOverflow measurement
+# ---------------------------------------------------------------------------
+
+_FONTS_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+
+_SENTENCE = "Revenue grew faster than forecast across every region this quarter"
+
+
+@pytest.fixture
+def outfit():
+    """Measure with the bundled Outfit face, whatever fonts the machine has."""
+    from power_pptx.text import clear_registered_fonts, register_font_dir
+
+    clear_registered_fonts()
+    register_font_dir(_FONTS_DIR)
+    yield "Outfit"
+    clear_registered_fonts()
+
+
+def _overflows(slide):
+    return [i for i in slide.lint().issues if isinstance(i, TextOverflow)]
+
+
+def _fixed_textbox(slide, left=1, top=1, width=4, height=1):
+    """A wrapping text box whose size is fixed (no auto-size)."""
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    box.text_frame.word_wrap = True
+    box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    return box
+
+
+def _set_font(text_frame, family, size_pt=None):
+    for paragraph in text_frame.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = family
+            if size_pt is not None:
+                run.font.size = Pt(size_pt)
+
+
+class DescribeTextOverflowAgreesWithFitText:
+    """A frame ``fit_text`` has sized fits, and lint must say so."""
+
+    def it_does_not_flag_frames_fit_text_has_sized(self, outfit):
+        rng = random.Random(1)
+        words = ["revenue", "growth", "margin", "outlook", "customer", "retention"]
+        words += ["pipeline", "forecast", "quarterly", "regional", "platform", "adoption"]
+        fitted = 0
+        for _ in range(12):
+            _, slide = _new_blank_slide()
+            box = slide.shapes.add_textbox(
+                Inches(1), Inches(1), Inches(rng.uniform(2, 6)), Inches(rng.uniform(0.6, 3))
+            )
+            box.text_frame.word_wrap = True
+            box.text_frame.text = " ".join(rng.choice(words) for _ in range(rng.randint(6, 60)))
+            try:
+                box.text_frame.fit_text(font_family=outfit, max_size=40)
+            except ValueError:
+                continue
+            fitted += 1
+
+            assert _overflows(slide) == []
+
+        assert fitted >= 8
+
+    def it_agrees_when_fit_text_also_sets_the_line_spacing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1.5))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        box.text_frame.fit_text(font_family=outfit, max_size=40, line_spacing=1.0)
+
+        assert _overflows(slide) == []
+
+    def it_leaves_the_fitted_frame_alone_when_tidying(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        box.text_frame.fit_text(font_family=outfit, max_size=60)
+        before = box.text_frame.paragraphs[0].runs[0].font.size
+
+        fixes = slide.tidy()
+
+        assert fixes == []
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.NONE
+        assert box.text_frame.paragraphs[0].runs[0].font.size == before
+
+    def it_still_flags_the_same_text_one_size_too_large(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        size = box.text_frame.fit_text(font_family=outfit, max_size=60)
+        _set_font(box.text_frame, outfit, size + 2)
+
+        assert len(_overflows(slide)) == 1
+
+
+class DescribeTextOverflowMeasurement:
+    """Each run is measured at its effective size and typeface."""
+
+    def it_measures_every_run_not_just_the_first(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        paragraph = box.text_frame.paragraphs[0]
+        note = paragraph.add_run()
+        note.text = "Note: "
+        note.font.size = Pt(8)
+        note.font.name = outfit
+        body = paragraph.add_run()
+        body.text = _SENTENCE
+        body.font.size = Pt(40)
+        body.font.name = outfit
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.ERROR
+        assert issues[0].ratio > 3
+
+    def it_measures_every_paragraph_not_just_the_first(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        text_frame = box.text_frame
+        text_frame.text = "Eyebrow"
+        _set_font(text_frame, outfit, 9)
+        run = text_frame.add_paragraph().add_run()
+        run.text = "Revenue grew faster than forecast across every region"
+        run.font.size = Pt(36)
+        run.font.name = outfit
+
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_size_set_on_the_paragraph_font(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = _SENTENCE
+        box.text_frame.paragraphs[0].font.size = Pt(40)
+        box.text_frame.paragraphs[0].font.name = outfit
+
+        assert len(_overflows(slide)) == 1
+
+    def it_uses_the_size_a_placeholder_inherits(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
+        title = slide.shapes.title
+        title.text_frame.text = " ".join([_SENTENCE] * 3)
+        title.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+
+        # 44pt inherited from the master title style: several lines too many.
+        issues = _overflows(slide)
+
+        assert [i.shapes for i in issues] == [(title,)]
+        assert issues[0].ratio > 2
+
+    def it_wraps_text_that_has_no_spaces(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = (
+            "四半期の売上高は、すべての地域で予測を上回るペースで成長しました。"
+            "企業向け更新と高いサービス付帯率が牽引しました。"
+        )
+        _set_font(box.text_frame, outfit, 18)
+
+        # 58 full-width characters at 18pt need four lines; three fit.
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].ratio == pytest.approx(4 / 3, rel=0.02)
+
+    def it_breaks_an_overlong_word_instead_of_calling_it_unfittable(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=2)
+        box.text_frame.text = "https://example.com/reports/2026/q4/regional-performance"
+        _set_font(box.text_frame, outfit, 14)
+
+        assert _overflows(slide) == []
+
+    def it_looks_inside_groups(self, outfit):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        box.text_frame.text = " ".join([_SENTENCE] * 2)
+        _set_font(box.text_frame, outfit, 24)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].shapes[0].name == box.name
+        assert issues[0].severity == LintSeverity.ERROR
+
+    def it_reports_a_table_row_too_short_for_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(0.8))
+        cell = frame.table.cell(1, 0)
+        cell.text = " ".join([_SENTENCE] * 3)
+        _set_font(cell.text_frame, outfit, 18)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].shapes == (frame,)
+        assert (issues[0].row, issues[0].col) == (1, 0)
+        # Rows grow to fit when rendered, so this is stale geometry, not lost text.
+        assert issues[0].severity == LintSeverity.WARNING
+        assert "row 1" in issues[0].message
+
+    def it_respects_the_text_frame_insets(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=3, height=1)
+        box.text_frame.text = "Revenue grew faster than forecast across every region"
+        _set_font(box.text_frame, outfit, 18)
+        assert _overflows(slide) == []
+
+        box.text_frame.margin_top = box.text_frame.margin_bottom = Inches(0.25)
+
+        assert len(_overflows(slide)) == 1
+
+    def it_respects_exact_line_spacing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=6, height=1)
+        box.text_frame.text = "One\nTwo\nThree"
+        _set_font(box.text_frame, outfit, 12)
+        assert _overflows(slide) == []
+
+        for paragraph in box.text_frame.paragraphs:
+            paragraph.line_spacing = Pt(30)
+
+        issues = _overflows(slide)
+        assert len(issues) == 1
+        assert issues[0].overflow_pt == pytest.approx(90 - 64.8, abs=0.5)
+
+    def it_reports_a_line_too_wide_when_word_wrap_is_off(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=2, height=1)
+        box.text_frame.word_wrap = False
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, outfit, 18)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].dimension == "width"
+        assert issues[0].ratio > 2
+
+    def it_does_not_flag_a_short_uppercase_label(self, outfit):
+        _, slide = _new_blank_slide()
+        pill = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1.3), Inches(0.3))
+        pill.text_frame.text = "MOST POPULAR"
+        _set_font(pill.text_frame, outfit, 9)
+
+        assert _overflows(slide) == []
+
+    def it_measures_an_uninstalled_font_without_warning(self):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.text = " ".join([_SENTENCE] * 4)
+        _set_font(box.text_frame, "No Such Typeface", 24)
+
+        # pytest turns warnings into errors: a FontMetricsWarning would fail here.
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].estimated is True
+        assert "'No Such Typeface' is not installed" in issues[0].message
+
+    def it_says_how_far_the_text_overflows(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=6, height=1)
+        box.text_frame.text = "One\nTwo\nThree\nFour"
+        _set_font(box.text_frame, outfit, 20)
+
+        issue = _overflows(slide)[0]
+
+        # Four 24pt lines in a 64.8pt frame (1in less the 0.05in insets).
+        assert issue.dimension == "height"
+        assert issue.ratio == pytest.approx(96 / 64.8, rel=0.01)
+        assert issue.overflow_pt == pytest.approx(96 - 64.8, abs=0.5)
+        assert issue.to_dict()["overflow_pt"] == issue.overflow_pt
