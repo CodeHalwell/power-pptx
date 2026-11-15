@@ -108,23 +108,9 @@ class Theme:
                 raise ValueError(
                     "rebind_shape_colors=True requires presentation= to be supplied"
                 )
-            for slot in MSO_THEME_COLOR:
-                if not slot.xml_value:
-                    continue
-                rgb = self.colors.get(slot)
-                if rgb is not None:
-                    # First-write wins so aliases (BACKGROUND_1 vs LIGHT_1)
-                    # don't shadow the canonical slot.
-                    before_palette.setdefault(tuple(int(c) for c in rgb), slot)
+            before_palette = self._slots_by_rgb()
 
-        src_colors = other.colors
-        dst_colors = self.colors
-        for slot in MSO_THEME_COLOR:
-            if not slot.xml_value:
-                continue
-            rgb = src_colors.get(slot)
-            if rgb is not None:
-                dst_colors[slot] = rgb
+        self._copy_colors_from(other)
 
         if other.fonts.major:
             self.fonts.major = other.fonts.major
@@ -134,6 +120,32 @@ class Theme:
         if not rebind_shape_colors:
             return 0
         return _rebind_shape_colors(presentation, before_palette)
+
+    def _slots_by_rgb(self) -> dict[tuple[int, int, int], MSO_THEME_COLOR]:
+        """Map each RGB this theme's palette resolves to the first slot holding it.
+
+        First-write wins so aliases (BACKGROUND_1 vs LIGHT_1) don't shadow the
+        canonical slot.
+        """
+        slots: dict[tuple[int, int, int], MSO_THEME_COLOR] = {}
+        for slot in MSO_THEME_COLOR:
+            if not slot.xml_value:
+                continue
+            rgb = self.colors.get(slot)
+            if rgb is not None:
+                slots.setdefault(tuple(int(c) for c in rgb), slot)
+        return slots
+
+    def _copy_colors_from(self, other: Theme) -> None:
+        """Write the RGB of every slot *other* can resolve into the same slot here."""
+        src_colors = other.colors
+        dst_colors = self.colors
+        for slot in MSO_THEME_COLOR:
+            if not slot.xml_value:
+                continue
+            rgb = src_colors.get(slot)
+            if rgb is not None:
+                dst_colors[slot] = rgb
 
     def to_dark_mode(self, *, min_contrast: float = 4.5) -> "Theme":
         """Convert this theme's palette to a dark variant **in place**.
