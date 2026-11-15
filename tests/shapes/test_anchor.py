@@ -29,7 +29,7 @@ def _slide():
 
 class DescribeResolveAnchor:
     @pytest.mark.parametrize(
-        "raw, expected",
+        ("raw", "expected"),
         [
             ("top-left", ("top", "left")),
             ("top-center", ("top", "center")),

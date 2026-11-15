@@ -232,7 +232,7 @@ class _BaseAxis(object):
         delete = self._element.delete_
         if delete is None:
             return False
-        return False if delete.val else True
+        return not delete.val
 
     @visible.setter
     def visible(self, value):
@@ -447,9 +447,8 @@ class ValueAxis(_BaseAxis):
     @crosses.setter
     def crosses(self, value):
         cross_xAx = self._cross_xAx
-        if value == XL_AXIS_CROSSES.CUSTOM:
-            if cross_xAx.crossesAt is not None:
-                return
+        if value == XL_AXIS_CROSSES.CUSTOM and cross_xAx.crossesAt is not None:
+            return
         cross_xAx._remove_crosses()
         cross_xAx._remove_crossesAt()
         if value == XL_AXIS_CROSSES.CUSTOM:

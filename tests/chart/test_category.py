@@ -30,7 +30,7 @@ class DescribeCategories(object):
             Category_,
             calls,
         ) = iter_fixture
-        assert [c for c in categories] == expected_categories
+        assert list(categories) == expected_categories
         assert Category_.call_args_list == calls
 
     def it_knows_its_depth(self, depth_fixture):

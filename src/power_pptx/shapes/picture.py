@@ -253,7 +253,7 @@ class Picture(_BasePicture):
         """
         trimmed = container_box
         for shape in slide.shapes:
-            if shape == self or shape == container:
+            if shape in (self, container):
                 continue
             box = _box_or_none(shape)
             if box is not None and trimmed.contains(box):

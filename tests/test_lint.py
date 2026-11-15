@@ -165,7 +165,8 @@ class DescribeSlideLintGroupBatch:
         a, b = _add_overlapping_rects(slide, 2)
         slide.lint_group("kpi", a, b)
         slide.lint_group(None, a, b)
-        assert a.lint_group is None and b.lint_group is None
+        assert a.lint_group is None
+        assert b.lint_group is None
 
     def it_accepts_zero_shapes_as_a_no_op(self):
         _, slide = _new_blank_slide()

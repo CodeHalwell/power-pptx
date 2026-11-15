@@ -759,12 +759,11 @@ class Slide(_BaseSlide):
                 box = BBox.from_shape(shape)
             except Exception:
                 continue
-            if not include_decorative:
-                if (
-                    int(box.width) >= threshold_w
-                    and int(box.height) >= threshold_h
-                ):
-                    continue
+            if not include_decorative and (
+                int(box.width) >= threshold_w
+                and int(box.height) >= threshold_h
+            ):
+                continue
             union_box = box if union_box is None else union_box.union(box)
         return union_box
 

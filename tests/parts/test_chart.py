@@ -89,8 +89,8 @@ class DescribeChartWorkbook(object):
         assert chart_workbook.xlsx_part is None
 
     @pytest.mark.parametrize(
-        "chartSpace_cxml, expected_cxml",
-        (
+        ("chartSpace_cxml", "expected_cxml"),
+        [
             (
                 "c:chartSpace{r:a=b}",
                 "c:chartSpace{r:a=b}/c:externalData{r:id=rId" "42}/c:autoUpdate{val=0}",
@@ -99,7 +99,7 @@ class DescribeChartWorkbook(object):
                 "c:chartSpace/c:externalData{r:id=rId66}",
                 "c:chartSpace/c:externalData{r:id=rId42}",
             ),
-        ),
+        ],
     )
     def it_can_change_the_chart_xlsx_part(
         self, chart_part_, xlsx_part_, chartSpace_cxml, expected_cxml
