@@ -2311,71 +2311,110 @@ def _embed_figure(
     is not stretched to a wide content area.  The HTML adapter has its
     own ``fit`` option and is handed *fit* directly.
     """
-    from power_pptx.design import figures as _figures
-
     box = (left, top, width, height)
     html_kwargs = dict(html_options or {})
     html_kwargs.setdefault("fit", fit)
 
+    picture = _add_figure(slide, figure, box, figure_format, html_kwargs, plotly_options)
+    if picture is not None:
+        _fit_picture(picture, *box, fit)
+
+
+# A figure's ``(left, top, width, height)`` box on the slide.
+_Box = tuple[Length, Length, Length, Length]
+
+
+def _add_figure(
+    slide: "Slide",
+    figure: Any,
+    box: _Box,
+    figure_format: str,
+    html_kwargs: dict[str, Any],
+    plotly_options: Optional[dict[str, Any]],
+) -> Optional[Any]:
+    """Add *figure* with the adapter its type calls for; return the picture to fit.
+
+    ``None`` means the HTML adapter placed the figure, already fitted.
+    """
+    from power_pptx.design import figures as _figures
+
     # Plotly figure: detected by duck-typed .to_image().
     if hasattr(figure, "to_image") and callable(figure.to_image):
-        picture = _figures.add_plotly_figure(
+        return _figures.add_plotly_figure(
             slide, figure, *box, format=figure_format, **(plotly_options or {})
         )
-        _fit_picture(picture, *box, fit)
-        return
 
     # Matplotlib figure: detected by duck-typed .savefig().
     if hasattr(figure, "savefig") and callable(figure.savefig):
-        picture = _figures.add_matplotlib_figure(slide, figure, *box, format=figure_format)
-        _fit_picture(picture, *box, fit)
-        return
+        return _figures.add_matplotlib_figure(slide, figure, *box, format=figure_format)
 
-    # File path: dispatch by extension.
     if isinstance(figure, (str, os.PathLike)) and not _is_markup_string(figure):
-        ext = os.path.splitext(str(figure))[1].lower()
-        if ext in {".html", ".htm"}:
-            _figures.add_html_figure(slide, figure, *box, **html_kwargs)
-            return
-        if ext == ".svg":
-            picture = _figures.add_svg_figure(slide, figure, *box)
-        else:
-            # A raster extension, or an unknown one — best-effort raster.
-            picture = slide.shapes.add_picture(str(figure), *box)
-        _fit_picture(picture, *box, fit)
-        return
+        return _add_figure_file(slide, figure, box, html_kwargs)
+    return _add_figure_data(slide, _read_file_like(figure), box, html_kwargs)
 
-    # A binary file-like object (``io.BytesIO``, an open file): read it
-    # and treat the content like raw bytes.
-    if not isinstance(figure, (bytes, bytearray, str)) and callable(
+
+def _add_figure_file(
+    slide: "Slide", path: Any, box: _Box, html_kwargs: dict[str, Any]
+) -> Optional[Any]:
+    """Add the figure file at *path*, dispatched by extension; ``None`` for HTML."""
+    from power_pptx.design import figures as _figures
+
+    ext = os.path.splitext(str(path))[1].lower()
+    if ext in {".html", ".htm"}:
+        _figures.add_html_figure(slide, path, *box, **html_kwargs)
+        return None
+    if ext == ".svg":
+        return _figures.add_svg_figure(slide, path, *box)
+    # A raster extension, or an unknown one — best-effort raster.
+    return slide.shapes.add_picture(str(path), *box)
+
+
+def _read_file_like(figure: Any) -> Any:
+    """Return a binary file-like *figure*'s content as bytes, anything else as given.
+
+    A file-like object (``io.BytesIO``, an open file) is read so its
+    content can be treated like raw bytes.
+    """
+    if isinstance(figure, (bytes, bytearray, str)) or not callable(
         getattr(figure, "read", None)
     ):
-        data = figure.read()
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        figure = bytes(data)
+        return figure
+    data = figure.read()
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return bytes(data)
 
-    # Bytes / strings: SVG sniff, then HTML, then a raster image.
-    if isinstance(figure, (bytes, bytearray, str)):
-        from power_pptx._svg import looks_like_svg
 
-        blob = bytes(figure) if not isinstance(figure, str) else figure.encode("utf-8")
-        head = blob.lstrip(b"\xef\xbb\xbf \t\r\n")
-        if looks_like_svg(blob):
-            picture = _figures.add_svg_figure(slide, figure, *box)
-            _fit_picture(picture, *box, fit)
-            return
-        if head.startswith(b"<"):
-            _figures.add_html_figure(slide, figure, *box, **html_kwargs)
-            return
-        if not isinstance(figure, str):
-            import io
+def _add_figure_data(
+    slide: "Slide", figure: Any, box: _Box, html_kwargs: dict[str, Any]
+) -> Optional[Any]:
+    """Add bytes or markup: an SVG sniff, then HTML, then a raster image.
 
-            picture = slide.shapes.add_picture(io.BytesIO(blob), *box)
-            _fit_picture(picture, *box, fit)
-            return
+    Returns ``None`` for HTML, which the adapter fits itself.  Raises
+    :class:`TypeError` for anything else, including non-markup text.
+    """
+    from power_pptx.design import figures as _figures
 
-    raise TypeError(
+    if not isinstance(figure, (bytes, bytearray, str)):
+        raise _undispatchable_figure(figure)
+    from power_pptx._svg import looks_like_svg
+
+    blob = bytes(figure) if not isinstance(figure, str) else figure.encode("utf-8")
+    if looks_like_svg(blob):
+        return _figures.add_svg_figure(slide, figure, *box)
+    if blob.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
+        _figures.add_html_figure(slide, figure, *box, **html_kwargs)
+        return None
+    if isinstance(figure, str):
+        raise _undispatchable_figure(figure)
+    import io
+
+    return slide.shapes.add_picture(io.BytesIO(blob), *box)
+
+
+def _undispatchable_figure(figure: Any) -> TypeError:
+    """The error for a *figure* no adapter accepts."""
+    return TypeError(
         f"figure_slide can't dispatch a figure of type {type(figure).__name__!r}; "
         "pass a Plotly Figure, a Matplotlib Figure, an SVG / HTML "
         "string, an image path, raw image bytes, or a binary file-like object."
