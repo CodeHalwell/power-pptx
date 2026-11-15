@@ -25,7 +25,7 @@ from power_pptx.util import Centipoints, Emu, Length, Pt, lazyproperty
 if TYPE_CHECKING:
     from lxml.etree import _Element
 
-    from power_pptx.dml.color import ColorFormat
+    from power_pptx.dml.color import ColorFormat, RGBColor
     from power_pptx.enum.text import (
         MSO_TEXT_UNDERLINE_TYPE,
         MSO_VERTICAL_ANCHOR,
@@ -334,39 +334,17 @@ class TextFrame(Subshape):
             from power_pptx._color import coerce_color
 
             rgb = coerce_color(color)
-
-        def _apply_to_font(font: Font) -> None:
-            if font_name is not None and font.name is None:
-                font.name = font_name
-            if size is not None and font.size is None:
-                font.size = size
-            if bold is not None and font.bold is None:
-                font.bold = bold
-            if italic is not None and font.italic is None:
-                font.italic = italic
-            if rgb is not None:
-                # Don't read ``font.color.rgb`` first — that raises
-                # ``AttributeError`` for runs with an explicit non-RGB
-                # color (e.g. ``theme_color`` / scheme colour), which
-                # would crash the helper on mixed-format frames.  Use
-                # ``font.color.type`` as the "is anything set?" probe
-                # instead; ``None`` means no explicit colour, scheme /
-                # RGB / preset / system means leave it alone.
-                try:
-                    color_type = font.color.type
-                except AttributeError:
-                    color_type = None
-                if color_type is None:
-                    font.color.rgb = rgb
+        # -- in the order they are set, which is the order of the attributes written --
+        defaults = {"name": font_name, "size": size, "bold": bold, "italic": italic}
 
         for paragraph in self.paragraphs:
             # The paragraph-level Font controls run defaults via
             # `a:defRPr`; setting it here gives a baseline that empty
             # paragraphs inherit, while the per-run pass below
             # overwrites any already-set run-level properties.
-            _apply_to_font(paragraph.font)
+            _fill_unset_font(paragraph.font, defaults, rgb)
             for run in paragraph.runs:
-                _apply_to_font(run.font)
+                _fill_unset_font(run.font, defaults, rgb)
 
     @property
     def column_count(self) -> int:
@@ -641,6 +619,34 @@ _MASTER_TEXT_STYLE = {
     "sldNum": "p:otherStyle",
     "hdr": "p:otherStyle",
 }
+
+
+def _fill_unset_font(font: Font, defaults: dict[str, Any], rgb: RGBColor | None) -> None:
+    """Set each of `defaults`, a property name and value, that `font` leaves unset.
+
+    A |None| value is not applied. `rgb`, when given, colors `font` unless it has an
+    explicit color of its own.
+    """
+    for name, value in defaults.items():
+        if value is not None and getattr(font, name) is None:
+            setattr(font, name, value)
+    if rgb is not None and not _has_explicit_color(font):
+        font.color.rgb = rgb
+
+
+def _has_explicit_color(font: Font) -> bool:
+    """True when `font` sets a color of its own; False also when that can't be read."""
+    # Don't read ``font.color.rgb`` first — that raises
+    # ``AttributeError`` for runs with an explicit non-RGB
+    # color (e.g. ``theme_color`` / scheme colour), which
+    # would crash the helper on mixed-format frames.  Use
+    # ``font.color.type`` as the "is anything set?" probe
+    # instead; ``None`` means no explicit colour, scheme /
+    # RGB / preset / system means leave it alone.
+    try:
+        return font.color.type is not None
+    except AttributeError:
+        return False
 
 
 def _first_attr(elements: list[_Element], name: str) -> str | None:
