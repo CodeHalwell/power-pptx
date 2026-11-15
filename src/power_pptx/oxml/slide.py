@@ -597,41 +597,18 @@ def _reusable_fallback(original, kind):
     return None if fallback is None else fallback.find(_p_tag("transition"))
 
 
-def _new_wrapper(transition, original):
+def _new_wrapper(transition: Any, original: Any) -> tuple[Any, Any]:
     """Return a new `(mc:AlternateContent, mc:Choice)` pair to wrap *transition*.
 
     *original* is the wrapper *transition* was loaded from, or |None|.  The
     caller moves *transition* into the returned ``<mc:Choice>``.
     """
-    import copy
-
     from lxml import etree
 
-    # Heal decks written by earlier power-pptx releases (and any other
-    # producer) that emitted morph in the p14 namespace: retag to p159 so
-    # a plain load → save round-trip repairs the file.
-    legacy_morph = _transition_kind_child(transition)
-    if legacy_morph is not None and legacy_morph.tag == "{%s}morph" % _P14_URI:
-        healed = etree.Element("{%s}morph" % _P159_URI, nsmap={"p159": _P159_URI})
-        for attr_name, attr_value in legacy_morph.attrib.items():
-            healed.set(attr_name, attr_value)
-        transition.replace(legacy_morph, healed)
-
+    _heal_legacy_morph(transition)
     kind = _transition_kind_child(transition)
     ext_uri = _extension_kind_uri(transition)
-
-    # `Requires` names the namespace a consumer must understand to take the
-    # choice: that of the extension kind, whichever it is — a `p159:morph`
-    # needs "p159", a `p15:prstTrans` needs "p15".  Requiring only "p14"
-    # there would hand the element to a PowerPoint 2010 that cannot read it,
-    # which is exactly the repair-dialog class of failure.  A classic kind
-    # that merely carries a p14 attribute (`p14:dur`) requires "p14".
-    if kind is None or ext_uri is None:
-        requires, choice_nsmap = "p14", {"p14": _P14_URI}
-    else:
-        requires = kind.prefix or _EXTENSION_PREFIXES.get(ext_uri, "ext")
-        choice_nsmap = {requires: ext_uri}
-        choice_nsmap.setdefault("p14", _P14_URI)
+    requires, choice_nsmap = _choice_requirement(kind, ext_uri)
 
     ac = etree.Element(_mc("AlternateContent"), nsmap={"mc": _MC_URI})
     choice = etree.SubElement(ac, _mc("Choice"), nsmap=choice_nsmap)
@@ -649,21 +626,70 @@ def _new_wrapper(transition, original):
         if _namespace_uri(name) is None:
             fb.set(name, value)
     if kind is not None:
-        original_fb = _reusable_fallback(original, kind)
-        if original_fb is not None:
-            # Same kind as when the deck was read (only its timing changed):
-            # keep the downgrade the authoring application chose for it.
-            for child in original_fb:
-                fb.append(copy.deepcopy(child))
-        elif ext_uri is None:
-            # A *classic* (p:) kind — e.g. a fade carrying only a p14:dur — is
-            # preserved so older viewers still get the transition.
-            fb.append(copy.deepcopy(kind))
-        else:
-            # Extension kinds have no classic equivalent; PowerPoint's own
-            # fallback for them is a plain fade.
-            etree.SubElement(fb, _p_tag("fade"))
+        _add_fallback_kind(fb, kind, ext_uri, original)
     return ac, choice
+
+
+def _heal_legacy_morph(transition: Any) -> None:
+    """Retag a ``p14:morph`` kind of *transition* into the ``p159`` namespace it belongs to.
+
+    That heals decks written by earlier power-pptx releases (and any other
+    producer) that emitted morph in the p14 namespace, so a plain load → save
+    round-trip repairs the file.
+    """
+    from lxml import etree
+
+    legacy_morph = _transition_kind_child(transition)
+    if legacy_morph is None or legacy_morph.tag != "{%s}morph" % _P14_URI:
+        return
+    healed = etree.Element("{%s}morph" % _P159_URI, nsmap={"p159": _P159_URI})
+    for attr_name, attr_value in legacy_morph.attrib.items():
+        healed.set(attr_name, attr_value)
+    transition.replace(legacy_morph, healed)
+
+
+def _choice_requirement(kind: Any, ext_uri: "str | None") -> "tuple[str, dict[str, str]]":
+    """The ``Requires`` of the ``<mc:Choice>`` around kind *kind*, and the namespaces it declares.
+
+    `Requires` names the namespace a consumer must understand to take the
+    choice: that of the extension kind, whichever it is — a `p159:morph`
+    needs "p159", a `p15:prstTrans` needs "p15".  Requiring only "p14"
+    there would hand the element to a PowerPoint 2010 that cannot read it,
+    which is exactly the repair-dialog class of failure.  A classic kind
+    that merely carries a p14 attribute (`p14:dur`) requires "p14".
+    """
+    if kind is None or ext_uri is None:
+        return "p14", {"p14": _P14_URI}
+    requires = kind.prefix or _EXTENSION_PREFIXES.get(ext_uri, "ext")
+    choice_nsmap = {requires: ext_uri}
+    choice_nsmap.setdefault("p14", _P14_URI)
+    return requires, choice_nsmap
+
+
+def _add_fallback_kind(fb: Any, kind: Any, ext_uri: "str | None", original: Any) -> None:
+    """Give the fallback transition *fb* the kind standing in for *kind*.
+
+    *ext_uri* is the namespace of *kind* when it is an extension kind, and
+    *original* the wrapper the transition was loaded from, or |None|.
+    """
+    import copy
+
+    from lxml import etree
+
+    original_fb = _reusable_fallback(original, kind)
+    if original_fb is not None:
+        # Same kind as when the deck was read (only its timing changed):
+        # keep the downgrade the authoring application chose for it.
+        for child in original_fb:
+            fb.append(copy.deepcopy(child))
+    elif ext_uri is None:
+        # A *classic* (p:) kind — e.g. a fade carrying only a p14:dur — is
+        # preserved so older viewers still get the transition.
+        fb.append(copy.deepcopy(kind))
+    else:
+        # Extension kinds have no classic equivalent; PowerPoint's own
+        # fallback for them is a plain fade.
+        etree.SubElement(fb, _p_tag("fade"))
 
 
 def wrap_p14_transitions(root) -> None:
