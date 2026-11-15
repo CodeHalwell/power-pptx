@@ -17,6 +17,8 @@ from power_pptx.design import (
     Row,
     TextBlock,
 )
+from power_pptx.dml.color import RGBColor
+from power_pptx.enum.text import PP_ALIGN
 from power_pptx.text import clear_registered_fonts, register_font_dir
 from power_pptx.text.fonts import FONT_DIRS_ENV
 from power_pptx.util import Inches, Pt
@@ -263,6 +265,76 @@ class DescribeDataTable:
         kwargs = {"rows": ROWS, **options}
         with pytest.raises(ValueError):
             DataTable(**kwargs).render(slide, BBox.from_inches(0.5, 0.5, 6, 4))
+
+    @pytest.mark.parametrize(
+        ("options", "match"),
+        [
+            ({"rows": [[]]}, "at least one column"),
+            ({"columns": [1, 2, float("nan")]}, "one positive weight per column"),
+            ({"align": ["left", "center"]}, "once or per column"),
+            ({"max_lines": True}, "max_lines must be a positive integer"),
+            ({"size_pt": 0}, "size_pt must be a positive integer"),
+            ({"size_pt": 10.5}, "size_pt must be a positive integer"),
+            ({"line_spacing": 0}, "line_spacing must be finite and positive"),
+            ({"cell_padding": (1, 2, 3)}, "padding must be a length"),
+            ({"header_fill": "nope"}, "6 digits"),
+        ],
+    )
+    def it_names_the_invalid_option(self, slide, options, match):
+        kwargs = {"rows": ROWS, **options}
+        with pytest.raises(ValueError, match=match):
+            DataTable(**kwargs).render(slide, BBox.from_inches(0.5, 0.5, 6, 4))
+
+    def it_raises_when_cell_padding_consumes_a_column(self, slide):
+        with pytest.raises(LayoutOverflowError, match="padding consumes a column"):
+            DataTable(ROWS, font="Outfit", cell_padding=Inches(2)).render(
+                slide, BBox.from_inches(0.5, 0.5, 6, 4)
+            )
+
+    def it_raises_when_a_word_cannot_fit_its_cell(self, slide):
+        rows = [["Supercalifragilisticexpialidocious" * 3]]
+        with pytest.raises(LayoutOverflowError, match=r"cell \(0, 0\) cannot fit: A word"):
+            DataTable(rows, font="Outfit", size_pt=40).render(
+                slide, BBox.from_inches(0.5, 0.5, 1, 4)
+            )
+
+    def it_raises_for_an_unknown_font_in_strict_mode(self, slide):
+        before = slide.element.xml
+        with pytest.raises(ValueError, match="'No Such Font' is unavailable; install it"):
+            DataTable(ROWS, font="No Such Font").render(
+                slide, BBox.from_inches(0.5, 0.5, 6, 4), strict_fonts=True
+            )
+        assert slide.element.xml == before
+
+    def it_flags_an_estimated_font_by_name(self, slide):
+        result = Column([DataTable(ROWS, font="No Such Font", name="t")]).render(
+            slide, BBox.from_inches(0.5, 0.5, 6, 4)
+        )
+        assert result.estimated_fonts == ["t"]
+
+    def it_formats_header_and_body_cells(self, slide):
+        result = DataTable(
+            ROWS,
+            font="Outfit",
+            align=["left", "center", "right"],
+            fill="#FAFAFA",
+            border=None,
+            header_color="#112233",
+            color="#445566",
+        ).render(slide, BBox.from_inches(0.5, 0.5, 6, 4), strict_fonts=True)
+
+        table = result.shapes[0].table
+        header, body = table.cell(0, 1), table.cell(1, 2)
+        assert header.fill.fore_color.rgb == RGBColor.from_hex("EEF2F7")
+        assert body.fill.fore_color.rgb == RGBColor.from_hex("FAFAFA")
+        header_run = header.text_frame.paragraphs[0].runs[0].font
+        body_run = body.text_frame.paragraphs[0].runs[0].font
+        assert (header_run.bold, header_run.color.rgb) == (True, RGBColor.from_hex("112233"))
+        assert body_run.color.rgb == RGBColor.from_hex("445566")
+        assert header.text_frame.paragraphs[0].alignment == PP_ALIGN.CENTER
+        assert body.text_frame.paragraphs[0].alignment == PP_ALIGN.RIGHT
+        assert body.margin_left == Pt(6)
+        assert body.margin_top == Pt(4)
 
     def it_produces_a_valid_package(self):
         prs = Presentation()

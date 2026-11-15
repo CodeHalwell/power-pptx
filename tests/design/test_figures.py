@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import io
 from unittest.mock import MagicMock, patch
+from urllib.parse import quote
 
 import pytest
+from PIL import Image
 
 from power_pptx import Presentation
+from power_pptx.design._html import HtmlCapture
 from power_pptx.design.figures import (
     FigureBackendUnavailable,
     add_html_figure,
@@ -104,6 +107,147 @@ class DescribeAddPlotlyFigure:
                 Inches(1), Inches(1), Inches(4), Inches(3),
                 format="png",
             )
+
+
+    @pytest.mark.parametrize(
+        ("options", "match"),
+        [
+            ({"backend": "matplotlib"}, "backend must be"),
+            ({"format": "jpeg"}, "format must be"),
+            ({"scale": 0}, "scale must be finite and positive"),
+            ({"scale": float("nan")}, "scale must be finite and positive"),
+            ({"width_px": 0}, "width_px and height_px must be positive integers"),
+            ({"height_px": True}, "width_px and height_px must be positive integers"),
+            ({"height_px": 10.5}, "width_px and height_px must be positive integers"),
+        ],
+    )
+    def it_rejects_invalid_options_before_rendering(self, slide, options, match):
+        fig = _FakePlotlyFigure()
+        with pytest.raises(ValueError, match=match):
+            add_plotly_figure(slide, fig, Inches(1), Inches(1), **options)
+        assert fig.to_image_calls == []
+
+
+def _unavailable(*args, **kwargs):
+    raise FigureBackendUnavailable("Kaleido unavailable")
+
+
+class _HtmlPlotlyFigure(_FakePlotlyFigure):
+    """A figure the browser backend could render: it has ``to_html``."""
+
+    def to_html(self, **kwargs):
+        return "<html><head></head><body></body></html>"
+
+
+def _browser_returns(capture, size=(300, 150)):
+    def fake(figure, **options):
+        fake.options = options
+        return capture, *size
+
+    return fake
+
+
+def _browser_raises(exc):
+    def fake(figure, **options):
+        raise exc
+
+    return fake
+
+
+class DescribeAddPlotlyFigureBackends:
+    def it_does_not_fall_back_when_kaleido_is_requested(self, slide):
+        with patch("power_pptx.design.figures._plotly_to_blob", _unavailable):
+            with pytest.raises(FigureBackendUnavailable, match="Kaleido unavailable"):
+                add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="kaleido")
+
+    def it_does_not_fall_back_for_a_figure_without_to_html(self, slide):
+        with patch("power_pptx.design.figures._plotly_to_blob", _unavailable):
+            with pytest.raises(FigureBackendUnavailable, match="Kaleido unavailable"):
+                add_plotly_figure(slide, _FakePlotlyFigure(), 0, 0)
+
+    def it_reports_both_failures_when_the_fallback_fails_too(self, slide):
+        with patch("power_pptx.design.figures._plotly_to_blob", _unavailable), patch(
+            "power_pptx.design.figures._plotly_browser_capture",
+            _browser_raises(ValueError("no browser")),
+        ):
+            with pytest.raises(
+                FigureBackendUnavailable,
+                match="both backends. Kaleido: Kaleido unavailable. Browser: no browser",
+            ):
+                add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0)
+
+    @pytest.mark.parametrize(
+        "exc", [TypeError("type"), ValueError("value"), FigureBackendUnavailable("missing")]
+    )
+    def it_lets_browser_usage_errors_through(self, slide, exc):
+        with patch(
+            "power_pptx.design.figures._plotly_browser_capture", _browser_raises(exc)
+        ):
+            with pytest.raises(type(exc)) as error:
+                add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="browser")
+        assert error.value is exc
+
+    def it_wraps_other_browser_failures(self, slide):
+        with patch(
+            "power_pptx.design.figures._plotly_browser_capture",
+            _browser_raises(RuntimeError("crashed")),
+        ):
+            with pytest.raises(
+                FigureBackendUnavailable, match="Plotly browser export failed: crashed"
+            ):
+                add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="browser")
+
+    def it_rejects_an_export_that_is_not_an_svg_data_url(self, slide):
+        capture = HtmlCapture(_TINY_PNG, "", "", exported="data:image/png;base64,AAAA")
+        with patch(
+            "power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)
+        ):
+            with pytest.raises(FigureBackendUnavailable, match="did not return an SVG data URL"):
+                add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="browser")
+
+    @pytest.mark.parametrize(
+        ("width", "height", "expected"),
+        [
+            (None, None, (Inches(300 / 96), Inches(150 / 96))),
+            (Inches(4), None, (Inches(4), Inches(2))),
+            (Inches(4), Inches(3), (Inches(4), Inches(3))),
+        ],
+    )
+    def it_embeds_a_browser_svg_at_its_logical_size(self, slide, width, height, expected):
+        png = io.BytesIO()
+        Image.new("RGB", (40, 20)).save(png, format="PNG")
+        svg = "data:image/svg+xml," + quote(_STUB_SVG.decode("utf-8"))
+        capture = HtmlCapture(png.getvalue(), "", "", exported=svg)
+        fake = _browser_returns(capture)
+        with patch("power_pptx.design.figures._plotly_browser_capture", fake):
+            picture = add_plotly_figure(
+                slide, _HtmlPlotlyFigure(), Inches(1), Inches(1), width, height,
+                backend="browser", scale=3, width_px=300, timeout_ms=500, allow_network=False,
+            )
+        assert (picture.width, picture.height) == expected
+        assert "svgBlip" in picture.element.xml
+        assert fake.options == {
+            "format": "auto",
+            "scale": 3,
+            "width_px": 300,
+            "height_px": None,
+            "browser_path": None,
+            "timeout_ms": 500,
+            "allow_network": False,
+        }
+
+    def it_embeds_a_browser_png_at_its_capture_density(self, slide):
+        png = io.BytesIO()
+        Image.new("RGB", (600, 300)).save(png, format="PNG")
+        capture = HtmlCapture(png.getvalue(), "", "")
+        with patch(
+            "power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)
+        ):
+            picture = add_plotly_figure(
+                slide, _HtmlPlotlyFigure(), Inches(1), Inches(1), backend="browser", format="png"
+            )
+        assert (picture.width, picture.height) == (Inches(300 / 96), Inches(150 / 96))
+        assert "svgBlip" not in picture.element.xml
 
 
 class _FakeMatplotlibFigure:

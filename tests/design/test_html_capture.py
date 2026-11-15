@@ -5,6 +5,7 @@ import io
 import socket
 import urllib.error
 import urllib.request
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -21,7 +22,12 @@ from power_pptx.design._html import (
     _serve_html,
     capture_html,
 )
-from power_pptx.design.figures import _embed_html_png, add_html_figure, add_plotly_figure
+from power_pptx.design.figures import (
+    FigureBackendUnavailable,
+    _embed_html_png,
+    add_html_figure,
+    add_plotly_figure,
+)
 from power_pptx.util import Inches
 
 
@@ -44,6 +50,44 @@ def test_invalid_options_fail_before_browser_launch(options):
         with pytest.raises(ValueError):
             capture_html("<h1>Example</h1>", **options)
     assert not any(call.args[0].startswith("playwright") for call in imports.call_args_list)
+
+
+@pytest.mark.parametrize(
+    ("html", "options", "error", "match"),
+    [
+        ("<h1>x</h1>", {"viewport": (1, 2, 3)}, ValueError, "viewport must contain two"),
+        ("<h1>x</h1>", {"timeout_ms": -5}, ValueError, "timeout_ms must be positive"),
+        ("<h1>x</h1>", {"wait_until": "commit"}, ValueError, "wait_until must be 'load'"),
+        ("<h1>x</h1>", {"selector": 5}, ValueError, "non-empty CSS selector"),
+        ("<h1>x</h1>", {"selector": "   "}, ValueError, "non-empty CSS selector"),
+        ("<h1>x</h1>", {"hybrid": True}, ValueError, "hybrid capture requires"),
+        (123, {}, TypeError, "html must be markup, UTF-8 bytes, or a local HTML path"),
+        ("missing-document.html", {}, FileNotFoundError, "missing-document.html"),
+        (Path("missing-document.htm"), {}, FileNotFoundError, "missing-document.htm"),
+        # The option checks come first, whatever the document.
+        (123, {"timeout_ms": 0}, ValueError, "timeout_ms must be positive"),
+        ("<h1>x</h1>", {"viewport": (0, 1), "timeout_ms": 0}, ValueError, "viewport"),
+    ],
+)
+def test_bad_options_and_documents_are_named_before_playwright_loads(html, options, error, match):
+    with patch("builtins.__import__", wraps=__import__) as imports:
+        with pytest.raises(error, match=match):
+            capture_html(html, **options)
+    assert not any(call.args[0].startswith("playwright") for call in imports.call_args_list)
+
+
+@pytest.mark.parametrize("html", [b"<h1>bytes</h1>", "<h1>markup</h1>", "<p>see page.html</p>"])
+def test_documents_are_accepted_before_playwright_is_required(html):
+    real_import = __import__
+
+    def no_playwright(name, *args, **kwargs):
+        if name.startswith("playwright"):
+            raise ImportError("simulated missing playwright")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=no_playwright):
+        with pytest.raises(FigureBackendUnavailable, match="pip install 'power-pptx\\[html\\]'"):
+            capture_html(html)
 
 
 @pytest.mark.parametrize("fit", ["contain", "cover", "stretch"])

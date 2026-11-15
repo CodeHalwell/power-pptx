@@ -90,6 +90,36 @@ class DescribeShapeStyle:
         assert run.font.size == Pt(20)
         assert run.font.bold is True
 
+    def it_coerces_a_mapping_font_token_for_every_run_of_every_paragraph(self, shape):
+        shape.text_frame.text = "one\ntwo"
+        shape.text_frame.paragraphs[1].add_run().text = " more"
+        shape.style.font = {"family": "Inter", "italic": True, "color": "#112233"}
+        runs = [r for p in shape.text_frame.paragraphs for r in p.runs]
+        assert len(runs) == 3
+        for run in runs:
+            assert run.font.name == "Inter"
+            assert run.font.italic is True
+            assert run.font.color.rgb == RGBColor(0x11, 0x22, 0x33)
+
+    def it_leaves_unset_font_fields_alone(self, shape):
+        shape.text_frame.text = "hello"
+        font = shape.text_frame.paragraphs[0].runs[0].font
+        font.size, font.bold, font.italic = Pt(11), True, False
+        font.color.rgb = RGBColor(1, 2, 3)
+        shape.style.font = TypographyToken(family="Inter")
+        assert (font.name, font.size, font.bold, font.italic) == ("Inter", Pt(11), True, False)
+        assert font.color.rgb == RGBColor(1, 2, 3)
+
+    def it_ignores_a_font_on_a_shape_without_text(self, shape):
+        connector = shape.part.slide.shapes.add_connector(
+            1, Inches(1), Inches(1), Inches(2), Inches(2)
+        )
+        before = connector._element.xml
+        connector.style.font = "Inter"
+        assert connector._element.xml == before
+        with pytest.raises(ValueError):
+            connector.style.font = {"family": "Inter", "sise": 12}
+
     def it_applies_text_color_to_every_run(self, shape):
         shape.text_frame.text = "hello"
         shape.style.text_color = "#3C2F80"

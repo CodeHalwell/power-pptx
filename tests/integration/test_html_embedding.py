@@ -17,6 +17,8 @@ from PIL import Image
 
 from power_pptx import Presentation, add_html_figure
 from power_pptx.compose import from_html, from_spec
+from power_pptx.design._html import capture_html
+from power_pptx.design.figures import FigureBackendUnavailable
 from power_pptx.design.recipes import figure_slide
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
 from power_pptx.util import Inches
@@ -230,6 +232,97 @@ def test_notes_can_be_omitted(browser_path):
         browser_path=browser_path,
     )
     assert not prs.slides[0].has_notes_slide
+
+
+# -- capture options ---------------------------------------------------------
+
+
+def _png_size(data):
+    with Image.open(io.BytesIO(data)) as image:
+        return image.size
+
+
+def test_a_selector_matching_several_elements_needs_multiple(browser_path):
+    markup = '<div class="x" style="width:20px;height:20px"></div>' * 2
+    with pytest.raises(ValueError, match=r"selector '\.x' must match one element; matched 2"):
+        capture_html(markup, selector=".x", browser_path=browser_path)
+    captures = capture_html(markup, selector=".x", multiple=True, browser_path=browser_path)
+    assert [_png_size(c.png) for c in captures] == [(40, 40), (40, 40)]
+
+
+def test_titles_fall_back_from_attributes_to_headings_to_text(browser_path):
+    long_text = "word " * 40
+    markup = (
+        '<section data-title=" Named " aria-label="Ignored"><h1>Heading</h1></section>'
+        '<section aria-label="Labelled"><h1>Heading</h1></section>'
+        "<section><p>Intro</p><h2>Second heading</h2></section>"
+        f"<section><p>  {long_text}  </p></section>"
+    )
+    captures = capture_html(
+        markup, selector="section", multiple=True, browser_path=browser_path, viewport=(320, 180)
+    )
+    assert [c.title for c in captures] == [
+        "Named",
+        "Labelled",
+        "Second heading",
+        long_text.strip()[:120].strip(),
+    ]
+    assert captures[3].text == long_text.strip()
+    assert captures[2].text == "Intro\n\nSecond heading"
+
+
+def test_markup_bytes_and_html_like_strings_are_documents(browser_path):
+    from_bytes = capture_html(b"\xef\xbb\xbf<h1>From bytes</h1>", browser_path=browser_path)
+    assert from_bytes[0].text == "From bytes"
+    markup = capture_html("<p>see page.html</p>", browser_path=browser_path)
+    assert markup[0].text == "see page.html"
+
+
+def test_full_page_captures_beyond_the_viewport(browser_path):
+    markup = '<body style="margin:0"><div style="width:100px;height:400px"></div></body>'
+    options = {"viewport": (320, 180), "device_scale_factor": 1, "browser_path": browser_path}
+    assert _png_size(capture_html(markup, **options)[0].png) == (320, 180)
+    assert _png_size(capture_html(markup, full_page=True, **options)[0].png) == (320, 400)
+
+
+def test_export_script_results_are_strings_or_nothing(browser_path):
+    markup = "<h1>Export</h1>"
+    exported = capture_html(markup, export_script="() => 'svg'", browser_path=browser_path)
+    assert exported[0].exported == "svg"
+    nothing = capture_html(markup, export_script="() => null", browser_path=browser_path)
+    assert nothing[0].exported is None
+    with pytest.raises(ValueError, match="export_script must return a string"):
+        capture_html(markup, export_script="() => 42", browser_path=browser_path)
+
+
+def test_a_browser_that_cannot_start_is_reported_as_unavailable(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    page = tmp_path / "page.html"
+    page.write_text("<h1>x</h1>", encoding="utf-8")
+    with pytest.raises(FigureBackendUnavailable, match="Playwright failed to launch Chromium"):
+        capture_html(page, browser_path=tmp_path / "no-such-chromium")
+
+
+def test_a_browser_error_is_reported_as_a_capture_failure(browser_path):
+    with pytest.raises(RuntimeError, match="HTML capture failed: .*boom"):
+        capture_html(
+            "<h1>x</h1>",
+            browser_path=browser_path,
+            wait_for_function="() => { throw new Error('boom') }",
+        )
+
+
+def test_a_blocked_request_is_named_as_the_cause_of_a_failure(browser_path):
+    url = "http://198.51.100.7/chart.png"
+    with pytest.raises(ValueError, match="blocked 1 request") as error:
+        capture_html(
+            f'<img src="{url}" width="10" height="10">',
+            browser_path=browser_path,
+            allow_network=False,
+            timeout_ms=5000,
+        )
+    assert url in str(error.value)
+    assert isinstance(error.value.__cause__, Exception)
 
 
 # -- what a captured document can reach --------------------------------------
