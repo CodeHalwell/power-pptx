@@ -797,72 +797,106 @@ def _child_box(inner, horizontal, along, across, width, height):
 
 
 def _draw(plan, slide, context, result):
-    node, bbox = plan.node, plan.bbox
+    node = plan.node
     start = len(result.shapes)
-    background = None
     if isinstance(node, TextBlock):
-        m = plan.text
-        face = _face(node, context)
-        shape = slide.shapes.add_text(
-            bbox,
-            text="\v".join(m.lines),
-            size_pt=m.font_size_pt,
-            font=face.draw_family,
-            color=context.color(node.color),
-            bold=face.draw_bold,
-            italic=node.italic,
-            align=node.align,
-            anchor=node.anchor,
-            margin_pt=0,
-        )
-        shape.text_frame.auto_size = MSO_AUTO_SIZE.NONE
-        # Bake measured lines so Office cannot introduce extra wrapping (most
-        # visible on intrinsically sized badges and narrow card copy).
-        shape.text_frame.word_wrap = False
-        for paragraph in shape.text_frame.paragraphs:
-            paragraph.line_spacing = node.line_spacing
-            paragraph.space_before = paragraph.space_after = Pt(0)
-            if node.letter_spacing:
-                for run in paragraph.runs:
-                    run.font.letter_spacing = Emu(int(node.letter_spacing))
-        if m.used_fallback or face.estimated:
-            result.estimated_fonts.append(node.name or node.text[:40])
-        result.shapes.append(shape)
+        _draw_text(plan, slide, context, result)
     elif isinstance(node, Container):
-        if node.fill is not None or node.border is not None:
-            background = slide.shapes.add_shape(
-                MSO_SHAPE.ROUNDED_RECTANGLE if node.radius else MSO_SHAPE.RECTANGLE, *bbox
-            )
-            if node.fill is not None:
-                background.fill_hex(context.color(node.fill))
-            else:
-                background.fill.background()
-            if node.border is not None:
-                background.line_hex(context.color(node.border), weight_pt=0.75)
-            else:
-                background.line.fill.background()
-            background.shadow.clear()
-            if node.radius:
-                background.corner_radius = Emu(node.radius)
-            result.shapes.append(background)
-        for child in plan.children:
-            _draw(child, slide, context, result)
-        if background is not None:
-            for child_shape in result.shapes[start + 1 :]:
-                background.allow_overlap_with(child_shape)
+        _draw_container(plan, slide, context, result)
     elif isinstance(node, DataTable):
-        result.shapes.append(_draw_table(node, plan, slide, context))
-        if plan.table.estimated:
-            result.estimated_fonts.append(node.name or "DataTable")
+        _draw_data_table(plan, slide, context, result)
     elif isinstance(node, NativeContent):
-        before = len(slide.shapes)
-        node.builder(slide, bbox)
-        result.shapes.extend(list(slide.shapes)[before:])
-    if node.name is not None:
-        created = result.shapes[start:]
-        if created:
-            created[0].name = node.name
-            result.named[node.name] = created[0]
+        _draw_native(plan, slide, context, result)
+    _name_first_shape(node, result, start)
+
+
+def _name_first_shape(node, result, start):
+    """Name a named node's first shape (created from index `start` on) after it."""
+    if node.name is None:
+        return
+    created = result.shapes[start:]
+    if created:
+        created[0].name = node.name
+        result.named[node.name] = created[0]
+
+
+def _draw_text(plan, slide, context, result):
+    node, m = plan.node, plan.text
+    face = _face(node, context)
+    shape = slide.shapes.add_text(
+        plan.bbox,
+        text="\v".join(m.lines),
+        size_pt=m.font_size_pt,
+        font=face.draw_family,
+        color=context.color(node.color),
+        bold=face.draw_bold,
+        italic=node.italic,
+        align=node.align,
+        anchor=node.anchor,
+        margin_pt=0,
+    )
+    _bake_lines(shape.text_frame, node)
+    if m.used_fallback or face.estimated:
+        result.estimated_fonts.append(node.name or node.text[:40])
+    result.shapes.append(shape)
+
+
+def _bake_lines(text_frame, node):
+    """Keep the measured lines and spacing exactly as they were measured."""
+    text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    # Bake measured lines so Office cannot introduce extra wrapping (most
+    # visible on intrinsically sized badges and narrow card copy).
+    text_frame.word_wrap = False
+    for paragraph in text_frame.paragraphs:
+        paragraph.line_spacing = node.line_spacing
+        paragraph.space_before = paragraph.space_after = Pt(0)
+        if node.letter_spacing:
+            for run in paragraph.runs:
+                run.font.letter_spacing = Emu(int(node.letter_spacing))
+
+
+def _draw_container(plan, slide, context, result):
+    panel = None
+    if _is_panel(plan.node):
+        panel = _add_panel(plan.node, plan.bbox, slide, context)
+        result.shapes.append(panel)
+    first_child = len(result.shapes)
+    for child in plan.children:
+        _draw(child, slide, context, result)
+    if panel is not None:
+        for child_shape in result.shapes[first_child:]:
+            panel.allow_overlap_with(child_shape)
+
+
+def _add_panel(node, bbox, slide, context):
+    """The filled and/or bordered shape behind a container's children."""
+    panel = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE if node.radius else MSO_SHAPE.RECTANGLE, *bbox
+    )
+    if node.fill is not None:
+        panel.fill_hex(context.color(node.fill))
+    else:
+        panel.fill.background()
+    if node.border is not None:
+        panel.line_hex(context.color(node.border), weight_pt=0.75)
+    else:
+        panel.line.fill.background()
+    panel.shadow.clear()
+    if node.radius:
+        panel.corner_radius = Emu(node.radius)
+    return panel
+
+
+def _draw_data_table(plan, slide, context, result):
+    result.shapes.append(_draw_table(plan.node, plan, slide, context))
+    if plan.table.estimated:
+        result.estimated_fonts.append(plan.node.name or "DataTable")
+
+
+def _draw_native(plan, slide, context, result):
+    before = len(slide.shapes)
+    plan.node.builder(slide, plan.bbox)
+    result.shapes.extend(list(slide.shapes)[before:])
 
 
 def _draw_table(node, plan, slide, context):
