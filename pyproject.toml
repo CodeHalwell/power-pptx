@@ -140,6 +140,11 @@ exclude = [
     "spec",
 ]
 
+[tool.ruff.format]
+# -- Ruff also formats Python code blocks inside Markdown. The skill's examples
+# -- are written to be read (compact calls, aligned comments), so leave them be.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = [
     "C4",       # -- flake8-comprehensions --
