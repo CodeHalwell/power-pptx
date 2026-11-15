@@ -52,6 +52,7 @@ Example::
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 from dataclasses import dataclass
@@ -852,7 +853,6 @@ def chart_slide(
       explicit *chart_palette* is supplied.
     * **typography** — ``heading`` for the title.
     """
-    from power_pptx.chart.data import CategoryChartData
     from power_pptx.enum.chart import XL_CHART_TYPE
 
     chart_map = {
@@ -871,23 +871,7 @@ def chart_slide(
         )
 
     _check_items("chart_slide", "series", series, ("name", "values"))
-    chart_data = CategoryChartData()
-    chart_data.categories = list(categories)
-    for index, s in enumerate(series):
-        values = s["values"]
-        if isinstance(values, (str, bytes, Mapping)) or not isinstance(values, Sequence):
-            raise ValueError(
-                f"chart_slide: series[{index}] 'values' must be a list of numbers, "
-                f"got {type(values).__name__}"
-            )
-        try:
-            # ``None`` is a legitimate gap in a category chart.
-            numbers = [None if v is None else float(v) for v in values]
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"chart_slide: series[{index}] 'values' must be numbers or None: {exc}"
-            ) from exc
-        chart_data.add_series(str(s["name"]), numbers)
+    chart_data = _category_chart_data(categories, series)
 
     slide = _add_blank(prs)
     slide_w, slide_h = _slide_dims(prs)
@@ -926,34 +910,71 @@ def chart_slide(
     if resolved_palette is None:
         resolved_palette = _token_chart_palette(tokens)
     if resolved_palette is not None:
-        try:
-            if chart_type in ("pie", "doughnut"):
-                chart.color_by_category(resolved_palette)
-            else:
-                chart.apply_palette(resolved_palette)
-        except Exception:
-            # A misconfigured palette shouldn't fail the whole recipe;
-            # the chart still renders with PowerPoint defaults.
-            pass
+        _apply_chart_palette(chart, chart_type, resolved_palette)
 
     chart.has_legend = bool(legend)
 
     if smooth and chart_type in ("line", "line_markers"):
-        for s in chart.series:
-            try:
-                s.smooth = True
-            except Exception:
-                pass
+        _turn_on_each(chart.series, "smooth")
 
     if data_labels:
-        for plot in chart.plots:
-            try:
-                plot.has_data_labels = True
-            except Exception:
-                pass
+        _turn_on_each(chart.plots, "has_data_labels")
 
     _apply_transition(slide, transition)
     return slide
+
+
+def _category_chart_data(
+    categories: Sequence[str], series: Sequence[Mapping[str, Any]]
+) -> Any:
+    """Return ``CategoryChartData`` for *series*, each a ``{"name", "values"}`` mapping."""
+    from power_pptx.chart.data import CategoryChartData
+
+    chart_data = CategoryChartData()
+    chart_data.categories = list(categories)
+    for index, s in enumerate(series):
+        numbers = _series_numbers(index, s["values"])
+        chart_data.add_series(str(s["name"]), numbers)
+    return chart_data
+
+
+def _series_numbers(index: int, values: Any) -> list[Optional[float]]:
+    """Return series *index*'s *values* as floats, keeping ``None`` gaps.
+
+    Raises :class:`ValueError` unless *values* is a list of numbers or ``None``.
+    """
+    if not _is_list(values):
+        raise ValueError(
+            f"chart_slide: series[{index}] 'values' must be a list of numbers, "
+            f"got {type(values).__name__}"
+        )
+    try:
+        # ``None`` is a legitimate gap in a category chart.
+        return [None if v is None else float(v) for v in values]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"chart_slide: series[{index}] 'values' must be numbers or None: {exc}"
+        ) from exc
+
+
+def _apply_chart_palette(chart: Any, chart_type: str, palette: Any) -> None:
+    """Colour *chart* from *palette*: pie and doughnut slices, else whole series.
+
+    A misconfigured palette shouldn't fail the whole recipe; the chart
+    still renders with PowerPoint defaults.
+    """
+    with contextlib.suppress(Exception):
+        if chart_type in ("pie", "doughnut"):
+            chart.color_by_category(palette)
+        else:
+            chart.apply_palette(palette)
+
+
+def _turn_on_each(items: Any, attribute: str) -> None:
+    """Set boolean *attribute* to True on each of *items*, skipping any that refuse."""
+    for item in items:
+        with contextlib.suppress(Exception):
+            setattr(item, attribute, True)
 
 
 # ---------------------------------------------------------------------------
@@ -2647,6 +2668,11 @@ def _did_you_mean(word: str, candidates: Sequence[str]) -> str:
     return f" (did you mean {matches[0]!r}?)" if matches else ""
 
 
+def _is_list(value: Any) -> bool:
+    """True if *value* is a sequence of items: not a string, bytes or a mapping."""
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, Mapping))
+
+
 def _check_items(
     recipe: str,
     field: str,
@@ -2663,7 +2689,7 @@ def _check_items(
     :class:`ValueError` naming the item and suggesting the closest
     accepted key.
     """
-    if isinstance(items, (str, bytes, Mapping)) or not isinstance(items, Sequence):
+    if not _is_list(items):
         raise ValueError(
             f"{recipe}: {field} must be a list of mappings, got {type(items).__name__}"
         )
