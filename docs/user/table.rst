@@ -310,6 +310,31 @@ but leaves the defaults alone.
    properties and ignores the body ones.  ``format(anchor=...,
    margin=...)`` writes them to the right place.
 
+A built-in table style is chosen by its name in PowerPoint's gallery or by
+its GUID; anything else raises |ValueError| with the closest names::
+
+    table.style = "Medium Style 2 - Accent 1"
+    table.style = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"   # the same style
+    table.style = None                                       # no style
+
+
+Fitting text to the table
+-------------------------
+
+When the cell text comes from data, ``Table.fit_to_box()`` finds the largest
+font size at which every cell's text fits its cell, and applies that one size
+to the whole table::
+
+    size = table.fit_to_box(font_family="DejaVu Sans", max_font_pt=18,
+                            min_font_pt=8)
+
+Each cell is measured inside its margins, a merged cell across the columns
+and rows it spans, and with the formatting its text keeps, as
+:ref:`fit_text <fit-text>` measures. The size returned is never below
+``min_font_pt``. As with ``fit_text``, naming a family that is not installed
+emits a :class:`~power_pptx.exc.FontMetricsWarning`, ``strict=True`` raises
+instead, and ``font_file=`` names the file to measure with.
+
 
 A few snippets that might be handy
 ----------------------------------

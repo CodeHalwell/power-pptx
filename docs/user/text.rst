@@ -177,3 +177,73 @@ this will not change color when the theme is changed::
 A run can also be made into a hyperlink by providing a target URL::
 
     run.hyperlink.address = 'https://github.com/scanny/python-pptx'
+
+
+.. _fit-text:
+
+Fitting text to its shape
+-------------------------
+
+Generated text rarely arrives at a length you know in advance.
+:meth:`TextFrame.fit_text() <power_pptx.text.text.TextFrame.fit_text>` measures
+it with real font metrics and writes the largest size at which all of it fits
+the shape::
+
+    text_frame = shape.text_frame
+    text_frame.text = 'Quarterly results beat the plan in every region – a record year.'
+    text_frame.fit_text('DejaVu Sans', max_size=40)    # -> 24 in a 4" x 1.5" box
+
+It turns word wrap on, sets ``auto_size`` to ``MSO_AUTO_SIZE.NONE`` and writes
+the size on every run, so the result does not depend on the program that opens
+the deck. Lines break where PowerPoint and LibreOffice break them: at spaces,
+after hyphens, dashes and the slashes of a long path, and between Chinese,
+Japanese and Korean characters (never before closing or after opening
+punctuation). The text is measured with the formatting it keeps: each
+paragraph's line spacing and the space before and after it, capitals and
+letter spacing, including what a placeholder inherits from its layout and
+master. For East Asian text the typeface is also written as the run's East
+Asian font (``<a:ea>``), which is the one PowerPoint draws those characters
+with.
+
+``min_size``, ``max_lines``, ``preserve_breaks`` and ``line_spacing`` (a
+multiple such as ``1.2`` or a length such as ``Pt(28)``) constrain the fit.
+A fit that cannot meet them raises |ValueError| and changes nothing::
+
+    text_frame.fit_text('DejaVu Sans', max_size=40, min_size=12, max_lines=2)
+
+The result is only as good as the font it is measured with. Name an installed
+family, pass ``font_file=``, or register a folder of fonts with
+:func:`power_pptx.text.register_font_dir` (see :doc:`authoring-workflows`).
+Naming a family that is not installed measures with a fallback font and emits
+a :class:`~power_pptx.exc.FontMetricsWarning`; ``strict=True`` raises instead.
+:ref:`common_pitfalls` has the details. ``slide.lint()`` measures with the same
+engine, so a frame ``fit_text`` sized is not reported as overflowing.
+
+Measuring without a shape
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`~power_pptx.text.measure_text` wraps text to a width and reports the
+lines and the space they take, and :func:`~power_pptx.text.truncate_text`
+shortens text with an ellipsis so it fits a number of lines; neither touches a
+slide::
+
+    from power_pptx.text import measure_text, truncate_text
+    from power_pptx.util import Inches
+
+    m = measure_text('Quarterly results beat the plan in every region',
+                     Inches(3), size_pt=18, font_family='DejaVu Sans')
+    m.lines        # ('Quarterly results beat', 'the plan in every region')
+    m.height.pt    # 51.84: two lines of 1.2 x 18pt, at 1.2 line spacing
+
+    truncate_text('Quarterly results beat the plan in every region',
+                  Inches(2), size_pt=18, font_family='DejaVu Sans')
+    # 'Quarterly…'
+
+Each line takes 1.2 times the font size times the line spacing, which is how
+PowerPoint and LibreOffice lay out a shape. ``line_spacing`` defaults to
+``1.2``, the spacing the design components write; pass |None| for
+single-spaced text or a length for an exact line height. ``in_table=True``
+reserves the font's own ascent and descent when they are taller, as
+LibreOffice does in a table cell. A word wider than the width raises
+|ValueError| unless ``break_long_words=True``. ``used_fallback`` says whether
+the figures come from a fallback font.
