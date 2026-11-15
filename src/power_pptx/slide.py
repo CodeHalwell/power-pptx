@@ -838,11 +838,15 @@ class Slide(_BaseSlide):
 
         * ``fix_offslide`` (default ``True``) clamps shapes back
           on-slide.
-        * ``fix_overflow`` (default ``True``) flips overflowing text
-          frames to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE``.
+        * ``fix_overflow`` (default ``True``) makes overflowing text fit:
+          it stores the font scale that fits on a frame that shrinks text
+          (or has no auto-size setting), resizes a frame that resizes to its
+          text, reduces the font sizes of a frame set to
+          ``MSO_AUTO_SIZE.NONE``, and grows a table row to its text.  See
+          :meth:`SlideLintReport.auto_fix`.
         * ``fix_grid_drift`` (default ``False``) snaps minor grid drift
-          — off by default because the snap can move a shape by several
-          EMU when the inferred grid is wrong.
+          — off by default because the snap can move a shape off an
+          alignment the author meant when the inferred grid is wrong.
         * ``fix_layer_order`` (default ``True``) restacks shapes whose
           ``layer_above`` declaration is contradicted by the drawing
           order.  On by default because it only enforces an ordering
@@ -858,7 +862,7 @@ class Slide(_BaseSlide):
         if not fix_layer_order:
             disable.append("LayerOrderViolation")
         report = self.lint(disable=disable)
-        return report.auto_fix()
+        return report.auto_fix(fix_grid_drift=fix_grid_drift)
 
     @property
     def smart_art(self) -> SmartArtCollection:

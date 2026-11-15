@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 import os
 import random
 
@@ -491,7 +492,7 @@ class DescribeOffGridDrift:
         slide, drift = self._column_with_drift()
         before = int(drift.left)
         report = slide.lint()
-        fixes = report.auto_fix()
+        fixes = report.auto_fix(fix_grid_drift=True)
         assert any("Snapped" in f for f in fixes)
         assert int(drift.left) == int(Inches(6))
         # And the issue is gone on a fresh lint pass.
@@ -506,7 +507,7 @@ class DescribeOffGridDrift:
         slide, drift = self._column_with_drift()
         report = slide.lint()
         assert any(isinstance(i, OffGridDrift) for i in report.issues)
-        report.auto_fix()
+        report.auto_fix(fix_grid_drift=True)
         assert [i for i in report.issues if isinstance(i, OffGridDrift)] == []
 
     def it_does_not_refresh_report_issues_on_dry_run(self):
@@ -922,18 +923,20 @@ class DescribeEffectBleedGeometry:
         )
         a.shadow.blur_radius = Emu(914400)
         # Off-grid drift offender (auto-fixable) so a fix actually fires
-        # and triggers the refresh.
+        # and triggers the refresh.  (It used to sit 30000 EMU off the
+        # column, inside the tight tolerance, so no fix fired at all.)
         for i in range(4):
             slide.shapes.add_shape(
                 1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
             )
         slide.shapes.add_shape(
-            1, Inches(6) + 30000, Inches(5), Inches(1), Inches(0.5)
+            1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5)
         )
 
         report = slide.lint(include_effect_bleed=True)
         assert any(isinstance(i, OffSlideShadow) for i in report.issues)
-        report.auto_fix()  # snaps the drift offender; triggers refresh
+        # snaps the drift offender; triggers refresh
+        assert report.auto_fix(fix_grid_drift=True)
         # Bleed-only OffSlideShadow must survive the refresh.
         assert any(isinstance(i, OffSlideShadow) for i in report.issues)
 
@@ -2475,7 +2478,7 @@ class DescribeLintScaling:
     @pytest.mark.parametrize("count", [40, 80])
     def it_measures_each_shapes_box_once(self, monkeypatch, count):
         slide = self._grid(count, coloured=True)
-        calls = self._count_calls(monkeypatch, "_shape_bbox")
+        calls = self._count_calls(monkeypatch, "_shape_frame")
 
         slide.lint()
 
@@ -3096,3 +3099,287 @@ class DescribeAutoFixTextOverflowFitsTheText:
 
         assert len(fixes) == 1
         assert slide._element.xml == before
+
+
+def _off_slide_sides(slide):
+    return sorted(i.side for i in slide.lint().issues if isinstance(i, OffSlide))
+
+
+def _inches(shape):
+    return tuple(round(int(v) / 914400, 3) for v in (shape.left, shape.top, shape.width, shape.height))
+
+
+class DescribeRotatedGeometry:
+    """A rotated shape covers its rotated extent, not its stored frame."""
+
+    def it_does_not_report_a_rotated_shape_that_is_on_the_slide(self):
+        _, slide = _new_blank_slide()
+        # Stored frame starts an inch left of the slide; turned 90° the bar
+        # covers x 0.25"–0.75", y 1.75"–4.75".
+        bar = slide.shapes.add_shape(1, Inches(-1), Inches(3), Inches(3), Inches(0.5))
+        bar.rotation = 90
+
+        assert _off_slide_sides(slide) == []
+        assert slide.tidy() == []
+        assert _inches(bar) == (-1.0, 3.0, 3.0, 0.5)
+
+    def it_reports_a_rotated_shape_whose_extent_leaves_the_slide(self):
+        _, slide = _new_blank_slide()
+        # Centre (5", 6.9"); turned 90° it spans y 4.9"–8.9", past the 7.5" edge.
+        bar = slide.shapes.add_shape(1, Inches(3), Inches(6.5), Inches(4), Inches(0.8))
+        bar.rotation = 90
+
+        assert _off_slide_sides(slide) == ["bottom"]
+
+    def it_moves_a_rotated_shape_by_its_rotated_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(8.5), Inches(3), Inches(3), Inches(0.5))
+        bar.rotation = 90  # covers x 9.75"–10.25"
+
+        slide.tidy()
+
+        # Moved a quarter inch, not the 1.5" the unrotated frame suggests.
+        assert _inches(bar) == (8.25, 3.0, 3.0, 0.5)
+        assert _off_slide_sides(slide) == []
+
+    def it_uses_the_extent_of_an_arbitrary_angle(self):
+        from power_pptx.lint import _rotated_extent
+
+        box = _rotated_extent((0, 0, 400, 200), 45)
+
+        half_diagonal = 300 / math.sqrt(2)
+        assert box == (
+            math.floor(200 - half_diagonal),
+            math.floor(100 - half_diagonal),
+            math.ceil(200 + half_diagonal),
+            math.ceil(100 + half_diagonal),
+        )
+
+    def it_finds_collisions_with_the_rotated_extent(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(4), Inches(0.5))
+        bar.rotation = 90  # covers x 2.75"–3.25", y 1.25"–5.25"
+        above = slide.shapes.add_shape(1, Inches(2.5), Inches(1), Inches(1), Inches(1))
+
+        collisions = _collisions(slide)
+
+        assert [c.shapes for c in collisions] == [(bar, above)]
+
+
+class DescribeOffSlideShrinkKeepsProportions:
+    """A picture or group larger than the slide is scaled, not squashed."""
+
+    @staticmethod
+    def _png(width, height):
+        from PIL import Image
+
+        data = io.BytesIO()
+        Image.new("RGB", (width, height), "#336699").save(data, format="PNG")
+        data.seek(0)
+        return data
+
+    def it_scales_a_picture_proportionally(self):
+        _, slide = _new_blank_slide()
+        picture = slide.shapes.add_picture(self._png(1600, 400), Inches(-1), Inches(1), Inches(14))
+        assert picture.width / picture.height == pytest.approx(4.0)
+
+        slide.tidy()
+
+        assert int(picture.width) <= int(Inches(10))
+        assert picture.width / picture.height == pytest.approx(4.0, rel=1e-4)
+        assert _off_slide_sides(slide) == []
+
+    def it_scales_a_group_proportionally(self):
+        _, slide = _new_blank_slide()
+        group = slide.shapes.add_group_shape()
+        group.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        group.shapes.add_shape(1, Inches(9), Inches(1), Inches(3), Inches(1))
+        aspect = group.width / group.height
+
+        slide.tidy()
+
+        assert int(group.width) <= int(Inches(10))
+        assert group.width / group.height == pytest.approx(aspect, rel=1e-4)
+        assert _off_slide_sides(slide) == []
+
+    def it_still_shortens_only_the_long_axis_of_a_plain_shape(self):
+        _, slide = _new_blank_slide()
+        bar = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(50), Inches(2))
+
+        slide.tidy()
+
+        assert _inches(bar) == (0.0, 1.0, 10.0, 2.0)
+
+
+class DescribeGridSnapping:
+    """Grid snapping must not pull shapes off an alignment they really have."""
+
+    @staticmethod
+    def _bar_chart():
+        """Eight bars on one 5" baseline whose tops step 0.04" apart."""
+        _, slide = _new_blank_slide()
+        bars = []
+        for n, value in enumerate(range(41, 49)):
+            height = Inches(value * 0.04)
+            bar = slide.shapes.add_shape(1, Inches(1 + n), Inches(5) - height, Inches(0.6), height)
+            bars.append(bar)
+        return slide, bars
+
+    def it_does_not_chain_a_staircase_of_edges_into_one_grid_line(self):
+        from power_pptx.lint import _cluster_edges
+
+        steps = [int(Inches(3) + n * Inches(0.04)) for n in range(8)]
+
+        clusters = _cluster_edges(steps, int(Inches(0.05)))
+
+        assert max(n for _, n in clusters) == 2
+
+    def it_leaves_bars_that_share_a_baseline_alone(self):
+        slide, bars = self._bar_chart()
+        before = [(_inches(bar)) for bar in bars]
+
+        drift = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
+        slide.tidy(fix_grid_drift=True)
+
+        assert drift == []
+        assert [_inches(bar) for bar in bars] == before
+
+    def it_skips_a_shape_whose_opposite_edge_is_on_a_grid_line(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(1), Inches(0.5 + n), Inches(2), Inches(0.5))
+        # Left edge 0.07" off the column, but right-aligned with the others.
+        label = slide.shapes.add_shape(
+            1, Inches(1) + 64000, Inches(5), Inches(2) - 64000, Inches(0.5)
+        )
+
+        drift = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
+
+        assert label not in [i.shapes[0] for i in drift]
+
+    def it_does_not_snap_by_default_just_as_tidy_does_not(self):
+        _, slide = _new_blank_slide()
+        for n in range(4):
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + n), Inches(1), Inches(0.5))
+        drifted = slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
+        report = slide.lint()
+        assert any(isinstance(i, OffGridDrift) for i in report.issues)
+
+        fixes = report.auto_fix()
+
+        assert fixes == []
+        assert int(drifted.left) == int(Inches(6)) + 64000
+        assert report.auto_fix(fix_grid_drift=True)
+        assert int(drifted.left) == int(Inches(6))
+
+
+class DescribeConnectorCollisions:
+    """A connector collides with what its line runs into, not its bounding box."""
+
+    def it_ignores_a_shape_the_diagonal_passes_well_clear_of(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+        slide.shapes.add_shape(1, Inches(6), Inches(4), Inches(2), Inches(1))
+        slide.shapes.add_shape(1, Inches(4.5), Inches(1), Inches(1.2), Inches(1.3))
+        # From A's bottom-right to B's top-left; 0.7" below C at C's left edge.
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(2), Inches(6), Inches(4)
+        )
+
+        assert _collisions(slide) == []
+
+    def it_reports_a_shape_the_line_runs_through(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(4), Inches(2.5), Inches(1), Inches(1))
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(2), Inches(6), Inches(4)
+        )
+
+        assert [c.shapes for c in _collisions(slide)] == [(box, line)]
+
+    def it_follows_the_flip_of_a_connector_drawn_right_to_left(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        # Rising line from (3", 4") to (6", 2"): clear of a box at its top-left
+        # corner, through one in the middle.
+        corner = slide.shapes.add_shape(1, Inches(3), Inches(2), Inches(0.8), Inches(0.8))
+        line = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(3), Inches(4), Inches(6), Inches(2)
+        )
+
+        assert _collisions(slide) == []
+
+        middle = slide.shapes.add_shape(1, Inches(4.25), Inches(2.75), Inches(0.5), Inches(0.5))
+
+        assert [c.shapes for c in _collisions(slide)] == [(line, middle)]
+        assert corner.name not in {s.name for c in _collisions(slide) for s in c.shapes}
+
+    def it_ignores_connectors_whose_lines_do_not_cross(self):
+        from power_pptx.enum.shapes import MSO_CONNECTOR
+
+        _, slide = _new_blank_slide()
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1), Inches(1), Inches(4), Inches(4)
+        )
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(2), Inches(1), Inches(5), Inches(4)
+        )
+
+        assert _collisions(slide) == []
+
+
+class DescribeZOrderAnomalyIntent:
+    def it_ignores_a_translucent_scrim_over_a_photo(self):
+        _, slide = _new_blank_slide()
+        photo = slide.shapes.add_picture(
+            DescribeOffSlideShrinkKeepsProportions._png(400, 300),
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
+        )
+        scrim = slide.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(6), Inches(4))
+        scrim.fill.solid()
+        scrim.fill.fore_color.rgb = RGBColor(0, 0, 0)
+        scrim.fill.fore_color.alpha = 0.35
+
+        anomalies = [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]
+
+        assert anomalies == []
+        assert photo.name
+
+    def it_honours_a_shared_lint_group(self):
+        _, slide = _new_blank_slide()
+        small = slide.shapes.add_textbox(Inches(2), Inches(2), Inches(1), Inches(1))
+        small.text_frame.text = "under"
+        cover = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(4))
+        cover.fill.solid()
+        cover.fill.fore_color.rgb = RGBColor(0, 0, 255)
+        assert any(isinstance(i, ZOrderAnomaly) for i in slide.lint().issues)
+
+        slide.lint_group("hero", small, cover)
+
+        assert not any(isinstance(i, ZOrderAnomaly) for i in slide.lint().issues)
+
+
+class DescribeMalformedGeometry:
+    def it_reports_a_negative_width_instead_of_crashing(self):
+        _, slide = _new_blank_slide()
+        panel = slide.shapes.add_shape(5, Inches(1), Inches(1), Inches(3), Inches(2))
+        panel.fill.solid()
+        panel.fill.fore_color.rgb = RGBColor(0x20, 0x40, 0x60)
+        slide.shapes.add_shape(5, Inches(5), Inches(1), Inches(3), Inches(3)).fill.solid()
+        panel._element.spPr.xfrm.ext.set("cx", str(-int(Inches(3))))
+
+        issues = slide.lint().issues
+
+        geometry = [i for i in issues if i.code == "InvalidGeometry"]
+        assert [(i.shapes[0].name, i.dimension) for i in geometry] == [(panel.name, "width")]
+        assert geometry[0].severity == LintSeverity.ERROR
+        assert geometry[0].value_emu == -int(Inches(3))
+        assert slide.tidy() == []

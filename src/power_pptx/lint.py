@@ -26,6 +26,7 @@ Issue types:
   below the layer it claims to sit on top of.
 * ``RaggedEdge``               — a filled panel ends above the bottom edge its
   neighbouring panels share, with nothing beneath it.
+* ``InvalidGeometry``          — a shape's stored width or height is negative.
 
 Declaring intentional overlap (so the collision detector stays quiet)::
 
@@ -502,6 +503,35 @@ class MasterPlaceholderCollision(LintIssue):
 
 
 @dataclass
+class InvalidGeometry(LintIssue):
+    """A shape's stored width or height is negative.
+
+    OOXML extents must not be negative, so PowerPoint reports such a file as
+    needing repair.  The shape is left out of every other geometric check,
+    which cannot say anything meaningful about an area that does not exist.
+    """
+
+    #: ``"width"`` or ``"height"``.
+    dimension: str = ""
+    #: The negative extent as stored, in EMU.
+    value_emu: int = 0
+
+    def __init__(self, shape: BaseShape, dimension: str, value_emu: int):
+        super().__init__(
+            severity=LintSeverity.ERROR,
+            code="InvalidGeometry",
+            message=(
+                f"Shape '{shape.name}' has a negative {dimension} "
+                f"({value_emu / 914400:.2f}\"); PowerPoint reports the file as needing "
+                f"repair. Give it a positive size."
+            ),
+            shapes=(shape,),
+        )
+        self.dimension = dimension
+        self.value_emu = value_emu
+
+
+@dataclass
 class RaggedEdge(LintIssue):
     """A filled panel stops short of the bottom edge its neighbours share."""
 
@@ -586,7 +616,7 @@ class SlideLintReport:
 
         return json.dumps(self.to_dict(), indent=indent)
 
-    def auto_fix(self, *, dry_run: bool = False) -> list[str]:
+    def auto_fix(self, *, dry_run: bool = False, fix_grid_drift: bool = False) -> list[str]:
         """Apply automatic fixes for issues that can be resolved without designer judgment.
 
         Returns a list of human-readable descriptions of the fixes applied (or
@@ -597,13 +627,18 @@ class SlideLintReport:
 
         Currently auto-fixable:
 
-        * ``OffSlide``     — clamps the shape on-slide.  Shrinks the
-          width / height first when the shape is larger than the slide
-          (translation alone can't fix that), then nudges position
-          inside the bounds.  Each shape is clamped at most once even
-          when it triggered multiple OffSlide issues (e.g. left + right).
-        * ``OffGridDrift`` — snaps the shape's drifted edge onto the dominant
-          grid line (Tier 3 of the auto-fix tier list).
+        * ``OffSlide``     — moves the shape so the area it covers when
+          rendered (rotated, and grown to its text when it resizes to fit)
+          is on the slide.  A shape larger than the slide is shrunk first —
+          a picture or group proportionally, anything else along the axis
+          that is too long — since translation alone can't fix that.  Each
+          shape is clamped at most once even when it triggered multiple
+          OffSlide issues (e.g. left + right).
+        * ``OffGridDrift`` — only with ``fix_grid_drift=True`` (the default
+          is ``False``, matching :meth:`Slide.tidy`): snaps the shape's
+          drifted edge onto the dominant grid line.  Off by default because
+          an inferred grid can be wrong, and a snap then pulls a shape off
+          an alignment the author meant.
         * ``TextOverflow`` — makes the text fit, in the way the frame's own
           auto-size setting asks for.  The text content is preserved
           verbatim in every case:
@@ -703,7 +738,7 @@ class SlideLintReport:
                     # it, so this is a reorder, not a duplication.
                     below_el.addnext(above_el)
 
-            elif isinstance(issue, OffGridDrift):
+            elif isinstance(issue, OffGridDrift) and fix_grid_drift:
                 shape = issue.shapes[0]
                 if issue.axis == "left":
                     old, new = int(shape.left), issue.grid_emu
@@ -911,6 +946,7 @@ _RULE_DESCRIPTIONS: dict[str, str] = {
         "A shape declares it sits above a layer but is drawn below it."
     ),
     "RaggedEdge": "A filled panel ends above the bottom edge its neighbouring panels share.",
+    "InvalidGeometry": "A shape's stored width or height is negative.",
 }
 
 
@@ -1064,10 +1100,12 @@ def _slide_dimensions(slide: Slide) -> tuple[Length | None, Length | None]:
         return _DEFAULT_SLIDE_W, _DEFAULT_SLIDE_H
 
 
-def _shape_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
-    """Return (left, top, right, bottom) in EMU for the shape's bounding box.
+def _shape_frame(shape: BaseShape) -> tuple[int, int, int, int]:
+    """Return ``(left, top, right, bottom)`` of *shape*'s stored frame, unrotated.
 
     Returns (0, 0, 0, 0) when position/size information is not available.
+    A negative width or height is returned as stored (right < left), so a
+    caller can tell malformed geometry from an empty frame.
     """
     try:
         left = int(shape.left or 0)
@@ -1077,6 +1115,54 @@ def _shape_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
         return left, top, left + width, top + height
     except Exception:
         return 0, 0, 0, 0
+
+
+def _shape_rotation(shape: BaseShape) -> float:
+    """Clockwise rotation of *shape* in degrees, 0.0 when it has none."""
+    try:
+        return float(shape.rotation or 0.0) % 360.0
+    except Exception:
+        return 0.0
+
+
+def _rotated_extent(
+    frame: tuple[float, float, float, float], rotation: float
+) -> tuple[int, int, int, int]:
+    """The axis-aligned box a *frame* rotated by *rotation* degrees occupies.
+
+    PowerPoint rotates a shape about the centre of its frame, so the box
+    keeps that centre and takes the rotated corners' extent.
+    """
+    left, top, right, bottom = frame
+    if rotation in (0.0, 180.0):
+        return math.floor(left), math.floor(top), math.ceil(right), math.ceil(bottom)
+    width, height = right - left, bottom - top
+    if rotation in (90.0, 270.0):
+        rot_w, rot_h = height, width
+    else:
+        theta = math.radians(rotation)
+        cos, sin = abs(math.cos(theta)), abs(math.sin(theta))
+        rot_w, rot_h = width * cos + height * sin, width * sin + height * cos
+    cx, cy = (left + right) / 2, (top + bottom) / 2
+    return (
+        math.floor(cx - rot_w / 2),
+        math.floor(cy - rot_h / 2),
+        math.ceil(cx + rot_w / 2),
+        math.ceil(cy + rot_h / 2),
+    )
+
+
+def _shape_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
+    """Return (left, top, right, bottom) in EMU of the area the shape covers.
+
+    A rotated shape covers the axis-aligned extent of its rotated frame, not
+    its stored frame: a 3"×0.5" bar turned 90° is half an inch wide.
+    Returns (0, 0, 0, 0) when position/size information is not available.
+    """
+    frame = _shape_frame(shape)
+    if frame[2] < frame[0] or frame[3] < frame[1]:
+        return frame
+    return _rotated_extent(frame, _shape_rotation(shape))
 
 
 def _effective_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
@@ -1122,6 +1208,9 @@ class _ShapeInfo:
 
     __slots__ = (
         "shape",
+        "frame",
+        "rotation",
+        "malformed",
         "stored_box",
         "box",
         "bleed_box",
@@ -1131,16 +1220,27 @@ class _ShapeInfo:
         "layer",
         "skip",
         "shape_id",
+        "path",
         "_bleed",
         "_backdrop",
     )
 
     def __init__(self, shape: BaseShape, include_effect_bleed: bool = False):
         self.shape = shape
-        #: ``(left, top, right, bottom)`` of the geometry stored in the XML.
-        self.stored_box = _shape_bbox(shape)
-        #: The box the shape occupies when rendered: `stored_box`, enlarged
-        #: by :meth:`grow` for a shape that resizes to its text.
+        #: ``(left, top, right, bottom)`` of the frame stored in the XML, unrotated.
+        self.frame = _shape_frame(shape)
+        self.rotation = _shape_rotation(shape)
+        left, top, right, bottom = self.frame
+        #: ``"width"`` / ``"height"`` when that extent is negative, else ``None``.
+        self.malformed = "width" if right < left else "height" if bottom < top else None
+        if self.malformed:
+            # Malformed geometry covers nothing: it is reported on its own
+            # and kept out of every check that compares areas.
+            self.frame = (left, top, left, top)
+        #: The area the stored geometry covers: `frame`, rotated.
+        self.stored_box = _rotated_extent(self.frame, self.rotation)
+        #: The area the shape covers when rendered: `stored_box`, enlarged by
+        #: :meth:`grow` for a shape that resizes to its text.
         self.box = self.stored_box
         #: `box` widened by the shadow, when effect bleed is being checked.
         self.bleed_box = self.box
@@ -1161,17 +1261,21 @@ class _ShapeInfo:
             self.layer = _read_lint_layer(cNvPr)
             self.skip = _read_lint_skip(cNvPr)
             self.shape_id = _int_attr(cNvPr, "id")
+        #: For a connector, the segments it is drawn along (see
+        #: :func:`_connector_path`); ``None`` for any other shape.
+        self.path = None if self.malformed else _connector_path(shape)
         self._backdrop: Any = _UNSET
 
     def grow(self, growth: tuple[float, float, float, float]) -> None:
-        """Enlarge `box` by a ``(d_left, d_top, d_width, d_height)`` growth."""
+        """Enlarge `box` by a ``(d_left, d_top, d_width, d_height)`` growth.
+
+        The growth is of the shape's own frame, so it is applied before the
+        frame is rotated.
+        """
         d_left, d_top, d_width, d_height = growth
-        left, top, right, bottom = self.stored_box
-        left = math.floor(left + d_left)
-        top = math.floor(top + d_top)
-        right = math.ceil(right + d_left + d_width)
-        bottom = math.ceil(bottom + d_top + d_height)
-        self.box = (left, top, right, bottom)
+        left, top, right, bottom = self.frame
+        grown = (left + d_left, top + d_top, right + d_left + d_width, bottom + d_top + d_height)
+        self.box = left, top, right, bottom = _rotated_extent(grown, self.rotation)
         bleed = self._bleed
         self.bleed_box = (left - bleed, top - bleed, right + bleed, bottom + bleed)
 
@@ -1187,6 +1291,129 @@ class _ShapeInfo:
         if self._backdrop is _UNSET:
             self._backdrop = _fill_backdrop(self.shape)
         return self._backdrop
+
+
+#: A connector whose path only grazes a shape's edge by this much — an arrow
+#: head pulled inside the shape it points at — does not collide with it.
+_CONNECTOR_TOUCH_EMU = 45720  # 0.05"
+
+_Point = tuple  # (x, y) in EMU
+
+
+def _connector_path(shape: BaseShape) -> list[tuple[_Point, _Point]] | None:
+    """The segments a connector is drawn along, in slide coordinates.
+
+    A connector is a line, not the rectangle that bounds it: a diagonal from
+    one corner of its frame to the other passes nowhere near the frame's
+    other two corners.  Straight connectors are one segment; elbow
+    connectors, and curved ones (which stay close to the same route), are
+    the three-segment elbow through their adjustment point.  Returns
+    ``None`` for anything else — a rotated connector, an unknown geometry,
+    or a shape that is not a connector — so the caller falls back to the
+    bounding box.
+    """
+    try:
+        element = shape._element  # pyright: ignore[reportPrivateUsage]
+        if element.tag != _P + "cxnSp" or _shape_rotation(shape):
+            return None
+        left, top, right, bottom = _shape_frame(shape)
+        flip_h, flip_v = bool(element.flipH), bool(element.flipV)
+        geom = element.spPr.find(_A + "prstGeom")
+        prst = None if geom is None else geom.get("prst")
+    except Exception:
+        return None
+    width, height = right - left, bottom - top
+    if width < 0 or height < 0:
+        return None
+
+    def adj(name: str, default: float) -> float:
+        for gd in geom.iter(_A + "gd"):
+            if gd.get("name") == name:
+                formula = (gd.get("fmla") or "").split()
+                if len(formula) == 2 and formula[0] == "val":
+                    try:
+                        return float(formula[1]) / 100000.0
+                    except ValueError:
+                        return default
+        return default
+
+    if prst in ("line", "straightConnector1"):
+        local = [(0.0, 0.0), (1.0, 1.0)]
+    elif prst == "bentConnector2":
+        local = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+    elif prst in ("bentConnector3", "curvedConnector3"):
+        mid = adj("adj1", 0.5)
+        local = [(0.0, 0.0), (mid, 0.0), (mid, 1.0), (1.0, 1.0)]
+    else:
+        return None
+    points = [
+        (
+            left + width * ((1.0 - x) if flip_h else x),
+            top + height * ((1.0 - y) if flip_v else y),
+        )
+        for x, y in local
+    ]
+    return list(zip(points, points[1:]))
+
+
+def _segment_enters_box(segment: tuple[_Point, _Point], box: tuple[int, int, int, int]) -> bool:
+    """True when *segment* runs through the interior of *box*.
+
+    Liang–Barsky clipping against the box shrunk by ``_CONNECTOR_TOUCH_EMU``
+    on every side, so a line ending on (or just inside) a shape's edge does
+    not count.
+    """
+    (x0, y0), (x1, y1) = segment
+    inset = _CONNECTOR_TOUCH_EMU
+    left, top, right, bottom = box[0] + inset, box[1] + inset, box[2] - inset, box[3] - inset
+    if right <= left or bottom <= top:
+        return False
+    dx, dy = x1 - x0, y1 - y0
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x0 - left), (dx, right - x0), (-dy, y0 - top), (dy, bottom - y0)):
+        if p == 0:
+            if q <= 0:
+                return False
+            continue
+        t = q / p
+        if p < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 >= t1:
+            return False
+    return True
+
+
+def _segments_cross(a: tuple[_Point, _Point], b: tuple[_Point, _Point]) -> bool:
+    """True when two segments properly cross (not merely meet at an end)."""
+    (ax, ay), (bx, by) = a
+    (cx, cy), (dx, dy) = b
+
+    def orient(px: float, py: float, qx: float, qy: float, rx: float, ry: float) -> float:
+        return (qx - px) * (ry - py) - (qy - py) * (rx - px)
+
+    d1 = orient(ax, ay, bx, by, cx, cy)
+    d2 = orient(ax, ay, bx, by, dx, dy)
+    d3 = orient(cx, cy, dx, dy, ax, ay)
+    d4 = orient(cx, cy, dx, dy, bx, by)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def _paths_meet(a: _ShapeInfo, b: _ShapeInfo) -> bool:
+    """Whether two shapes, at least one a connector, actually touch.
+
+    Called only for pairs whose bounding boxes overlap.  A connector meets a
+    shape when its path enters the shape's box, and another connector when
+    the two paths cross.
+    """
+    path_a, path_b = a.path, b.path
+    if path_a is not None and path_b is not None:
+        return any(_segments_cross(s, t) for s in path_a for t in path_b)
+    if path_a is not None:
+        return any(_segment_enters_box(s, b.box) for s in path_a)
+    assert path_b is not None
+    return any(_segment_enters_box(s, a.box) for s in path_b)
 
 
 def _overlapping_pairs(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, int]]:
@@ -2507,6 +2734,19 @@ def _fix_text_overflow(env: _TextEnv, issue: TextOverflow, dry_run: bool) -> str
     )
 
 
+def _scales_as_a_whole(shape: BaseShape) -> bool:
+    """True for shapes whose width and height must change together.
+
+    Shrinking one axis of a picture distorts the image, and of a group
+    squashes every shape inside it.
+    """
+    try:
+        tag = shape._element.tag  # pyright: ignore[reportPrivateUsage]
+    except Exception:
+        return False
+    return tag in (_P + "pic", _P + "grpSp")
+
+
 def _fix_off_slide(
     env: _TextEnv,
     shape: BaseShape,
@@ -2516,36 +2756,68 @@ def _fix_off_slide(
 ) -> str | None:
     """Clamp `shape` on-slide; return a description, or ``None`` if nothing changes.
 
-    Works from the box the shape occupies when rendered: a shape that resizes
-    to its text is moved far enough for the grown box to be on the slide.
+    Works from the area the shape covers when rendered — rotated, and grown
+    to its text when it resizes to fit — and moves its stored frame so that
+    area lands on the slide.  A shape larger than the slide is shrunk first:
+    a picture or group proportionally, anything else along the axis that is
+    too long.
     """
     left, top = int(shape.left or 0), int(shape.top or 0)
     width, height = int(shape.width or 0), int(shape.height or 0)
-    d_left, d_top, d_width, d_height = _analyse_text(env, shape).growth
+    if width < 0 or height < 0:
+        return None  # InvalidGeometry: there is no area to place
+    rotation = _shape_rotation(shape)
+    g_left, g_top, g_width, g_height = _analyse_text(env, shape).growth
+
+    def extent(at_left: int, at_top: int, w: int, h: int) -> tuple[int, int, int, int]:
+        frame = (
+            at_left + g_left,
+            at_top + g_top,
+            at_left + g_left + w + g_width,
+            at_top + g_top + h + g_height,
+        )
+        return _rotated_extent(frame, rotation)
+
+    sw = None if slide_w is None else int(slide_w)
+    sh = None if slide_h is None else int(slide_h)
     new_width, new_height = width, height
 
-    # First clamp size: a shape larger than the slide can
-    # never be fully on-slide just by translation, so shrink
-    # to fit before deciding where to put it.  This used to
-    # be a silent no-op — auto_fix would translate but never
-    # converge.
-    if slide_w is not None and width > int(slide_w):
-        new_width = int(slide_w)
-    if slide_h is not None and height > int(slide_h):
-        new_height = int(slide_h)
+    # First clamp size: a shape larger than the slide can never be fully
+    # on-slide just by translation, so shrink to fit before deciding where
+    # to put it.
+    e_left, e_top, e_right, e_bottom = extent(left, top, width, height)
+    too_wide = sw is not None and e_right - e_left > sw
+    too_tall = sh is not None and e_bottom - e_top > sh
+    if too_wide or too_tall:
+        quarter_turns = round(rotation / 90.0)
+        axis_aligned = abs(rotation - 90.0 * quarter_turns) < 1e-6
+        if _scales_as_a_whole(shape) or not axis_aligned:
+            factor = 1.0
+            if sw is not None and e_right > e_left:
+                factor = min(factor, sw / (e_right - e_left))
+            if sh is not None and e_bottom > e_top:
+                factor = min(factor, sh / (e_bottom - e_top))
+            new_width = math.floor(width * factor)
+            new_height = math.floor(height * factor)
+        else:
+            # A quarter turn swaps which stored extent lies along each axis.
+            limit_w, limit_h = (sh, sw) if quarter_turns % 2 else (sw, sh)
+            if limit_w is not None and width > limit_w:
+                new_width = limit_w
+            if limit_h is not None and height > limit_h:
+                new_height = limit_h
 
-    def place(position: int, size: int, lead: float, extra: float, limit: Length | None) -> int:
-        """Stored position that puts the rendered span inside ``[0, limit]``."""
-        start = position + math.floor(lead)
-        span = size + math.ceil(extra)
-        if start < 0:
-            start = 0
-        if limit is not None and start + span > int(limit):
-            start = max(0, int(limit) - span)
-        return start - math.floor(lead)
+    def shift(low: int, high: int, limit: int | None) -> int:
+        """Move needed to bring ``[low, high]`` inside ``[0, limit]``."""
+        if low < 0:
+            return -low
+        if limit is not None and high > limit:
+            return max(-low, limit - high)
+        return 0
 
-    new_left = place(left, new_width, d_left, d_width, slide_w)
-    new_top = place(top, new_height, d_top, d_height, slide_h)
+    e_left, e_top, e_right, e_bottom = extent(left, top, new_width, new_height)
+    new_left = left + shift(e_left, e_right, sw)
+    new_top = top + shift(e_top, e_bottom, sh)
 
     if (new_left, new_top, new_width, new_height) == (left, top, width, height):
         return None
@@ -3163,6 +3435,11 @@ def _check_collisions(
         if pct < _COLLISION_THRESHOLD:
             continue
 
+        # A connector is a line: overlapping its bounding box means nothing
+        # unless the line itself runs into the other shape.
+        if (a.path is not None or b.path is not None) and not _paths_meet(a, b):
+            continue
+
         # Auto-suppress the "small shape stacked on top of a larger
         # backing card" pattern (badge-on-card, eyebrow-on-rectangle,
         # accent-bar-on-card).  The combination of (a) the smaller
@@ -3178,7 +3455,12 @@ def _check_collisions(
         area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
         area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
         size_ratio = min(area_i, area_j) / max(area_i, area_j)
-        if size_ratio < 0.9 and _bbox_contains(box_i, box_j) and area_j < area_i:
+        if (
+            size_ratio < 0.9
+            and a.path is None  # a line is not a backing card
+            and _bbox_contains(box_i, box_j)
+            and area_j < area_i
+        ):
             # j is the smaller shape and it's drawn on top of i
             # (j > i in spTree order); skip. A smaller i would be
             # underneath j, so that case remains a collision.
@@ -3275,15 +3557,18 @@ def _cluster_edges(values: list[int], tol: int) -> list[tuple[int, int]]:
     """Return list of (cluster_center_emu, member_count) for clusters of values
     that lie within *tol* of each other.
 
-    Greedy single-pass clustering; values are sorted, then any gap larger
-    than *tol* breaks the cluster.
+    Greedy single-pass clustering over the sorted values.  A cluster spans at
+    most *tol* from its first member: chaining each value to the previous one
+    instead would let a staircase of edges a little apart (the tops of bars in
+    a native bar chart) merge into one wide "grid line" whose mean sits
+    between them.
     """
     if not values:
         return []
     sorted_v = sorted(values)
     clusters: list[list[int]] = [[sorted_v[0]]]
     for v in sorted_v[1:]:
-        if v - clusters[-1][-1] <= tol:
+        if v - clusters[-1][0] <= tol:
             clusters[-1].append(v)
         else:
             clusters.append([v])
@@ -3293,29 +3578,46 @@ def _cluster_edges(values: list[int], tol: int) -> list[tuple[int, int]]:
     return [(int(sum(c) / len(c) + 0.5), len(c)) for c in clusters]
 
 
+def _grid_lines(edges: Sequence[int]) -> list[int]:
+    """Grid lines: clusters of at least ``_GRID_MIN_CLUSTER`` coinciding edges."""
+    clusters = _cluster_edges(list(edges), _GRID_TIGHT_TOLERANCE_EMU)
+    return [center for center, n in clusters if n >= _GRID_MIN_CLUSTER]
+
+
+def _on_grid(edge: int, grid_lines: Sequence[int]) -> bool:
+    return any(abs(edge - g) <= _GRID_TIGHT_TOLERANCE_EMU for g in grid_lines)
+
+
 def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
-    """Return OffGridDrift issues for shapes whose edges are slightly off a grid."""
+    """Return OffGridDrift issues for shapes whose edges are slightly off a grid.
+
+    Only the left and top edges are snapped, but a shape whose opposite edge
+    (right or bottom) already sits on a grid line is aligned there on purpose
+    — bars sharing a baseline, labels right-aligned to a column — and is left
+    alone.  Rotated shapes, whose stored edges are not the edges a viewer
+    sees, take no part.
+    """
     issues: list[LintIssue] = []
-    if len(infos) < _GRID_MIN_CLUSTER + 1:
+    # Alignment is about where shapes were placed, so the stored frame.
+    placed = [
+        info
+        for info in infos
+        if not info.malformed and info.rotation in (0.0, 180.0)
+    ]
+    if len(placed) < _GRID_MIN_CLUSTER + 1:
         return issues
 
-    shapes = [info.shape for info in infos]
-    # Alignment is about where shapes were placed, so the stored geometry.
-    bboxes = [info.stored_box for info in infos]
-
-    for axis_name, edge_idx in (("left", 0), ("top", 1)):
-        edges = [b[edge_idx] for b in bboxes]
-        clusters = _cluster_edges(edges, _GRID_TIGHT_TOLERANCE_EMU)
-        # Only clusters with enough members are "grid lines".
-        grid_lines = [center for center, n in clusters if n >= _GRID_MIN_CLUSTER]
+    for axis_name, edge_idx, opposite_idx in (("left", 0, 2), ("top", 1, 3)):
+        edges = [info.frame[edge_idx] for info in placed]
+        grid_lines = _grid_lines(edges)
         if not grid_lines:
             continue
-        for shape, edge in zip(shapes, edges):
+        opposite_lines = _grid_lines([info.frame[opposite_idx] for info in placed])
+        for info, edge in zip(placed, edges):
             # Skip shapes that already sit on a grid line.
-            on_grid = any(
-                abs(edge - g) <= _GRID_TIGHT_TOLERANCE_EMU for g in grid_lines
-            )
-            if on_grid:
+            if _on_grid(edge, grid_lines):
+                continue
+            if _on_grid(info.frame[opposite_idx], opposite_lines):
                 continue
             # Find the closest grid line; if it's within the loose tolerance,
             # this is drift.
@@ -3324,7 +3626,7 @@ def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
             if (
                 _GRID_TIGHT_TOLERANCE_EMU < drift <= _GRID_LOOSE_TOLERANCE_EMU
             ):
-                issues.append(OffGridDrift(shape, axis_name, drift, closest))
+                issues.append(OffGridDrift(info.shape, axis_name, drift, closest))
     return issues
 
 
@@ -3572,13 +3874,11 @@ def _bbox_contains(outer: tuple[int, int, int, int], inner: tuple[int, int, int,
 
 
 def _shape_has_opaque_fill(shape: BaseShape) -> bool:
-    """Return ``True`` if *shape* has an opaque (solid) fill."""
-    try:
-        from power_pptx.enum.dml import MSO_FILL_TYPE
+    """Return ``True`` if *shape* has a solid, fully opaque fill.
 
-        return shape.fill.type == MSO_FILL_TYPE.SOLID  # type: ignore[attr-defined]
-    except Exception:
-        return False
+    A translucent fill — a 35% black scrim over a photo — hides nothing.
+    """
+    return _fill_backdrop(shape)[0] == "opaque"
 
 
 def _check_z_order_anomalies(
@@ -3587,25 +3887,31 @@ def _check_z_order_anomalies(
     """Find filled shapes drawn above shapes they visually contain.
 
     *pairs* are the overlapping index pairs from :func:`_overlapping_pairs`;
-    a shape can only contain one it overlaps.
+    a shape can only contain one it overlaps.  Only a fully opaque fill hides
+    what is beneath it, and the same declarations that mark an overlap as
+    intended for :class:`ShapeCollision` — a shared ``lint_group``, an
+    ``allow_overlap_with`` allowance, or a consistent ``layer`` /
+    ``layer_above`` pair — mark the stacking as intended too.
     """
     issues: list[LintIssue] = []
-    opaque: dict[int, bool] = {}
     # Document order = draw order; later shapes are drawn on top, so in each
     # pair ``j`` is the candidate "container" drawn above the earlier ``i``.
     for i, j in sorted(pairs, key=lambda pair: (pair[1], pair[0])):
-        box_i, box_j = infos[i].box, infos[j].box
+        lower, upper = infos[i], infos[j]
+        if lower.group is not None and lower.group == upper.group:
+            continue
+        if _overlap_allowed(lower, upper) or _layers_consistent(lower.layer, upper.layer):
+            continue
+        box_i, box_j = lower.box, upper.box
         if not _bbox_contains(box_j, box_i):
             continue
         # Tolerate identical bboxes — those are layered groups, not
         # anomalies; the drift case is when j strictly contains i.
         if box_j == box_i:
             continue
-        if j not in opaque:
-            opaque[j] = _shape_has_opaque_fill(infos[j].shape)
-        if not opaque[j]:
+        if upper.backdrop[0] != "opaque":
             continue
-        issues.append(ZOrderAnomaly(container=infos[j].shape, contained=infos[i].shape))
+        issues.append(ZOrderAnomaly(container=upper.shape, contained=lower.shape))
     return issues
 
 
@@ -3739,9 +4045,12 @@ def _check_ragged_edges(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
     for shape, (left, top, right, bottom) in top_level:
         # The column this panel ends: panels stacked above it in its band.
         column_top = min(
-            o_top
-            for _, (o_left, o_top, o_right, o_bottom) in top_level
-            if o_left < right and o_right > left and o_bottom <= bottom + tol
+            (
+                o_top
+                for _, (o_left, o_top, o_right, o_bottom) in top_level
+                if o_left < right and o_right > left and o_bottom <= bottom + tol
+            ),
+            default=top,
         )
         row_bottoms = [
             n_bottom
@@ -3787,6 +4096,7 @@ _RULE_SEVERITY: dict[str, LintSeverity] = {
     "MasterPlaceholderCollision": LintSeverity.WARNING,
     "LayerOrderViolation": LintSeverity.ERROR,
     "RaggedEdge": LintSeverity.WARNING,
+    "InvalidGeometry": LintSeverity.ERROR,
 }
 
 
@@ -3874,6 +4184,10 @@ def lint_slide(
 
     for info in infos:
         shape = info.shape
+        if info.malformed and wanted("InvalidGeometry"):
+            left, top, right, bottom = _shape_frame(shape)
+            extent = right - left if info.malformed == "width" else bottom - top
+            issues.append(InvalidGeometry(shape, info.malformed, extent))
         if off_slide and slide_w is not None and slide_h is not None:
             issues.extend(_check_off_slide(info, slide_w, slide_h, include_effect_bleed))
         if text_overflow:
