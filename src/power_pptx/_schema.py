@@ -589,14 +589,7 @@ def iter_schema_violations(
     if not schema_validation_available():  # pragma: no cover - guarded by tests
         raise RuntimeError("schema validation unavailable (lxml or XSDs missing)")
 
-    if isinstance(pptx, (bytes, bytearray)):
-        source: object = io.BytesIO(pptx)
-    elif isinstance(pptx, (str, Path)):
-        source = str(pptx)
-    else:
-        source = pptx
-
-    with zipfile.ZipFile(source) as zf:  # type: ignore[arg-type]
+    with zipfile.ZipFile(_zip_source(pptx)) as zf:  # type: ignore[arg-type]
         names = zf.namelist()
 
         # -- package-level structural checks (content types + relationships) --
@@ -606,47 +599,75 @@ def iter_schema_violations(
         yield from _iter_relationship_violations(zf, names)
         yield from _iter_orphan_slide_violations(zf, names)
 
+        # -- then the content of each XML part, one part at a time --
         for name in names:
             if not name.endswith(".xml"):
                 continue
-            # Duplicate-shape-id check runs on the raw part (before any mce
-            # resolution) for every slide-like part, not just XSD-checked ones.
-            if name.startswith(_ID_CHECKED_PREFIXES):
-                try:
-                    raw_doc = parse_xml(zf.read(name))
-                except etree.XMLSyntaxError:
-                    raw_doc = None
-                if raw_doc is not None:
-                    yield from _iter_duplicate_shape_id_violations(name, raw_doc)
-                    if name.startswith("ppt/slides/slide"):
-                        yield from _iter_animation_target_violations(name, raw_doc)
+            yield from _iter_shape_reference_violations(zf, name)
+            yield from _iter_xsd_violations(zf, name)
 
-            if not _should_check(name):
-                continue
-            try:
-                doc = parse_xml(zf.read(name))
-            except etree.XMLSyntaxError as exc:
-                yield (name, "not well-formed XML: %s" % exc)
-                continue
-            # PowerPoint-specific range check the XSD can't express. axId /
-            # crossAx only occur in chart parts, so skip the scan elsewhere.
-            if name.startswith("ppt/charts/chart"):
-                yield from _iter_axid_range_violations(name, doc)
-            schema = _schema_for_namespace(etree.QName(doc).namespace)
-            if schema is None:
-                continue
-            _resolve_mce(doc)
-            try:
-                valid = schema.validate(doc)  # type: ignore[attr-defined]
-            except etree.XMLSchemaError as exc:
-                # -- libxml2 cannot validate a tree that holds entity references,
-                # -- which are deliberately left unresolved; say so rather than
-                # -- pass the part as clean --
-                yield (name, "could not be validated against the schema: %s" % exc)
-                continue
-            if not valid:
-                for err in schema.error_log:  # type: ignore[attr-defined]
-                    yield (name, "line %s: %s" % (err.line, err.message))
+
+def _zip_source(pptx: Union[str, Path, bytes, "io.BytesIO"]) -> object:
+    """Return *pptx* as something ``zipfile.ZipFile`` opens: a path string or a stream."""
+    if isinstance(pptx, (bytes, bytearray)):
+        return io.BytesIO(pptx)
+    if isinstance(pptx, (str, Path)):
+        return str(pptx)
+    return pptx
+
+
+def _iter_shape_reference_violations(
+    zf: zipfile.ZipFile, name: str
+) -> "Iterator[tuple[str, str]]":
+    """Yield duplicate-shape-id and missing-animation-target violations for part *name*.
+
+    These run on the raw part (before any mce resolution) for every
+    slide-like part, not just XSD-checked ones.  A part that is not
+    well-formed is left to the schema pass to report.
+    """
+    if not name.startswith(_ID_CHECKED_PREFIXES):
+        return
+    try:
+        doc = parse_xml(zf.read(name))
+    except etree.XMLSyntaxError:
+        return
+    yield from _iter_duplicate_shape_id_violations(name, doc)
+    if name.startswith("ppt/slides/slide"):
+        yield from _iter_animation_target_violations(name, doc)
+
+
+def _iter_xsd_violations(zf: zipfile.ZipFile, name: str) -> "Iterator[tuple[str, str]]":
+    """Yield the violations of part *name* against its XSD, when it has one."""
+    if not _should_check(name):
+        return
+    try:
+        doc = parse_xml(zf.read(name))
+    except etree.XMLSyntaxError as exc:
+        yield (name, "not well-formed XML: %s" % exc)
+        return
+    # PowerPoint-specific range check the XSD can't express. axId /
+    # crossAx only occur in chart parts, so skip the scan elsewhere.
+    if name.startswith("ppt/charts/chart"):
+        yield from _iter_axid_range_violations(name, doc)
+    schema = _schema_for_namespace(etree.QName(doc).namespace)
+    if schema is None:
+        return
+    yield from _iter_schema_errors(name, schema, _resolve_mce(doc))
+
+
+def _iter_schema_errors(name: str, schema, doc) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each error *schema* finds in the part *name* parsed as *doc*."""
+    try:
+        valid = schema.validate(doc)  # type: ignore[attr-defined]
+    except etree.XMLSchemaError as exc:
+        # -- libxml2 cannot validate a tree that holds entity references,
+        # -- which are deliberately left unresolved; say so rather than
+        # -- pass the part as clean --
+        yield (name, "could not be validated against the schema: %s" % exc)
+        return
+    if not valid:
+        for err in schema.error_log:  # type: ignore[attr-defined]
+            yield (name, "line %s: %s" % (err.line, err.message))
 
 
 def assert_schema_valid(pptx: Union[str, Path, bytes, "io.BytesIO"]) -> None:
