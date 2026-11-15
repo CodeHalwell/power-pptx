@@ -194,7 +194,9 @@ class SlideTransition(object):
 
     Setting any property creates the ``<p:transition>`` element on demand;
     use :meth:`clear` to remove the element entirely (restoring the default
-    "no explicit transition" state).
+    "no explicit transition" state). Clearing the last remaining timing
+    setting (assigning |None| to it) removes the element too, so no empty
+    ``<p:transition/>`` is left behind.
     """
 
     def __init__(self, sld_elm):
@@ -206,7 +208,9 @@ class SlideTransition(object):
 
         Also |None| for a transition of a kind :ref:`MsoTransitionType` has no
         member for, which PowerPoint may have written. Such a transition is
-        left alone: it is saved back exactly as it was read.
+        left alone: it is saved back exactly as it was read, and
+        :meth:`Presentation.set_transition` treats it like any other per-slide
+        choice.
         """
         transition = self._sld.transition
         if transition is None:
@@ -216,6 +220,23 @@ class SlideTransition(object):
             # explicit `<p:transition/>` with no child means "cut" / no animation
             return MSO_TRANSITION_TYPE.NONE
         return _kind_of(kind_elm)
+
+    @property
+    def _states_a_kind(self) -> bool:
+        """True when this slide already says which transition it wants.
+
+        That is when its transition has a kind element (of whatever kind,
+        known to this library or not), or when it is a bare ``<p:transition/>``,
+        which is how "no transition" is asked for
+        (``kind = MSO_TRANSITION_TYPE.NONE``). A kind-less transition that only
+        carries timing attributes says nothing about the kind.
+        """
+        transition = self._sld.transition
+        if transition is None:
+            return False
+        if transition.kind_element is not None:
+            return True
+        return not transition.attrib
 
     @kind.setter
     def kind(self, value: MSO_TRANSITION_TYPE | None) -> None:
@@ -272,10 +293,13 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = qn("p14:dur") in transition.attrib or transition.spd is not None
             transition.attrib.pop(qn("p14:dur"), None)
             # also drop the legacy `spd` bucket; otherwise the getter falls
             # back to it and reads as still-explicitly-set
             transition.spd = None
+            if was_set:
+                self._remove_if_empty()
             return
         if ms < 0:
             raise ValueError("duration must be a non-negative integer (milliseconds)")
@@ -298,7 +322,10 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = transition.advClick is not None
             transition.advClick = None
+            if was_set:
+                self._remove_if_empty()
             return
         transition = self._sld.get_or_add_transition()
         transition.advClick = bool(value)
@@ -317,7 +344,10 @@ class SlideTransition(object):
             transition = self._sld.transition
             if transition is None:
                 return
+            was_set = transition.advTm is not None
             transition.advTm = None
+            if was_set:
+                self._remove_if_empty()
             return
         if ms < 0:
             raise ValueError("advance_after must be a non-negative integer (milliseconds)")
@@ -333,6 +363,17 @@ class SlideTransition(object):
         self._sld._remove_transition()
         # -- the wrapper the transition was loaded in goes with it --
         remove_transition_wrappers(self._sld)
+
+    def _remove_if_empty(self) -> None:
+        """Remove the transition element once it holds no setting at all.
+
+        An element left behind by clearing its last timing attribute would read
+        back as ``MSO_TRANSITION_TYPE.NONE``: an explicit "no transition" the
+        caller never asked for.
+        """
+        transition = self._sld.transition
+        if transition is not None and not transition.attrib and len(transition) == 0:
+            self.clear()
 
 
 _SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}

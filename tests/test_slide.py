@@ -623,7 +623,7 @@ class DescribeSlideTransition(object):
         """`duration = None` must also drop the legacy `spd` bucket so the
         getter actually reads `None` afterward (it falls back to `spd`)."""
         sld = element("p:sld/p:cSld")
-        sld.append(element("p:transition{spd=med}"))
+        sld.append(element("p:transition{spd=med}/p:fade"))
         transition = SlideTransition(sld)
         # sanity: getter sees the legacy bucket
         assert transition.duration == 750
@@ -632,12 +632,51 @@ class DescribeSlideTransition(object):
         assert transition.duration is None
         assert sld.transition.spd is None
 
+    @pytest.mark.parametrize(
+        ("attr_name", "value"),
+        [("duration", 500), ("advance_on_click", True), ("advance_after", 8000)],
+    )
+    def it_removes_the_transition_once_its_last_setting_is_cleared(self, attr_name, value):
+        """Setting a timing option and clearing it again must not leave an empty
+        `<p:transition/>` behind: that reads as an explicit "no transition"."""
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+
+        setattr(transition, attr_name, value)
+        setattr(transition, attr_name, None)
+
+        assert sld.transition is None
+        assert transition.kind is None
+
+    def but_it_keeps_a_transition_that_still_holds_another_setting(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.advance_on_click = True
+        transition.advance_after = 8000
+
+        transition.advance_on_click = None
+
+        assert transition.advance_after == 8000
+
+    def and_it_keeps_an_explicit_NONE_that_had_nothing_to_clear(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+        transition.kind = MSO_TRANSITION_TYPE.NONE
+
+        transition.duration = None
+        transition.advance_on_click = None
+        transition.advance_after = None
+
+        assert transition.kind == MSO_TRANSITION_TYPE.NONE
+
     def it_reads_None_for_a_kind_it_has_no_member_for(self):
         sld = element("p:sld/p:cSld")
         sld.append(_transition_with_kind('p15:prstTrans prst="airplane"'))
         transition = SlideTransition(sld)
 
         assert transition.kind is None
+        # -- which is not the same as the slide having no transition --
+        assert transition._states_a_kind is True
 
     @pytest.mark.parametrize(
         ("kind_tag", "expected"),
@@ -656,6 +695,25 @@ class DescribeSlideTransition(object):
         sld.append(_transition_with_kind(kind_tag))
 
         assert SlideTransition(sld).kind == expected
+
+    @pytest.mark.parametrize(
+        ("transition_cxml", "expected"),
+        [
+            ("p:transition", True),
+            ("p:transition/p:fade", True),
+            ("p:transition{advTm=8000}/p:fade", True),
+            ("p:transition{advTm=8000}", False),
+            ("p:transition{advClick=0}", False),
+        ],
+    )
+    def it_knows_whether_the_slide_states_a_kind(self, transition_cxml, expected):
+        sld = element("p:sld/p:cSld")
+        sld.append(element(transition_cxml))
+
+        assert SlideTransition(sld)._states_a_kind is expected
+
+    def and_a_slide_without_a_transition_states_none(self):
+        assert SlideTransition(element("p:sld/p:cSld"))._states_a_kind is False
 
     def it_replaces_legacy_spd_when_setting_an_explicit_duration(self):
         sld = element("p:sld/p:cSld")
