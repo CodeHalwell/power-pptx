@@ -60,19 +60,33 @@ def _clear_previous_run(out, keep=None):
         return
     for path in out.iterdir():
         ours = path.name in _RUN_FILES or _CONTACT_SHEET.fullmatch(path.name)
-        if ours and (path.is_file() or path.is_symlink()):
+        if ours and _is_file_or_link(path):
             path.unlink()
     for name in _RUN_IMAGE_DIRS:
         folder = out / name
-        if folder.is_symlink() or not folder.is_dir():
-            continue
-        if keep is not None and folder.resolve() == Path(keep).resolve():
-            continue
-        for path in folder.iterdir():
-            if _SLIDE_IMAGE.fullmatch(path.name) and (path.is_file() or path.is_symlink()):
-                path.unlink()
-        with suppress(OSError):
-            folder.rmdir()  # -- only when nothing of the caller's is left in it --
+        if _is_image_folder_to_clear(folder, keep):
+            _clear_image_folder(folder)
+
+
+def _is_file_or_link(path):
+    """True for a file, or for a link to anything: what unlinking removes without following."""
+    return path.is_file() or path.is_symlink()
+
+
+def _is_image_folder_to_clear(folder, keep):
+    """True when *folder* is a real folder (not a link to one) and not the folder *keep*."""
+    if folder.is_symlink() or not folder.is_dir():
+        return False
+    return keep is None or folder.resolve() != Path(keep).resolve()
+
+
+def _clear_image_folder(folder):
+    """Remove the slide images a review wrote into *folder*, then *folder* if that empties it."""
+    for path in folder.iterdir():
+        if _SLIDE_IMAGE.fullmatch(path.name) and _is_file_or_link(path):
+            path.unlink()
+    with suppress(OSError):
+        folder.rmdir()  # -- only when nothing of the caller's is left in it --
 
 
 def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
