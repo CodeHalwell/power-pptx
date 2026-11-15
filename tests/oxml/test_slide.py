@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from lxml import etree
 
 from power_pptx.oxml import parse_xml
@@ -188,6 +189,45 @@ class DescribeTransitionWrappers(object):
         assert ac.find("mc:Choice", _NS).get("Requires") == "p15"
         fallback = ac.find("mc:Fallback/p:transition", _NS)
         assert [child.tag for child in fallback] == ["{%(p)s}fade" % _NS]
+
+    @pytest.mark.parametrize(
+        "fallback",
+        [
+            # -- an extension attribute, which is valid only inside the choice --
+            '<p:transition spd="slow" p14:dur="1250"><p:fade/></p:transition>',
+            # -- an extension kind, which a viewer taking the fallback cannot read --
+            '<p:transition spd="slow"><p15:prstTrans xmlns:p15="%(p15)s" prst="airplane"/>'
+            "</p:transition>" % _NS,
+        ],
+    )
+    def it_regenerates_a_wrapper_whose_fallback_holds_extension_content(self, fallback):
+        wrapper = _P15_WRAPPER.replace(
+            '<p:transition spd="slow"><p:fade/></p:transition></mc:Fallback>',
+            fallback + "</mc:Fallback>",
+        )
+        assert wrapper != _P15_WRAPPER
+        sld = _sld(wrapper)
+
+        unwrap_p14_transitions(sld)
+        ac = _saved(sld).find("mc:AlternateContent", _NS)
+
+        assert ac.find("mc:Choice", _NS).get("Requires") == "p15"
+        fallback = ac.find("mc:Fallback/p:transition", _NS)
+        assert dict(fallback.attrib) == {"spd": "slow"}
+        assert [child.tag for child in fallback] == ["{%(p)s}fade" % _NS]
+
+    def it_writes_back_the_wrapper_of_a_transition_without_a_kind(self):
+        wrapper = (
+            '<mc:AlternateContent xmlns:mc="%(mc)s"><mc:Choice Requires="p14">'
+            '<p:transition spd="slow" p14:dur="1250"/></mc:Choice>'
+            '<mc:Fallback><p:transition spd="slow"/></mc:Fallback>'
+            "</mc:AlternateContent>" % _NS
+        )
+        original = _sld(wrapper)
+        sld = _sld(wrapper)
+        unwrap_p14_transitions(sld)
+
+        assert _c14n(_saved(sld)) == _c14n(original)
 
     def it_leaves_a_classic_transition_alone(self):
         sld = _sld('<p:transition spd="med"><p:fade/></p:transition>')
