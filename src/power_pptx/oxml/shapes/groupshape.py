@@ -363,15 +363,18 @@ class CT_GroupShape(BaseShapeElement):
 
         The values are formed as a composite of the contained child shapes.
         """
-        child_shape_elms = list(self.iter_shape_elms())
+        # -- each child's transform is looked up once: this runs on every
+        # -- shape added to a group, so reading x, y, cx and cy through four
+        # -- separate lookups made filling a group quadratic in practice --
+        boxes = [_xfrm_box(xSp) for xSp in self.iter_shape_elms()]
 
-        if not child_shape_elms:
+        if not boxes:
             return Emu(0), Emu(0), Emu(0), Emu(0)
 
-        min_x = min([xSp.x for xSp in child_shape_elms])
-        min_y = min([xSp.y for xSp in child_shape_elms])
-        max_x = max([(xSp.x + xSp.cx) for xSp in child_shape_elms])
-        max_y = max([(xSp.y + xSp.cy) for xSp in child_shape_elms])
+        min_x = min([x for x, _, _, _ in boxes])
+        min_y = min([y for _, y, _, _ in boxes])
+        max_x = max([(x + cx) for x, _, cx, _ in boxes])
+        max_y = max([(y + cy) for _, y, _, cy in boxes])
 
         x = min_x
         y = min_y
@@ -559,3 +562,23 @@ class CT_GroupShapeProperties(BaseOxmlElement):
 
     def _new_gradFill(self):
         return CT_GradientFillProperties.new_gradFill()
+
+
+_A_OFF = qn("a:off")
+_A_EXT = qn("a:ext")
+
+
+def _xfrm_box(xSp):
+    """``(x, y, cx, cy)`` of shape element *xSp*, each |None| where it is missing.
+
+    The same values as reading ``xSp.x``, ``xSp.y``, ``xSp.cx`` and ``xSp.cy``,
+    which each look up the transform and its ``a:off`` / ``a:ext`` child again;
+    here each is found once, by a precomputed tag name.
+    """
+    xfrm = xSp.xfrm
+    if xfrm is None:
+        return None, None, None, None
+    off, ext = xfrm.find(_A_OFF), xfrm.find(_A_EXT)
+    x, y = (None, None) if off is None else (off.x, off.y)
+    cx, cy = (None, None) if ext is None else (ext.cx, ext.cy)
+    return x, y, cx, cy
