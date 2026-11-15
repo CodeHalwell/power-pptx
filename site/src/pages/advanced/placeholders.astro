@@ -53,25 +53,12 @@ from power_pptx.util import Emu, Inches
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[1])
 body = slide.placeholders[1]
-print(Emu(body.top).inches, Emu(body.height).inches)    # 1.75 4.95
+print(body._element.xfrm)                       # None - nothing of its own yet
 
-body.width = Inches(4)                                  # only ONE of the pair
-print(Emu(body.width).inches, Emu(body.height).inches)  # 4.0 0.0  <- height gone`;
-
-const snippet5 = `from power_pptx import Presentation
-from power_pptx.util import Emu, Inches
-
-prs = Presentation()
-slide = prs.slides.add_slide(prs.slide_layouts[1])
-body = slide.placeholders[1]
-
-# Read the inherited values first, then write the whole pair back.
-top, height = body.top, body.height
-body.left, body.top = Inches(1), top
-body.width, body.height = Inches(6), height
-
-print(Emu(body.left).inches, Emu(body.top).inches)      # 1.0 1.75
-print(Emu(body.width).inches, Emu(body.height).inches)  # 6.0 4.95`;
+body.width = Inches(4)                          # only ONE of the pair
+print(round(Emu(body.width).inches, 2),
+      round(Emu(body.height).inches, 2))        # 4.0 4.95 - height kept
+print(body._element.xfrm is not None)           # True - now hard-coded on the slide`;
 
 const snippet6 = `from power_pptx import Presentation
 
@@ -243,32 +230,20 @@ for issue in slide.lint().issues:
   <Code code={snippet3} />
   <p>
     That resolution is why a placeholder is worth using at all — it is what keeps a hundred slides
-    aligned. It is also the source of two recurring bugs.
+    aligned. It is also the source of a recurring bug: code that inspects
+    <code>shape.left</code> on a slide and then writes the same number back has just converted an
+    inherited value into a hard-coded one. The slide looks identical and stops tracking the
+    template forever.
   </p>
   <p>
-    <strong>First:</strong> code that inspects <code>shape.left</code> on a slide and then writes
-    the same number back has just converted an inherited value into a hard-coded one. The slide
-    now looks identical and stops tracking the template forever.
-  </p>
-  <p>
-    <strong>Second, and much sharper:</strong> position and size are stored as
-    <em>pairs</em> in the XML — <code>&lt;a:off x= y=&gt;</code> and
-    <code>&lt;a:ext cx= cy=&gt;</code>. Writing one member of a pair materialises the element, and
-    the sibling attribute it did not have a value for defaults to zero. So setting
-    <code>width</code> alone on an inheriting placeholder silently collapses its height:
+    Position and size are stored as <em>pairs</em> in the XML — <code>&lt;a:off x= y=&gt;</code>
+    and <code>&lt;a:ext cx= cy=&gt;</code> — so writing one member of a pair materialises the
+    element. The inherited sibling is copied across first, so a single assignment means what it
+    says: change this dimension, leave the other where the layout put it. (Releases before 2.12
+    defaulted the sibling to zero, so <code>body.width = Inches(4)</code> collapsed the height.)
+    What does not change is the consequence above — the pair is now the slide's own:
   </p>
   <Code code={snippet4} />
-  <p>
-    Nothing raises; the shape simply becomes a zero-height sliver at save time. The fix is to
-    always write both members of the pair, reading the inherited values first when you only mean
-    to change one:
-  </p>
-  <Code code={snippet5} />
-  <p>
-    This applies only the first time — once the placeholder has explicit geometry, both attributes
-    are present and single-property assignment behaves normally. Which is exactly what makes the
-    bug hard to spot in a test that runs twice.
-  </p>
 
   <h2 id="text">Title and body text</h2>
   <p>
