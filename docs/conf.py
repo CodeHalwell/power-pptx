@@ -121,6 +121,7 @@ rst_epilog = """
 .. |ChartPart| replace:: :class:`.ChartPart`
 .. |ChartTitle| replace:: :class:`.ChartTitle`
 .. |ChartXmlWriter| replace:: :class:`.ChartXmlWriter`
+.. |CollectionFace| replace:: :class:`.CollectionFace`
 .. |ColorFormat| replace:: :class:`.ColorFormat`
 .. |_Column| replace:: :class:`_Column`
 .. |_ColumnCollection| replace:: :class:`_ColumnCollection`

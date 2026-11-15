@@ -64,7 +64,7 @@ listing the blocked URLs. ``from_spec(spec, safe=True)`` applies this to
 every figure in a spec — see :ref:`compose`.
 
 Capturing a single element
--------------------------
+--------------------------
 
 Use a CSS selector to capture one diagram/card into an existing slide::
 

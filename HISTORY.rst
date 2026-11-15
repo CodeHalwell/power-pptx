@@ -728,7 +728,7 @@ regression tests, and the schema harness gained new structural checks
 so the classes stay fixed. No new public API.
 
 Fixed
-~~~~~
+.....
 
 - **Table border helpers crashed on a hex-string colour.**
   ``cell.borders.all(color="1F4E79")`` (and ``outer`` / ``diagonal`` /
@@ -956,7 +956,7 @@ fail-closed ``from_spec`` ergonomics fixes. All additions are drop-in
 compatible.
 
 Added
-~~~~~
+.....
 
 - ``group.fill`` — a |FillFormat| on the group's ``p:grpSpPr``, so a
   whole group can be tinted in one call (``group.fill.solid();
@@ -1129,7 +1129,7 @@ Added
   adds the fixed set.
 
 Fixed
-~~~~~
+.....
 
 - **``from_spec`` no longer silently swallows an unknown layout name.**
   A typo'd / unrecognized ``"layout"`` used to fall back to the Blank
@@ -1157,7 +1157,7 @@ fix ships with a reproducing deck builder in
 ``tests/schema/test_schema_validity.py``.
 
 Fixed
-~~~~~
+.....
 
 - **Charts were rejected by Microsoft PowerPoint (every chart type).**
   The chart axis ids (``c:axId`` / ``c:crossAx``) hardcoded in the chart XML
@@ -1200,7 +1200,7 @@ Fixed
   written.
 
 Added
-~~~~~
+.....
 
 - ``examples/stress_test/`` — a bug-surfacing deck suite plus a harness
   that checks every generated deck through build, lint, round-trip,
@@ -1221,7 +1221,7 @@ All additions are drop-in compatible.  The 1.0.2 + post-fork
 surface continues to work unchanged.
 
 Added
-~~~~~
+.....
 
 - ``power_pptx.BBox`` — immutable rectangular-region value object
   with EMU storage.  Constructors: ``from_inches``, ``from_emu``,
@@ -1305,7 +1305,7 @@ Added
   filenames.  ``scale=`` is translated to ``dpi=`` internally.
 
 Documentation
-~~~~~~~~~~~~~
+.............
 
 - New cheat-sheet block at the top of ``SKILL.md`` covering the
   25 most-common deck-generation operations on one screen.
@@ -1320,7 +1320,7 @@ Documentation
   feature set, and provide an end-to-end quick-start example.
 
 Review-driven hardening (during PR #34)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.......................................
 
 - ``BBox.split_h`` / ``split_v`` / ``grid`` now distribute the span
   with a running-remainder apportionment, so the emitted segments
@@ -1358,7 +1358,7 @@ Review-driven hardening (during PR #34)
   deletes it to add an oval — it builds the oval directly.
 
 Tests
-~~~~~
+.....
 
 - 68 new unit tests across ``tests/test_geometry.py``,
   ``tests/test_shape_helpers.py``, ``tests/test_diagrams.py``,
@@ -1378,7 +1378,7 @@ recipe + ``from_spec`` paths — surfaced as friction points or
 silent footguns.
 
 Bug fixes
-~~~~~~~~~
+.........
 
 - ``Chart.apply_palette`` now also sets ``series.format.line.color.rgb``
   on the line-stroke chart family — ``LINE``, ``LINE_MARKERS``,
@@ -1418,7 +1418,7 @@ Bug fixes
   though every renderer drew the second line below the frame.
 
 Added
-~~~~~
+.....
 
 - ``Table.clear_style()`` detaches the default
   "Medium Style 2 — Accent 1" table-style ID attached to every
@@ -1443,7 +1443,7 @@ Added
   round-trip through a (non-existent) ``.to_dict()``.
 
 Changed
-~~~~~~~
+.......
 
 - ``from_spec`` ``"theme"`` key — listed in ``_VALID_TOP_KEYS`` for
   years — is now wired up as a friendly alias for ``"tokens"`` when
@@ -1472,7 +1472,7 @@ Changed
   top of the label.
 
 Docs
-~~~~
+....
 
 - ``references/design.md`` calls out that ``tokens.palette[k]``
   returns ``RGBColor`` (not a hex string); every public setter
@@ -1506,7 +1506,7 @@ Microsoft PowerPoint's open-time validator rejects them with the
 silently drops the offending content on accept.
 
 Bug fixes
-~~~~~~~~~
+.........
 
 - Chart text-property blocks (``<c:txPr>``) and rich-title text
   (``<c:rich>``) constructed lazily by font / colour customisation no
@@ -1532,7 +1532,7 @@ Bug fixes
   ``shape.height`` setters apply the same coercion.
 
 Added
-~~~~~
+.....
 
 - PowerPoint-strict regression tests in
   ``tests/test_powerpoint_strict_validation.py`` now scan saved decks
@@ -1555,7 +1555,7 @@ shape-level building blocks, a constrained shape.animate() façade,
 and a deck-level PowerPoint-strict test scan).
 
 Bug fixes
-~~~~~~~~~
+.........
 
 - ``area`` and ``doughnut`` chart writers no longer emit a bare
   ``<a:endParaRPr/>``.  The bare form is schema-valid but Microsoft
@@ -1566,7 +1566,7 @@ Bug fixes
   the property holds for every chart writer.
 
 New APIs
-~~~~~~~~
+........
 
 - ``Chart.recolour(palette, by="auto")`` (US alias ``recolor``) —
   recommended single entry point for chart recolouring.  ``by="auto"``
@@ -1645,7 +1645,7 @@ New APIs
   down to ``Entrance`` / ``Exit`` / ``Emphasis`` directly.
 
 Test infrastructure
-~~~~~~~~~~~~~~~~~~~
+...................
 
 - ``tests/test_powerpoint_strict_validation.py`` — deck-level scan
   that constructs a deck with every implemented chart type, saves
@@ -1655,7 +1655,7 @@ Test infrastructure
   reusable for additional strict-validator rules we discover.
 
 Behaviour changes
-~~~~~~~~~~~~~~~~~
+.................
 
 - ``slide.shapes.add_chart(BAR_*, ...)`` now defaults the category
   axis to ``reverse_order=True`` so ``["A", "B", "C"]`` renders with
@@ -1679,7 +1679,7 @@ the most common authoring footguns for both human and LLM-driven
 deck generation; all changes are additive except where called out.
 
 New APIs
-~~~~~~~~
+........
 
 - ``Chart.shape`` — returns the parent ``GraphicFrame``, populated
   on first access via ``GraphicFrame.chart`` so callers don't have
@@ -1703,7 +1703,7 @@ New APIs
   applied at every public boundary.
 
 Improvements
-~~~~~~~~~~~~
+............
 
 - **Color inputs are uniform across every public setter.**
   ``shape.fill.fore_color.rgb``, ``Chart.text_color``,
@@ -1760,7 +1760,7 @@ Improvements
   to ``from_hex`` so the warning only fires in user code.
 
 Documentation
-~~~~~~~~~~~~~
+.............
 
 - New ``docs/user/common-pitfalls.rst`` — covers colour coercion,
   transition ordering, recipe → blank layout, ``chart.shape``,
@@ -1782,7 +1782,7 @@ Documentation
   pointer at the new ``references/real-world-decks.md``.
 
 Infrastructure
-~~~~~~~~~~~~~~
+..............
 
 - CI gains a ``pyflakes examples/`` static-check job and a
   ``examples/real_world/build_all.py`` smoke build, so the public
@@ -1797,7 +1797,7 @@ Animation ergonomics, gradient/alpha discoverability, recipe bug fixes,
 and a bundled Claude skill.  All additive; nothing removed.
 
 New APIs
-~~~~~~~~
+........
 
 - ``slide.animations.group()`` — context manager that animates every
   effect added in the block as a single visual cluster (first effect
@@ -1825,7 +1825,7 @@ New APIs
   is allowed.
 
 Bundled Claude skill
-~~~~~~~~~~~~~~~~~~~~
+....................
 
 - The ``power-pptx`` Claude Code skill (``SKILL.md`` + reference docs)
   ships inside the package at ``power_pptx/skill/``.  Install it with
@@ -1834,7 +1834,7 @@ Bundled Claude skill
   make the skill available wherever the library runs.
 
 Recipe bug fixes
-~~~~~~~~~~~~~~~~
+................
 
 - ``figure_slide`` correctly routes inline SVG markup that contains a
   namespace URL (``xmlns="http://..."``) to the SVG embedder rather
@@ -1847,7 +1847,7 @@ Recipe bug fixes
   light-surface themes (previously they faded into the background).
 
 ``from_spec`` ergonomics
-~~~~~~~~~~~~~~~~~~~~~~~~
+........................
 
 - Recipe layouts now reject unknown spec keys (``ValueError``) instead
   of silently dropping them.  Catches typos like ``"subtitlz"`` or
@@ -1867,7 +1867,7 @@ and figure-embedding adapters for Plotly / Matplotlib / HTML.  All
 changes are additive; no existing API was removed.
 
 P0 fixes
-~~~~~~~~
+........
 
 - ``render_slide_thumbnails`` no longer silently drops slides 2..N
   on stock LibreOffice 7+ (whose ``--convert-to png`` filter only
@@ -1881,7 +1881,7 @@ P0 fixes
   build their own dispatcher.
 
 API ergonomics
-~~~~~~~~~~~~~~
+..............
 
 - ``MotionPath.svg(slide, shape, "M 0 0 H 100 V 100", viewbox=...)``
   accepts standard SVG path syntax (M/m L/l H/h V/v C/c Q/q Z/z) and
@@ -1897,7 +1897,7 @@ API ergonomics
   shadow / radii slots it consumes — no more grepping the source.
 
 Six new recipes
-~~~~~~~~~~~~~~~
+...............
 
 - ``section_divider`` — full-bleed cover with an optional eyebrow
   caption and ``progress=(3, 7)`` row of progress dots.
@@ -1917,7 +1917,7 @@ Six new recipes
   blob, HTML snippet, or image path; dispatches by type.
 
 Lint signal-to-noise
-~~~~~~~~~~~~~~~~~~~~
+....................
 
 - Implicit name-prefix grouping: shapes named ``card.bg`` /
   ``card.label`` are auto-grouped under ``card`` so the linter
@@ -1938,7 +1938,7 @@ Lint signal-to-noise
   changes only surface newly-introduced issues.
 
 Design system
-~~~~~~~~~~~~~
+.............
 
 - ``DesignTokens.from_preset("modern_light" | "modern_dark" |
   "corporate_navy" | "vibrant")`` ships ready-to-use token sets so
@@ -1952,7 +1952,7 @@ Design system
   of relying on hard-coded defaults.
 
 compose.from_spec
-~~~~~~~~~~~~~~~~~
+.................
 
 - Recipe dispatch: layouts ``kpi`` / ``chart`` / ``table`` / ``code`` /
   ``timeline`` / ``comparison`` / ``quote`` / ``image_hero`` /
@@ -1969,7 +1969,7 @@ compose.from_spec
 - ``compose.from_yaml(path, vars={...})``: direct YAML entry point.
 
 Figure embedding
-~~~~~~~~~~~~~~~~
+................
 
 New ``power_pptx.design.figures`` module with optional-dep adapters:
 
@@ -1990,7 +1990,7 @@ Each adapter imports its dependency lazily and raises
 the install command when the dep is missing.
 
 Tooling
-~~~~~~~
+.......
 
 - New ``release-on-version-bump.yml`` workflow auto-creates a
   ``vX.Y.Z`` tag and a GitHub release when a merge to ``master``
@@ -2008,7 +2008,7 @@ classification surfaces extra fields on existing issues, and the new
 geometry mode is opt-in.
 
 ShapeCollision now scores
-~~~~~~~~~~~~~~~~~~~~~~~~~
+.........................
 
 ``ShapeCollision`` issues carry a ``score: float`` in ``[0.0, 1.0]``
 and a ``kind: str`` in ``{"incidental", "partial", "matched"}``,
@@ -2033,7 +2033,7 @@ The classification is also surfaced in ``report.summary()``: each
 can spot the genuine bugs without re-running the detector.
 
 Effect-bleed-aware geometry (opt-in)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+....................................
 
 ``slide.lint(...)`` and ``lint_slide(slide, ...)`` accept a new
 ``include_effect_bleed: bool = False`` keyword argument.  When
@@ -2065,7 +2065,7 @@ unless they opt in to ``include_effect_bleed=True``.
 Bug fixes and ergonomic improvements.
 
 OOXML correctness
-~~~~~~~~~~~~~~~~~
+.................
 
 Both items below address the "PowerPoint found a problem with content.
 Repaired and removed it" prompt on open.
@@ -2095,7 +2095,7 @@ Repaired and removed it" prompt on open.
   written.
 
 Ergonomic improvements
-~~~~~~~~~~~~~~~~~~~~~~
+......................
 
 - ``GraphicFrame.shadow`` now returns ``None`` (previously raised
   ``NotImplementedError``).  Probing every shape on a slide for shadow
@@ -2136,7 +2136,7 @@ to work unchanged.  Headline additions span the linter, tables, charts,
 animations, and the theme.
 
 Lint
-~~~~
+....
 
 - ``shape.lint_group`` / ``slide.lint_group(name, *shapes)`` /
   ``slide.design_group(name)`` context manager — the cheapest fix for
@@ -2170,7 +2170,7 @@ Lint
   hierarchy.
 
 Tables
-~~~~~~
+......
 
 - ``row.borders`` / ``col.borders`` shorthand — apply ``left`` /
   ``right`` / ``top`` / ``bottom`` / ``outer`` borders to every cell in
@@ -2192,7 +2192,7 @@ Tables
   properties are exposed for the same reason.
 
 Charts
-~~~~~~
+......
 
 - ``apply_quick_layout`` accepts keyword overrides on top of named
   presets::
@@ -2217,7 +2217,7 @@ Charts
   ``soffice`` on PATH.
 
 Animations
-~~~~~~~~~~
+..........
 
 - ``slide.animations.typewriter([s1, s2, s3], delay_between_ms=200)``
   one-line replacement for the manual ``with sequence(): for s ...``
@@ -2237,7 +2237,7 @@ Animations
   that delete shapes by other means.
 
 Theme
-~~~~~
+.....
 
 - ``Theme.apply(other, rebind_shape_colors=True, presentation=prs)`` —
   re-skinning a deck no longer leaves orphan literal colors.  Every
@@ -2260,7 +2260,7 @@ Theme
   ``Slide.set_clr_map_override(...)`` for arbitrary attribute remappings.
 
 Bug fixes
-~~~~~~~~~
+.........
 
 - ``power_pptx.text.layout.TextFitter`` no longer raises when text
   genuinely cannot fit at any point size; the predicate now treats
@@ -2272,7 +2272,7 @@ Bug fixes
   cache in its ``find_fixture`` so the suite is order-independent.
 
 Tests
-~~~~~
+.....
 
 3,140 passing (up from 3,087 in 2.0.0): 53 new tests across lint,
 tables, charts, animations, and theme.
@@ -2319,7 +2319,7 @@ The full per-phase changelog follows; the project changes summary is
 collected near the end under "Project changes".
 
 Phase 9 — design-system layer
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.............................
 
 - ``power_pptx.design.tokens.DesignTokens``: source-agnostic container for
   brand tokens — ``palette`` (str → ``RGBColor``), ``typography``
@@ -2364,7 +2364,7 @@ Phase 9 — design-system layer
   deck per set into ``examples/starter_pack/_out/`` (gitignored).
 
 Phase 10 — additional motion-path presets
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.........................................
 
 - ``power_pptx.animation.MotionPath`` gains five new convenience constructors
   alongside the existing ``line`` / ``custom``: ``diagonal``,
@@ -2377,7 +2377,7 @@ Phase 10 — additional motion-path presets
   trigger model and round-trip cleanly.
 
 Phase 10 — chart palette presets
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+................................
 
 - ``Chart.apply_palette(palette)`` recolors every series in a chart
   from a named built-in preset or an iterable of color-likes,
@@ -2397,7 +2397,7 @@ Phase 10 — chart palette presets
   ``MSO_PATTERN_TYPE`` patterns.
 
 Phase 6 — theme-aware color inheritance
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.......................................
 
 - New ``power_pptx.inherit.resolve_color(color_format, theme=...)`` returns
   the effective ``RGBColor`` for any ``ColorFormat`` (including the
@@ -2409,7 +2409,7 @@ Phase 6 — theme-aware color inheritance
   PowerPoint's ``lumMod`` / ``lumOff`` model.
 
 Phase 6 — native SVG in ``add_picture``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.......................................
 
 - New ``slide.shapes.add_svg_picture(svg_file, left, top, width=None,
   height=None, *, png_fallback=None)`` embeds both an
@@ -2421,7 +2421,7 @@ Phase 6 — native SVG in ``add_picture``
   first-class image content type so SVG parts round-trip cleanly.
 
 Phase 7 — ``power_pptx.compose`` package
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+........................................
 
 - ``power_pptx.compose`` is now a real package re-exporting ``from_spec``,
   ``import_slide``, and ``apply_template`` from a single import path::
@@ -2434,7 +2434,7 @@ Phase 7 — ``power_pptx.compose`` package
   import from_spec``) are unchanged.
 
 Phase 10 — chart quick layouts
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+..............................
 
 - ``Chart.apply_quick_layout(layout)`` toggles title / legend /
   axis-title / gridline visibility in opinionated combinations.  Ten
@@ -2446,7 +2446,7 @@ Phase 10 — chart quick layouts
   can be supplied as a dict spec.
 
 Phase 10 — slide-thumbnail renderer
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+...................................
 
 - New ``power_pptx.render`` module with
   ``render_slide_thumbnails(prs, ...)`` and
@@ -2462,7 +2462,7 @@ Phase 10 — slide-thumbnail renderer
   on conversion failure.
 
 Phase 6 — text-fit estimator on Linux / minimal runtimes
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+........................................................
 
 - ``TextFrame.fit_text()`` now works on Linux and on runtimes without
   the requested font installed.  ``FontFiles._font_directories()``
@@ -2479,7 +2479,7 @@ Phase 6 — text-fit estimator on Linux / minimal runtimes
 
 
 Phase 8 — 3D primitives and SmartArt text substitution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+......................................................
 
 - ``shape.three_d`` accessor: ``ThreeDFormat`` facade exposing
   ``bevel_top``/``bevel_bottom`` (``_BevelFormat`` with ``preset``,
@@ -2503,7 +2503,7 @@ Phase 8 — 3D primitives and SmartArt text substitution
 
 
 Phase 7 — slide composition
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+...........................
 
 - ``Presentation.import_slide(source_slide, merge_master='dedupe'|'clone')``:
   clones a slide from any ``Presentation`` into the receiver.  Copies
@@ -2521,7 +2521,7 @@ Phase 7 — slide composition
 
 
 Project changes
-~~~~~~~~~~~~~~~
+...............
 
 - Renamed the PyPI distribution from ``python-pptx-next`` to
   ``power-pptx``. The importable package remains ``pptx``.
@@ -2536,7 +2536,7 @@ Project changes
   now 3.9, matching ``pyright``'s configured ``pythonVersion``.
 
 Documentation
-~~~~~~~~~~~~~
+.............
 
 - Sphinx config rebuilt for ``power-pptx``: switched to the
   ``sphinx-rtd-theme``, removed dead upstream-specific hacks, refreshed
@@ -2559,7 +2559,7 @@ Documentation
   ``PictureEffects``).
 
 Deprecations (scheduled for removal in 2.0)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+...........................................
 
 - ``ShadowFormat.inherit`` now emits a ``DeprecationWarning`` on both
   read and write. Read individual properties (``blur_radius``,
@@ -2571,7 +2571,7 @@ Deprecations (scheduled for removal in 2.0)
   ``DeprecationWarning`` (shape-id allocation is now always O(1)).
 
 New API
-~~~~~~~
+.......
 
 - Radial / rectangular / shape-path gradients (Phase 6): ``FillFormat.gradient``
   now accepts a ``kind`` argument.  ``fill.gradient(kind="radial")`` writes a
