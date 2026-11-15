@@ -38,6 +38,17 @@ def _round_trip(prs: Presentation) -> Presentation:
     return Presentation(_as_stream(prs))
 
 
+def _package_members(prs: Presentation) -> dict[str, bytes]:
+    """Every part of *prs* as saved, by name.
+
+    Comparing members rather than the zip's bytes keeps a comparison of two
+    saves from failing when they straddle a tick of the zip's two-second
+    timestamp clock.
+    """
+    with zipfile.ZipFile(_as_stream(prs)) as package:
+        return {name: package.read(name) for name in package.namelist()}
+
+
 def _all_text(prs: Presentation) -> list[str]:
     texts: list[str] = []
     for slide in prs.slides:
@@ -375,7 +386,7 @@ class Describe_apply_template_master_wiring:
 
     def but_it_changes_nothing_when_the_template_has_no_layouts(self):
         deck = _make_deck("A")
-        before = _as_stream(deck).getvalue()
+        before = _package_members(deck)
         template = Presentation()
         master = template.slide_master
         for layout in list(master.slide_layouts):
@@ -385,7 +396,7 @@ class Describe_apply_template_master_wiring:
         with pytest.raises(ValueError, match="no slide layouts"):
             deck.apply_template(_as_stream(template))
 
-        assert _as_stream(deck).getvalue() == before
+        assert _package_members(deck) == before
         assert deck.slides[0].slide_layout.name == "Title Slide"
 
     def it_survives_save_open_save_unchanged(self):
