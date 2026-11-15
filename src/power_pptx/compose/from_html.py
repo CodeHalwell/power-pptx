@@ -6,10 +6,11 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from power_pptx.design._html import HtmlSource, capture_html
+from power_pptx.design._html import HtmlCapture, HtmlSource, capture_html
 
 if TYPE_CHECKING:
     from power_pptx.presentation import Presentation
+    from power_pptx.slide import Slide
 
 
 def from_html(
@@ -73,18 +74,12 @@ def from_html(
     """
     from power_pptx import Presentation
     from power_pptx.compose.from_spec import _apply_slide_size
-    from power_pptx.design.figures import _embed_html_png
-    from power_pptx.util import Emu
 
-    if fit not in {"contain", "cover", "stretch"}:
-        raise ValueError("fit must be 'contain', 'cover', or 'stretch'")
-    if mode not in {"capture", "hybrid"}:
-        raise ValueError("mode must be 'capture' or 'hybrid'")
-    if mode == "hybrid" and (fit != "contain" or selector is None):
-        raise ValueError("hybrid mode requires fit='contain' and a section selector")
+    _check_options(fit=fit, mode=mode, selector=selector)
+    hybrid = mode == "hybrid"
     prs = Presentation()
     _apply_slide_size(prs, slide_size)
-    capture_options: dict[str, Any] = {"hybrid": True} if mode == "hybrid" else {}
+    capture_options: dict[str, Any] = {"hybrid": True} if hybrid else {}
     captures = capture_html(
         html,
         selector=selector,
@@ -99,40 +94,84 @@ def from_html(
         allow_network=allow_network,
         **capture_options,
     )
-    if mode == "hybrid":
-        from power_pptx.compose._hybrid import prepare_layers
-
-        for capture in captures:
-            prepare_layers(capture, font_map=font_map or {}, strict_fonts=strict_fonts)
+    if hybrid:
+        _prepare_hybrid(captures, font_map=font_map or {}, strict_fonts=strict_fonts)
     for index, capture in enumerate(captures):
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
-        picture = _embed_html_png(
-            slide,
-            capture.png,
-            Emu(0),
-            Emu(0),
-            prs.slide_width,
-            prs.slide_height,
-            fit=fit,
-            device_scale_factor=device_scale_factor,
+        slide = _add_capture_slide(
+            prs, capture, index, fit=fit, device_scale_factor=device_scale_factor, hybrid=hybrid
         )
-        picture.name = capture.title or f"HTML slide {index + 1}"
-        picture.alt_text = capture.text or capture.title
-        if mode == "hybrid":
-            from power_pptx.compose._hybrid import add_layers
-
-            # Only background/child overlap is licensed; native foreground
-            # regions keep their independent collision checks.
-            add_layers(slide, capture, slide_width=prs.slide_width, slide_height=prs.slide_height)
-            for child in list(slide.shapes)[1:]:
-                picture.allow_overlap_with(child)
         if include_notes:
-            notes = slide.notes_slide.notes_text_frame
-            if notes is not None:
-                notes.text = capture.text
+            _write_notes(slide, capture.text)
     if reference_dir is not None:
-        target = Path(reference_dir)
-        target.mkdir(parents=True, exist_ok=True)
-        for index, capture in enumerate(captures):
-            (target / f"slide-{index:02d}.png").write_bytes(capture.reference_png or capture.png)
+        _write_references(Path(reference_dir), captures)
     return prs
+
+
+def _check_options(*, fit: str, mode: str, selector: str | None) -> None:
+    """Reject an option, or a combination of them, before anything is rendered."""
+    if fit not in {"contain", "cover", "stretch"}:
+        raise ValueError("fit must be 'contain', 'cover', or 'stretch'")
+    if mode not in {"capture", "hybrid"}:
+        raise ValueError("mode must be 'capture' or 'hybrid'")
+    if mode == "hybrid" and (fit != "contain" or selector is None):
+        raise ValueError("hybrid mode requires fit='contain' and a section selector")
+
+
+def _prepare_hybrid(
+    captures: list[HtmlCapture], *, font_map: dict[str, str], strict_fonts: bool
+) -> None:
+    """Check every capture's native regions before the first slide is built."""
+    from power_pptx.compose._hybrid import prepare_layers
+
+    for capture in captures:
+        prepare_layers(capture, font_map=font_map, strict_fonts=strict_fonts)
+
+
+def _add_capture_slide(
+    prs: Presentation,
+    capture: HtmlCapture,
+    index: int,
+    *,
+    fit: str,
+    device_scale_factor: float,
+    hybrid: bool,
+) -> Slide:
+    """Add a slide showing *capture*, with its native layers on top in hybrid mode."""
+    from power_pptx.design.figures import _embed_html_png
+    from power_pptx.util import Emu
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    picture = _embed_html_png(
+        slide,
+        capture.png,
+        Emu(0),
+        Emu(0),
+        prs.slide_width,
+        prs.slide_height,
+        fit=fit,
+        device_scale_factor=device_scale_factor,
+    )
+    picture.name = capture.title or f"HTML slide {index + 1}"
+    picture.alt_text = capture.text or capture.title
+    if hybrid:
+        from power_pptx.compose._hybrid import add_layers
+
+        # Only background/child overlap is licensed; native foreground
+        # regions keep their independent collision checks.
+        add_layers(slide, capture, slide_width=prs.slide_width, slide_height=prs.slide_height)
+        for child in list(slide.shapes)[1:]:
+            picture.allow_overlap_with(child)
+    return slide
+
+
+def _write_notes(slide: Slide, text: str) -> None:
+    notes = slide.notes_slide.notes_text_frame
+    if notes is not None:
+        notes.text = text
+
+
+def _write_references(target: Path, captures: list[HtmlCapture]) -> None:
+    """Save each capture's original browser view as ``slide-00.png`` etc."""
+    target.mkdir(parents=True, exist_ok=True)
+    for index, capture in enumerate(captures):
+        (target / f"slide-{index:02d}.png").write_bytes(capture.reference_png or capture.png)
