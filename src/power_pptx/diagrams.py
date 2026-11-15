@@ -359,7 +359,7 @@ def _set_circle_label(
 
 
 def _add_step_node(
-    slide,
+    slide: "Slide",
     step: _Step,
     centre: tuple[int, int],
     diameter: int,
@@ -720,7 +720,7 @@ def _build_hub_and_spoke(
 
 
 def _add_radial_arrow(
-    slide,
+    slide: "Slide",
     start: tuple[int, int],
     start_r: float,
     end: tuple[int, int],
@@ -990,7 +990,7 @@ def _coerce_branches(branches: Sequence[Any]) -> list[dict[str, Any]]:
 
 
 def _add_tree_branch(
-    slide,
+    slide: "Slide",
     root_card: Any,
     branch: dict[str, Any],
     col: BBox,
@@ -1027,7 +1027,7 @@ def _add_tree_branch(
 
 
 def _add_tree_children(
-    slide,
+    slide: "Slide",
     children: Sequence[Any],
     col: BBox,
     label_box: BBox,
@@ -1154,7 +1154,7 @@ def _column_texts(spec: Any) -> tuple[Any, Any]:
 
 
 def _add_column_body(
-    slide,
+    slide: "Slide",
     box: BBox,
     text: str,
     *,
