@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from typing import Iterator
 
 import pytest
 from lxml import etree
@@ -148,41 +149,55 @@ def assert_powerpoint_strict_compliance(pptx_bytes):
             tree = etree.fromstring(body)
         except etree.XMLSyntaxError:
             continue
+        _assert_paragraphs_are_terminated(filename, tree)
+        _assert_endParaRPr_has_lang(filename, tree)
+        _assert_xfrm_coords_are_integers(filename, tree)
 
-        # Rule 1 — non-empty <a:p> need either a text run or endParaRPr.
-        for p in tree.iter(f"{A}p"):
-            has_run = p.find(f"{A}r") is not None
-            has_fld = p.find(f"{A}fld") is not None  # field run counts
-            has_br = p.find(f"{A}br") is not None  # line break counts
-            has_end = p.find(f"{A}endParaRPr") is not None
-            if not (has_run or has_fld or has_br or has_end):
-                raise AssertionError(
-                    f"{filename}: <a:p> has neither a text run nor "
-                    f"<a:endParaRPr> — PowerPoint will prompt to Repair "
-                    f"the file."
-                )
 
-        # Rule 2 — every <a:endParaRPr> must carry lang.
-        for endpr in tree.iter(f"{A}endParaRPr"):
-            assert endpr.get("lang"), (
-                f"{filename}: <a:endParaRPr> missing lang attribute "
-                f"(would trigger PowerPoint Repair?)"
+def _assert_paragraphs_are_terminated(filename: str, tree: etree._Element) -> None:
+    """Rule 1 — non-empty <a:p> need either a text run or endParaRPr."""
+    for p in tree.iter(f"{A}p"):
+        has_run = p.find(f"{A}r") is not None
+        has_fld = p.find(f"{A}fld") is not None  # field run counts
+        has_br = p.find(f"{A}br") is not None  # line break counts
+        has_end = p.find(f"{A}endParaRPr") is not None
+        if not (has_run or has_fld or has_br or has_end):
+            raise AssertionError(
+                f"{filename}: <a:p> has neither a text run nor "
+                f"<a:endParaRPr> — PowerPoint will prompt to Repair "
+                f"the file."
             )
 
-        # Rule 3 — xfrm coordinates must be integer-valued strings.
-        for tag in XFRM_TAGS:
-            for elt in tree.iter(f"{A}{tag}"):
-                for attr in ("x", "y", "cx", "cy"):
-                    v = elt.get(attr)
-                    if v is None:
-                        continue
-                    assert "." not in v and "e" not in v.lower(), (
-                        f"{filename}: <a:{tag}> {attr}={v!r} is not "
-                        f"integer-valued (would trigger PowerPoint "
-                        f"Repair?). Likely cause: float coordinate "
-                        f"passed to a shape constructor — check for "
-                        f"`/` instead of `//` in the calling code."
-                    )
+
+def _assert_endParaRPr_has_lang(filename: str, tree: etree._Element) -> None:
+    """Rule 2 — every <a:endParaRPr> must carry lang."""
+    for endpr in tree.iter(f"{A}endParaRPr"):
+        assert endpr.get("lang"), (
+            f"{filename}: <a:endParaRPr> missing lang attribute "
+            f"(would trigger PowerPoint Repair?)"
+        )
+
+
+def _assert_xfrm_coords_are_integers(filename: str, tree: etree._Element) -> None:
+    """Rule 3 — xfrm coordinates must be integer-valued strings."""
+    for tag, attr, v in _xfrm_coords(tree):
+        assert "." not in v and "e" not in v.lower(), (
+            f"{filename}: <a:{tag}> {attr}={v!r} is not "
+            f"integer-valued (would trigger PowerPoint "
+            f"Repair?). Likely cause: float coordinate "
+            f"passed to a shape constructor — check for "
+            f"`/` instead of `//` in the calling code."
+        )
+
+
+def _xfrm_coords(tree: etree._Element) -> Iterator[tuple[str, str, str]]:
+    """Yield `(tag, attr, value)` for each coordinate set on an xfrm offset or extent."""
+    for tag in XFRM_TAGS:
+        for elt in tree.iter(f"{A}{tag}"):
+            for attr in ("x", "y", "cx", "cy"):
+                v = elt.get(attr)
+                if v is not None:
+                    yield tag, attr, v
 
 
 class DescribeIssue0FamilyRegressions:
