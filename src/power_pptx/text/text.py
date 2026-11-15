@@ -452,27 +452,7 @@ class TextFrame(Subshape):
         setter with a confusing ``TypeError`` from inside ``Pt(None)``.
         """
         if font_file is None:
-            font_file = find_font_file(family, bold, italic)
-            if font_file is None:
-                style = "".join((" bold" if bold else "", " italic" if italic else ""))
-                detail = (
-                    f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
-                    "default font instead of real metrics — the chosen size is an estimate and "
-                    "the text may still overflow when rendered with the intended face"
-                )
-                if strict:
-                    raise ValueError(
-                        f"fit_text(strict=True): {detail}. Pass font_file= with a TrueType "
-                        "file for this family, or choose an installed family "
-                        "(power_pptx.text.fonts.installed_font_families() lists them)."
-                    )
-                if warn_on_fallback:
-                    warnings.warn(
-                        f"{detail}. Pass font_file=, use strict=True to make this an error, or "
-                        "check power_pptx.text.fonts.font_is_installed() first.",
-                        FontMetricsWarning,
-                        stacklevel=3,
-                    )
+            font_file = _fit_font_file(family, bold, italic, strict, warn_on_fallback)
         size = self._fit_size(max_size, font_file, **constraints)
         if size is None:
             raise ValueError(
@@ -619,6 +599,40 @@ _MASTER_TEXT_STYLE = {
     "sldNum": "p:otherStyle",
     "hdr": "p:otherStyle",
 }
+
+
+def _fit_font_file(
+    family: str, bold: bool, italic: bool, strict: bool, warn_on_fallback: bool
+) -> str | None:
+    """The installed font file `fit_text` measures `family` with, or |None| for Pillow's default.
+
+    Falling back to Pillow's font raises |ValueError| under `strict`, and otherwise warns
+    with :class:`~power_pptx.exc.FontMetricsWarning` when `warn_on_fallback` is set.
+    """
+    font_file = find_font_file(family, bold, italic)
+    if font_file is not None:
+        return font_file
+    style = "".join((" bold" if bold else "", " italic" if italic else ""))
+    detail = (
+        f"{family!r}{style} is not installed, so fit_text measured with Pillow's "
+        "default font instead of real metrics — the chosen size is an estimate and "
+        "the text may still overflow when rendered with the intended face"
+    )
+    if strict:
+        raise ValueError(
+            f"fit_text(strict=True): {detail}. Pass font_file= with a TrueType "
+            "file for this family, or choose an installed family "
+            "(power_pptx.text.fonts.installed_font_families() lists them)."
+        )
+    if warn_on_fallback:
+        # -- reported against the caller of fit_text --
+        warnings.warn(
+            f"{detail}. Pass font_file=, use strict=True to make this an error, or "
+            "check power_pptx.text.fonts.font_is_installed() first.",
+            FontMetricsWarning,
+            stacklevel=4,
+        )
+    return None
 
 
 def _fill_unset_font(font: Font, defaults: dict[str, Any], rgb: RGBColor | None) -> None:
