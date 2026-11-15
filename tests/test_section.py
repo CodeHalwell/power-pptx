@@ -13,6 +13,9 @@ from power_pptx.section import Section, Sections
 GUID_A = "{11111111-1111-1111-1111-111111111111}"
 GUID_B = "{22222222-2222-2222-2222-222222222222}"
 
+_P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+_P14_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+
 
 def _deck(n_slides: int = 4):
     """Return a fresh blank presentation with `n_slides` blank slides."""
@@ -192,6 +195,50 @@ class DescribeSections:
         assert len(prs.sections) == 0
         # No empty <p14:sectionLst/> (CT_SectionList minOccurs=1) may remain.
         assert prs._element.sectionLst is None
+
+    def but_it_keeps_the_other_extensions_of_the_presentation(self):
+        from power_pptx.oxml import parse_xml
+
+        prs = _deck(2)
+        only = prs.sections.add("Only", start_slide_index=0, id=GUID_A)
+        extLst = prs._element.find("{%s}extLst" % _P_NS)
+        extLst.append(parse_xml('<p:ext xmlns:p="%s" uri="{OTHER}"/>' % _P_NS))
+
+        only.delete()
+
+        assert prs._element.sectionLst is None
+        assert [ext.get("uri") for ext in prs._element.find("{%s}extLst" % _P_NS)] == ["{OTHER}"]
+
+    def it_does_nothing_when_a_section_is_deleted_twice(self):
+        prs = _deck(4)
+        prs.sections.add("A", start_slide_index=0, id=GUID_A)
+        b = prs.sections.add("B", start_slide_index=2, id=GUID_B)
+        b.delete()
+
+        b.delete()
+
+        assert [(s.name, s.slide_ids) for s in prs.sections] == [("A", [256, 257, 258, 259])]
+
+    def it_removes_the_only_section_of_a_list_that_is_in_no_presentation(self):
+        from power_pptx.oxml import parse_xml
+        from power_pptx.section import _remove_section_element
+
+        section_xml = (
+            '<p14:sectionLst xmlns:p14="%s"><p14:section name="A" id="%s"><p14:sldIdLst>'
+            '<p14:sldId id="256"/></p14:sldIdLst></p14:section></p14:sectionLst>'
+            % (_P14_NS, GUID_A)
+        )
+        # -- a bare section list: nothing above it to remove --
+        sectionLst = parse_xml(section_xml)
+        _remove_section_element(sectionLst[0])
+        assert len(sectionLst) == 1
+        # -- an extension list with no presentation: its extension goes, it stays --
+        extLst = parse_xml(
+            '<p:extLst xmlns:p="%s"><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}">'
+            "%s</p:ext></p:extLst>" % (_P_NS, section_xml)
+        )
+        _remove_section_element(extLst[0][0][0])
+        assert len(extLst) == 0
 
     def it_moves_a_slide_between_sections_rather_than_duplicating_it(self):
         prs = _deck(2)
@@ -397,6 +444,23 @@ class DescribeSectionsFollowSlideOrder:
         prs.slides.reorder([2, 0, 1, 5, 3, 4])
 
         assert _layout(prs) == [("A", [2, 0, 1]), ("B", [5, 3, 4])]
+
+    def it_drops_a_member_reference_to_a_slide_no_longer_in_the_deck(self):
+        prs = _sectioned_deck(0, 3)
+        prs.sections[0]._element.add_sldId(999)
+
+        prs.slides.move(1, 0)
+
+        assert _layout(prs) == [("A", [1, 0, 2]), ("B", [3, 4, 5])]
+
+    def it_keeps_a_moved_slide_in_its_section_when_no_neighbour_has_one(self):
+        prs = _deck(2)
+        a = prs.sections.add("A", id=GUID_A)
+        a.add_slide(prs.slides[1])  # -- slide 0 is in no section
+
+        prs.slides.move(1, 0)
+
+        assert _layout(prs) == [("A", [1])]
 
     def it_leaves_an_unsectioned_deck_unsectioned(self):
         prs = _deck(4)
