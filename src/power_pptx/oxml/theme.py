@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from power_pptx.oxml.xmlchemy import BaseOxmlElement, OptionalAttribute
 from power_pptx.oxml.simpletypes import XsdString
+from power_pptx.oxml.xmlchemy import BaseOxmlElement, OptionalAttribute
 
 from . import parse_from_template
 

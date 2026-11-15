@@ -23,7 +23,12 @@ if TYPE_CHECKING:
     from power_pptx.dml.color import RGBColor
     from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
     from power_pptx.oxml.shapes.shared import CT_LineProperties
-    from power_pptx.oxml.table import CT_Table, CT_TableCell, CT_TableCellProperties, CT_TableCol, CT_TableRow
+    from power_pptx.oxml.table import (
+        CT_Table,
+        CT_TableCell,
+        CT_TableCol,
+        CT_TableRow,
+    )
     from power_pptx.parts.slide import BaseSlidePart
     from power_pptx.shapes.graphfrm import GraphicFrame
     from power_pptx.types import ProvidesPart

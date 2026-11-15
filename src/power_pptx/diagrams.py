@@ -40,8 +40,6 @@ from power_pptx.util import Emu, Inches, Pt
 
 if TYPE_CHECKING:
     from power_pptx.shapes.autoshape import Shape
-    from power_pptx.shapes.base import BaseShape
-    from power_pptx.shapes.connector import Connector
     from power_pptx.slide import Slide
 
 

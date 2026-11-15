@@ -30,7 +30,6 @@ from power_pptx.text import clear_registered_fonts, register_font_dir
 from power_pptx.util import Inches, Pt
 from power_pptx.validation import iter_schema_violations
 
-
 _TEST_IMAGE = os.path.join(
     os.path.dirname(__file__), "..", "test_files", "monty-truth.png"
 )

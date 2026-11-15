@@ -6,7 +6,7 @@ import pytest
 
 from power_pptx import BBox, Presentation
 from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.util import Emu, Inches, Pt
+from power_pptx.util import Inches, Pt
 
 
 @pytest.fixture

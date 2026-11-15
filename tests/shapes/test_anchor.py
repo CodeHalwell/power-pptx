@@ -16,7 +16,7 @@ from power_pptx.shapes.shapetree import (
     _compute_anchor_left_top,
     _resolve_anchor,
 )
-from power_pptx.util import Emu, Inches
+from power_pptx.util import Inches
 
 from ..unitutil.file import testfile
 

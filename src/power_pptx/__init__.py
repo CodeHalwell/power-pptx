@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import power_pptx.exc as exceptions
 from power_pptx.api import Presentation
 from power_pptx.audit import AuditReport, audit
-from power_pptx.geometry import BBox
 from power_pptx.design.components import (
     ArticleCard,
     Gauge,
@@ -30,6 +29,7 @@ from power_pptx.design.figures import (
     add_plotly_figure,
     add_svg_figure,
 )
+from power_pptx.geometry import BBox
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.package import PartFactory
 from power_pptx.parts.chart import ChartPart

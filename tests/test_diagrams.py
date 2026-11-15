@@ -8,8 +8,6 @@ import os
 import pytest
 
 from power_pptx import BBox, Presentation
-from power_pptx.text import clear_registered_fonts, measure_text, register_font_dir
-from power_pptx.util import Emu, Inches, Pt
 from power_pptx.diagrams import (
     comparison_columns,
     cycle,
@@ -18,6 +16,8 @@ from power_pptx.diagrams import (
     hub_and_spoke,
     vertical_pipeline,
 )
+from power_pptx.text import clear_registered_fonts, measure_text, register_font_dir
+from power_pptx.util import Emu, Inches, Pt
 
 
 @pytest.fixture

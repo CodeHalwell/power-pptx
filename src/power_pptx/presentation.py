@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from power_pptx.lint import LintIssue
     from power_pptx.oxml.presentation import CT_Presentation, CT_SlideId
     from power_pptx.parts.presentation import PresentationPart
-    from power_pptx.parts.slide import SlidePart
     from power_pptx.slide import NotesMaster, Slide, SlideLayouts
     from power_pptx.util import Length
 

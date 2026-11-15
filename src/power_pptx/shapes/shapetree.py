@@ -235,7 +235,6 @@ class _LintGroupScope:
         # On exception, still tag — the shapes were added; bailing
         # would leave them as untagged "real" overlaps in the lint
         # report, which is the worse default.
-        from power_pptx.shapes.base import BaseShape
 
         elms = list(self._shapetree._iter_member_elms())
         added = elms[self._snapshot :]

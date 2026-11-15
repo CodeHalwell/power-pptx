@@ -61,7 +61,7 @@ from typing import IO, TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sequence
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:

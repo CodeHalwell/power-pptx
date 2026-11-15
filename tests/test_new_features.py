@@ -16,7 +16,6 @@ from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.enum.dml import MSO_THEME_COLOR
 from power_pptx.util import Inches
 
-
 # ---------------------------------------------------------------------------
 # Charts
 # ---------------------------------------------------------------------------
@@ -64,7 +63,7 @@ class DescribeColorByCategory:
         chart.color_by_category(["#FF0000", "#00FF00", "#0000FF"])
         # Each (series, category) cell now has a <c:dPt> child with a
         # solid fill — count dPt elements anywhere in the chart XML.
-        import lxml.etree as etree
+        from lxml import etree
         xml = etree.tostring(chart._chartSpace).decode()
         # 2 series × 3 categories = 6 dPt elements minimum.
         assert xml.count("<c:dPt") >= 6 or xml.count(":dPt") >= 6
@@ -264,7 +263,7 @@ class DescribeEmbedFont:
         prs.save(buf)
         buf.seek(0)
         prs2 = Presentation(buf)
-        import lxml.etree as etree
+        from lxml import etree
         xml = etree.tostring(prs2._element).decode()
         assert "embeddedFontLst" in xml
         assert "EmbeddedTest" in xml

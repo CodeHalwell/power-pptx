@@ -392,7 +392,7 @@ class DescribeSlidePart(object):
     def it_knows_the_minimal_element_xml_for_a_slide(self):
         path = absjoin(test_file_dir, "minimal_slide.xml")
         sld = CT_Slide.new()
-        with open(path, "r") as f:
+        with open(path) as f:
             expected_xml = f.read()
         assert sld.xml == expected_xml
 

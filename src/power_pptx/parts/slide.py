@@ -7,8 +7,8 @@ from typing import IO, TYPE_CHECKING, cast
 from power_pptx.enum.shapes import PROG_ID
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from power_pptx.opc.package import XmlPart
 from power_pptx.opc.oxml import serialize_part_xml
+from power_pptx.opc.package import XmlPart
 from power_pptx.opc.packuri import PackURI
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.slide import (

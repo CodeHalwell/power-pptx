@@ -12,8 +12,7 @@ import io
 
 import pytest
 
-import power_pptx.compose as compose
-from power_pptx import Presentation
+from power_pptx import Presentation, compose
 
 
 class Describe_compose_package:

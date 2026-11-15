@@ -140,7 +140,7 @@ class _BaseSeriesXmlWriter(object):
         in the overall data point sequence of the chart and is started at
         *offset*.
         """
-        xml = ('                <c:ptCount val="{pt_count}"/>\n').format(pt_count=len(values))
+        xml = (f'                <c:ptCount val="{len(values)}"/>\n')
 
         pt_tmpl = (
             '                <c:pt idx="{idx}">\n'

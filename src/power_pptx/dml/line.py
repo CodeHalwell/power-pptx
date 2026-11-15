@@ -9,7 +9,6 @@ from power_pptx.oxml.ns import qn
 from power_pptx.oxml.simpletypes import ST_LineWidth
 from power_pptx.util import Emu, _coerce_emu, lazyproperty
 
-
 _JOIN_TAG = {
     MSO_LINE_JOIN_STYLE.ROUND: "a:round",
     MSO_LINE_JOIN_STYLE.BEVEL: "a:bevel",

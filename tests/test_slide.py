@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx.dml.fill import FillFormat
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.package import Package
 from power_pptx.parts.presentation import PresentationPart
@@ -24,7 +25,6 @@ from power_pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
-from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 from power_pptx.slide import (
     NotesMaster,
     NotesSlide,
@@ -33,8 +33,8 @@ from power_pptx.slide import (
     SlideLayouts,
     SlideMaster,
     SlideMasters,
-    SlideTransition,
     Slides,
+    SlideTransition,
     _Background,
     _BaseMaster,
     _BaseSlide,

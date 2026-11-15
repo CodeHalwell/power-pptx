@@ -446,7 +446,7 @@ class DesignTokens:
                 "DesignTokens.from_yaml requires pyyaml; install with "
                 "`pip install pyyaml`"
             ) from exc
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             spec = yaml.safe_load(f) or {}
         if not isinstance(spec, Mapping):
             raise ValueError(

@@ -13,6 +13,8 @@ from power_pptx import Presentation
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.lint import (
+    _LEGACY_LINT_GROUP_ATTR,
+    _LINT_EXT_URI,
     LayerOrderViolation,
     LintSeverity,
     LowContrast,
@@ -26,11 +28,8 @@ from power_pptx.lint import (
     SlideLintReport,
     TextOverflow,
     ZOrderAnomaly,
-    _LEGACY_LINT_GROUP_ATTR,
-    _LINT_EXT_URI,
     _contrast_ratio,
     _find_lint_ext,
-    _write_lint_group,
 )
 from power_pptx.util import Emu, Inches, Pt
 
@@ -862,8 +861,8 @@ class DescribeEffectBleedGeometry:
         # Charts / tables (GraphicFrame) expose ``shape.shadow == None``
         # since 2.1.1 — the bleed helper must handle that gracefully
         # and fall back to the raw bbox.
-        from power_pptx.shapes.base import BaseShape
         from power_pptx.lint import _effective_bbox, _shape_bbox
+        from power_pptx.shapes.base import BaseShape
 
         class _FakeGraphicFrame:
             name = "tbl"

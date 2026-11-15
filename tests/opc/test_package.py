@@ -1002,7 +1002,7 @@ class Describe_Relationships:
         ),
     )
     def it_finds_the_next_rId_to_help(self, _rels_prop_, rIds, expected_value):
-        _rels_prop_.return_value = {rId: None for rId in rIds}
+        _rels_prop_.return_value = dict.fromkeys(rIds)
         relationships = _Relationships(None)
 
         assert relationships._next_rId == expected_value

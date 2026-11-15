@@ -77,8 +77,8 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
 from xml.sax.saxutils import quoteattr
 
 from power_pptx.enum.animation import PP_ANIM_TRIGGER
-from power_pptx.oxml.ns import nsdecls, qn
 from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import nsdecls, qn
 
 if TYPE_CHECKING:
     from power_pptx.shapes.base import BaseShape

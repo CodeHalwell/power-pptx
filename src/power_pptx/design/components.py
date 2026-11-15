@@ -31,11 +31,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
-from power_pptx.design.tokens import DesignTokens
-from power_pptx.enum.shapes import MSO_SHAPE
-from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from power_pptx.util import Inches, Length, Pt
-
 # Re-use the private helpers from recipes rather than reimplement them.
 # Same package, same module-private convention.
 from power_pptx.design.recipes import (
@@ -49,9 +44,12 @@ from power_pptx.design.recipes import (
     _typography,
     _unify_sizes,
 )
+from power_pptx.design.tokens import DesignTokens
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from power_pptx.util import Inches, Length, Pt
 
 if TYPE_CHECKING:
-    from power_pptx.shapes.autoshape import Shape
     from power_pptx.slide import Slide
 
 
