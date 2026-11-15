@@ -17,6 +17,330 @@ installs the ``pptx`` import name) is also present in the environment.
 Unreleased
 ++++++++++
 
+A review-driven release. The linter now measures text with the same engine
+as ``fit_text`` and checks the auto-size frames it used to skip; the text
+engine wraps where PowerPoint and LibreOffice wrap; opening, importing and
+templating packages no longer corrupts or leaks content; ``from_spec`` rejects
+malformed input with located errors and has a safe mode for untrusted specs.
+Adds slide-show settings (issue #53), slide-size limits (issue #56),
+``Slide.hidden`` and a ``power-pptx lint`` command.
+
+Added
+.....
+
+* ``Presentation.slide_show`` holds the *Set Up Slide Show* settings:
+  ``loop`` (loop continuously until Esc), ``show_type`` (``"speaker"``,
+  ``"window"``, ``"kiosk"`` or a ``PP_SLIDE_SHOW_TYPE`` member),
+  ``use_timings``, ``show_narration`` and ``show_animation``. Reading never
+  modifies the deck; ``ppt/presProps.xml`` is created when needed, and
+  setting every value back to its default leaves no XML behind. (refs #53)
+* ``power_pptx.util.MIN_SLIDE_SIZE`` / ``MAX_SLIDE_SIZE`` (1 and 56 inches)
+  and ``fit_slide_size(width, height)``, which returns the largest allowed
+  size with the same aspect ratio and the scale applied.
+  ``Presentation.set_slide_size(width, height, fit=False)`` sets both
+  dimensions at once and, with ``fit=True``, brings an oversize size (an LED
+  wall, say) inside the limits. (refs #56)
+* ``Slide.hidden`` hides a slide from the slide show or shows it again.
+* ``power-pptx lint DECK [DECK ...]`` checks saved decks from the command
+  line, with text, ``--format json`` and ``--format sarif`` reports,
+  ``--min-severity``, ``--fail-on {error,warning,never}`` and ``--fix`` with
+  ``--output PATH`` or ``--in-place``. Exit status 0 is clean, 1 is issues at
+  or above the fail level, 2 is a usage error or unreadable file.
+* ``from_spec(spec, *, safe=False, base_dir=None)`` (and ``from_yaml``):
+  ``base_dir`` resolves relative paths; ``safe=True`` keeps ``template``,
+  token ``yaml``, ``image`` and ``figure`` paths inside it and captures
+  HTML/Plotly figures with network access blocked. Use it for specs written
+  by a model or a user.
+* ``allow_network`` on ``capture_html``, ``add_html_figure``,
+  ``add_plotly_figure`` and ``from_html``. With ``False`` a page may load
+  only ``data:`` URLs and its own document, and the capture raises
+  ``ValueError`` listing anything it blocked.
+* ``power_pptx.compose.SpecError``, a ``ValueError`` whose message and
+  ``.path`` give the location of a bad value (``slides[2].kpis[0]``).
+* Spec ``bullets`` items may be ``{"text": ..., "level": n}``;
+  ``comparison_layout`` accepts ``left_heading`` / ``right_heading``; a spec-
+  or slide-level ``"interpolate": false`` and the ``\{{`` escape turn off
+  ``{{ var }}`` substitution. Shadow tokens accept ``"blur"`` as an alias for
+  ``blur_radius``, palette colours accept ``[r, g, b]`` lists, and
+  ``DesignTokens.from_pptx`` accepts a ``pathlib.Path`` or an open file.
+* ``compose.import_slide(dst, slide, merge_master=...)`` and
+  ``compose.apply_template(dst, template)`` take ``Presentation`` and
+  ``Slide`` objects as documented; the template may be a path, a stream or
+  an open ``Presentation``. The part-based calls still work.
+* ``Presentation()`` opens templates (``.potx``) and slide shows
+  (``.ppsx``), and ``save()`` writes the kind of package the file name asks
+  for.
+* ``power_pptx.exc.InvalidPackageError`` for a file that is not a package
+  this library can read. It subclasses ``PackageNotFoundError``,
+  ``zipfile.BadZipFile`` and ``KeyError``, so existing handlers still catch
+  it.
+* The schema validator also checks ``ppt/presProps.xml``, id-list entries
+  (``p:sldLayoutId``, ``p:sldId``, ``p:sldMasterId``, …) whose relationship
+  is of the wrong type, and animation targets (``p:spTgt``, ``p:bldP``) that
+  name no shape on their slide. PowerPoint repairs all of these.
+* Lint: an ``InvalidGeometry`` issue (ERROR) for negative shape extents;
+  ``TextOverflow`` gains ``dimension``, ``overflow_pt``, ``auto_size``,
+  ``estimated``, ``row`` and ``col``; ``report.auto_fix(fix_grid_drift=...)``.
+* Recipes and diagrams: ``code_slide(font=..., overflow="truncate"|"raise")``,
+  ``figure_slide(fit="contain"|"cover"|"stretch")``, ``min_size_pt=`` on
+  ``horizontal_pipeline``, ``vertical_pipeline``, ``hub_and_spoke``,
+  ``cycle`` and ``decision_tree``, and key validation with did-you-mean hints
+  for ``kpis``, ``milestones``, comparison ``rows``, chart ``series`` and
+  ``add_stat_strip`` items.
+* Text engine: ``TextFitter.best_fit_font_size`` accepts
+  ``paragraph_formats``, ``in_table`` and ``break_long_words``; its
+  ``line_spacing`` and ``fit_text(line_spacing=...)`` accept a length such as
+  ``Pt(28)``; ``measure_text`` accepts ``line_spacing=None``, ``in_table`` and
+  ``break_long_words``; ``Table.fit_to_box(strict=...)``;
+  ``power_pptx.text.registered_font_files()``.
+* Animation: ``Exit.wheel()`` and ``Exit.random_bars()``, ``direction`` for
+  wipes, and ``MSO_TRANSITION_TYPE.COMB``.
+* ``PictureEffects.recolor = "black_and_white"``, and ``color = None`` on
+  shadow, inner shadow, glow and preset shadow to clear a chosen colour.
+* ``python -m power_pptx.skill install --target PATH``, as the README
+  documents.
+
+Changed
+.......
+
+* Overflow on auto-size frames and table rows is reported as a WARNING;
+  fixed-size frames remain ERROR. ``report.auto_fix()`` no longer snaps grid
+  drift unless asked to, matching ``tidy()``. ``audit()`` reports each
+  uncommon font once per slide.
+* Recipes and diagrams raise ``ValueError`` for content that cannot fit at a
+  readable size (for example more than 9 KPIs in a row, 21 comparison rows,
+  or a diagram label below 6pt) instead of writing a broken or unreadable
+  slide, and ``kpis`` items need both ``label`` and ``value``.
+* ``table_slide(widths=[...])`` treats bare numbers as relative weights; large
+  numbers used to be read as EMU. ``figure_slide`` keeps a figure's aspect
+  ratio by default (``fit="stretch"`` restores the old behaviour).
+* A bare integer below 12700 in a design-token length is points (it used to
+  be EMU); larger integers are still EMU. Unknown typography, shadow and
+  token keys raise.
+* ``from_spec`` raises ``SpecError`` for content it used to drop or mangle
+  (see Fixed).
+* ``recolor = "washout"`` writes PowerPoint's Washout instead of a black and
+  white threshold, which is now ``"black_and_white"``.
+* ``apply_quick_layout()`` raises for unknown keys in a dict spec.
+* Animation ``presetID`` / ``presetSubtype`` values now match PowerPoint and
+  LibreOffice, so effects written by earlier releases may read back as a
+  different ``AnimationEntry.preset``. An unknown ``direction`` for
+  ``fly_in``, ``fly_out`` or ``wipe`` raises. ``purge_orphans()`` and
+  ``clear()`` count effects anywhere in the timing tree.
+* ``render_slide_thumbnails(strategy="auto")`` renders through PDF, so
+  ``dpi`` applies to every deck, and files are named
+  ``_render_input-page-N.png`` whichever pipeline ran.
+* ``measure_text`` reserves 1.2 × size × line spacing per line, as renderers
+  draw a shape; the font's own line height applies with ``in_table=True``.
+  ``fit_text`` writes an East Asian typeface (``<a:ea>``) alongside the Latin
+  one for East Asian text. ``Table.fit_to_box(font_family=...)`` defaults to
+  ``None``.
+* An out-of-range slide size raises a ``ValueError`` that states the limits
+  in inches.
+* ``import_slide`` rejects ``merge_master`` values other than ``"dedupe"``
+  and ``"clone"``; ``apply_template`` raises and changes nothing when the
+  template has no master, or no layouts while the deck has slides.
+* ``Slides.move()`` and ``reorder()`` keep sections contiguous, so they can
+  change which section a slide belongs to.
+* ``ppt/presProps.xml`` is loaded as XML rather than an opaque part.
+
+Fixed
+.....
+
+**Linting and space-aware authoring**
+
+* ``TextOverflow`` measures text with the same font metrics as ``fit_text``:
+  every run at its effective size and typeface (including sizes inherited
+  from layout and master placeholders), inside the frame's margins, at its
+  line and paragraph spacing, inside groups and table cells. It used to count
+  characters at the first run's size and disagreed with ``fit_text`` in both
+  directions; it no longer flags a frame ``fit_text`` sized.
+* Auto-size text frames, the default for ``add_textbox`` and ``add_text``,
+  are checked, and ``OffSlide`` and ``ShapeCollision`` test the box an
+  auto-fit shape grows into.
+* ``auto_fix()`` and ``tidy()`` make overflowing text fit (a stored font
+  scale, a resized shape, reduced sizes or a taller table row) instead of
+  writing an empty ``<a:normAutofit/>`` that hid the issue, and no longer
+  override a ``fit_text`` result.
+* ``slide.lint()`` is no longer quadratic in the number of shapes (800 text
+  boxes: about 0.3 s instead of 16–40 s), and ``disable=`` and
+  ``min_severity=`` skip work rather than filtering afterwards.
+* ``slide.lint()``, ``audit()`` and ``audit_accessibility()`` no longer add
+  elements to the deck they inspect, and lint no longer crashes on a shape
+  with negative size.
+* ``Slide.design_group()`` tags exactly the shapes added inside the block.
+* Rotated shapes are linted and clamped by the area they cover, and
+  ``OffSlide`` fixes scale pictures and groups proportionally.
+* Grid-drift detection no longer chains a staircase of edges into one grid
+  line or pulls shapes off a shared baseline. A connector only collides with
+  shapes its line runs into, and ``ZOrderAnomaly`` ignores translucent fills
+  and honours declared overlaps.
+* ``audit_accessibility()`` treats file-name alt text (what ``add_picture``
+  writes) as missing, checks pictures in placeholders and judges contrast as
+  the linter does. ``audit()`` resolves theme font references such as
+  ``+mn-lt`` and checks paragraph and table-cell fonts.
+
+**Text engine and tables**
+
+* ``fit_text``, ``measure_text``, ``truncate_text`` and ``TextFitter`` wrap
+  where PowerPoint and LibreOffice wrap: after hyphens, dashes and URL
+  slashes, and between Chinese, Japanese and Korean characters with their
+  line-start and line-end rules. Japanese once shrunk to 7pt in a 4" x 2"
+  box now fits at 22pt, and full-width characters measure one em even in a
+  font without them.
+* ``fit_text`` measures the formatting it leaves in place (line spacing,
+  space between paragraphs, caps, letter spacing, and what a placeholder
+  inherits); passing ``min_size``, ``max_lines`` or ``preserve_breaks`` no
+  longer changes the spacing it measures; it is fast on long text (800
+  words in under half a second instead of over a minute).
+* ``Table.fit_to_box`` measures merged cells across their span and inside
+  each cell's margins, and warns about a missing font; ``Table.style``
+  rejects a value that is not a GUID.
+* Fonts in ``.ttc`` / ``.otc`` collections are found, family lookups are
+  case-insensitive and match other-language names, changing
+  ``POWER_PPTX_FONT_DIRS`` takes effect immediately, and
+  ``register_font_family`` no longer adds whole folders to the search.
+
+**Packages, import and templates**
+
+* ``apply_template()`` no longer produces a broken deck: layouts resolve in
+  the same session and after reopening, and pictures on the template's
+  masters and layouts are copied.
+* ``import_slide()`` no longer copies slides the imported slide links to
+  into the package as hidden orphans, stores one copy of a picture shared by
+  many imported slides, and handles part names containing ``%``.
+* A saved package can no longer hold two parts with the same name;
+  reopening a deck, using ``prs.slides`` and saving again no longer loses
+  slides.
+* A malformed file raises ``InvalidPackageError`` with a clear message
+  however it is passed in; deep relationship chains no longer raise
+  ``RecursionError``; ``TargetMode="external"`` in any case is understood;
+  zip members nothing refers to are not decompressed.
+* ``Presentation.save(path)`` is atomic: a failure part-way leaves any
+  existing file untouched.
+* ``power-pptx-skill install`` refuses to replace a directory that is not
+  empty and not a previous install of this skill, instead of deleting it.
+
+**Validation, rendering and review**
+
+* ``validate_presentation`` and ``power-pptx review`` no longer report every
+  deck this library did not write as changed by a round trip; relationship
+  parts and content types are compared by meaning, not order.
+* Decks with hidden slides render and review, with every slide exported.
+* A render timeout raises ``ThumbnailRendererError`` and stops the whole
+  LibreOffice process tree; ``pdftoppm`` has the same timeout. ``dpi`` and
+  ``scale`` apply to one-slide decks, and the binary lookup falls back to
+  ``libreoffice`` on ``PATH``.
+* The validator parses without resolving entities or using the network,
+  reports parts that declare a DTD, and tolerates comments in slide XML.
+* Section ids are reproducible under ``SOURCE_DATE_EPOCH``, and a review
+  that reuses an output directory removes its previous output first.
+
+**Specs, tokens and HTML**
+
+* Integer token lengths from JSON or YAML (``"size": 36``,
+  ``"radii": {"md": 8}``) are points, so they no longer collapse or fail with
+  an unrelated range error, and shadow tokens written with ``"blur"`` are
+  blurred.
+* ``from_spec`` rejects wrong-shaped content (non-string text, a string for
+  ``bullets``, over-long table rows, unknown palettes, a title on a layout
+  with no title placeholder, misspelt token sections, negative or absurd
+  geometry) instead of dropping or mangling it, and every content error
+  names its location.
+* ``{{ ... }}`` in a spec without ``vars`` is left as written.
+* ``slide_size`` rescales the template's layouts; ``kpi_grid`` stays on the
+  slide with five or more KPIs; ``comparison_layout`` puts right-hand content
+  on the right; every transition kind, ``comb`` included, is accepted.
+* HTML capture reports a missing ``[data-slide]`` section at once, skips an
+  ``<img>`` with no source, explains the error inside a running event loop,
+  and rejects unsupported styling on hybrid chart regions.
+
+**Recipes, components and diagrams**
+
+* ``code_slide`` is readable without tokens, writes one real monospace
+  font, picks colours from the panel's brightness and fits the code to the
+  panel.
+* ``timeline_slide`` keeps labels on the slide and clear of the rail, and
+  lints clean for 2–8 milestones.
+* ``hub_and_spoke`` and ``cycle`` fit labels to the circle's real text area
+  without breaking words, and ``cycle`` nodes no longer overlap.
+* ``kpi_slide``, ``comparison_slide``, ``add_stat_strip``, ``table_slide``,
+  ``bullet_slide`` and ``section_divider`` no longer write negative sizes
+  or silently overflow, and recipe text is fitted at build time rather than
+  left to an autofit flag PowerPoint applies only after editing.
+* Built-in presets pass the contrast lint in the recipes; ``decision_tree``
+  arrows no longer cross cards; ``add_kpi_card`` keeps its contents inside
+  short cards; recipes on templates without a "Blank" layout no longer leave
+  empty placeholders; ``UP_DOWN_ARROW`` adjustments no longer write a
+  duplicate guide; ``chart_slide`` accepts ``None`` values as gaps.
+
+**Animation, transitions and SmartArt**
+
+* Opening and saving a deck no longer corrupts PowerPoint 2013+ transitions
+  (Airplane, Curtains, Origami, Wind, …); an unedited transition is saved
+  exactly as read, and decks damaged by earlier releases are repaired.
+* ``set_transition(kind=...)`` applies after a timing-only call, and
+  clearing the last timing setting leaves no empty ``<p:transition/>``.
+* SmartArt saved by PowerPoint can be read and edited, including the cached
+  drawing PowerPoint 2010+ displays.
+* ``slide.animations`` sees effects authored in PowerPoint, new effects join
+  its main sequence, and deleting a shape or movie, or ungrouping, leaves no
+  timing nodes pointing at the removed shape.
+* ``MotionPath.svg`` no longer hangs on a number after ``Z``, raises
+  ``ValueError`` for any malformed path and writes quadratic curves as
+  cubics; ``MotionPath.custom`` adds a missing closing ``E`` and cannot
+  inject markup.
+* Float durations and delays are rounded instead of producing invalid XML,
+  and out-of-range times and spin angles raise.
+* Wipe, wheel, random-bars and zoom effects play (their filters were not
+  recognised), exit effects hide the shape when they end, and the documented
+  directions, exits and easing options work.
+
+**Effects, fills and charts**
+
+* Effect, 3-D and line lengths accept floats such as ``Pt(6) / 2``; a
+  rejected value leaves no half-built element behind; clearing every
+  property of an effect removes it so the theme effect applies again.
+* ``series.axis_group = "secondary"`` moves only that series, and
+  ``chart.value_axis`` always returns the primary axis.
+* ``set_duotone()`` rejects malformed colours without clearing the current
+  recolour; angles just under a full turn no longer write an out-of-range
+  value; gradient stop edits are validated before anything changes.
+* Adding a shape after copying one in with ``spTree.append(...)`` no longer
+  produces duplicate shape ids.
+* ``Theme.to_dark_mode()`` is idempotent and contrast-aware.
+* The documentation now states the gradient angle convention the code has
+  always used (counter-clockwise: 90 is bottom-to-top).
+
+Security
+........
+
+* A spec can no longer choose the browser executable through
+  ``html_options`` / ``plotly_options``, and the loopback server used for
+  ``.html`` captures no longer lists directories or follows links out of the
+  document's directory. See ``safe=True`` above for untrusted specs.
+* Opening a package rejects parts that declare a DTD and decompresses only
+  the parts it needs; the validator never resolves entities.
+* ``import_slide()`` no longer ships the content of slides the imported
+  slide merely links to.
+
+Development
+...........
+
+* Declared dependency minimums are ones that install and pass the suite
+  (Pillow 10.1, lxml 4.6.2, XlsxWriter 1.3.7), and a new CI job tests exactly
+  those on Python 3.9. Python 3.14 is tested and declared supported.
+* Packaging uses an SPDX licence expression ahead of setuptools dropping the
+  old form; the Travis configuration and unused requirements are gone.
+* CI cancels superseded pull-request runs and caches downloads; Qodana runs
+  on ``master``; Dependabot proposes grouped updates; ``SECURITY.md``
+  describes private reporting.
+* Tests enforce that the skill and its mirror, the packaged schemas and the
+  version shown by the docs site stay in sync, and that the skill's code
+  examples parse and import only names that exist.
+* The docs site's dependencies have no known advisories, and the Sphinx build
+  passes with warnings treated as errors.
+
 
 2.14.0 (2026-10-19)
 +++++++++++++++++++
