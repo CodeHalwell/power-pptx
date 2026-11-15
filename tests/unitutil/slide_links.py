@@ -8,7 +8,9 @@ to it, so these helpers build each kind of reference PowerPoint writes:
 * a custom show listing slides (`add_custom_show`),
 * a "jump to slide" link shown on hover (`link_on_hover`) — the library only
   writes click links itself,
-* an action button on a layout (`add_layout_button`), and
+* an action button on a layout (`add_layout_button`),
+* the outline view's list of collapsed slides (`add_outline_view_entries`),
+  kept in `ppt/viewProps.xml`, a part the library holds only as bytes, and
 * `linked_deck()`, a deck with all of them pointing at its second slide,
   which also carries the parts that should go with it.
 """
@@ -16,6 +18,8 @@ to it, so these helpers build each kind of reference PowerPoint writes:
 from __future__ import annotations
 
 import io
+
+from lxml import etree
 
 from power_pptx import Presentation
 from power_pptx.chart.data import CategoryChartData
@@ -92,6 +96,44 @@ def custom_show_slides(prs: Presentation) -> list[list]:
     return [[prs.part.related_slide(rId) for rId in show] for show in custom_show_rIds(prs)]
 
 
+def view_props_part(prs: Presentation):
+    """The part holding `ppt/viewProps.xml`, which the library keeps as bytes."""
+    return prs.part.part_related_by(RT.VIEW_PROPS)
+
+
+def add_outline_view_entries(prs: Presentation, slides) -> None:
+    """List *slides* as collapsed in the outline view, as PowerPoint records them.
+
+    PowerPoint keeps the list in `ppt/viewProps.xml`, by relationships of
+    that part to the slides.
+    """
+    part = view_props_part(prs)
+    viewPr = parse_xml(part.blob)
+    entries = "".join(
+        '<p:sld r:id="%s" collapse="1"/>' % part.relate_to(slide.part, RT.SLIDE)
+        for slide in slides
+    )
+    viewPr.find(qn("p:notesTextViewPr")).addprevious(
+        parse_xml(
+            "<p:outlineViewPr %s><p:cViewPr><p:scale>"
+            '<a:sx n="33" d="100"/><a:sy n="33" d="100"/></p:scale>'
+            '<p:origin x="0" y="0"/></p:cViewPr><p:sldLst>%s</p:sldLst></p:outlineViewPr>'
+            % (nsdecls("p", "a", "r"), entries)
+        )
+    )
+    part.blob = etree.tostring(viewPr, encoding="UTF-8", standalone=True)
+
+
+def outline_view_slides(prs: Presentation) -> list:
+    """The slides the outline view of *prs* lists."""
+    part = view_props_part(prs)
+    r_id = qn("r:id")
+    return [
+        part.related_part(sld.get(r_id)).slide
+        for sld in parse_xml(part.blob).iter(qn("p:sld"))
+    ]
+
+
 def link_on_hover(shape, slide) -> None:
     """Make *shape* jump to *slide* when the pointer moves over it."""
     rId = shape.part.relate_to(slide.part, RT.SLIDE)
@@ -121,8 +163,8 @@ def linked_deck() -> Presentation:
     Slide "b" has notes, a chart, a picture of its own and a picture it shares
     with slide "a". It is linked to from a shape on "a" (on click), a text run
     on "c", a shape on "d" (on hover), the notes of "a", and a button on the
-    Blank layout. It is in the first of two sections, and in a custom show
-    with "c".
+    Blank layout. It is in the first of two sections, in a custom show with
+    "c", and collapsed in the outline view with "c".
     """
     prs = titled_deck("a", "b", "c", "d")
     a, b, c, d = prs.slides
@@ -140,4 +182,5 @@ def linked_deck() -> Presentation:
     prs.sections.add("One", start_slide_index=0)
     prs.sections.add("Two", start_slide_index=2)
     add_custom_show(prs, "Short", [b, c])
+    add_outline_view_entries(prs, [b, c])
     return prs

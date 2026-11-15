@@ -68,6 +68,27 @@ class DescribeRemovedSlideSchemaValidity:
         assert [show.get("name") for show in shows] == ["Short"]
         assert shows[0].findall("p:sldLst/p:sld", _NS) == []
 
+    def it_validates_the_outline_view_list_it_rewrites(self):
+        # -- `ppt/viewProps.xml` is outside the XSD pass of assert_schema_valid --
+        from power_pptx._schema import _schema_for_namespace
+
+        prs = linked_deck()
+        b, c = prs.slides[1], prs.slides[2]
+
+        prs.slides.remove(b)
+        prs.slides.remove(c)
+        blob = _saved(prs)
+
+        assert_schema_valid(blob)
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            view_props = etree.fromstring(zf.read("ppt/viewProps.xml"))
+        schema = _schema_for_namespace(_NS["p"])
+        assert schema is not None
+        assert schema.validate(view_props), schema.error_log
+        # -- guard against passing vacuously: the list is there, and empty --
+        assert view_props.findall("p:outlineViewPr/p:sldLst", _NS) != []
+        assert view_props.findall("p:outlineViewPr/p:sldLst/p:sld", _NS) == []
+
     def it_would_report_the_links_left_by_dropping_the_slide_by_hand(self):
         # -- self-test: what callers used to do leaves an orphan slide behind --
         prs = linked_deck()

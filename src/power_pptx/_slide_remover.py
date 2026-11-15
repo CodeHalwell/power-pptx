@@ -6,15 +6,15 @@ slide part, sections and custom shows still list it, and every "jump to
 slide" link on the other slides still points at it — so the slide stays in
 the saved package as an orphan reached through the link.  Removal therefore:
 
-* takes the slide's entry out of ``p:sldIdLst`` and drops the presentation's
-  relationship to it;
-* takes its id out of every ``p14:sectionLst`` section and its entry out of
-  every custom show (``p:custShowLst/p:custShow/p:sldLst``);
-* removes every link to it from the parts that stay — ``click_action``
-  targets, ``hlinkClick`` / ``hlinkHover`` on shapes and text runs, on other
-  slides, notes slides, layouts and masters alike — together with the
-  relationship behind each link.  The shape or text run itself stays; it
-  just stops being a link.
+* takes the slide's entry out of ``p:sldIdLst`` and its id out of every
+  ``p14:sectionLst`` section;
+* drops every relationship to the slide from the parts that stay, with
+  whatever refers to it through one: an entry of a custom show
+  (``p:custShowLst/p:custShow/p:sldLst``) or of the outline view's slide
+  list (``ppt/viewProps.xml``) goes, and so does a link — a
+  ``click_action`` target, an ``hlinkClick`` / ``hlinkHover`` on a shape or
+  text run, on another slide, a notes slide, a layout or a master.  The
+  shape or text run itself stays; it just stops being a link.
 
 Nothing else needs deleting.  The package is saved by walking relationships
 from its root, so once nothing that stays relates to the slide, the slide and
@@ -29,15 +29,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterator, cast
 
+from lxml import etree
+
 from power_pptx._slide_importer import (
     _remap_rids,  # pyright: ignore[reportPrivateUsage, reportUnknownVariableType]
 )
+from power_pptx.opc.oxml import serialize_part_xml
 from power_pptx.opc.package import XmlPart
+from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import qn
 
 if TYPE_CHECKING:
     from power_pptx.opc.package import OpcPackage, Part
     from power_pptx.oxml.presentation import CT_Presentation, CT_SlideId
+    from power_pptx.oxml.xmlchemy import BaseOxmlElement
     from power_pptx.parts.presentation import PresentationPart
 
 
@@ -48,13 +53,11 @@ def remove_slide(prs_part: PresentationPart, slide_part: Part) -> None:
     slides; nothing is changed then.
     """
     entries = slide_id_entries(prs_part, slide_part)
-    rIds = _relationship_ids(prs_part, slide_part)
     prs_element = _presentation_element(prs_part)
     sldIdLst = prs_element.get_or_add_sldIdLst()
     for sldId in entries:
         sldIdLst.remove(sldId)
     _remove_section_members(prs_element, {sldId.id for sldId in entries})
-    _remove_custom_show_entries(prs_element, rIds)
     for part in list(_iter_remaining_parts(prs_part.package, slide_part)):
         _unlink(part, slide_part)
 
@@ -66,8 +69,7 @@ def slide_id_entries(prs_part: PresentationPart, slide_part: Part) -> list[CT_Sl
     belongs to another presentation, or has been removed from this one.
     """
     rIds = _relationship_ids(prs_part, slide_part)
-    prs_element = _presentation_element(prs_part)
-    sldIdLst = prs_element.sldIdLst
+    sldIdLst = _presentation_element(prs_part).sldIdLst
     entries = [] if sldIdLst is None else [s for s in sldIdLst.sldId_lst if s.rId in rIds]
     if entries:
         return entries
@@ -107,20 +109,6 @@ def _remove_section_members(prs_element: CT_Presentation, slide_ids: set[int]) -
             section.remove_sldId(slide_id)
 
 
-def _remove_custom_show_entries(prs_element: CT_Presentation, rIds: set[str]) -> None:
-    """Take every custom-show entry naming one of *rIds* out of its show.
-
-    A custom show lists its slides by relationship id.  A show left with no
-    slides stays: a hyperlink or the slide-show settings may name it, and an
-    empty ``p:sldLst`` is valid.
-    """
-    r_id = qn("r:id")
-    for sldLst in prs_element.xpath("./p:custShowLst/p:custShow/p:sldLst"):
-        for entry in list(sldLst):
-            if entry.get(r_id) in rIds:
-                sldLst.remove(entry)
-
-
 def _iter_remaining_parts(package: OpcPackage, removed: Part) -> Iterator[Part]:
     """Generate each part reachable from the package root without passing through *removed*.
 
@@ -140,16 +128,49 @@ def _iter_remaining_parts(package: OpcPackage, removed: Part) -> Iterator[Part]:
 
 
 def _unlink(part: Part, removed: Part) -> None:
-    """Drop *part*'s relationships to *removed* and the XML that uses them.
+    """Drop *part*'s relationships to *removed*, and every reference to them in its XML.
 
-    A hyperlink element naming one goes with it — the shape or text run just
-    stops being a link — and any other reference attribute naming one is
-    deleted.
+    The XML of a part the library keeps only as bytes, such as
+    ``ppt/viewProps.xml``, is rewritten too.
     """
     rIds = _relationship_ids(part, removed)
     if not rIds:
         return
-    if isinstance(part, XmlPart):
-        _remap_rids(part._element, {}, rIds)  # pyright: ignore[reportPrivateUsage]
+    element = _xml_of(part)
+    if element is not None:
+        _remove_references(element, rIds)
+        if not isinstance(part, XmlPart):
+            part.blob = serialize_part_xml(element)
     for rId in rIds:
         part.rels.pop(rId)
+
+
+def _xml_of(part: Part) -> BaseOxmlElement | None:
+    """The XML of *part* as an element, or |None| for a part that is not XML.
+
+    That is an XML part's own element, or a parsed copy of the content of a
+    part the library keeps only as bytes.
+    """
+    if isinstance(part, XmlPart):
+        return part._element  # pyright: ignore[reportPrivateUsage]
+    if not part.content_type.endswith("xml"):
+        return None
+    try:
+        return cast("BaseOxmlElement", parse_xml(part.blob))
+    except etree.XMLSyntaxError:
+        return None
+
+
+def _remove_references(element: BaseOxmlElement, rIds: set[str]) -> None:
+    """Remove every reference to the relationships *rIds* from *element*'s tree.
+
+    An entry of a slide list (``p:sld``, in a custom show or the outline
+    view) or a hyperlink element naming one goes whole; any other reference
+    attribute naming one is deleted.
+    """
+    r_id = qn("r:id")
+    for entry in list(element.iter(qn("p:sld"))):
+        parent = entry.getparent()
+        if parent is not None and entry.get(r_id) in rIds:
+            parent.remove(entry)
+    _remap_rids(element, {}, rIds)

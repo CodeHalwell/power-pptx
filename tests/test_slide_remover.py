@@ -7,26 +7,36 @@ from __future__ import annotations
 import io
 
 import pytest
+from lxml import etree
 
 from power_pptx import Presentation
 from power_pptx._slide_remover import (
     _iter_remaining_parts,
-    _remove_custom_show_entries,
+    _remove_references,
     _unlink,
+    _xml_of,
     remove_slide,
     slide_id_entries,
 )
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from power_pptx.oxml import parse_xml
+from power_pptx.oxml.ns import nsdecls
 from power_pptx.util import Inches
 
 from .unitutil.slide_links import (
     PNG,
     add_custom_show,
     add_layout_button,
+    add_outline_view_entries,
     custom_show_rIds,
     link_on_hover,
+    outline_view_slides,
     titled_deck,
+    view_props_part,
 )
+
+P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+RID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 
 
 def _deck(count: int = 3) -> Presentation:
@@ -71,6 +81,16 @@ class DescribeRemoveSlide:
         remove_slide(prs.part, prs.slides[1].part)
 
         assert [(s.name, s.slide_ids) for s in prs.sections] == [("One", [256]), ("Two", [])]
+
+    def it_takes_the_slide_out_of_the_outline_view(self):
+        prs = _deck()
+        a, b, c = prs.slides
+        add_outline_view_entries(prs, [a, b, c])
+
+        remove_slide(prs.part, b.part)
+
+        assert outline_view_slides(prs) == [a, c]
+        assert all(rel.target_part is not b.part for rel in view_props_part(prs).rels.values())
 
     def it_takes_the_slide_out_of_every_custom_show(self):
         prs = _deck()
@@ -193,24 +213,67 @@ class DescribeSlideIdEntries:
             slide_id_entries(prs.part, other.slides[0].part)
 
 
-class DescribeRemoveCustomShowEntries:
-    def it_removes_only_the_entries_naming_the_given_ids(self):
-        prs = _deck()
-        a, b, c = prs.slides
-        add_custom_show(prs, "Show", [a, b, c])
-        rIds = custom_show_rIds(prs)[0]
+class DescribeRemoveReferences:
+    def it_removes_slide_list_entries_and_hyperlinks_naming_the_ids(self):
+        element = parse_xml(
+            "<p:custShowLst %s><p:custShow name=\"s\" id=\"0\"><p:sldLst>"
+            '<p:sld r:id="rId2"/><p:sld r:id="rId3"/><p:sld r:id="rId4"/>'
+            "</p:sldLst></p:custShow></p:custShowLst>" % nsdecls("p", "r")
+        )
 
-        _remove_custom_show_entries(prs.part._element, {rIds[1]})
+        _remove_references(element, {"rId3"})
 
-        assert custom_show_rIds(prs) == [[rIds[0], rIds[2]]]
+        assert [sld.get(RID) for sld in element.iter("{%s}sld" % P)] == ["rId2", "rId4"]
 
-    def it_does_nothing_without_custom_shows(self):
-        prs = _deck()
-        before = prs.part._element.xml
+    def and_hyperlinks_naming_them(self):
+        element = parse_xml(
+            '<p:cNvPr %s id="2" name="a"><a:hlinkClick r:id="rId3" action="x"/>'
+            '<a:hlinkHover r:id="rId4" action="x"/></p:cNvPr>' % nsdecls("p", "a", "r")
+        )
 
-        _remove_custom_show_entries(prs.part._element, {"rId2"})
+        _remove_references(element, {"rId3", "rId4"})
 
-        assert prs.part._element.xml == before
+        assert len(element) == 0
+
+    def it_leaves_everything_else_alone(self):
+        element = parse_xml(
+            "<p:sldLst %s><p:sld r:id=\"rId2\"/></p:sldLst>" % nsdecls("p", "r")
+        )
+        before = etree.tostring(element)
+
+        _remove_references(element, {"rId9"})
+
+        assert etree.tostring(element) == before
+
+
+class DescribeXmlOf:
+    def it_returns_the_element_of_an_xml_part(self):
+        prs = _deck(1)
+        slide_part = prs.slides[0].part
+
+        assert _xml_of(slide_part) is slide_part._element
+
+    def it_parses_an_xml_part_kept_as_bytes(self):
+        prs = _deck(1)
+
+        element = _xml_of(view_props_part(prs))
+
+        assert element is not None
+        assert element.tag == "{%s}viewPr" % P
+
+    def it_returns_None_for_a_binary_part(self):
+        prs = _deck(1)
+        prs.slides[0].shapes.add_picture(io.BytesIO(PNG), 0, 0)
+        image_part = prs.slides[0].part.related_part(prs.slides[0].shapes[1]._element.blip_rId)
+
+        assert _xml_of(image_part) is None
+
+    def and_for_bytes_that_are_not_well_formed_xml(self):
+        prs = _deck(1)
+        part = view_props_part(prs)
+        part.blob = b"<p:viewPr"
+
+        assert _xml_of(part) is None
 
 
 class DescribeIterRemainingParts:

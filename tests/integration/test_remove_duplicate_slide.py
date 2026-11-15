@@ -22,6 +22,7 @@ from ..unitutil.slide_links import (
     add_chart,
     custom_show_slides,
     linked_deck,
+    outline_view_slides,
     titled_deck,
 )
 from .round_trip import assert_round_trip
@@ -109,6 +110,7 @@ class DescribeRemovedSlidePackage:
         assert a.notes == "see b"
         assert [s.slide_ids for s in reopened.sections] == [[a.slide_id], [c.slide_id, d.slide_id]]
         assert custom_show_slides(reopened) == [[c]]
+        assert outline_view_slides(reopened) == [c]
 
     def it_lets_a_slide_be_added_after_a_removal(self):
         prs = titled_deck("a", "b", "c")
