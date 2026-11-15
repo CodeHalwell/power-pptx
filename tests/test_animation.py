@@ -1250,3 +1250,174 @@ class DescribeMediaNodeCleanup:
 
         assert slide.animations.clear() == 1
         assert _targeted_ids(slide) == [movie.shape_id]
+
+
+# ---------------------------------------------------------------------------
+# Timing values
+# ---------------------------------------------------------------------------
+
+
+def _time_attrs(slide) -> list[str]:
+    """Every `dur` and `delay` attribute value in the slide's timing tree."""
+    values = [c.get("dur") for c in slide._element.iter(qn("p:cTn")) if c.get("dur")]
+    values += [c.get("delay") for c in slide._element.iter(qn("p:cond")) if c.get("delay")]
+    return values
+
+
+def _add_entrance(slide, shape, **kwargs):
+    slide.animations.add_entrance("fade", shape, **kwargs)
+
+
+def _add_exit(slide, shape, **kwargs):
+    slide.animations.add_exit("fade", shape, **kwargs)
+
+
+def _add_emphasis(slide, shape, **kwargs):
+    slide.animations.add_emphasis("pulse", shape, **kwargs)
+
+
+def _add_motion(slide, shape, **kwargs):
+    slide.animations.add_motion(shape, "M 0 0 L 0.5 0 E", **kwargs)
+
+
+_ADDERS = pytest.mark.parametrize(
+    "add",
+    [_add_entrance, _add_exit, _add_emphasis, _add_motion],
+    ids=["entrance", "exit", "emphasis", "motion"],
+)
+
+
+class DescribeTimingValueChecks:
+    """`dur` and `delay` are `ST_TLTime`: a non-negative integer or "indefinite"."""
+
+    @_ADDERS
+    def it_writes_a_float_duration_and_delay_as_whole_milliseconds(self, slide_with_shape, add):
+        slide, shape = slide_with_shape
+
+        # -- what ordinary arithmetic hands over: 500.0 and 200.00000000000003 --
+        add(slide, shape, duration=1500 / 3, delay=0.2 * 1000)
+
+        values = _time_attrs(slide)
+        assert {"500", "200"} <= set(values)
+        assert all(v == "indefinite" or v.isdigit() for v in values), values
+        entry = slide.animations.list()[0]
+        assert (entry.duration, entry.delay) == (500, 200)
+
+    @_ADDERS
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"duration": -1},
+            {"delay": -5},
+            {"duration": 2**32},
+            {"delay": 2**32},
+            {"duration": float("nan")},
+            {"delay": float("inf")},
+        ],
+    )
+    def it_rejects_a_time_the_attribute_cannot_hold(self, slide_with_shape, add, kwargs):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match=next(iter(kwargs))):
+            add(slide, shape, **kwargs)
+
+        # -- and nothing was written on the way to finding out --
+        assert slide._element.find(qn("p:timing")) is None
+
+    @_ADDERS
+    @pytest.mark.parametrize("kwargs", [{"duration": "500"}, {"delay": None}, {"duration": True}])
+    def it_rejects_a_time_that_is_not_a_number(self, slide_with_shape, add, kwargs):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(TypeError, match=next(iter(kwargs))):
+            add(slide, shape, **kwargs)
+
+    def it_accepts_the_largest_time_the_attribute_holds(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        Entrance.fade(slide, shape, duration=2**32 - 1)
+
+        assert slide.animations.list()[0].duration == 2**32 - 1
+
+    def it_rounds_the_delay_of_a_sequence_or_group(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        with slide.animations.sequence(delay=0.3 * 1000):
+            Entrance.fade(slide, shape)
+        with slide.animations.group(delay=250.4):
+            Entrance.fade(slide, shape)
+
+        assert [e.delay for e in slide.animations] == [300, 250]
+        assert all(v == "indefinite" or v.isdigit() for v in _time_attrs(slide))
+
+    @pytest.mark.parametrize("block", ["sequence", "group"])
+    def it_rejects_a_negative_block_delay(self, slide_with_shape, block):
+        slide, _ = slide_with_shape
+
+        with pytest.raises(ValueError, match="delay"):
+            with getattr(slide.animations, block)(delay=-1):
+                pass
+
+    def it_rejects_a_delay_that_only_overflows_once_the_block_delay_is_added(
+        self, slide_with_shape
+    ):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="delay"):
+            with slide.animations.sequence(delay=2**32 - 1):
+                Entrance.fade(slide, shape, delay=1)
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_leaves_no_empty_timing_tree_behind_when_an_easing_is_refused(self, slide_with_shape):
+        # The skeleton used to be created first, so a refused effect left a
+        # `p:childTnLst` with nothing in it: a schema violation in the saved deck.
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="easing"):
+            slide.animations.add_entrance("fade", shape, easing="bouncy")
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_checks_the_timing_of_a_typewriter_cascade(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="delay_between_ms"):
+            slide.animations.typewriter([shape, shape], delay_between_ms=-200)
+
+        slide.animations.typewriter([shape, shape], delay_between_ms=400 / 2, duration=900 / 3)
+
+        assert [(e.delay, e.duration) for e in slide.animations] == [(0, 300), (200, 300)]
+
+    @pytest.mark.parametrize(
+        ("degrees", "by"),
+        [
+            (360, "21600000"),
+            (-720, "-43200000"),
+            (0.5, "30000"),
+            (0.00001, "1"),
+            (35791, "2147460000"),
+        ],
+    )
+    def it_writes_a_spin_angle_in_60000ths_of_a_degree(self, slide_with_shape, degrees, by):
+        slide, shape = slide_with_shape
+
+        Emphasis.spin(slide, shape, degrees=degrees)
+
+        (rot,) = slide._element.iter(qn("p:animRot"))
+        assert rot.get("by") == by
+
+    @pytest.mark.parametrize("degrees", [1e6, -1e6, 35792, float("nan"), float("inf")])
+    def it_rejects_a_spin_angle_the_attribute_cannot_hold(self, slide_with_shape, degrees):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="degrees"):
+            Emphasis.spin(slide, shape, degrees=degrees)
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_rejects_a_spin_angle_that_is_not_a_number(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(TypeError, match="degrees"):
+            Emphasis.spin(slide, shape, degrees="360")

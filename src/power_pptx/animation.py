@@ -69,6 +69,7 @@ Typical usage::
 from __future__ import annotations
 
 import math
+import numbers
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -264,6 +265,57 @@ _FLY_PATHS_OUT = {
 }
 
 # ---------------------------------------------------------------------------
+# Value checks
+# ---------------------------------------------------------------------------
+
+#: Largest time, in milliseconds, a timing attribute can hold: ``ST_TLTime``
+#: is an ``xsd:unsignedInt`` (or the keyword ``indefinite``).
+_MAX_TIME_MS = 2**32 - 1
+
+#: Largest magnitude of an ``ST_Angle``, an ``xsd:int`` counting 60000ths of
+#: a degree — just under a hundred full turns.
+_MAX_ANGLE = 2**31 - 1
+
+
+def _milliseconds(value: Any, name: str) -> int:
+    """Return *value* as the whole number of milliseconds a timing attribute takes.
+
+    A `dur` or `delay` must be a non-negative integer, so a float is rounded:
+    ordinary arithmetic like ``1500 / 3`` or ``0.2 * 1000`` yields one, and
+    written out as ``"500.0"`` it would make the slide schema-invalid.
+    Raises |TypeError| for a non-number and |ValueError| for a number that is
+    negative, too large for the attribute, or not finite.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be a number of milliseconds, got {value!r}")
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite number of milliseconds, got {value!r}")
+    ms = int(round(value))
+    if not 0 <= ms <= _MAX_TIME_MS:
+        raise ValueError(
+            f"{name} must be between 0 and {_MAX_TIME_MS} milliseconds, got {value!r}"
+        )
+    return ms
+
+
+def _angle_units(degrees: Any, name: str = "degrees") -> int:
+    """Return *degrees* in the 60000ths of a degree a rotation attribute takes.
+
+    Raises |TypeError| for a non-number and |ValueError| for an angle that is
+    not finite or does not fit the attribute.
+    """
+    if isinstance(degrees, bool) or not isinstance(degrees, numbers.Real):
+        raise TypeError(f"{name} must be a number of degrees, got {degrees!r}")
+    if not math.isfinite(degrees):
+        raise ValueError(f"{name} must be a finite number of degrees, got {degrees!r}")
+    units = int(round(degrees * 60000))
+    if abs(units) > _MAX_ANGLE:
+        limit = _MAX_ANGLE // 60000
+        raise ValueError(f"{name} must be between -{limit} and {limit} degrees, got {degrees!r}")
+    return units
+
+
+# ---------------------------------------------------------------------------
 # Internal XML builders
 # ---------------------------------------------------------------------------
 
@@ -364,7 +416,7 @@ def _anim_scale_xml(ctn_id: int, spid: int, duration: int, x: int = 133333, y: i
 
 def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.0) -> str:
     """Return XML for a `<p:animRot>` (used by Spin emphasis)."""
-    ang = int(angle_deg * 60000)
+    ang = _angle_units(angle_deg)
     # `by` is an ST_Angle *attribute* of <p:animRot> (CT_TLAnimateRotationBehavior
     # allows only a <p:cBhvr> child).  Emitting it as a <p:by> child — as
     # <p:animScale> legitimately does — produces XML that PowerPoint rejects.
@@ -871,12 +923,18 @@ class SlideAnimations:
         Currently supports the ``"fade"``, ``"appear"``, ``"wipe"``,
         ``"zoom"``, ``"wheel"``, and ``"random_bars"`` presets — others
         raise :class:`ValueError`.
+
+        *delay* and *duration* are in milliseconds.  A float is rounded to
+        the nearest whole millisecond; a negative value raises
+        :class:`ValueError`.
         """
         if preset not in _ENTRANCE_PRESETS:
             raise ValueError(
                 f"Unknown entrance preset {preset!r}. "
                 f"Choose from: {sorted(_ENTRANCE_PRESETS)}"
             )
+        delay = _milliseconds(delay, "delay")
+        duration = _milliseconds(duration, "duration")
 
         if by_paragraph:
             self._add_entrance_by_paragraph(
@@ -917,12 +975,17 @@ class SlideAnimations:
         *preset* is one of: ``"disappear"``, ``"fade"``, ``"fly_out"``,
         ``"float_out"``, ``"wipe"``, ``"zoom"``, ``"wheel"``,
         ``"random_bars"``.
+
+        *delay* and *duration* are in milliseconds, checked as for
+        :meth:`add_entrance`.
         """
         if preset not in _EXIT_PRESETS:
             raise ValueError(
                 f"Unknown exit preset {preset!r}. "
                 f"Choose from: {sorted(_EXIT_PRESETS)}"
             )
+        delay = _milliseconds(delay, "delay")
+        duration = _milliseconds(duration, "duration")
         preset_id, preset_subtype = _EXIT_PRESETS[preset]
         behaviors = self._exit_behaviors(preset, shape.shape_id, duration, direction)
         self._append_effect(
@@ -944,13 +1007,21 @@ class SlideAnimations:
         *preset* is one of: ``"pulse"``, ``"spin"``, ``"teeter"``.
 
         *degrees* controls the rotation angle for the ``"spin"`` preset
-        (default: 360 — one full clockwise revolution).
+        (default: 360 — one full clockwise revolution).  It may be negative
+        (counter-clockwise) and is limited to just under a hundred turns
+        either way, the range of the attribute that holds it.
+
+        *delay* and *duration* are in milliseconds, checked as for
+        :meth:`add_entrance`.
         """
         if preset not in _EMPHASIS_PRESETS:
             raise ValueError(
                 f"Unknown emphasis preset {preset!r}. "
                 f"Choose from: {sorted(_EMPHASIS_PRESETS)}"
             )
+        delay = _milliseconds(delay, "delay")
+        duration = _milliseconds(duration, "duration")
+        _angle_units(degrees)  # -- reject an unusable angle before anything is built --
         preset_id, preset_subtype = _EMPHASIS_PRESETS[preset]
         behaviors = self._emphasis_behaviors(preset, shape.shape_id, duration, degrees)
         self._append_effect(
@@ -978,6 +1049,8 @@ class SlideAnimations:
         Use :meth:`MotionPath.line` for a coordinate-aware convenience
         wrapper, or :meth:`MotionPath.custom` to pass an arbitrary path.
         """
+        delay = _milliseconds(delay, "delay")
+        duration = _milliseconds(duration, "duration")
         ids = self._reserve_ids(1)
         behaviors = _anim_motion_xml(ids[0], shape.shape_id, duration, path)
         # presetID 64 is PowerPoint's "Custom Path" path animation.
@@ -1017,6 +1090,7 @@ class SlideAnimations:
             raise RuntimeError("animation sequences cannot be nested")
         if self._grp_active:
             raise RuntimeError("cannot enter sequence() inside group()")
+        delay = _milliseconds(delay, "delay")
         self._seq_active = True
         self._seq_start = start
         self._seq_delay = delay
@@ -1066,6 +1140,7 @@ class SlideAnimations:
             raise RuntimeError("animation groups cannot be nested")
         if self._seq_active:
             raise RuntimeError("cannot enter group() inside sequence()")
+        delay = _milliseconds(delay, "delay")
         self._grp_active = True
         self._grp_start = start
         self._grp_delay = delay
@@ -1319,10 +1394,17 @@ class SlideAnimations:
         easing: str | tuple[float, float] | None = None,
     ) -> None:
         """Build the animation XML and insert it into the slide timing tree."""
-        root_ctn = self._get_or_create_root_ctn()
-
+        # -- everything that can be refused is checked before the timing tree is
+        # -- touched: a skeleton created for an effect that then fails to
+        # -- materialise would be left behind empty, which is schema-invalid --
+        if easing is not None:
+            _resolve_easing(easing)
         trigger = self._resolve_default_trigger(trigger)
-        delay = self._consume_block_delay(delay)
+        # -- the delay of an enclosing sequence()/group() is added on top, so the
+        # -- sum is what has to fit the attribute --
+        delay = _milliseconds(self._consume_block_delay(delay), "delay")
+
+        root_ctn = self._get_or_create_root_ctn()
         grp_id, node_type, wrapper_delay = self._resolve_trigger(trigger)
 
         indent_behaviors = "\n".join(
@@ -1501,6 +1583,8 @@ class SlideAnimations:
                 [bullet1, bullet2, bullet3], delay_between_ms=200
             )
         """
+        delay_between_ms = _milliseconds(delay_between_ms, "delay_between_ms")
+        duration = _milliseconds(duration, "duration")
         shapes = list(shapes)
         if not shapes:
             return

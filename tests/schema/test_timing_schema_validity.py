@@ -168,6 +168,22 @@ class DescribeTimingTreeSchemaValidity:
 
         assert_schema_valid(_saved(prs))
 
+    def it_stays_valid_when_times_and_angles_come_from_float_arithmetic(self):
+        # `dur` and `delay` are unsigned integers and a rotation is a whole
+        # number of 60000ths of a degree; "500.0" in any of them is invalid.
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1), Inches(1))
+        Entrance.fade(slide, shape, duration=1500 / 3, delay=0.2 * 1000)
+        Exit.fly_out(slide, shape, duration=2000 / 3, delay=1e2)
+        Emphasis.spin(slide, shape, degrees=360 / 7, duration=0.75 * 1000)
+        MotionPath.line(slide, shape, Inches(1), Inches(1), duration=2.5e3, delay=100 / 3)
+        with slide.animations.sequence(delay=0.1 * 1000):
+            Emphasis.pulse(slide, shape, duration=900 / 3)
+        slide.animations.typewriter([shape], delay_between_ms=400 / 3, duration=1000 / 3)
+
+        assert_schema_valid(_saved(prs))
+
     def it_stays_valid_when_the_first_effect_of_a_main_sequence_is_not_on_click(self):
         prs, slide, shapes = _animated_deck(2, animated=0)
 
