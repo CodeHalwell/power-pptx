@@ -1,8 +1,16 @@
 # Animations (Phase 5)
 
 `power_pptx.animation` ships a preset-only API that maps directly onto
-PowerPoint's built-in animation library. All generated XML is valid
-OOXML and round-trips through PowerPoint without loss.
+PowerPoint's built-in animation library. The XML it generates is valid
+against the OOXML schema, survives a save → open → save cycle with this
+library, and imports into LibreOffice as the effect each preset names.
+
+> **Experimental.** That is a guarantee about the file, not about
+> playback in Microsoft PowerPoint, which has not been verified: it has
+> been reported to show animated shapes faint and then snap them into
+> view instead of playing the effect (see the `power_pptx.animation`
+> module docstring). Prefer slide transitions where they serve, and check
+> any animated deck in PowerPoint itself before relying on it.
 
 ## Imports
 
@@ -30,7 +38,7 @@ Entrance.appear(slide, shape)
 Entrance.fade(slide, shape)
 Entrance.fly_in(slide, shape, direction="bottom")  # also "top", "left", "right"
 Entrance.float_in(slide, shape)
-Entrance.wipe(slide, shape)
+Entrance.wipe(slide, shape, direction="left")      # also "right", "top", "bottom"
 Entrance.zoom(slide, shape)
 Entrance.wheel(slide, shape)
 Entrance.random_bars(slide, shape)
@@ -41,11 +49,17 @@ Entrance.random_bars(slide, shape)
 ```python
 Exit.disappear(slide, shape)
 Exit.fade(slide, shape)
-Exit.fly_out(slide, shape)
+Exit.fly_out(slide, shape, direction="bottom")     # the edge it leaves by
 Exit.float_out(slide, shape)
-Exit.wipe(slide, shape)
+Exit.wipe(slide, shape, direction="left")
 Exit.zoom(slide, shape)
+Exit.wheel(slide, shape)
+Exit.random_bars(slide, shape)
 ```
+
+`direction` is one of `"bottom"`, `"top"`, `"left"`, `"right"` for the
+presets that have one (fly in/out, wipe); anything else raises
+`ValueError`. Presets without a direction ignore it.
 
 ## Emphasis presets
 
@@ -67,7 +81,8 @@ Entrance.fade(slide, body, by_paragraph=True)
 Supported presets for `by_paragraph=True`: `appear`, `fade`, `wipe`,
 `zoom`, `wheel`, `random_bars`. The first paragraph fires on the
 caller-supplied trigger (or `ON_CLICK`); subsequent paragraphs default
-to `Trigger.AFTER_PREVIOUS`.
+to `Trigger.AFTER_PREVIOUS`. `direction` (for `wipe`) and `easing`
+apply to every paragraph.
 
 ## Sequencing — chain effects from one click
 
@@ -111,7 +126,9 @@ cluster chains. They can't be combined.
 
 ## Inspecting and clearing animations
 
-`SlideAnimations` is now iterable and supports `len()`:
+`SlideAnimations` is iterable and supports `len()`. It lists every
+effect on the slide, including those authored in PowerPoint (which nests
+them inside its main sequence):
 
 ```python
 print(len(slide.animations))                  # how many entries?
@@ -126,7 +143,9 @@ the slide call `entry.remove()`; to wipe the whole slide call
 `slide.animations.clear()` (returns the count of entries removed).
 
 `slide.animations.purge_orphans()` is the narrower cousin — it only
-removes entries whose target shape has been deleted.
+removes what names a shape no longer on the slide: effects, the play
+controls of a deleted movie, a sequence triggered by clicking it, and its
+build-list entry. `shape.delete()` and `group.ungroup()` run it for you.
 
 ## Motion paths
 
@@ -164,8 +183,9 @@ supported and raise `ValueError`.
 ## Round-trip safety
 
 Animations authored in PowerPoint survive a read–modify–write cycle.
-Generated effects are appended to the existing `<p:tnLst>` timing tree
-without touching pre-existing `<p:par>` nodes:
+Generated effects are appended after the existing ones without touching
+them; on a slide PowerPoint animated, they go into its main sequence,
+nested the way PowerPoint nests its own:
 
 ```python
 prs = Presentation("hand-authored.pptx")

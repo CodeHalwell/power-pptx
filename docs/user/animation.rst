@@ -21,9 +21,12 @@ Animations
    ``IMPROVEMENT_PLAN.md`` (item 1) for the diagnostic plan.
 
 |pp| ships a preset-only animation API that maps directly onto
-PowerPoint's built-in animation library.  All generated XML is valid OOXML
-and round-trips through PowerPoint without loss.  Animations authored in
-the desktop UI survive a read–modify–write cycle untouched.
+PowerPoint's built-in animation library.  The XML it generates is valid
+against the OOXML schema, survives a save → open → save cycle with |pp|,
+and imports into LibreOffice as the effect each preset names; playback in
+PowerPoint is the open question described above.  Animations authored in
+the desktop UI survive a read–modify–write cycle untouched, and effects
+added to such a slide join its main sequence.
 
 Triggers
 --------
@@ -46,25 +49,35 @@ Entrance / exit / emphasis presets
     Entrance.fade(slide, shape)
     Entrance.fly_in(slide, shape, direction="bottom")
     Entrance.float_in(slide, shape)
-    Entrance.wipe(slide, shape)
+    Entrance.wipe(slide, shape, direction="left")
     Entrance.zoom(slide, shape)
     Entrance.wheel(slide, shape)
     Entrance.random_bars(slide, shape)
 
     Exit.disappear(slide, shape)
     Exit.fade(slide, shape)
-    Exit.fly_out(slide, shape)
+    Exit.fly_out(slide, shape, direction="bottom")
+    Exit.float_out(slide, shape)
+    Exit.wipe(slide, shape, direction="left")
+    Exit.zoom(slide, shape)
+    Exit.wheel(slide, shape)
+    Exit.random_bars(slide, shape)
 
     Emphasis.pulse(slide, shape)
     Emphasis.spin(slide, shape)
     Emphasis.teeter(slide, shape)
 
+``direction`` is one of ``"bottom"``, ``"top"``, ``"left"``, ``"right"``
+for the presets that have one (fly in/out, wipe); anything else raises
+:class:`ValueError`.  Presets without a direction ignore it.
+
 Per-paragraph reveal
 --------------------
 
-Pass ``by_paragraph=True`` to fade, wipe, zoom, wheel, or appear a text
-frame in one paragraph at a time.  Each paragraph fires
-``AFTER_PREVIOUS`` so the whole sequence plays from a single click::
+Pass ``by_paragraph=True`` to fade, wipe, zoom, wheel, random-bar or
+appear a text frame in one paragraph at a time.  Each paragraph fires
+``AFTER_PREVIOUS`` so the whole sequence plays from a single click;
+``direction`` and ``easing`` apply to every paragraph::
 
     Entrance.fade(slide, body_text_frame, by_paragraph=True)
 
