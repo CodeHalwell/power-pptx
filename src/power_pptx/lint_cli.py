@@ -516,25 +516,39 @@ def _plan_outputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             "or --in-place to overwrite the deck"
         )
 
-    output = Path(args.output)
-    wants_directory = len(decks) > 1 or args.output.endswith(("/", os.sep)) or output.is_dir()
-    if not wants_directory:
-        targets = [output]
-    else:
-        if output.exists() and not output.is_dir():
-            parser.error("--output %s is a file; a directory is needed here" % output)
-        names = [deck.name for deck in decks]
-        if len(set(names)) != len(names):
-            parser.error("decks written to one --output directory must have different file names")
-        targets = [output / name for name in names]
+    targets = _output_targets(parser, args.output, decks)
+    _refuse_to_overwrite_a_deck(parser, targets, decks)
+    return list(targets)
 
+
+def _output_targets(parser: argparse.ArgumentParser, output: str, decks: list[Path]) -> list[Path]:
+    """Where `--output` puts each tidied deck: at `output`, or by name in that directory."""
+    path = Path(output)
+    if not _is_output_directory(output, decks):
+        return [path]
+    if path.exists() and not path.is_dir():
+        parser.error("--output %s is a file; a directory is needed here" % path)
+    names = [deck.name for deck in decks]
+    if len(set(names)) != len(names):
+        parser.error("decks written to one --output directory must have different file names")
+    return [path / name for name in names]
+
+
+def _is_output_directory(output: str, decks: list[Path]) -> bool:
+    """True when `--output` names a directory: for several decks, by its spelling, or as it is."""
+    return len(decks) > 1 or output.endswith(("/", os.sep)) or Path(output).is_dir()
+
+
+def _refuse_to_overwrite_a_deck(
+    parser: argparse.ArgumentParser, targets: list[Path], decks: list[Path]
+) -> None:
+    """Exit with a usage error when a tidied copy would be written over any of the `decks`."""
     for target in targets:
         for deck in decks:
             if _same_file(target, deck):
                 parser.error(
                     "--output would overwrite %s; use --in-place if that is what you want" % deck
                 )
-    return list(targets)
 
 
 def _exit_code(decks: Sequence[_DeckResult], fail_on: str) -> int:
