@@ -3936,25 +3936,30 @@ def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
         return issues
 
     for axis_name, edge_idx, opposite_idx in (("left", 0, 2), ("top", 1, 3)):
-        edges = [info.frame[edge_idx] for info in placed]
-        grid_lines = _grid_lines(edges)
-        if not grid_lines:
+        issues.extend(_axis_drift(placed, axis_name, edge_idx, opposite_idx))
+    return issues
+
+
+def _axis_drift(
+    placed: Sequence[_ShapeInfo], axis_name: str, edge_idx: int, opposite_idx: int
+) -> list[LintIssue]:
+    """OffGridDrift issues for the edge `edge_idx` of each frame (0 left, 1 top)."""
+    edges = [info.frame[edge_idx] for info in placed]
+    grid_lines = _grid_lines(edges)
+    if not grid_lines:
+        return []
+    opposite_lines = _grid_lines([info.frame[opposite_idx] for info in placed])
+    issues: list[LintIssue] = []
+    for info, edge in zip(placed, edges):
+        # Skip shapes that already sit on a grid line, by either edge.
+        if _on_grid(edge, grid_lines) or _on_grid(info.frame[opposite_idx], opposite_lines):
             continue
-        opposite_lines = _grid_lines([info.frame[opposite_idx] for info in placed])
-        for info, edge in zip(placed, edges):
-            # Skip shapes that already sit on a grid line.
-            if _on_grid(edge, grid_lines):
-                continue
-            if _on_grid(info.frame[opposite_idx], opposite_lines):
-                continue
-            # Find the closest grid line; if it's within the loose tolerance,
-            # this is drift.
-            closest = min(grid_lines, key=lambda g: abs(edge - g))
-            drift = abs(edge - closest)
-            if (
-                _GRID_TIGHT_TOLERANCE_EMU < drift <= _GRID_LOOSE_TOLERANCE_EMU
-            ):
-                issues.append(OffGridDrift(info.shape, axis_name, drift, closest))
+        # Find the closest grid line; if it's within the loose tolerance,
+        # this is drift.
+        closest = min(grid_lines, key=lambda g: abs(edge - g))
+        drift = abs(edge - closest)
+        if _GRID_TIGHT_TOLERANCE_EMU < drift <= _GRID_LOOSE_TOLERANCE_EMU:
+            issues.append(OffGridDrift(info.shape, axis_name, drift, closest))
     return issues
 
 
