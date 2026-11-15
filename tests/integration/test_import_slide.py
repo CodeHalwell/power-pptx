@@ -797,6 +797,174 @@ class Describe_import_slide_awkward_partnames:
         assert _numbered_partname("/ppt/v1.2/thing7.bin") == ("/ppt/v1.2/thing", ".bin")
 
 
+def _src_on_layout(index: int, *, name: str | None = None, type_: str | None = None):
+    """A one-slide source deck on layout *index*, that layout renamed and retyped as given.
+
+    A *type_* of ``""`` removes the layout's ``type`` attribute.
+    """
+    src = Presentation()
+    layout = src.slide_layouts[index]
+    if name is not None:
+        layout._element.cSld.set("name", name)
+    if type_ == "":
+        del layout._element.attrib["type"]
+    elif type_ is not None:
+        layout._element.set("type", type_)
+    src.slides.add_slide(layout)
+    return src
+
+
+class Describe_import_slide_layout_matching:
+    """On a dedupe hit the slide goes on the matching master's layout of its name, else type."""
+
+    def it_uses_the_layout_of_the_same_name(self):
+        # -- "Blank" by name, although the type says "Title Only" --
+        src = _src_on_layout(5, name="Blank", type_="titleOnly")
+        dst = Presentation()
+
+        imported = dst.import_slide(src.slides[0])
+
+        assert len(dst.slide_masters) == 1
+        assert imported.slide_layout == dst.slide_layouts[6]
+        assert len(dst.slide_layouts) == 11
+
+    def it_uses_the_layout_of_the_same_type_when_no_name_matches(self):
+        src = _src_on_layout(5, name="House style: headline only")
+        dst = Presentation()
+
+        imported = dst.import_slide(src.slides[0])
+
+        assert imported.slide_layout == dst.slide_layouts[5]
+        assert len(dst.slide_layouts) == 11
+
+    @pytest.mark.parametrize("type_", ["tbl", ""])
+    def it_clones_the_layout_into_the_master_when_neither_matches(self, type_):
+        src = _src_on_layout(5, name="House style: headline only", type_=type_)
+        dst = Presentation()
+
+        imported = dst.import_slide(src.slides[0])
+
+        assert len(dst.slide_masters) == 1
+        assert len(dst.slide_layouts) == 12
+        assert imported.slide_layout == dst.slide_layouts[11]
+        assert imported.slide_layout.name == "House style: headline only"
+        reopened = _round_trip(dst)
+        assert reopened.slides[0].slide_layout.name == "House style: headline only"
+
+
+class Describe_remap_rids:
+    """`_remap_rids()` rewrites relationship ids and drops links to what was left behind."""
+
+    def _element(self, xml: str):
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        return parse_xml("<p:root %s>%s</p:root>" % (nsdecls("p", "a", "r"), xml))
+
+    def _xml(self, element) -> str:
+        from lxml import etree
+
+        text = etree.tostring(element).decode()
+        return text[text.index(">") + 1 : text.rindex("<")]
+
+    def it_rewrites_each_known_id_and_leaves_the_rest(self):
+        from power_pptx._slide_importer import _remap_rids
+
+        element = self._element(
+            '<a:blip r:embed="rId1" r:link="rId7" name="rId1"/><p:x r:id="rId2" id="rId2"/>'
+        )
+
+        _remap_rids(element, {"rId1": "rId10", "rId2": "rId20"})
+
+        assert self._xml(element) == (
+            '<a:blip r:embed="rId10" r:link="rId7" name="rId1"/><p:x r:id="rId20" id="rId2"/>'
+        )
+
+    def it_removes_a_hyperlink_whose_relationship_was_dropped(self):
+        from power_pptx._slide_importer import _remap_rids
+
+        element = self._element(
+            '<a:rPr><a:hlinkClick r:id="rId3"/><a:hlinkMouseOver r:id="rId3"/></a:rPr>'
+            '<a:hlinkHover r:id="rId1"/>'
+        )
+
+        _remap_rids(element, {"rId1": "rId9"}, {"rId3"})
+
+        assert self._xml(element) == '<a:rPr/><a:hlinkHover r:id="rId9"/>'
+
+    def but_only_the_attribute_on_another_element(self):
+        from power_pptx._slide_importer import _remap_rids
+
+        element = self._element('<p:custData r:id="rId3" name="kept"/><a:blip r:embed="rId4"/>')
+
+        _remap_rids(element, {}, {"rId3"})
+
+        assert self._xml(element) == '<p:custData name="kept"/><a:blip r:embed="rId4"/>'
+
+    def and_it_leaves_a_hyperlink_that_has_no_parent_to_be_removed_from(self):
+        from power_pptx._slide_importer import _remap_rids
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        element = parse_xml('<a:hlinkClick %s r:id="rId3"/>' % nsdecls("a", "r"))
+
+        _remap_rids(element, {}, {"rId3"})
+
+        assert element.xml == parse_xml('<a:hlinkClick %s r:id="rId3"/>' % nsdecls("a", "r")).xml
+
+    def it_does_nothing_with_nothing_to_remap(self):
+        from power_pptx._slide_importer import _remap_rids
+
+        element = self._element('<a:hlinkClick r:id="rId3"/>')
+
+        _remap_rids(element, {})
+
+        assert self._xml(element) == '<a:hlinkClick r:id="rId3"/>'
+
+
+class Describe_normalized_master_xml:
+    """The master XML hashed for dedupe names each referenced part by its content."""
+
+    def it_replaces_each_relationship_id_by_what_it_points_at(self):
+        import hashlib
+
+        from lxml import etree
+
+        from power_pptx._slide_importer import _normalized_master_xml
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        picture = slide.shapes.add_picture(io.BytesIO(_PNG), Inches(1), Inches(1))
+        image_part = slide.part.related_part(picture._element.blip_rId)
+        master_part = src.slide_masters[0].part
+        image_rId = master_part.relate_to(image_part, RT.IMAGE)
+        link_rId = master_part.relate_to(
+            "https://example.com/brand", RT.HYPERLINK, is_external=True
+        )
+        element = parse_xml(
+            '<p:sldMaster %s><p:sldLayoutIdLst><p:sldLayoutId r:id="rId1"/></p:sldLayoutIdLst>'
+            '<a:blip r:embed="%s"/><a:blip r:embed="%s" name="again"/>'
+            '<a:hlinkClick r:id="%s"/><a:blip r:embed="rId999"/></p:sldMaster>'
+            % (nsdecls("p", "a", "r"), image_rId, image_rId, link_rId)
+        )
+
+        normalized = _normalized_master_xml(master_part, element)
+
+        image_token = hashlib.sha1(_PNG).hexdigest()
+        expected = parse_xml(
+            '<p:sldMaster %s><a:blip r:embed="%s"/><a:blip r:embed="%s" name="again"/>'
+            '<a:hlinkClick r:id="external:https://example.com/brand"/>'
+            '<a:blip r:embed="unresolved"/></p:sldMaster>'
+            % (nsdecls("p", "a", "r"), image_token, image_token)
+        )
+        assert normalized == etree.tostring(expected)
+        # -- the element given is left as it was --
+        assert len(element) == 5
+
+
 class Describe_import_slide_merge_master_argument:
     @pytest.mark.parametrize("bad", ["dedup", "Clone", "", None, "merge"])
     def it_rejects_an_unknown_merge_master_value(self, bad):
