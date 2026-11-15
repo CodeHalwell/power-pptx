@@ -24,6 +24,25 @@ For a whole deck, iterate the slides yourself::
     for slide in prs.slides:
         all_issues.extend(slide.lint().issues)
 
+or call :func:`power_pptx.audit`, which adds checks the slide linter does not
+make — pictures that are broken or larger than ``size_warn_bytes``, slides
+with nothing but decoration on them, and fonts outside a conservative list of
+commonly installed ones (each reported once per slide; theme references such
+as ``+mn-lt`` count as the theme font they stand for)::
+
+    from power_pptx import audit
+
+    report = audit(prs)
+    report.has_errors
+    print(report.markdown())       # also .to_dict() and .to_json()
+
+:func:`power_pptx.accessibility.audit_accessibility` is the same kind of
+report for screen-reader problems: a picture with no alt text, or only the
+file name ``add_picture`` fills in (an ERROR, placeholders included); a slide
+with no title; and text whose contrast against its fill is below 4.5:1, judged
+as ``LowContrast`` judges it.  Like ``slide.lint()``, neither audit changes
+the deck.
+
 The :func:`power_pptx.compose.from_spec` entry point also accepts a
 deck-level ``"lint": "warn" | "raise"`` field that walks every slide
 and surfaces issues for you, and any presentation — however it was
@@ -89,6 +108,14 @@ Issue types
   is negative.  Severity ERROR: negative extents are schema-invalid, so
   PowerPoint reports the file as needing repair.  The shape is left out of
   the other geometric checks.
+* :class:`power_pptx.lint.RaggedEdge` — a filled panel stops short of the
+  bottom edge the panels beside it share, with nothing beneath it (side-by-side
+  cards of different heights).  Severity WARNING.
+
+``slide.lint(include_effect_bleed=True)`` also widens each shape by its
+shadow's blur before the off-slide and collision checks, and reports what
+only the shadow causes as ``OffSlideShadow`` and ``ShapeCollisionShadow``, so
+those can be silenced separately with ``shape.lint_skip``.
 
 Each issue carries a ``severity`` (:class:`~power_pptx.lint.LintSeverity`),
 a ``code`` string, a human-readable ``message``, and a ``shapes``
@@ -430,11 +457,11 @@ Fixing as well
 ~~~~~~~~~~~~~~
 
 ``--fix`` applies the safe automatic fixes of :meth:`Slide.tidy()
-<power_pptx.slide.Slide.tidy>` -- clamping off-slide shapes, shrinking
-overflowing text on render, restacking contradicted layers -- and then
-reports what is left; the exit status is judged on that too.  It needs to
-be told where to write the result, and never overwrites the input unless
-asked to::
+<power_pptx.slide.Slide.tidy>` -- clamping off-slide shapes, making
+overflowing text fit, restacking contradicted layers -- and then reports
+what is left; the exit status is judged on that too.  It needs to be told
+where to write the result (``--output PATH``, or ``-o PATH``), and never
+overwrites the input unless asked to::
 
     power-pptx lint deck.pptx --fix --output tidied.pptx
     power-pptx lint build/*.pptx --fix --output tidied/      # a directory
