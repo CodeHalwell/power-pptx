@@ -2336,29 +2336,7 @@ def _interpolate(value: Any, vars_: Mapping[str, Any], path: str = "") -> Any:
     spec — so a typo doesn't silently render as the literal placeholder.
     """
     if isinstance(value, str):
-        if "{{" not in value:
-            return value
-
-        def _sub(match: "re.Match[str]") -> str:
-            key = match.group(1)
-            if key is None:
-                return "{{"
-            cur: Any = vars_
-            for p in key.split("."):
-                if isinstance(cur, Mapping) and p in cur:
-                    cur = cur[p]
-                else:
-                    names = sorted(str(name) for name in vars_)
-                    raise _spec_error(
-                        path,
-                        f"interpolation variable {key!r} not found in vars={names!r}"
-                        f"{_did_you_mean(key, names)}. Write \\{{{{ for a literal "
-                        "'{{', or set \"interpolate\": false on the slide (or the "
-                        "whole spec) to switch substitution off",
-                    )
-            return str(cur)
-
-        return _INTERP_RE.sub(_sub, value)
+        return _interpolate_text(value, vars_, path)
     if isinstance(value, dict):
         return {
             k: _interpolate(v, vars_, f"{path}.{k}" if path else str(k))
@@ -2369,6 +2347,37 @@ def _interpolate(value: Any, vars_: Mapping[str, Any], path: str = "") -> Any:
     if isinstance(value, tuple):
         return tuple(_interpolate(v, vars_, f"{path}[{i}]") for i, v in enumerate(value))
     return value
+
+
+def _interpolate_text(text: str, vars_: Mapping[str, Any], path: str) -> str:
+    """Return *text* with its ``{{name}}`` markers substituted (see :func:`_interpolate`)."""
+    if "{{" not in text:
+        return text
+
+    def _sub(match: "re.Match[str]") -> str:
+        key = match.group(1)
+        if key is None:
+            return "{{"
+        return str(_lookup_var(vars_, key, path))
+
+    return _INTERP_RE.sub(_sub, text)
+
+
+def _lookup_var(vars_: Mapping[str, Any], key: str, path: str) -> Any:
+    """Return the variable *key* names, walking a dotted name through nested mappings."""
+    cur: Any = vars_
+    for p in key.split("."):
+        if not (isinstance(cur, Mapping) and p in cur):
+            names = sorted(str(name) for name in vars_)
+            raise _spec_error(
+                path,
+                f"interpolation variable {key!r} not found in vars={names!r}"
+                f"{_did_you_mean(key, names)}. Write \\{{{{ for a literal "
+                "'{{', or set \"interpolate\": false on the slide (or the "
+                "whole spec) to switch substitution off",
+            )
+        cur = cur[p]
+    return cur
 
 
 def _run_lint(prs: Any, mode: str) -> None:
