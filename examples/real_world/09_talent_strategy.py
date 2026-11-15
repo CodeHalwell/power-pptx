@@ -36,11 +36,15 @@ from _common import (
     divider,
     eyebrow,
     footer,
+    hairline_below,
     hex_rgb,
     lint_or_die,
     new_deck,
     section_title,
+    shade_cell,
     styled_card,
+    table_body_text,
+    table_header_row,
 )
 
 FOOTER = "FY27 Talent & Workforce Strategy  |  Executive Committee"
@@ -205,40 +209,10 @@ def _pay_equity(prs) -> None:
     table.columns[3].width = Inches(2.0)
     table.columns[4].width = Inches(1.9)
 
-    for c, label in enumerate(rows[0]):
-        cell = table.cell(0, c)
-        cell.text = label
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["primary"])
-        p = cell.text_frame.paragraphs[0]
-        p.font.bold = True
-        p.font.size = Pt(13)
-        p.font.color.rgb = hex_rgb(TOKENS.palette["on_primary"])
-        cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    table_header_row(table, rows[0], TOKENS, size=13)
     for r, row in enumerate(rows[1:], start=1):
         for c, value in enumerate(row):
-            cell = table.cell(r, c)
-            cell.text = value
-            p = cell.text_frame.paragraphs[0]
-            p.font.size = Pt(12)
-            p.font.color.rgb = hex_rgb(TOKENS.palette["neutral"])
-            if c == 0 or r == 5:
-                p.font.bold = True
-            if c == 4:
-                p.font.bold = True
-                p.font.color.rgb = hex_rgb(
-                    TOKENS.palette["positive"] if value == "Compliant"
-                    else "#F59E0B"
-                )
-            cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-            if r % 2 == 0:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb(TOKENS.palette["surface"])
-            if r == 5:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = hex_rgb("#FCE7F3")
-            cell.borders.bottom.color.rgb = hex_rgb("#E5E7EB")
-            cell.borders.bottom.width = Pt(0.5)
+            _pay_gap_cell(table.cell(r, c), r, c, value)
 
     note = slide.shapes.add_textbox(
         Inches(0.6), Inches(5.85), Inches(12.1), Inches(0.6),
@@ -252,6 +226,28 @@ def _pay_equity(prs) -> None:
     p.font.italic = True
     p.font.color.rgb = hex_rgb(TOKENS.palette["muted"])
     footer(slide, FOOTER, "5", TOKENS)
+
+
+NETWORK_WIDE_ROW = 5
+
+
+def _pay_gap_cell(cell, r: int, c: int, value: str) -> None:
+    """Bold regions and status; the network-wide total row highlighted."""
+    p = table_body_text(cell, value, TOKENS)
+    if c == 0 or r == NETWORK_WIDE_ROW:
+        p.font.bold = True
+    if c == 4:
+        p.font.bold = True
+        p.font.color.rgb = hex_rgb(
+            TOKENS.palette["positive"] if value == "Compliant"
+            else "#F59E0B"
+        )
+    cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    if r % 2 == 0:
+        shade_cell(cell, TOKENS.palette["surface"])
+    if r == NETWORK_WIDE_ROW:
+        shade_cell(cell, "#FCE7F3")
+    hairline_below(cell)
 
 
 def _skills(prs) -> None:
