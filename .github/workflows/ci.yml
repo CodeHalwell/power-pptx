@@ -105,13 +105,19 @@ jobs:
           retention-days: 14
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     strategy:
       # Let every interpreter report, so one failure shows whether it is
       # version-specific.
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          # actions/setup-python publishes no Python 3.9 build for the
+          # Ubuntu 26.04 image that ubuntu-latest now points at, so 3.9
+          # runs on the previous LTS image.
+          - python-version: "3.9"
+            runner: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
