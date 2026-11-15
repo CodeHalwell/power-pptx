@@ -350,75 +350,134 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
     the package root is not itself an XML part.
     """
     name_set = set(names)
+    yield from _iter_missing_target_violations(zf, name_set)
+    yield from _iter_reference_violations(zf, name_set)
 
-    # -- 1. every relationship in every .rels part must resolve to an existing
-    # -- part (covers _rels/.rels and all other rels, not just XML parts') --
+
+def _iter_missing_target_violations(
+    zf: zipfile.ZipFile, name_set: "set[str]"
+) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each internal relationship whose target part is absent.
+
+    Every relationship in every ``.rels`` part must resolve to an existing part
+    (this covers ``_rels/.rels`` and all other rels, not just XML parts').
+    """
     for rels_name in sorted(name_set):
         if not rels_name.endswith(".rels"):
             continue
-        base = _rels_source_dir(rels_name)
         try:
             rels = parse_xml(zf.read(rels_name))
         except etree.XMLSyntaxError as exc:
             # A corrupt .rels part is itself a repair trigger; report and skip.
             yield (rels_name, "not well-formed XML: %s" % exc)
             continue
-        for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
-            if rel.get("TargetMode") == "External":
-                continue
-            target = rel.get("Target") or ""
-            resolved = posixpath.normpath(posixpath.join(base, target)).lstrip("/")
+        for rel_id, resolved in _internal_targets(rels, _rels_source_dir(rels_name)):
             if resolved not in name_set:
-                yield (
-                    rels_name,
-                    "relationship %s points at missing part %r" % (rel.get("Id"), resolved),
-                )
+                yield (rels_name, "relationship %s points at missing part %r" % (rel_id, resolved))
 
-    # -- 2. every r:id / r:embed / r:link reference in a part's content must
-    # -- name a relationship declared in that part's .rels --
+
+def _internal_targets(rels, base: str) -> "Iterator[tuple[str | None, str]]":
+    """Yield ``(Id, partname)`` for each internal relationship in the *rels* element.
+
+    Targets are resolved against *base*, the folder the ``.rels`` part's source
+    lives in, to a partname without a leading slash.
+    """
+    for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS):
+        if rel.get("TargetMode") == "External":
+            continue
+        target = rel.get("Target") or ""
+        yield rel.get("Id"), posixpath.normpath(posixpath.join(base, target)).lstrip("/")
+
+
+def _iter_reference_violations(
+    zf: zipfile.ZipFile, name_set: "set[str]"
+) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each ``r:*`` reference a part's ``.rels`` cannot satisfy.
+
+    Every ``r:id`` / ``r:embed`` / ``r:link`` reference in a part's content
+    must name a relationship declared in that part's ``.rels``, and an id-list
+    entry must name a relationship of its own kind.
+    """
     for part in sorted(name_set):
-        if not part.endswith(".xml") or "/_rels/" in part or part.startswith("_rels/"):
+        if not _is_content_xml(part):
             continue
         rels_name = _rels_partname_for(part)
-        rel_types: "dict[str | None, str]" = {}
-        if rels_name in name_set:
-            try:
-                rels = parse_xml(zf.read(rels_name))
-            except etree.XMLSyntaxError:
-                # Pass 1 already reported this malformed .rels; skip the r:id
-                # scan for this part rather than flag every ref as dangling.
-                continue
-            rel_types = {
-                rel.get("Id"): rel.get("Type") or ""
-                for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)
-            }
+        try:
+            rel_types = _relationship_types(zf, rels_name, name_set)
+        except etree.XMLSyntaxError:
+            # The missing-target pass already reported this malformed .rels;
+            # skip the r:id scan for this part rather than flag every ref as
+            # dangling.
+            continue
         try:
             doc = parse_xml(zf.read(part))
         except etree.XMLSyntaxError:
             continue  # not-well-formed is reported by the main XSD pass
+        yield from _PartReferences(part, rels_name, rel_types).iter_violations(doc)
+
+
+def _is_content_xml(partname: str) -> bool:
+    """True when *partname* is an XML part other than a ``.rels`` part."""
+    in_rels_folder = "/_rels/" in partname or partname.startswith("_rels/")
+    return partname.endswith(".xml") and not in_rels_folder
+
+
+def _relationship_types(
+    zf: zipfile.ZipFile, rels_name: str, name_set: "set[str]"
+) -> "dict[str | None, str]":
+    """Return ``{Id: Type}`` for the relationships in the ``.rels`` part *rels_name*.
+
+    A part without a ``.rels`` part has no relationships.  Raises
+    ``etree.XMLSyntaxError`` when the ``.rels`` part is not well-formed.
+    """
+    if rels_name not in name_set:
+        return {}
+    rels = parse_xml(zf.read(rels_name))
+    return {
+        rel.get("Id"): rel.get("Type") or ""
+        for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)
+    }
+
+
+class _PartReferences:
+    """The ``r:*`` references in one part, checked against the relationships it declares."""
+
+    def __init__(self, part: str, rels_name: str, rel_types: "dict[str | None, str]") -> None:
+        self._part = part
+        self._rels_name = rels_name
+        self._rel_types = rel_types
+
+    def iter_violations(self, doc) -> "Iterator[tuple[str, str]]":
+        """Yield a violation for each reference in *doc* that is dangling or mistyped."""
         for el in doc.iter("*"):
             for attr, value in el.attrib.items():
                 if not attr.startswith("{%s}" % _R_NS) or not value:
                     continue
-                if value not in rel_types:
-                    yield (
-                        part,
-                        "dangling %s=%r on <%s> — no such relationship in %s"
-                        % (attr.split("}")[1], value, etree.QName(el).localname, rels_name),
-                    )
-                    continue
-                # -- 3. an id-list entry must name a relationship of its kind --
-                expected = _TYPED_REFERENCES.get(el.tag)
-                if expected is None or attr != "{%s}id" % _R_NS:
-                    continue
-                actual = rel_types[value].rsplit("/", 1)[-1]
-                if actual != expected:
-                    yield (
-                        part,
-                        "<%s> r:id=%r resolves to a relationship of type %r, not %r — "
-                        "PowerPoint repairs an id list that points at the wrong kind of part"
-                        % (etree.QName(el).localname, value, actual, expected),
-                    )
+                problem = self._problem(el, attr, value)
+                if problem is not None:
+                    yield (self._part, problem)
+
+    def _problem(self, el, attr: str, value: str) -> "str | None":
+        """Return what is wrong with the reference *attr*=*value* on *el*, or None."""
+        if value not in self._rel_types:
+            return "dangling %s=%r on <%s> — no such relationship in %s" % (
+                attr.split("}")[1],
+                value,
+                etree.QName(el).localname,
+                self._rels_name,
+            )
+        # -- an id-list entry must name a relationship of its kind --
+        expected = _TYPED_REFERENCES.get(el.tag)
+        if expected is None or attr != "{%s}id" % _R_NS:
+            return None
+        actual = self._rel_types[value].rsplit("/", 1)[-1]
+        if actual == expected:
+            return None
+        return (
+            "<%s> r:id=%r resolves to a relationship of type %r, not %r — "
+            "PowerPoint repairs an id list that points at the wrong kind of part"
+            % (etree.QName(el).localname, value, actual, expected)
+        )
 
 
 def _iter_duplicate_member_violations(names) -> "Iterator[tuple[str, str]]":
