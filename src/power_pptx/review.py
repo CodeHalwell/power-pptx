@@ -38,7 +38,13 @@ class ReviewReport:
 
 
 def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
-    from power_pptx.render import _pdf_to_pngs, _resolve_binary, _run_soffice_pdf, _soffice_env
+    from power_pptx.render import (
+        _hidden_slide_indexes,
+        _pdf_to_pngs,
+        _resolve_binary,
+        _run_soffice_pdf,
+        _soffice_env,
+    )
 
     # One PDF conversion provides both the deliverable PDF and every PNG.
     with tempfile.TemporaryDirectory(prefix="pptx-review-render-") as tmp:
@@ -46,13 +52,23 @@ def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
         deck = work / "presentation.pptx"
         prs.save(deck)
         env = _soffice_env(work, font_dirs)
-        result = _run_soffice_pdf(_resolve_binary(soffice_bin), deck, work, timeout, env=env)
+        # -- A review covers every slide of the deck, so hidden slides are
+        # -- exported too; LibreOffice leaves them out unless asked. --
+        hidden = _hidden_slide_indexes(prs)
+        result = _run_soffice_pdf(
+            _resolve_binary(soffice_bin), deck, work, timeout, env=env, hidden_slides=bool(hidden)
+        )
         pdf = work / "presentation.pdf"
         if result.returncode or not pdf.is_file():
             raise RuntimeError(
                 "LibreOffice PDF export failed: " + result.stderr.decode("utf-8", "replace")[:2000]
             )
         pages = _pdf_to_pngs(pdf, work, dpi=dpi, timeout=timeout)
+        if hidden and len(pages) == len(prs.slides) - len(hidden):
+            raise RuntimeError(
+                f"LibreOffice left the deck's {len(hidden)} hidden slide(s) out of the PDF; "
+                "version 7.4 or later is needed to review a deck with hidden slides"
+            )
         if len(pages) != len(prs.slides):
             raise RuntimeError(f"Expected {len(prs.slides)} rendered pages; received {len(pages)}")
         shutil.copy2(pdf, directory / "presentation.pdf")

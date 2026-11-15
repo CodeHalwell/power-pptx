@@ -305,32 +305,129 @@ class DescribePngFiltering:
         assert paths[0].name == "slide1.png"
 
 
+def _fake_pdf_run(work_dir, *, exit_code=0, stderr=b"", captured=None):
+    """Stand in for `_run_soffice_pdf`: write an empty PDF, record how it was asked."""
+    from subprocess import CompletedProcess
+
+    def _runner(soffice_bin, deck_path, out_dir, timeout, env=None, hidden_slides=False):
+        if captured is not None:
+            captured.update(hidden_slides=hidden_slides)
+        if exit_code == 0:
+            (Path(out_dir) / "_render_input.pdf").write_bytes(b"%PDF-1.4\n")
+        return CompletedProcess(args=[], returncode=exit_code, stdout=b"", stderr=stderr)
+
+    return _runner
+
+
+def _fake_pdf_split(work_dir, *, num_pages, captured=None):
+    """Stand in for `_pdf_to_pngs`: page N (0-based) is a PNG whose payload is N."""
+
+    def _split(pdf_path, out_dir, *, dpi, timeout=None):
+        if captured is not None:
+            captured.update(dpi=dpi, timeout=timeout)
+        paths = []
+        prefix = pdf_path.stem + "-page"
+        for i in range(num_pages):
+            p = Path(out_dir) / f"{prefix}-{i + 1}.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\n%d" % i)
+            paths.append(p)
+        return paths
+
+    return _split
+
+
+def _page_number(png):
+    """The 0-based page a PNG from `_fake_pdf_split` stands for."""
+    return int(png[len(b"\x89PNG\r\n\x1a\n") :])
+
+
+class DescribeHiddenSlides:
+    """A hidden slide (``<p:sld show="0">``) is rendered and keeps its index."""
+
+    @pytest.fixture
+    def hidden_middle_prs(self):
+        prs = Presentation()
+        for _ in range(3):
+            prs.slides.add_slide(prs.slide_layouts[5])
+        prs.slides[1]._element.set("show", "0")
+        return prs
+
+    def _render(self, prs, tmp_path, *, num_pages, captured=None, **kwargs):
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice_pdf",
+            side_effect=_fake_pdf_run(tmp_path, captured=captured),
+        ), patch(
+            "power_pptx.render._pdf_to_pngs",
+            side_effect=_fake_pdf_split(tmp_path, num_pages=num_pages),
+        ):
+            return render_slide_thumbnails(prs, strategy="pdf", return_bytes=True, **kwargs)
+
+    def it_asks_libreoffice_to_export_hidden_slides(self, tmp_path, hidden_middle_prs):
+        captured = {}
+
+        pngs = self._render(hidden_middle_prs, tmp_path, num_pages=3, captured=captured)
+
+        assert captured["hidden_slides"] is True
+        assert [_page_number(png) for png in pngs] == [0, 1, 2]
+
+    def but_it_leaves_the_conversion_alone_for_a_deck_without_any(self, tmp_path, two_slide_prs):
+        captured = {}
+
+        self._render(two_slide_prs, tmp_path, num_pages=2, captured=captured)
+
+        assert captured["hidden_slides"] is False
+
+    def it_passes_the_export_option_on_the_soffice_command_line(self, tmp_path):
+        from subprocess import CompletedProcess
+
+        from power_pptx.render import _run_soffice_pdf
+
+        commands = []
+
+        def _record(cmd, *, timeout, env=None):
+            commands.append(cmd)
+            return CompletedProcess(cmd, 0, b"", b"")
+
+        with patch("power_pptx.render._run", side_effect=_record):
+            _run_soffice_pdf("soffice", tmp_path / "deck.pptx", tmp_path, 30)
+            _run_soffice_pdf("soffice", tmp_path / "deck.pptx", tmp_path, 30, hidden_slides=True)
+
+        plain, with_hidden = (cmd[cmd.index("--convert-to") + 1] for cmd in commands)
+        assert plain == "pdf"
+        assert with_hidden == (
+            'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}'
+        )
+
+    def it_matches_pages_to_visible_slides_when_hidden_ones_are_left_out(
+        self, tmp_path, hidden_middle_prs
+    ):
+        # -- a LibreOffice older than 7.4 ignores the option: 2 pages for 3 slides --
+        (png,) = self._render(hidden_middle_prs, tmp_path, num_pages=2, slide_indexes=[2])
+
+        # -- the second page shows the third slide, not the hidden second one --
+        assert _page_number(png) == 1
+
+    def and_it_says_so_when_a_hidden_slide_could_not_be_rendered(
+        self, tmp_path, hidden_middle_prs
+    ):
+        with pytest.raises(ThumbnailRendererError, match=r"slide 2 \(index 1\) is hidden"):
+            self._render(hidden_middle_prs, tmp_path, num_pages=2, slide_indexes=[1])
+        with pytest.raises(ThumbnailRendererError, match="is hidden"):
+            self._render(hidden_middle_prs, tmp_path, num_pages=2)
+
+    def but_any_other_page_count_is_still_an_error(self, tmp_path, hidden_middle_prs):
+        with pytest.raises(ThumbnailRendererError, match="1 PNG.*3-slide deck"):
+            self._render(hidden_middle_prs, tmp_path, num_pages=1)
+
+
 class DescribePdfFallback:
     """When ``--convert-to png`` only emits one slide, fall back to PDF split."""
 
-    def _fake_pdf_run(self, work_dir, *, exit_code=0, stderr=b""):
-        from subprocess import CompletedProcess
+    def _fake_pdf_run(self, work_dir, **kwargs):
+        return _fake_pdf_run(work_dir, **kwargs)
 
-        def _runner(soffice_bin, deck_path, out_dir, timeout, env=None):
-            if exit_code == 0:
-                (Path(out_dir) / "_render_input.pdf").write_bytes(b"%PDF-1.4\n")
-            return CompletedProcess(args=[], returncode=exit_code, stdout=b"", stderr=stderr)
-
-        return _runner
-
-    def _fake_pdf_split(self, work_dir, *, num_pages, captured=None):
-        def _split(pdf_path, out_dir, *, dpi, timeout=None):
-            if captured is not None:
-                captured.update(dpi=dpi, timeout=timeout)
-            paths = []
-            prefix = pdf_path.stem + "-page"
-            for i in range(num_pages):
-                p = Path(out_dir) / f"{prefix}-{i + 1}.png"
-                p.write_bytes(b"\x89PNG\r\n\x1a\n%d" % i)
-                paths.append(p)
-            return paths
-
-        return _split
+    def _fake_pdf_split(self, work_dir, **kwargs):
+        return _fake_pdf_split(work_dir, **kwargs)
 
     def it_falls_back_when_png_misses_slides(self, tmp_path, two_slide_prs):
         # Stock LibreOffice 7+ writes only the first slide via the PNG

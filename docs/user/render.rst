@@ -42,6 +42,11 @@ Set the ``POWER_PPTX_SOFFICE`` environment variable to override the
 binary path globally; ``return_bytes=True`` returns each image as raw
 PNG bytes instead of writing files.
 
+Hidden slides are rendered like any other, so ``slide_indexes=[n]`` always
+means ``prs.slides[n]``. This needs LibreOffice 7.4 or later; an older
+build renders the visible slides and raises ``ThumbnailRendererError`` for
+a hidden one you ask for.
+
 Errors
 ------
 

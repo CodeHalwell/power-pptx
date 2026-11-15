@@ -44,7 +44,7 @@ import sys
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Union, cast
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Union, cast
 
 if TYPE_CHECKING:
     from power_pptx.presentation import Presentation as _Presentation
@@ -52,6 +52,14 @@ if TYPE_CHECKING:
 
 DEFAULT_SOFFICE_BIN = "soffice"
 DEFAULT_TIMEOUT_SECONDS = 120
+
+#: ``--convert-to`` target that makes the PDF export include hidden slides
+#: (``<p:sld show="0">``), which LibreOffice leaves out by default.  The JSON
+#: filter options need LibreOffice 7.4 or later; an older build ignores them
+#: and exports the visible slides only.
+_PDF_WITH_HIDDEN_SLIDES = (
+    'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}'
+)
 
 
 class ThumbnailRendererUnavailable(RuntimeError):
@@ -242,14 +250,70 @@ def _run_soffice_pdf(
     out_dir: Path,
     timeout: float,
     env: Optional[dict] = None,
+    *,
+    hidden_slides: bool = False,
 ) -> "subprocess.CompletedProcess[bytes]":
     """Convert *deck_path* to PDF using ``soffice --convert-to pdf``.
 
     Unlike the PNG filter, the PDF export reliably contains every slide
     on every LibreOffice version we've tested, which makes it the
-    authoritative source for per-slide thumbnails.
+    authoritative source for per-slide thumbnails.  It leaves hidden
+    slides out unless *hidden_slides* asks for them; pass it only for a
+    deck that has some, so other decks convert exactly as before.
     """
-    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, "pdf")
+    target = _PDF_WITH_HIDDEN_SLIDES if hidden_slides else "pdf"
+    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, target)
+
+
+def _hidden_slide_indexes(prs: "_Presentation") -> List[int]:
+    """Return the 0-based indexes of the slides marked hidden (``show="0"``)."""
+    return [
+        index
+        for index, slide in enumerate(prs.slides)
+        if slide.element.get("show") in ("0", "false")
+    ]
+
+
+def _pages_by_slide(
+    pages: Sequence[Path], slide_count: int, hidden: Sequence[int]
+) -> Dict[int, Path]:
+    """Map rendered *pages*, in deck order, onto 0-based slide indexes.
+
+    Normally there is one page per slide.  A LibreOffice that leaves hidden
+    slides out of its export although asked for them (before 7.4) produces
+    one page per *visible* slide; those are matched to the slides they show,
+    so an index never points at a neighbouring slide's image.  Any other
+    count is an error.
+    """
+    if len(pages) == slide_count:
+        return dict(enumerate(pages))
+    visible = [index for index in range(slide_count) if index not in set(hidden)]
+    if hidden and len(pages) == len(visible):
+        return dict(zip(visible, pages))
+    raise ThumbnailRendererError(
+        "rendering emitted %d PNG(s) for a %d-slide deck" % (len(pages), slide_count)
+    )
+
+
+def _select_pages(
+    pages: Dict[int, Path], indexes: Iterable[int], slide_count: int
+) -> List[Path]:
+    """Return the page for each 0-based slide index in *indexes*, in that order."""
+    selected = []
+    for index in indexes:
+        if index < 0 or index >= slide_count:
+            raise IndexError(
+                "slide index %d out of range for deck with %d slides" % (index, slide_count)
+            )
+        if index not in pages:
+            raise ThumbnailRendererError(
+                "slide %d (index %d) is hidden and this LibreOffice left hidden "
+                "slides out of its export; LibreOffice 7.4 or later includes "
+                "them.  Unhide the slide, or pass slide_indexes= naming only "
+                "visible slides." % (index + 1, index)
+            )
+        selected.append(pages[index])
+    return selected
 
 
 def render_slide_thumbnails(
@@ -274,7 +338,9 @@ def render_slide_thumbnails(
     files are copied and the workspace is removed before returning.
 
     `slide_indexes` is a 0-based list of slide indexes to return; when
-    ``None``, all slides are returned in deck order.
+    ``None``, all slides are returned in deck order.  Hidden slides count
+    and are rendered like any other, so an index always means the slide
+    at that position in ``prs.slides``.
 
     `strategy` controls which LibreOffice export pipeline is used:
 
@@ -313,6 +379,7 @@ def render_slide_thumbnails(
     bin_path = _resolve_binary(soffice_bin)
 
     expected_slide_count = len(list(prs.slides))
+    hidden = _hidden_slide_indexes(prs)
 
     with tempfile.TemporaryDirectory(prefix="pptx-render-") as tmp:
         work_dir = Path(tmp)
@@ -345,7 +412,13 @@ def render_slide_thumbnails(
                 with suppress(OSError):
                     stale.unlink()
             png_paths = _render_via_pdf(
-                bin_path, deck_path, work_dir, timeout, dpi=dpi, env=env
+                bin_path,
+                deck_path,
+                work_dir,
+                timeout,
+                dpi=dpi,
+                env=env,
+                hidden_slides=bool(hidden),
             )
 
         if not png_paths:
@@ -356,15 +429,12 @@ def render_slide_thumbnails(
                 "fallback also requires `pdftoppm` (Poppler) or `pypdfium2`."
             )
 
-        if len(png_paths) != expected_slide_count:
-            raise ThumbnailRendererError(
-                "rendering emitted %d PNG(s) for a %d-slide deck"
-                % (len(png_paths), expected_slide_count)
-            )
-
-        if slide_indexes is not None:
-            wanted = list(slide_indexes)
-            png_paths = _select_indexes(png_paths, wanted)
+        pages = _pages_by_slide(png_paths, expected_slide_count, hidden)
+        png_paths = _select_pages(
+            pages,
+            range(expected_slide_count) if slide_indexes is None else slide_indexes,
+            expected_slide_count,
+        )
 
         if return_bytes:
             return [p.read_bytes() for p in png_paths]
@@ -420,18 +490,24 @@ def _render_via_pdf(
     *,
     dpi: int,
     env: Optional[dict] = None,
+    hidden_slides: bool = False,
 ) -> List[Path]:
     """Run the soffice PDF filter, then split each PDF page into a PNG.
 
     Splits prefer the ``pdftoppm`` binary (Poppler) since it's a single
     subprocess and ubiquitous on Linux/macOS; ``pypdfium2`` is the
     pure-Python fallback when callers can't depend on Poppler.
+
+    *hidden_slides* says the deck has hidden slides, which are then exported
+    as well so there is a page for every slide.
     """
     # Snapshot existing PDFs so a stale one in a shared work_dir doesn't
     # get treated as our output.
     preexisting_pdfs = {p.name for p in work_dir.glob("*.pdf")}
 
-    result = _run_soffice_pdf(bin_path, deck_path, work_dir, timeout, env=env)
+    result = _run_soffice_pdf(
+        bin_path, deck_path, work_dir, timeout, env=env, hidden_slides=hidden_slides
+    )
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf exited with status %d: %s"
@@ -556,18 +632,6 @@ def _natural_sort_key(path: Path):
     """
     parts = _NATURAL_SORT_RE.split(path.name)
     return tuple((int(p) if p.isdigit() else p) for p in parts)
-
-
-def _select_indexes(paths: Sequence[Path], indexes: Iterable[int]) -> List[Path]:
-    selected = []
-    for i in indexes:
-        if i < 0 or i >= len(paths):
-            raise IndexError(
-                "slide index %d out of range for deck with %d slides"
-                % (i, len(paths))
-            )
-        selected.append(paths[i])
-    return selected
 
 
 def render_slide_thumbnail(

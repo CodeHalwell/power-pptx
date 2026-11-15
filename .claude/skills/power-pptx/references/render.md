@@ -17,6 +17,12 @@ unrelated files are preserved; PNGs with the same output names are replaced.
 The saved input deck, intermediate PDF, and profile are removed after the
 call. `return_bytes=True` returns bytes without writing to `out_dir`.
 
+Hidden slides (`<p:sld show="0">`) are rendered like any other, so
+`slide_indexes=[n]` always means `prs.slides[n]`, and `power-pptx review`
+covers them too. This needs LibreOffice 7.4 or later; an older build
+renders the visible slides and raises `ThumbnailRendererError` for a hidden
+one you ask for.
+
 ## Convenience methods
 
 ```python

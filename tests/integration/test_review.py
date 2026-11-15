@@ -42,6 +42,22 @@ def test_review_exports_all_pages_and_compares_references(tmp_path):
     assert (second.directory / "differences/slide-01.png").is_file()
 
 
+def test_review_covers_a_hidden_slide(tmp_path):
+    prs = deck(3)
+    prs.slides[1]._element.set("show", "0")
+
+    report = review_presentation(prs, out_dir=tmp_path / "hidden", dpi=36)
+
+    assert report.manifest["errors"] == []
+    assert not report.has_errors
+    assert [path.name for path in report.images] == [
+        "slide-00.png",
+        "slide-01.png",
+        "slide-02.png",
+    ]
+    assert all(path.is_file() for path in report.images)
+
+
 def test_review_reuse_cannot_count_stale_pages_and_mismatch_fails(tmp_path):
     review_presentation(deck(), out_dir=tmp_path / "reuse", dpi=36)
     stale = tmp_path / "reuse/slides/slide-01.png"
