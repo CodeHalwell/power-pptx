@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.geometry import BBox
-from power_pptx.util import Emu, Inches, Length, Pt
+from power_pptx.util import Emu, Inches, Pt
 
 if TYPE_CHECKING:
     from power_pptx.shapes.autoshape import Shape
@@ -289,16 +289,16 @@ def _style_runs(
     tf: Any,
     *,
     font: str | None,
-    size: Length,
+    size_pt: float,
     color: str,
     bold: bool | None = None,
     align: Any = None,
 ) -> None:
-    """Set every run of *tf* in *font* at *size* and *color*.
+    """Set every run of *tf* in *font* at *size_pt* points and *color*.
 
     *bold*, when given, is set on every run too, and *align* on every
-    paragraph.  The colour is coerced per run, so text without runs never
-    looks at it.
+    paragraph.  Size and colour are converted per run, so text without
+    runs never looks at them.
     """
     from power_pptx._color import coerce_color
 
@@ -308,7 +308,7 @@ def _style_runs(
         for run in para.runs:
             if font is not None:
                 run.font.name = font
-            run.font.size = size
+            run.font.size = Pt(float(size_pt))
             if bold is not None:
                 run.font.bold = bold
             run.font.color.rgb = coerce_color(color)
@@ -341,7 +341,7 @@ def _set_circle_label(
     text: str,
     *,
     font: str | None,
-    size: Length,
+    size_pt: float,
     color: str,
     bold: bool | None = None,
 ) -> None:
@@ -353,7 +353,8 @@ def _set_circle_label(
     tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
     tf.text = text
     _style_runs(
-        tf, font=font, size=size, color=color, bold=bold, align=PP_PARAGRAPH_ALIGNMENT.CENTER
+        tf, font=font, size_pt=size_pt, color=color, bold=bold,
+        align=PP_PARAGRAPH_ALIGNMENT.CENTER,
     )
 
 
@@ -379,8 +380,7 @@ def _add_step_node(
     node.fill_hex(step.fill or fill)
     node.line_hex(accent, weight_pt=1.5)
     _set_circle_label(
-        node, step.label, font=font, size=Pt(float(size_pt)),
-        color=step.text_color or text_color,
+        node, step.label, font=font, size_pt=size_pt, color=step.text_color or text_color
     )
     _fit_circular_label(
         node, diameter=diameter, font=font, max_size_pt=size_pt,
@@ -428,7 +428,7 @@ def _card(
         tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
         tf.text = text
         _style_runs(
-            tf, font=font, size=Pt(float(size_pt)), color=text_color, bold=bool(bold),
+            tf, font=font, size_pt=size_pt, color=text_color, bold=bool(bold),
             align=PP_PARAGRAPH_ALIGNMENT.CENTER,
         )
         # Space-awareness: shrink the label so a long word never clips its card
@@ -688,7 +688,7 @@ def _build_hub_and_spoke(
     hub.fill_hex(hub_fill or accent)
     hub.line.fill.background()
     _set_circle_label(
-        hub, centre, font=font, size=Pt(float(size_pt)), color=hub_text_color, bold=True
+        hub, centre, font=font, size_pt=size_pt, color=hub_text_color, bold=True
     )
     _fit_circular_label(
         hub, diameter=hub_diameter, font=font, max_size_pt=size_pt,
@@ -1176,7 +1176,7 @@ def _add_column_body(
     margin = Pt(8)
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
     tf.text = text
-    _style_runs(tf, font=font, size=Pt(float(size_pt)), color=text_color)
+    _style_runs(tf, font=font, size_pt=size_pt, color=text_color)
     # Shrink a long body so it doesn't overflow the column card / slide.
     with suppress(ValueError, OSError):
         tf.fit_text(font_family=font, max_size=max(1, int(round(size_pt))))
