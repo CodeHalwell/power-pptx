@@ -10,9 +10,11 @@ import argparse
 import io
 import json
 import math
+import re
 import shutil
 import sys
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -35,6 +37,35 @@ class ReviewReport:
     @property
     def images(self):
         return [self.directory / path for path in self.manifest["slides"]]
+
+
+# What a review writes into its output directory, by name. Each run replaces
+# all of it, so nothing an earlier run left (the pages of a longer deck, its
+# reference comparison, the PDF of a render that worked) sits beside the new
+# manifest. Anything else in the directory is the caller's and is kept.
+_RUN_FILES = ("presentation.pptx", "presentation.pdf", "manifest.json", "REVIEW.md", "index.html")
+_RUN_IMAGE_DIRS = ("slides", "references", "differences", "browser-reference")
+_SLIDE_IMAGE = re.compile(r"slide-\d{2,}\.png")
+_CONTACT_SHEET = re.compile(r"contact-\d{2,}\.png")
+
+
+def _clear_previous_run(out):
+    """Remove from *out* the files an earlier review wrote there, and nothing else."""
+    if not out.is_dir():
+        return
+    for path in out.iterdir():
+        ours = path.name in _RUN_FILES or _CONTACT_SHEET.fullmatch(path.name)
+        if ours and (path.is_file() or path.is_symlink()):
+            path.unlink()
+    for name in _RUN_IMAGE_DIRS:
+        folder = out / name
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if _SLIDE_IMAGE.fullmatch(path.name) and (path.is_file() or path.is_symlink()):
+                path.unlink()
+        with suppress(OSError):
+            folder.rmdir()  # -- only when nothing of the caller's is left in it --
 
 
 def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
@@ -225,6 +256,10 @@ def review_presentation(
     their review artifacts. Invalid options and missing input files raise.
     Input files are never overwritten. Only files from this run appear in the
     manifest/gallery; pre-existing output PNGs cannot count as rendered pages.
+    When ``out_dir`` is reused, the files an earlier review wrote there are
+    removed first (its slide PNGs, contact sheets, PDF, reference and
+    difference images), so the directory holds exactly this run. Files the
+    review does not write are left alone.
     ``font_dirs`` are registered for font checks and handed to LibreOffice, as
     are folders already registered with ``register_font_dir``.
     """
@@ -337,7 +372,9 @@ def review_presentation(
         _index(stage, manifest)
         out.mkdir(parents=True, exist_ok=True)
         # Copy only this run's staging files. The manifest never discovers
-        # images by globbing an output directory from a previous run.
+        # images by globbing an output directory from a previous run, and the
+        # previous run's own files are removed so the directory matches it.
+        _clear_previous_run(out)
         shutil.copytree(stage, out, dirs_exist_ok=True)
     return ReviewReport(out, manifest)
 
@@ -438,6 +475,9 @@ def main(argv=None):
             failure = {"input": str(path), "passed": False, "error": str(exc)}
             results.append(failure)
             target.mkdir(parents=True, exist_ok=True)
+            # -- Nothing was reviewed, so an earlier review's files stay as they
+            # -- are (the input itself may be among them); only the manifest
+            # -- and index say what happened this time. --
             (target / "manifest.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
             (target / "index.html").write_text(
                 '<!doctype html><meta charset="utf-8"><title>Review failed</title>'

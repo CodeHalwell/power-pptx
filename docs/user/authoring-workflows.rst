@@ -184,7 +184,9 @@ fails on them. Theme/implicit font availability is outside this inventory.
 and hands it to LibreOffice, so previews use the real face instead of a fallback.
 ``--fail-on-warnings`` also gates audit warnings. Failures return a nonzero exit
 and keep available diagnostics; batches continue and create aggregate navigation.
-Only current-run pages enter the manifest, even when old files remain on disk.
+Reusing an output directory replaces the previous review: its slide PNGs,
+contact sheets, PDF and reference/difference images are removed first, and
+files the review does not write are left alone.
 
 Python callers can use ``validate_presentation(prs)`` from
 ``power_pptx.validation`` and ``review_presentation(prs, out_dir="review")``

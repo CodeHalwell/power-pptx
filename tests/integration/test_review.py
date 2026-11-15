@@ -58,22 +58,47 @@ def test_review_covers_a_hidden_slide(tmp_path):
     assert all(path.is_file() for path in report.images)
 
 
-def test_review_reuse_cannot_count_stale_pages_and_mismatch_fails(tmp_path):
-    review_presentation(deck(), out_dir=tmp_path / "reuse", dpi=36)
-    stale = tmp_path / "reuse/slides/slide-01.png"
-    assert stale.is_file()
-    shorter = review_presentation(deck(1), out_dir=tmp_path / "reuse", dpi=36)
+def test_review_reuse_leaves_only_the_current_run_and_mismatch_fails(tmp_path):
+    reuse = tmp_path / "reuse"
+    review_presentation(deck(4), out_dir=reuse, dpi=36)
+    assert sorted(p.name for p in (reuse / "slides").iterdir()) == [
+        "slide-00.png",
+        "slide-01.png",
+        "slide-02.png",
+        "slide-03.png",
+    ]
+    (reuse / "notes.txt").write_text("the caller's own file")
+    shorter = review_presentation(deck(1), out_dir=reuse, dpi=36)
+    assert not shorter.has_errors
     assert len(shorter.images) == 1
     assert len(json.loads((shorter.directory / "manifest.json").read_text())["slides"]) == 1
+    # The directory holds this run only: the longer deck's other pages are gone.
+    assert sorted(p.name for p in (reuse / "slides").iterdir()) == ["slide-00.png"]
+    assert (reuse / "notes.txt").read_text() == "the caller's own file"
+    # So it is an exact reference set for a deck of that length ...
+    matched = review_presentation(
+        deck(1),
+        out_dir=tmp_path / "matched",
+        dpi=36,
+        reference_dir=reuse / "slides",
+        max_mean_error=0,
+    )
+    assert not matched.has_errors
+    # ... and a longer deck no longer passes on the strength of leftover pages.
     failed = review_presentation(
         deck(),
         out_dir=tmp_path / "failed",
         dpi=36,
-        reference_dir=tmp_path / "reuse/slides",
+        reference_dir=reuse / "slides",
         max_mean_error=0,
     )
-    # A previous run may have extra files; references require an explicit exact set.
-    assert not failed.has_errors
+    assert failed.has_errors
+    assert "Reference count 1" in failed.manifest["errors"][-1]
+    # A run with references, then one without: the comparison goes too.
+    assert (tmp_path / "matched/differences/slide-00.png").is_file()
+    review_presentation(deck(1), out_dir=tmp_path / "matched", dpi=36)
+    assert not (tmp_path / "matched/differences").exists()
+    assert not (tmp_path / "matched/references").exists()
     empty = tmp_path / "empty"
     empty.mkdir()
     mismatch = review_presentation(deck(), out_dir=tmp_path / "mismatch", reference_dir=empty)

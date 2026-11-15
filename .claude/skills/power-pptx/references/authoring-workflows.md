@@ -248,8 +248,12 @@ The round-trip check opens and saves the deck, then compares each part's
 content, relationships and content type. It passes for decks written by
 PowerPoint or other tools as long as nothing is lost or altered.
 Nonzero exit means an automated failure; batch processing continues and writes
-an aggregate index. Reused output directories list only this run's pages.
-Existing unrelated files remain, so consume the manifest instead of globbing.
+an aggregate index. Reusing an output directory replaces the previous review:
+its slide PNGs, contact sheets, PDF and reference/difference images are
+removed before the new ones are written, so `slides/` holds exactly the pages
+in the manifest. Files the review doesn't write are left alone. A run that
+fails before anything is reviewed (an unreadable input, say) rewrites only
+`manifest.json` and `index.html`.
 
 Python equivalents: `power_pptx.validation.validate_presentation(prs)` and
 `power_pptx.review.review_presentation(prs, out_dir="review")`.
