@@ -139,7 +139,11 @@ layouts = prs.slide_layouts             # read again: the old ones were replaced
     <code>from_spec(spec, vars=...)</code>) supplies <code>vars</code>, so a spec without them keeps
     its braces; an unknown name raises. When a deck uses variables <em>and</em> shows template
     syntax, write <code>{"\\{{"}</code> for a literal <code>{"{{"}</code>, or set
-    <code>"interpolate": false</code> on the slide or the whole spec.
+    <code>"interpolate": false</code> on the slide or the whole spec. A top-level
+    <code>slide_size</code> (a preset such as <code>"16:9"</code>, or an inches pair within 1–56)
+    rescales the template's masters and layouts too, so placeholder layouts fill the new width,
+    and every transition kind, <code>comb</code> included, is accepted in a slide's
+    <code>transition</code>.
   </p>
 
   <h3 id="safe">Specs from a model or a user: <code>safe=True</code></h3>
