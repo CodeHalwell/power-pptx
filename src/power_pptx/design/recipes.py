@@ -1058,29 +1058,8 @@ def table_slide(
     table_w = Length(slide_w - 2 * margin)
 
     totals_row = _coerce_totals_row(totals, n_cols) if totals else None
-    body_rows: list[list[str]] = []
-    for r, row in enumerate(rows):
-        if isinstance(row, (str, bytes, Mapping)) or not isinstance(row, Sequence):
-            raise ValueError(
-                f"table_slide: rows[{r}] must be a list with one value per column, "
-                f"got {type(row).__name__}"
-            )
-        if len(row) > n_cols:
-            raise ValueError(
-                f"table_slide: rows[{r}] has {len(row)} values for {n_cols} columns"
-            )
-        body_rows.append([str(row[c]) if c < len(row) else "" for c in range(n_cols)])
-    n_rows = len(body_rows) + 1 + (1 if totals_row is not None else 0)
-
-    if widths is not None:
-        col_widths = _column_widths(widths, int(table_w), n_cols)
-    else:
-        col_widths = [int(table_w) // n_cols] * n_cols
-        if col_widths[0] < _TABLE_MIN_COL_W:
-            raise ValueError(
-                f"table_slide: {n_cols} columns do not fit on a slide this wide; at most "
-                f"{int(table_w) // int(_TABLE_MIN_COL_W)} fit. Split the table across slides."
-            )
+    body_rows = _table_body_rows(rows, n_cols)
+    col_widths = _table_column_widths(widths, int(table_w), n_cols)
     align_map = _coerce_aligns(aligns, n_cols)
 
     header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
@@ -1088,10 +1067,13 @@ def table_slide(
     totals_token = _typography(tokens, "body", default_size=Pt(13), default_bold=True)
 
     # Fit before touching the deck: one (token, cells) entry per table row.
-    layout = [(header_token, [str(name) for name in columns])]
+    header_cells = [str(name) for name in columns]
+    totals_cells = None if totals_row is None else [str(value) for value in totals_row]
+    layout = [(header_token, header_cells)]
     layout += [(cell_token, cells) for cells in body_rows]
-    if totals_row is not None:
-        layout.append((totals_token, [str(value) for value in totals_row]))
+    if totals_cells is not None:
+        layout.append((totals_token, totals_cells))
+    n_rows = len(layout)
     shrink, row_heights = _fit_table(layout, col_widths, int(table_h), len(body_rows))
     if shrink:
         header_token, cell_token, totals_token = (
@@ -1119,8 +1101,70 @@ def table_slide(
         n_rows, n_cols, margin, table_top, table_w, table_h
     )
     table = gframe.table
+    _size_table(table, col_widths if widths is not None else None, row_heights)
 
+    colours = _TableColours.from_tokens(tokens)
+    _fill_table_row(
+        table, 0, header_cells, header_token, colours.header_text, align_map,
+        fill=colours.header_fill,
+    )
+    _fill_table_body(table, body_rows, cell_token, colours, align_map, banded=banded)
+    # Totals row (footer): tinted band + bold text in the primary palette.
+    if totals_cells is not None:
+        _fill_table_row(
+            table, n_rows - 1, totals_cells, totals_token, colours.totals_text, align_map,
+            fill=colours.band_fill,
+        )
+
+    _apply_transition(slide, transition)
+    return slide
+
+
+def _table_body_rows(rows: Sequence[Sequence[Any]], n_cols: int) -> list[list[str]]:
+    """Each data row as *n_cols* display strings, a short row padded with ``""``.
+
+    Raises :class:`ValueError` for a row that is not a list, or that has
+    more values than there are columns.
+    """
+    body_rows: list[list[str]] = []
+    for r, row in enumerate(rows):
+        if not _is_list(row):
+            raise ValueError(
+                f"table_slide: rows[{r}] must be a list with one value per column, "
+                f"got {type(row).__name__}"
+            )
+        if len(row) > n_cols:
+            raise ValueError(
+                f"table_slide: rows[{r}] has {len(row)} values for {n_cols} columns"
+            )
+        body_rows.append([str(row[c]) if c < len(row) else "" for c in range(n_cols)])
+    return body_rows
+
+
+def _table_column_widths(
+    widths: Optional[Sequence[Union[float, Length]]], table_w: int, n_cols: int
+) -> list[int]:
+    """EMU width of each column: resolved from *widths*, or an even split.
+
+    An even split narrower than :data:`_TABLE_MIN_COL_W` raises
+    :class:`ValueError` saying how many columns fit.
+    """
     if widths is not None:
+        return _column_widths(widths, table_w, n_cols)
+    col_widths = [table_w // n_cols] * n_cols
+    if col_widths[0] < _TABLE_MIN_COL_W:
+        raise ValueError(
+            f"table_slide: {n_cols} columns do not fit on a slide this wide; at most "
+            f"{table_w // int(_TABLE_MIN_COL_W)} fit. Split the table across slides."
+        )
+    return col_widths
+
+
+def _size_table(
+    table: Any, col_widths: Optional[Sequence[int]], row_heights: Sequence[int]
+) -> None:
+    """Set the column widths (when given) and the row heights; centre cells vertically."""
+    if col_widths is not None:
         for i, col_w in enumerate(col_widths):
             table.columns[i].width = Emu(col_w)
     for i, row_h in enumerate(row_heights):
@@ -1131,68 +1175,79 @@ def table_slide(
         for cell in table.rows[i].cells:
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
 
-    header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
-    header_text = _legible(
-        header_fill, _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
-    )
-    band_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
-    body_text = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
-    banded_text = _legible(band_fill, body_text)
-    totals_text = _legible(
-        band_fill, _palette(tokens, ("primary", "neutral")) or RGBColor(0x22, 0x22, 0x22)
-    )
 
-    # Header
-    for c, name in enumerate(columns):
-        cell = table.cell(0, c)
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = header_fill
+@dataclass(frozen=True)
+class _TableColours:
+    """Fills and text colours of a table's header, data and totals rows."""
+
+    header_fill: RGBColor
+    header_text: RGBColor
+    band_fill: RGBColor
+    body_text: RGBColor
+    banded_text: RGBColor
+    totals_text: RGBColor
+
+    @classmethod
+    def from_tokens(cls, tokens: Optional[DesignTokens]) -> "_TableColours":
+        """Pick each colour from the palette; text is made legible on its band."""
+        header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
+        header_text = _legible(
+            header_fill, _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
+        )
+        band_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0xF4, 0xF4, 0xF8)
+        body_text = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
+        banded_text = _legible(band_fill, body_text)
+        totals_text = _legible(
+            band_fill, _palette(tokens, ("primary", "neutral")) or RGBColor(0x22, 0x22, 0x22)
+        )
+        return cls(header_fill, header_text, band_fill, body_text, banded_text, totals_text)
+
+
+def _fill_table_row(
+    table: Any,
+    row_idx: int,
+    cells: Sequence[str],
+    token: TypographyToken,
+    color: RGBColor,
+    aligns: Sequence[PP_ALIGN],
+    *,
+    fill: Optional[RGBColor],
+) -> None:
+    """Write *cells* into table row *row_idx* on *fill*; ``None`` leaves the cells unfilled."""
+    for c, text in enumerate(cells):
+        cell = table.cell(row_idx, c)
+        if fill is not None:
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = fill
+        else:
+            cell.fill.background()
         _fill_text_frame(
             cell.text_frame,
-            str(name),
-            token=header_token,
-            color=header_text,
-            align=align_map[c],
+            text,
+            token=token,
+            color=color,
+            align=aligns[c],
             anchor=MSO_ANCHOR.MIDDLE,
         )
 
-    # Body
+
+def _fill_table_body(
+    table: Any,
+    body_rows: Sequence[Sequence[str]],
+    token: TypographyToken,
+    colours: _TableColours,
+    aligns: Sequence[PP_ALIGN],
+    *,
+    banded: bool,
+) -> None:
+    """Write the data rows under the header, tinting every other one when *banded*."""
     for r, cells in enumerate(body_rows):
-        tinted = banded and (r % 2 == 0)
-        for c in range(n_cols):
-            cell = table.cell(r + 1, c)
-            if tinted:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = band_fill
-            else:
-                cell.fill.background()
-            _fill_text_frame(
-                cell.text_frame,
-                cells[c],
-                token=cell_token,
-                color=banded_text if tinted else body_text,
-                align=align_map[c],
-                anchor=MSO_ANCHOR.MIDDLE,
+        if banded and r % 2 == 0:
+            _fill_table_row(
+                table, r + 1, cells, token, colours.banded_text, aligns, fill=colours.band_fill
             )
-
-    # Totals row (footer): tinted band + bold text in the primary palette.
-    if totals_row is not None:
-        footer_idx = n_rows - 1
-        for c in range(n_cols):
-            cell = table.cell(footer_idx, c)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = band_fill
-            _fill_text_frame(
-                cell.text_frame,
-                str(totals_row[c]),
-                token=totals_token,
-                color=totals_text,
-                align=align_map[c],
-                anchor=MSO_ANCHOR.MIDDLE,
-            )
-
-    _apply_transition(slide, transition)
-    return slide
+        else:
+            _fill_table_row(table, r + 1, cells, token, colours.body_text, aligns, fill=None)
 
 
 # Narrowest column an evenly-split table may have: cell insets plus room
