@@ -1488,8 +1488,11 @@ def _check_off_slide(
 
 _EMU_PER_PT = 12700
 #: Height of a single-spaced line as a multiple of its font size.  This is the
-#: figure ``TextFrame.fit_text`` reserves per line and the pitch PowerPoint and
-#: LibreOffice render at 100% line spacing, whatever the typeface.
+#: figure ``TextFrame.fit_text`` reserves per line and the pitch LibreOffice
+#: renders at 100% line spacing, whatever the typeface.  The text engine's
+#: ``measure_text`` uses the font's own line height instead, which is smaller
+#: for many faces; a line is measured at the smaller of the two (see
+#: :func:`_line_em`), so text overflows only when it overflows under both.
 _LINE_PITCH = 1.2
 #: Family assumed when a run names no typeface and the theme supplies none —
 #: the same default ``fit_text`` applies.
@@ -1543,6 +1546,12 @@ class _RunStyle(NamedTuple):
     font_file: str | None  # None: the text engine's fallback metrics
     spacing: float  # extra EMU after each character (``<a:rPr spc>``)
     caps: bool
+    line_em: float  # single-spaced line height as a multiple of `size`
+
+    @property
+    def line_pt(self) -> float:
+        """Height of a single-spaced line in this style, in points."""
+        return self.size * self.line_em
 
 
 class _BodyProps(NamedTuple):
@@ -1620,6 +1629,28 @@ def _ref_width(text: str, font_file: str | None) -> int:
 
 
 @functools.lru_cache(maxsize=1024)
+def _line_em(font_file: str | None) -> float:
+    """Single-spaced line height for *font_file*, as a multiple of the font size.
+
+    Two models of a line are in use: ``fit_text`` and LibreOffice reserve 1.2
+    × the size whatever the face, while ``measure_text`` — and the native
+    components that size their boxes with it — reserve the font's own line
+    height.  The smaller of the two is used, so a line counts as overflowing
+    only when it overflows under both, and no frame the engine sized is
+    reported because the other model is a few percent taller.
+    """
+    from power_pptx.text.measurement import measure_text
+
+    try:
+        engine = measure_text(
+            "Ty", Emu(10**12), size_pt=_REF_SIZE_PT, font_file=font_file, line_spacing=1.0
+        ).height / (_REF_SIZE_PT * _EMU_PER_PT)
+    except Exception:
+        return _LINE_PITCH
+    return min(_LINE_PITCH, engine) if engine > 0 else _LINE_PITCH
+
+
+@functools.lru_cache(maxsize=1024)
 def _ref_space_width(font_file: str | None) -> int:
     """Width in EMU of one space at the reference size."""
     return max(0, _ref_width("x x", font_file) - 2 * _ref_width("x", font_file))
@@ -1653,13 +1684,13 @@ def _text_width(text: str, style: _RunStyle) -> float:
     return width + style.spacing * len(text)
 
 
-_Atom = tuple  # (width, font_size, space_before, pieces)
+_Atom = tuple  # (width, line_height_pt, space_before, pieces)
 
 
 def _text_atoms(fragments: Sequence[tuple[str, _RunStyle]]) -> list[_Atom]:
     """Split `fragments` into the unbreakable units a line is built from.
 
-    Each atom is ``(width, font_size, space_before, pieces)``.  A break is
+    Each atom is ``(width, line_height_pt, space_before, pieces)``.  A break is
     allowed at whitespace and on either side of an East Asian wide character;
     a word that changes style mid-way stays one atom.
     """
@@ -1674,7 +1705,7 @@ def _text_atoms(fragments: Sequence[tuple[str, _RunStyle]]) -> list[_Atom]:
             atoms.append(
                 (
                     sum(_text_width(text, style) for text, style in pieces),
-                    max(style.size for _, style in pieces),
+                    max(style.line_pt for _, style in pieces),
                     space,
                     pieces,
                 )
@@ -1720,7 +1751,7 @@ def _split_overlong(
 ) -> list[tuple[float, float]]:
     """Break one over-wide word at characters, the way a renderer does.
 
-    Returns ``(width, font_size)`` for each line the word occupies.
+    Returns ``(width, line_height_pt)`` for each line the word occupies.
     """
     lines: list[tuple[float, float]] = []
     width = size = 0.0
@@ -1733,7 +1764,7 @@ def _split_overlong(
                 width = size = 0.0
                 cap = limit
             width += char_width
-            size = max(size, style.size)
+            size = max(size, style.line_pt)
     if width > 0:
         lines.append((width, size))
     return lines
@@ -1742,11 +1773,29 @@ def _split_overlong(
 def _wrap_fragments(
     fragments: Sequence[tuple[str, _RunStyle]], first_limit: float, limit: float, wrap: bool
 ) -> list[tuple[float, float]]:
-    """Lay one explicit line of text out as ``(width, font_size)`` per rendered line.
+    """Lay one explicit line of text out as ``(width, line_height_pt)`` per rendered line.
 
     Greedy first-fit, which is what ``TextFitter`` and the renderers do.  An
-    empty list means the fragments hold no visible text.
+    empty list means the fragments hold no visible text.  A line that cannot
+    wrap is measured whole, run by run, as ``measure_text`` measures a line,
+    so spacing between words matches the engine exactly.
     """
+    if not wrap:
+        if not any(text.strip() for text, _ in fragments):
+            return []
+        width = 0.0
+        gap_pending = False  # whitespace seen since the last word
+        for text, style in fragments:
+            words = text.split()
+            if not words:
+                gap_pending = gap_pending or width > 0
+                continue
+            if width > 0 and (gap_pending or text[0].isspace()):
+                width += _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT
+                width += style.spacing
+            width += _text_width(" ".join(words), style)
+            gap_pending = text[-1].isspace()
+        return [(width, max(style.line_pt for _, style in fragments))]
     lines: list[tuple[float, float]] = []
     width = size = 0.0
     started = False
@@ -2162,15 +2211,16 @@ def _measure_text_body(
             font_file=font_file,
             spacing=spacing * _EMU_PER_PT / 100.0,
             caps=caps,
+            line_em=_line_em(font_file),
         )
 
-    def gap(value, size: float) -> float:
+    def gap(value, line_pt: float) -> float:
         """Paragraph spacing in EMU; a percentage is of the line it adjoins."""
         if value is None:
             return 0.0
         if value[0] == "pts":
             return value[1]
-        return value[1] * size * _EMU_PER_PT * _LINE_PITCH
+        return value[1] * line_pt * _EMU_PER_PT
 
     for index, paragraph in enumerate(paragraphs):
         ppr = paragraph.find(_T_PPR)
@@ -2189,7 +2239,7 @@ def _measure_text_body(
 
         # -- split the paragraph into explicit lines at each <a:br> --
         explicit: list[list[tuple[str, _RunStyle]]] = [[]]
-        break_sizes: list[float] = []
+        break_heights: list[float] = []
         for child in paragraph:
             tag = child.tag
             if tag in (_T_R, _T_FLD):
@@ -2202,37 +2252,37 @@ def _measure_text_body(
                 )
                 explicit[-1].append((text, style))
             elif tag == _T_BR:
-                size = _apply_char_props(char_props, child.find(_T_RPR))[0]
-                break_sizes.append(size / 100.0 * body.font_scale)
+                props = _apply_char_props(char_props, child.find(_T_RPR))
+                break_heights.append(style_for(props, False).line_pt)
                 explicit.append([])
         # An empty line takes the height of the paragraph's end mark.
-        end_size = _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))[0]
-        end_size = end_size / 100.0 * body.font_scale
+        end_props = _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))
+        end_h = style_for(end_props, False).line_pt
 
         paragraph_h = 0.0
-        first_size = None
+        first_h = None
         for line_index, fragments in enumerate(explicit):
             lines = _wrap_fragments(
                 fragments, first_limit if line_index == 0 else limit, limit, body.wrap
             )
             if not lines:
                 lines = [
-                    (0.0, break_sizes[line_index] if line_index < len(break_sizes) else end_size)
+                    (0.0, break_heights[line_index] if line_index < len(break_heights) else end_h)
                 ]
-            for line_width, size in lines:
-                if first_size is None:
-                    first_size = size
+            for line_width, line_pt in lines:
+                if first_h is None:
+                    first_h = line_pt
                 text_w = max(text_w, line_width + mar_l + mar_r)
                 if line_spacing is not None and line_spacing[0] == "pts":
                     paragraph_h += line_spacing[1]
                 else:
                     factor = 1.0 if line_spacing is None else line_spacing[1]
                     factor = max(0.1, factor - body.ln_reduction)
-                    paragraph_h += size * _EMU_PER_PT * _LINE_PITCH * factor
+                    paragraph_h += line_pt * _EMU_PER_PT * factor
             line_count += len(lines)
 
-        space_before = gap(before, first_size or end_size) if index > 0 else 0.0
-        space_after = gap(after, first_size or end_size) if index < last else 0.0
+        space_before = gap(before, first_h or end_h) if index > 0 else 0.0
+        space_after = gap(after, first_h or end_h) if index < last else 0.0
         text_h += space_before + paragraph_h + space_after
         if space_before or space_after:
             plain = False
