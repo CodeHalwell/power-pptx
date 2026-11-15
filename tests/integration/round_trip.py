@@ -40,6 +40,23 @@ def _save_to_bytes(prs: PresentationT) -> bytes:
     return buf.getvalue()
 
 
+def _part_changed(name: str, p1: bytes | None, p2: bytes | None) -> bool:
+    """Return True when part `name` differs between the two saves.
+
+    A part present on only one side has changed. XML parts (including `.rels`) are
+    compared in canonical form, falling back to their raw bytes when they are not
+    well-formed; every other part is compared byte-for-byte.
+    """
+    if p1 is None or p2 is None:
+        return True
+    if name.endswith((".xml", ".rels")):
+        try:
+            return _canonicalize_xml(p1) != _canonicalize_xml(p2)
+        except etree.XMLSyntaxError:
+            pass
+    return p1 != p2
+
+
 def round_trip_diff(prs: PresentationT) -> dict[str, tuple[bytes | None, bytes | None]]:
     """Save → reopen → save `prs` and return a per-part diff.
 
@@ -56,19 +73,8 @@ def round_trip_diff(prs: PresentationT) -> dict[str, tuple[bytes | None, bytes |
     for name in set(parts1) | set(parts2):
         p1 = parts1.get(name)
         p2 = parts2.get(name)
-        if p1 is None or p2 is None:
+        if _part_changed(name, p1, p2):
             diff[name] = (p1, p2)
-            continue
-        if name.endswith((".xml", ".rels")):
-            try:
-                if _canonicalize_xml(p1) != _canonicalize_xml(p2):
-                    diff[name] = (p1, p2)
-            except etree.XMLSyntaxError:
-                if p1 != p2:
-                    diff[name] = (p1, p2)
-        else:
-            if p1 != p2:
-                diff[name] = (p1, p2)
     return diff
 
 
