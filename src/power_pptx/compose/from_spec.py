@@ -1957,10 +1957,24 @@ def _resolve_tokens(
     """
     if spec is None:
         return None
-    from power_pptx.design.tokens import _SECTIONS, DesignTokens
+    from power_pptx.design.tokens import DesignTokens
 
     if isinstance(spec, DesignTokens):
         return spec
+    sections = _token_sections(spec, where)
+    ctx = ctx or _Context()
+    try:
+        return _build_tokens(spec, sections, ctx, where=where, base=base)
+    except (SpecError, ImportError):
+        raise
+    except Exception as exc:
+        raise _token_error(where, exc) from exc
+
+
+def _token_sections(spec: Any, where: str) -> dict[str, Mapping[str, Any]]:
+    """Check a ``tokens`` mapping's keys and return its inline token sections."""
+    from power_pptx.design.tokens import _SECTIONS
+
     if not isinstance(spec, Mapping):
         hint = (
             f' — for a preset write {{"preset": {spec!r}}}, for a brand file '
@@ -1987,32 +2001,50 @@ def _resolve_tokens(
                 f"{where}.{name}",
                 f"expected a mapping of token names to values; got {_describe(section)}",
             )
+    return sections
 
-    ctx = ctx or _Context()
-    try:
-        tokens = None
-        if spec.get("preset") is not None:
-            tokens = DesignTokens.from_preset(spec["preset"])
-        if spec.get("yaml") is not None:
-            loaded = DesignTokens.from_yaml(ctx.resolve_file(spec["yaml"], f"{where}.yaml"))
-            tokens = loaded if tokens is None else tokens.merge(loaded)
-        if tokens is None:
-            tokens = base
-        if tokens is None:
-            tokens = DesignTokens.from_dict(sections)
-        elif sections:
-            tokens = tokens.with_overrides(sections)
-        if spec.get("overrides") is not None:
-            tokens = tokens.with_overrides(spec["overrides"])
-    except (SpecError, ImportError):
-        raise
-    except Exception as exc:
-        detail = str(exc)
-        # A token error already starts with its own path (``palette.primary:
-        # ...``); join it on so the whole location reads as one.
-        joined = any(detail.startswith((f"{name}.", f"{name}:")) for name in _SECTIONS)
-        raise SpecError(f"{where}{'.' if joined else ': '}{detail}", path=where) from exc
+
+def _build_tokens(
+    spec: Mapping[str, Any],
+    sections: Mapping[str, Mapping[str, Any]],
+    ctx: _Context,
+    *,
+    where: str,
+    base: Any,
+) -> Any:
+    """Return the token set a checked ``tokens`` mapping describes.
+
+    The preset is the base, a YAML brand file is merged over it (both
+    fall back to *base*), then the inline *sections*, then ``overrides``.
+    """
+    from power_pptx.design.tokens import DesignTokens
+
+    tokens = None
+    if spec.get("preset") is not None:
+        tokens = DesignTokens.from_preset(spec["preset"])
+    if spec.get("yaml") is not None:
+        loaded = DesignTokens.from_yaml(ctx.resolve_file(spec["yaml"], f"{where}.yaml"))
+        tokens = loaded if tokens is None else tokens.merge(loaded)
+    if tokens is None:
+        tokens = base
+    if tokens is None:
+        tokens = DesignTokens.from_dict(sections)
+    elif sections:
+        tokens = tokens.with_overrides(sections)
+    if spec.get("overrides") is not None:
+        tokens = tokens.with_overrides(spec["overrides"])
     return tokens
+
+
+def _token_error(where: str, exc: Exception) -> SpecError:
+    """Return the :class:`SpecError` for a failure building the tokens at *where*."""
+    from power_pptx.design.tokens import _SECTIONS
+
+    detail = str(exc)
+    # A token error already starts with its own path (``palette.primary:
+    # ...``); join it on so the whole location reads as one.
+    joined = any(detail.startswith((f"{name}.", f"{name}:")) for name in _SECTIONS)
+    return SpecError(f"{where}{'.' if joined else ': '}{detail}", path=where)
 
 
 # ---------------------------------------------------------------------------
