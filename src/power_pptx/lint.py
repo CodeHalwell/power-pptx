@@ -1207,6 +1207,10 @@ class _ShapeInfo:
         bleed = self._bleed
         self.bleed_box = (left - bleed, top - bleed, right + bleed, bottom + bleed)
 
+    def checked_box(self, use_bleed: bool) -> tuple[int, int, int, int]:
+        """The box a geometric check tests: `bleed_box` when it counts the shadow, else `box`."""
+        return self.bleed_box if use_bleed else self.box
+
     @property
     def backdrop(self) -> tuple[str, Any]:
         """How this shape paints over what is beneath it: ``(kind, rgb)``.
@@ -3680,10 +3684,7 @@ def _check_layer_order(
             continue
         # ``i`` claims to sit above layer ``name_j``, but ``j`` is
         # painted later and therefore covers it.
-        _area, pct = _bbox_overlap(
-            lower.bleed_box if use_bleed else lower.box,
-            upper.bleed_box if use_bleed else upper.box,
-        )
+        _area, pct = _bbox_overlap(lower.checked_box(use_bleed), upper.checked_box(use_bleed))
         if pct < _COLLISION_THRESHOLD:
             continue
         issues.append(LayerOrderViolation(lower.shape, upper.shape, above_i))
@@ -3727,86 +3728,86 @@ def _check_collisions(
 
     for i, j in pairs:
         a, b = infos[i], infos[j]
-        # Suppress collisions inside a designer-tagged group *before*
-        # scoring — a tagged group is "intentional" by definition.
-        gi, gj = a.group, b.group
-        if gi is not None and gi == gj:
+        # Declared intent is honoured *before* scoring.
+        if _overlap_declared(a, b):
             continue
 
-        # Explicit pairwise allowance — one side naming the other is
-        # enough. Also intent, so it too runs before scoring.
-        if _overlap_allowed(a, b):
-            continue
-
-        # Layer hints: an overlap that agrees with a declared
-        # layer relationship is intentional. Disagreement is *not*
-        # silently allowed — it surfaces as a LayerOrderViolation
-        # from _check_layer_order, so staying quiet here would drop
-        # the pair entirely.
-        if _layers_consistent(a.layer, b.layer):
-            continue
-
-        box_i = a.bleed_box if use_bleed else a.box
-        box_j = b.bleed_box if use_bleed else b.box
+        box_i, box_j = a.checked_box(use_bleed), b.checked_box(use_bleed)
         area, pct = _bbox_overlap(box_i, box_j)
         if pct < _COLLISION_THRESHOLD:
             continue
 
         # A connector is a line: overlapping its bounding box means nothing
         # unless the line itself runs into the other shape.
-        if (a.path is not None or b.path is not None) and not _paths_meet(a, b):
+        if _connector_misses(a, b):
             continue
 
-        # Auto-suppress the "small shape stacked on top of a larger
-        # backing card" pattern (badge-on-card, eyebrow-on-rectangle,
-        # accent-bar-on-card).  The combination of (a) the smaller
-        # shape is *strictly* contained inside the larger (size
-        # ratio < 0.9 — equal-bbox pairs are still classified as
-        # ``matched`` so callers can audit them), and (b) the
-        # smaller shape has a higher z-order — i.e. it's drawn
-        # later in spTree (higher index in this iteration) — is the
-        # canonical layered-design layout.  See IMPROVEMENT_PLAN.md
-        # item 12.
-        ai_l, ai_t, ai_r, ai_b = box_i
-        aj_l, aj_t, aj_r, aj_b = box_j
-        area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
-        area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
-        size_ratio = min(area_i, area_j) / max(area_i, area_j)
-        if (
-            size_ratio < 0.9
-            and a.path is None  # a line is not a backing card
-            and _bbox_contains(box_i, box_j)
-            and area_j < area_i
-        ):
-            # j is the smaller shape and it's drawn on top of i
-            # (j > i in spTree order); skip. A smaller i would be
-            # underneath j, so that case remains a collision.
+        # j is drawn after i: a smaller shape inside it is on top of it.  A
+        # line is not a backing card.
+        if a.path is None and _sits_on_its_card(box_i, box_j):
             continue
 
         kind, score = _classify_collision(box_i, box_j, pct)
-
-        # Decide whether the inflated bbox is what triggered the
-        # collision: if the raw bboxes don't intersect by at least
-        # the threshold, this is bleed-only.
-        cls: type[ShapeCollision] = ShapeCollision
-        if use_bleed:
-            _, raw_pct = _bbox_overlap(a.box, b.box)
-            if raw_pct < _COLLISION_THRESHOLD:
-                cls = ShapeCollisionShadow
-
         issues.append(
-            cls(
+            _collision_class(a, b, use_bleed)(
                 a.shape,
                 b.shape,
                 intersection_area=area,
                 intersection_pct=pct,
-                groups=(gi, gj),
+                groups=(a.group, b.group),
                 score=score,
                 kind=kind,
             )
         )
 
     return issues
+
+
+def _overlap_declared(a: _ShapeInfo, b: _ShapeInfo) -> bool:
+    """True when the author has said the two shapes may overlap.
+
+    A shared ``lint_group`` (a tagged group is intentional by definition), an
+    ``allow_overlap_with`` allowance (one side naming the other is enough), or
+    a ``layer`` / ``layer_above`` relationship the drawing order agrees with.
+    A layer relationship it contradicts is *not* intent: that surfaces as a
+    :class:`LayerOrderViolation` from :func:`_check_layer_order`.
+    """
+    if a.group is not None and a.group == b.group:
+        return True
+    return _overlap_allowed(a, b) or _layers_consistent(a.layer, b.layer)
+
+
+def _connector_misses(a: _ShapeInfo, b: _ShapeInfo) -> bool:
+    """True when either shape is a connector whose line does not touch the other."""
+    return (a.path is not None or b.path is not None) and not _paths_meet(a, b)
+
+
+def _box_area(box: tuple[int, int, int, int]) -> int:
+    left, top, right, bottom = box
+    return max(1, (right - left) * (bottom - top))
+
+
+def _sits_on_its_card(below: tuple[int, int, int, int], above: tuple[int, int, int, int]) -> bool:
+    """True for a small shape drawn on top of the larger backing card it lies within.
+
+    Badge-on-card, eyebrow-on-rectangle, accent-bar-on-card: the canonical
+    layered design (see IMPROVEMENT_PLAN.md item 12).  The smaller shape must
+    be *strictly* contained (size ratio < 0.9 — equal boxes are still
+    classified as ``matched`` so callers can audit them) and drawn later.
+    A smaller shape *beneath* the card is hidden, so that remains a collision.
+    """
+    area_below, area_above = _box_area(below), _box_area(above)
+    size_ratio = min(area_below, area_above) / max(area_below, area_above)
+    return size_ratio < 0.9 and _bbox_contains(below, above) and area_above < area_below
+
+
+def _collision_class(a: _ShapeInfo, b: _ShapeInfo, use_bleed: bool) -> type[ShapeCollision]:
+    """:class:`ShapeCollisionShadow` when only the shadow bleed makes the pair collide."""
+    if use_bleed:
+        _, raw_pct = _bbox_overlap(a.box, b.box)
+        if raw_pct < _COLLISION_THRESHOLD:
+            return ShapeCollisionShadow
+    return ShapeCollision
 
 
 # ---------------------------------------------------------------------------
