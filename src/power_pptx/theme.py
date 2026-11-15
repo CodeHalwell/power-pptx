@@ -296,7 +296,6 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     creating the list if needed.
     """
     pres_elm = presentation._element  # type: ignore[attr-defined]
-    r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
     # PowerPoint treats font embedding as *disabled* unless the presentation
     # carries embedTrueTypeFonts="1" — without it, a user re-saving the deck
@@ -311,44 +310,54 @@ def _add_embedded_font_entry(presentation, typeface: str, weight: str, rId: str)
     # inserts before the first existing successor.
     embedded_lst = pres_elm.get_or_add_embeddedFontLst()
 
-    # Find existing entry for this typeface.
-    existing = None
+    entry = _embedded_font_for(embedded_lst, typeface)
+    if entry is None:
+        entry = OxmlElement("p:embeddedFont")
+        font = OxmlElement("p:font")
+        font.set("typeface", typeface)
+        entry.append(font)
+        embedded_lst.append(entry)
+    _set_embedded_font_slot(entry, weight, rId)
+
+
+def _embedded_font_for(embedded_lst, typeface: str):
+    """The ``<p:embeddedFont>`` in *embedded_lst* registered for *typeface*, or ``None``."""
     for ef in embedded_lst.findall(qn("p:embeddedFont")):
         font = ef.find(qn("p:font"))
         if font is not None and font.get("typeface") == typeface:
-            existing = ef
-            break
+            return ef
+    return None
 
-    if existing is None:
-        ef = OxmlElement("p:embeddedFont")
-        font = OxmlElement("p:font")
-        font.set("typeface", typeface)
-        ef.append(font)
-        embedded_lst.append(ef)
-        existing = ef
 
-    # Add weight slot if absent (PowerPoint disallows duplicates).
-    slot_elm = existing.find(qn(f"p:{weight}"))
+def _set_embedded_font_slot(entry, weight: str, rId: str) -> None:
+    """Point the *weight* slot of *entry* at relationship *rId*, adding the slot if absent.
+
+    PowerPoint disallows duplicate slots, so an existing one is re-pointed.
+    """
+    slot_elm = entry.find(qn(f"p:{weight}"))
     if slot_elm is not None:
-        slot_elm.set(f"{{{r_ns}}}id", rId)
-    else:
-        slot_elm = OxmlElement(f"p:{weight}")
-        slot_elm.set(f"{{{r_ns}}}id", rId)
-        # CT_EmbeddedFontListEntry is a fixed sequence: font, regular?, bold?,
-        # italic?, boldItalic?.  Insert the new slot at its schema position
-        # rather than appending — appending out of order (e.g. italic before
-        # bold) produces a sequence violation PowerPoint may reject/repair.
-        new_idx = _EMBED_WEIGHT_ORDER.index(weight)
-        insert_before = None
-        for child in existing:
-            local = child.tag.rsplit("}", 1)[-1]
-            if local in _EMBED_WEIGHT_ORDER and _EMBED_WEIGHT_ORDER.index(local) > new_idx:
-                insert_before = child
-                break
-        if insert_before is None:
-            existing.append(slot_elm)
-        else:
-            insert_before.addprevious(slot_elm)
+        slot_elm.set(qn("r:id"), rId)
+        return
+    slot_elm = OxmlElement(f"p:{weight}")
+    slot_elm.set(qn("r:id"), rId)
+    _insert_weight_slot(entry, slot_elm, weight)
+
+
+def _insert_weight_slot(entry, slot_elm, weight: str) -> None:
+    """Insert *slot_elm*, the new *weight* slot, at its schema position in *entry*.
+
+    CT_EmbeddedFontListEntry is a fixed sequence: font, regular?, bold?,
+    italic?, boldItalic?.  Insert the new slot at its schema position
+    rather than appending — appending out of order (e.g. italic before
+    bold) produces a sequence violation PowerPoint may reject/repair.
+    """
+    new_idx = _EMBED_WEIGHT_ORDER.index(weight)
+    for child in entry:
+        local = child.tag.rsplit("}", 1)[-1]
+        if local in _EMBED_WEIGHT_ORDER and _EMBED_WEIGHT_ORDER.index(local) > new_idx:
+            child.addprevious(slot_elm)
+            return
+    entry.append(slot_elm)
 
 
 # Method on Theme for the user-facing API.
