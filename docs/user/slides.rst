@@ -112,12 +112,8 @@ again removes the attribute rather than writing ``show="1"``, so a slide that is
 hidden and then un-hidden is exactly as it was.  Only |True| and |False| are
 accepted; anything else raises |TypeError|.
 
-.. note::
-
-   LibreOffice leaves hidden slides out of what it exports, so
-   :ref:`rendering <render>` a deck that has hidden slides fails with
-   a page-count error.  Render first and hide afterwards, or un-hide the
-   slides in the copy you render.
+Hidden slides are still linted, and :ref:`rendering <render>` includes them,
+so ``slide_indexes=[n]`` always means ``prs.slides[n]``.
 
 
 Doing other things with slides

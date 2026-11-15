@@ -509,6 +509,5 @@ for slide, rows in zip(prs.slides, tables):   # drop empty slides from a
 ```
 
 This replaces `slide._element.set("show", "0")`. Only `True`/`False` are
-accepted. Hidden slides are still linted. LibreOffice leaves them out of
-its exports, so `render_slides` fails with a page-count error on a deck
-that has any — render first, hide afterwards.
+accepted. Hidden slides are still linted and still rendered, so
+`slide_indexes=[n]` always means `prs.slides[n]`.
