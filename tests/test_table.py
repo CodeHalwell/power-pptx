@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from power_pptx.dml.color import RGBColor
@@ -1326,3 +1328,107 @@ class DescribeCT_TablePropertiesStyleId(object):
         tblPr.tableStyleId_val = None
 
         assert tblPr.find(qn("a:tableStyleId")) is None
+
+
+OUTFIT = str(Path(__file__).parent / "fonts" / "Outfit-Regular.ttf")
+
+
+def _table_with_header(merged: bool):
+    from power_pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    table = slide.shapes.add_table(4, 4, Inches(0.5), Inches(1), Inches(9), Inches(2.4)).table
+    table.cell(0, 0).text = "FY2026 regional revenue and margin summary"
+    if merged:
+        table.cell(0, 0).merge(table.cell(0, 3))
+    for r in range(1, 4):
+        for c in range(4):
+            table.cell(r, c).text = f"{r * c * 1234:,}"
+    return prs, table
+
+
+class DescribeTableFitToBox(object):
+    """`Table.fit_to_box` measures each cell in the room it really has."""
+
+    def it_measures_a_merged_cell_across_the_columns_it_spans(self):
+        _, separate = _table_with_header(merged=False)
+        _, merged = _table_with_header(merged=True)
+
+        narrow = separate.fit_to_box(max_font_pt=18, min_font_pt=6, font_file=OUTFIT)
+        wide = merged.fit_to_box(max_font_pt=18, min_font_pt=6, font_file=OUTFIT)
+
+        assert narrow < wide == 18
+
+    def it_warns_when_the_named_family_is_not_installed(self):
+        from power_pptx.exc import FontMetricsWarning
+
+        _, table = _table_with_header(merged=False)
+
+        with pytest.warns(FontMetricsWarning, match="'No Such Brand Font' is not installed"):
+            table.fit_to_box(font_family="No Such Brand Font", max_font_pt=18)
+
+    def and_it_raises_under_strict(self):
+        _, table = _table_with_header(merged=False)
+        before = table._tbl.xml
+
+        with pytest.raises(ValueError, match="strict=True"):
+            table.fit_to_box(font_family="No Such Brand Font", strict=True)
+        assert table._tbl.xml == before
+
+    def but_it_stays_quiet_when_no_family_was_asked_for(self):
+        import warnings
+
+        _, table = _table_with_header(merged=False)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            table.fit_to_box(max_font_pt=18)
+
+
+class DescribeCellGeometry(object):
+    def it_spans_the_columns_and_rows_of_a_merge(self):
+        _, table = _table_with_header(merged=False)
+        table.cell(1, 1).merge(table.cell(2, 2))
+        origin = table.cell(1, 1)
+
+        assert origin.width == table.columns[1].width + table.columns[2].width
+        assert origin.height == table.rows[1].height + table.rows[2].height
+        assert table.cell(2, 2).width == table.columns[2].width
+
+    def it_fits_text_inside_the_cells_own_margins(self):
+        _, table = _table_with_header(merged=False)
+        cell = table.cell(1, 1)
+        cell.text = "Enterprise renewals and services attach"
+        default = cell.text_frame.fit_text("Outfit", max_size=40, font_file=OUTFIT)
+
+        cell.margin_left = cell.margin_right = Inches(0.6)
+
+        assert cell.text_frame.fit_text("Outfit", max_size=40, font_file=OUTFIT) < default
+
+
+class DescribeTableStyleValidation(object):
+    def it_rejects_a_style_id_that_is_not_a_guid(self):
+        _, table = _table_with_header(merged=False)
+
+        with pytest.raises(ValueError, match="not a GUID"):
+            table.style = "{not-a-guid}"
+
+    def it_upper_cases_a_lower_case_guid(self):
+        _, table = _table_with_header(merged=False)
+
+        table.style = "{5c22544a-7ee6-4342-b048-85bdc9fd1c3a}"
+
+        assert table._tbl.tblPr.tableStyleId_val == "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"
+
+    def and_the_deck_stays_schema_valid(self):
+        import io
+
+        from power_pptx.validation import iter_schema_violations
+
+        prs, table = _table_with_header(merged=False)
+        table.style = "{5c22544a-7ee6-4342-b048-85bdc9fd1c3a}"
+        stream = io.BytesIO()
+        prs.save(stream)
+
+        assert list(iter_schema_violations(stream.getvalue())) == []
