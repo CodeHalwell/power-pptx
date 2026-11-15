@@ -52,9 +52,9 @@ prs.save("q4-review.pptx")
 ```
 
 When `tokens` is present, the legacy alias names `"title"` and
-`"bullets"` are silently upgraded to the styled recipes
-(`"title_recipe"` / `"bullets_recipe"`); this used to be silent and
-strand the deck on default placeholder styling.  Pass an explicit
+`"bullets"` are upgraded to the styled recipes
+(`"title_recipe"` / `"bullets_recipe"`); earlier releases took the
+placeholder path and silently ignored the tokens.  Pass an explicit
 recipe layout name (e.g. `"kpi"`, `"chart"`, `"table"`, `"quote"`)
 to skip the alias step and reach the styled recipe directly.
 
@@ -353,10 +353,8 @@ from power_pptx.exc import LintError
 
 errors = []
 for slide in deck.slides:
-    slide.lint().auto_fix()
-    errors.extend(
-        i for i in slide.lint().issues if i.severity.value == "error"
-    )
+    slide.tidy()
+    errors.extend(i for i in slide.lint().issues if i.severity == "error")
 if errors:
     raise LintError("; ".join(str(e) for e in errors))
 

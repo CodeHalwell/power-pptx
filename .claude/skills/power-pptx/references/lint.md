@@ -15,7 +15,8 @@ report.has_errors      # bool
 print(report.summary())
 ```
 
-For a whole deck, iterate the slides yourself:
+For a whole deck, iterate the slides yourself (or use `audit(prs)`, or
+the `power-pptx lint` command for a saved file — both below):
 
 ```python
 all_issues = []
@@ -263,7 +264,9 @@ prs = from_spec({
 Every `Presentation` has a `lint_on_save` switch, whatever built it:
 
 ```python
-prs = power_pptx.Presentation("deck.pptx")
+from power_pptx import Presentation
+
+prs = Presentation("deck.pptx")
 prs.lint_on_save = "off"      # default — no checks, no cost
 prs.lint_on_save = "warn"     # log error-severity issues, still write the file
 prs.lint_on_save = "raise"    # raise LintError instead of writing the file
@@ -284,16 +287,13 @@ from power_pptx.exc import LintError
 
 prs = build_deck_from_user_input(...)
 
-# 1. Auto-fix what we can, slide by slide
+# 1. Apply the safe fixes, slide by slide
 for slide in prs.slides:
-    report = slide.lint()
-    report.auto_fix()
+    slide.tidy()
 
 # 2. Re-run and bail on any remaining errors
-remaining = []
-for slide in prs.slides:
-    remaining.extend(i for i in slide.lint().issues
-                     if getattr(i, "severity", None) == "error")
+remaining = [i for slide in prs.slides for i in slide.lint().issues
+             if i.severity == "error"]     # LintSeverity is a str enum
 if remaining:
     raise LintError("; ".join(str(i) for i in remaining))
 

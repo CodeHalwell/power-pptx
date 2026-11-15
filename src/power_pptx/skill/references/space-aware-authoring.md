@@ -131,7 +131,7 @@ best_pt = TextFitter.best_fit_font_size(
     text="Q4 2026 Customer Outcomes Review",
     extents=(Inches(8), Inches(1.5)),
     max_size=44,
-    font_file="/usr/share/fonts/truetype/inter/Inter-Bold.ttf",
+    font_file="fonts/Inter-Bold.ttf",     # the face you will render with
 )
 ```
 
@@ -153,10 +153,11 @@ from power_pptx.enum.text import MSO_AUTO_SIZE
 # Shrink the text to fit
 tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
-# Or grow the shape to fit the text
+# Or grow the shape to fit the text (what add_textbox / add_text start with)
 tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
 
-# Or do nothing (the default — overflowing text is just clipped)
+# Or neither: the box keeps its size and overflowing text spills out of it
+# (a shape from add_shape starts with no setting, which behaves the same)
 tf.auto_size = MSO_AUTO_SIZE.NONE
 ```
 
@@ -231,6 +232,8 @@ For decks built through `power_pptx.compose.from_spec(...)`, fold the linter
 into the spec itself:
 
 ```python
+from power_pptx.compose import from_spec
+
 prs = from_spec({
     "slides": [...],
     "lint": "raise",          # also "warn", "off"
@@ -262,9 +265,9 @@ def add_headline(prs, slide, text):
 
     return box
 
-# 3. Linter as the safety net at save time
+# 3. Linter as the safety net at save time: lint + the safe fixes
 for slide in prs.slides:
-    slide.lint().auto_fix()
+    slide.tidy()
 
 prs.save("headline.pptx")
 ```

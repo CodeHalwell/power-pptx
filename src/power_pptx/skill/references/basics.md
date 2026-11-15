@@ -13,21 +13,42 @@ prs = Presentation("template.pptx")      # open existing
 prs.save("out.pptx")
 ```
 
-`Presentation(...)` also accepts a binary file-like object — useful for
-HTTP responses or in-memory generation:
+Templates (`.potx`) and slide shows (`.ppsx`) open the same way, and the
+file name given to `save()` decides what is written: `"brand.potx"` saves
+a template, `"show.ppsx"` a slide show, anything else a presentation.
+Saving to a path is atomic — if it fails part-way, an existing file there
+is left untouched.
+
+A file that is not a package this library can read (a legacy `.ppt`, a
+password-protected deck, a truncated download) raises
+`power_pptx.exc.InvalidPackageError`; a path with no file raises
+`PackageNotFoundError`, which `InvalidPackageError` subclasses:
+
+```python
+from power_pptx.exc import PackageNotFoundError
+
+try:
+    prs = Presentation("upload.pptx")
+except PackageNotFoundError as exc:    # missing, or not a readable package
+    print(f"cannot open the deck: {exc}")
+```
+
+`Presentation(...)` also accepts a binary file-like object, and `save()`
+writes to one — useful for HTTP responses or in-memory generation:
 
 ```python
 import io
-buf = io.BytesIO()
-prs.save(buf)
-buf.seek(0)
-return buf.getvalue()
+
+def deck_bytes(prs) -> bytes:
+    buf = io.BytesIO()
+    prs.save(buf)                      # a stream always gets a .pptx
+    return buf.getvalue()
 ```
 
 ## Slide size
 
 ```python
-from power_pptx.util import Inches
+from power_pptx.util import Inches, Pt
 
 prs.slide_width  = Inches(13.333)        # 16:9 widescreen
 prs.slide_height = Inches(7.5)
@@ -271,6 +292,8 @@ pic = slide.shapes.add_picture("hero.png", Inches(1), Inches(1),
 pic.crop_left = 0.10               # also crop_right/top/bottom
 pic.crop_top  = 0.05
 pic.alt_text  = "Q4 revenue by segment"   # set this; screen readers need it
+                                          # (the file name add_picture writes
+                                          # counts as missing in audits)
 ```
 
 ### Anchored placement
@@ -448,6 +471,10 @@ shape.width = card_w   # setter coerces too
 Both ``/`` (true division → float) and ``//`` (floor division → int)
 work; pick whichever reads more cleanly. The coercion is round-half-
 to-even, so it's unbiased over long expression chains.
+
+Placeholder shapes are the exception: their `left` / `top` / `width` /
+`height` setters raise `TypeError` for a float, so convert first
+(`slide.placeholders[1].width = int(card_w)`).
 
 ### International & layout text properties
 

@@ -146,8 +146,8 @@ def build(out_path: str | Path) -> Presentation:
     prs.slides[0].transition.kind     = MSO_TRANSITION_TYPE.MORPH
     prs.slides[0].transition.duration = 1500
 
-    # Space-aware safety net: lint every slide, auto-fix off-slide
-    # shapes, and bail loudly if anything is still error-severity.
+    # Space-aware safety net: lint every slide, apply the safe fixes,
+    # and bail loudly if anything is still error-severity.
     _lint_or_die(prs)
 
     prs.save(out_path)
@@ -157,15 +157,16 @@ def build(out_path: str | Path) -> Presentation:
 def _lint_or_die(prs: Presentation) -> None:
     from power_pptx.exc import LintError
 
-    # Pass 1: nudge off-slide shapes inside the slide bounds
+    # Pass 1: the safe fixes -- off-slide shapes nudged inside, overflowing
+    # text made to fit, contradicted layer declarations restacked
     for slide in prs.slides:
-        slide.lint().auto_fix()
+        slide.tidy()
 
     # Pass 2: collect anything still failing
     errors = []
     for i, slide in enumerate(prs.slides):
         for issue in slide.lint().issues:
-            if issue.severity.value == "error":
+            if issue.severity == "error":
                 errors.append(f"slide {i + 1}: {issue}")
 
     if errors:
@@ -192,7 +193,7 @@ if __name__ == "__main__":
 
 ## What this exercises
 
-- **Phase 9** — `DesignTokens.from_dict`, four recipes (`title_slide`,
+- **Phase 9** — `DesignTokens.from_dict`, five recipes (`title_slide`,
   `kpi_slide`, `bullet_slide`, `quote_slide`, `image_hero_slide`),
   shape-style fan-out via `tokens=`.
 - **Phase 5** — `Entrance.fade(..., by_paragraph=True)` for a reveal,
@@ -203,10 +204,10 @@ if __name__ == "__main__":
 - **Phase 10** — `Chart.apply_palette("modern")` and
   `Chart.apply_quick_layout("title_axes_legend_bottom")`.
 - **Phase 2** — `_lint_or_die(...)` as a generation safety net:
-  `slide.lint().auto_fix()` on every slide to nudge off-slide shapes
-  back inside, then a second pass that raises `LintError` on any
-  remaining error-severity issue (text overflow, residual off-slide,
-  etc).
+  `slide.tidy()` on every slide to nudge off-slide shapes back inside
+  and make overflowing text fit, then a second pass that raises
+  `LintError` on any remaining error-severity issue (text that still
+  overflows a fixed-size frame, residual off-slide, etc).
 - **Phase 10** — optional `render_thumbnails(...)` for downstream
   tooling, with graceful fall-through when LibreOffice isn't
   installed.
@@ -218,7 +219,7 @@ if __name__ == "__main__":
   way design and code evolve independently.
 - In production, use `slide.tidy()` to repair what can be fixed
   automatically — it clamps `OffSlide` shapes back inside the bounds,
-  autofits overflowing text frames, and restacks contradicted
+  makes overflowing text fit its frame, and restacks contradicted
   `layer_above` declarations — then decide what to do with the residual
   issues: log warning-severity ones but ship the deck, raise on
   error-severity ones. Keep the stricter "raise on any error" behaviour
@@ -226,8 +227,9 @@ if __name__ == "__main__":
 - For the save-time gate, set `prs.lint_on_save = "raise"` and just call
   `prs.save(...)`: every slide is linted before anything is written, so
   a failing deck never reaches disk. `"warn"` logs instead. The
-  equivalent for spec-built decks is
-  `power_pptx.compose.from_spec(..., lint="raise")`.
+  equivalent for spec-built decks is a top-level `"lint": "raise"` in
+  the spec passed to `power_pptx.compose.from_spec`. A CI job that
+  only has the saved file can run `power-pptx lint q4-review.pptx`.
 - If you want the chart palette to align with brand tokens rather than
   the built-in `"modern"`, pass an explicit list:
   `chart.apply_palette([TOKENS.palette["primary"], ...])`.

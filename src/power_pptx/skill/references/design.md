@@ -20,11 +20,11 @@ palette, typography, radii, shadows, spacings.
 > through — no `RGBColor.from_hex(...)` round-trip required:
 >
 > ```python
+> shape.fill.solid()
 > shape.fill.fore_color.rgb = tokens.palette["primary"]   # ✓ pass RGBColor
 > shape.fill.fore_color.rgb = "#4F9DFF"                    # ✓ hex string
-> # Don't:
-> shape.fill.fore_color.rgb = RGBColor.from_hex(tokens.palette["primary"])
-> # 'RGBColor' object has no attribute 'startswith'
+> # Don't: RGBColor.from_hex(tokens.palette["primary"]) raises
+> # AttributeError: 'RGBColor' object has no attribute 'startswith'
 > ```
 
 ```python
@@ -65,6 +65,10 @@ Python dict. The one exception is backward compatibility: a bare
 *integer* of 12700 or more (one point in EMU) is still read as EMU, as
 every bare integer used to be. Pass `Pt(...)` if a value that large
 really is points.
+
+Palette colours take a hex string (`"#4F9DFF"` or `"4F9DFF"`), an
+`RGBColor`, or an `(r, g, b)` tuple — or an `[r, g, b]` list, which is
+how JSON and YAML carry one.
 
 **Keys are checked.** A typography token takes `family` (required),
 `size`, `bold`, `italic`, `color`; a shadow token takes `blur_radius`
@@ -407,7 +411,10 @@ add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
 a ready-to-use `TOKENS`:
 
 ```python
+# run from a checkout of the power-pptx repository
 from examples.starter_pack import modern, classic, editorial
+from power_pptx import Presentation
+from power_pptx.design.recipes import title_slide
 
 prs = Presentation()
 title_slide(prs, title="Hello", subtitle="World", tokens=modern.TOKENS)
