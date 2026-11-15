@@ -581,28 +581,14 @@ class _SlideImporter:
         src_type = src_layout_part._element.get("type")  # pyright: ignore[reportPrivateUsage]
 
         # Walk existing layouts on the destination master
-        layout_candidates: list[SlideLayoutPart] = []
-        for rel in dst_master_part.rels.values():
-            if rel.is_external or rel.reltype != RT.SLIDE_LAYOUT:
-                continue
-            layout_candidates.append(rel.target_part)  # type: ignore[arg-type]
-
-        # Priority 0: the very same layout (a same-deck import) — two layouts
-        # of one master may share a name, and the slide must keep its own.
-        for lp in layout_candidates:
-            if lp is src_layout_part:
-                return lp
-
-        # Priority 1: name match
-        for lp in layout_candidates:
-            if lp._element.cSld.name == src_name:  # pyright: ignore[reportPrivateUsage]
-                return lp  # type: ignore[return-value]
-
-        # Priority 2: type match
-        if src_type:
-            for lp in layout_candidates:
-                if lp._element.get("type") == src_type:  # pyright: ignore[reportPrivateUsage]
-                    return lp  # type: ignore[return-value]
+        layout_candidates: list[SlideLayoutPart] = [
+            rel.target_part  # type: ignore[misc]
+            for rel in dst_master_part.rels.values()
+            if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT
+        ]
+        match = _matching_layout(layout_candidates, src_layout_part, src_name, src_type)
+        if match is not None:
+            return match
 
         # Priority 3: clone the layout into the existing master
         return self._copier.clone_layout_into_master(src_layout_part, dst_master_part)
@@ -728,6 +714,37 @@ def _iter_master_layouts(master_part: SlideMasterPart) -> list[SlideLayoutPart]:
         for rel in master_part.rels.values()
         if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT
     ]
+
+
+def _matching_layout(
+    candidates: list[SlideLayoutPart],
+    src_layout_part: SlideLayoutPart,
+    src_name: str,
+    src_type: str | None,
+) -> SlideLayoutPart | None:
+    """Return the layout among *candidates* that best stands in for *src_layout_part*.
+
+    In order: the very same layout, one named *src_name*, one of type
+    *src_type*; |None| when there is none of those.
+    """
+    # Priority 0: the very same layout (a same-deck import) — two layouts
+    # of one master may share a name, and the slide must keep its own.
+    for lp in candidates:
+        if lp is src_layout_part:
+            return lp
+
+    # Priority 1: name match
+    for lp in candidates:
+        if lp._element.cSld.name == src_name:  # pyright: ignore[reportPrivateUsage]
+            return lp
+
+    # Priority 2: type match
+    if not src_type:
+        return None
+    for lp in candidates:
+        if lp._element.get("type") == src_type:  # pyright: ignore[reportPrivateUsage]
+            return lp
+    return None
 
 
 def _is_shared_binary(part: Part, reltype: str | None) -> bool:
