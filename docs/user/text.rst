@@ -213,7 +213,7 @@ A fit that cannot meet them raises |ValueError| and changes nothing::
 
 The result is only as good as the font it is measured with. Name an installed
 family, pass ``font_file=``, or register a folder of fonts with
-:func:`power_pptx.text.register_font_dir` (see :doc:`authoring-workflows`).
+:func:`power_pptx.text.register_font_dir() <power_pptx.text.fonts.register_font_dir>` (see :doc:`authoring-workflows`).
 Naming a family that is not installed measures with a fallback font and emits
 a :class:`~power_pptx.exc.FontMetricsWarning`; ``strict=True`` raises instead.
 :ref:`common_pitfalls` has the details. ``slide.lint()`` measures with the same
@@ -222,8 +222,8 @@ engine, so a frame ``fit_text`` sized is not reported as overflowing.
 Measuring without a shape
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:func:`~power_pptx.text.measure_text` wraps text to a width and reports the
-lines and the space they take, and :func:`~power_pptx.text.truncate_text`
+:func:`~power_pptx.text.measurement.measure_text` wraps text to a width and reports the
+lines and the space they take, and :func:`~power_pptx.text.measurement.truncate_text`
 shortens text with an ellipsis so it fits a number of lines; neither touches a
 slide::
 

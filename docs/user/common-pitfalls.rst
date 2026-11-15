@@ -170,15 +170,16 @@ Pricing-card / badge text in shapes ≤ 0.5" tall
 The linter measures a pill or badge label with real font metrics, so a
 short label that fits is not flagged.  The metrics are those of the font
 on the build machine: name a family that is installed (or register the
-brand font with :func:`power_pptx.text.register_font_dir`) so a tight
-badge is judged by the face it will be drawn in.
+brand font with :func:`power_pptx.text.register_font_dir()
+<power_pptx.text.fonts.register_font_dir>`) so a tight badge is judged by
+the face it will be drawn in.
 
 Designed-overlap groups
 -----------------------
 
 Cards-with-color-bands, badges-over-cards, and eyebrow-over-rectangle
-headers used to surface as :class:`ShapeCollision` issues.  Several
-mitigations now ship:
+headers used to surface as :class:`~power_pptx.lint.ShapeCollision`
+issues.  Several mitigations now ship:
 
 1. **Auto-suppression** of "small shape strictly contained inside a
    larger shape, drawn on top" — the canonical layered-design pattern
@@ -204,8 +205,8 @@ mitigations now ship:
 
    This is the only form that asserts a direction, so it can fail: a
    badge drawn *below* the card it claims to sit on raises a
-   :class:`LayerOrderViolation` (an error, not a warning) that
-   ``report.auto_fix()`` repairs by restacking.
+   :class:`~power_pptx.lint.LayerOrderViolation` (an error, not a
+   warning) that ``report.auto_fix()`` repairs by restacking.
 
 See :ref:`lint-groups` for when to reach for which.
 

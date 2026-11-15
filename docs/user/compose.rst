@@ -57,7 +57,7 @@ host presentation's own layouts, whose placeholders are filled in:
    * - ``title_recipe``, ``bullets_recipe``, ``kpi``, ``chart``, ``table``,
        ``code``, ``timeline``, ``comparison``, ``quote``, ``image_hero``,
        ``section_divider``, ``figure``
-     - The matching function of :mod:`power_pptx.design.recipes`
+     - The matching function of ``power_pptx.design.recipes``
        (``kpi_slide``, ``chart_slide``, …); the slide's other keys are its
        keyword arguments.
 

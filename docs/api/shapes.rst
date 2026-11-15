@@ -152,3 +152,20 @@ Note that:
    :exclude-members:
        has_chart, has_table, is_placeholder, placeholder_format
    :inherited-members:
+
+
+``BBox`` objects
+----------------
+
+A rectangle on the slide, held as ``left``, ``top``, ``width`` and ``height``
+in EMU.  It unpacks to those four values, so
+``slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bbox)`` works, and it is
+importable from :mod:`power_pptx`::
+
+    from power_pptx import BBox
+
+    box = BBox.from_inches(0.5, 1.5, 9, 4)
+    left, right = box.split_h([2, 1], gap=Inches(0.25))
+
+.. autoclass:: power_pptx.geometry.BBox
+   :members:

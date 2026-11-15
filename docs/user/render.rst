@@ -58,7 +58,8 @@ process, the LibreOffice export and then the PDF split; one that overruns is
 stopped along with every process it started.
 
 LibreOffice draws text with the fonts it can find.  Folders registered with
-:func:`power_pptx.text.register_font_dir` (or named in
+:func:`power_pptx.text.register_font_dir()
+<power_pptx.text.fonts.register_font_dir>` (or named in
 ``POWER_PPTX_FONT_DIRS``) are passed to it automatically, and
 ``font_dirs=[...]`` adds more for one call, so thumbnails use the faces the
 deck was measured with instead of substitutes.
