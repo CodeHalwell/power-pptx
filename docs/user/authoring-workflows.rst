@@ -83,7 +83,8 @@ Reproducible builds
 
 With ``SOURCE_DATE_EPOCH`` set, saved decks are byte-identical across builds of
 the same input. Zip entry times, default core properties and embedded chart
-workbook dates all use the pinned time.
+workbook dates all use the pinned time, and section ids, random GUIDs otherwise,
+are derived from each section's name and position.
 
 Typography constraints
 ----------------------

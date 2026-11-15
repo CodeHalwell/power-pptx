@@ -266,7 +266,8 @@ automatically.
 Set `SOURCE_DATE_EPOCH` (seconds since 1970) and two builds of the same input
 are byte-identical. It pins zip entry times, the default package core
 properties, and the created/modified dates inside embedded chart workbooks.
-Use it for content-hash caching and for diffing generated decks.
+Section ids, random GUIDs otherwise, are derived from each section's name and
+position. Use it for content-hash caching and for diffing generated decks.
 
 **Inspect every rendered slide**, including full-resolution images where type
 is small. Check wrapping, clipping, contrast, composition, native chart/table

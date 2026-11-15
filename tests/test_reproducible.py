@@ -82,3 +82,97 @@ class DescribeSourceDateEpoch:
         core = CorePropertiesPart.default(None)  # type: ignore[arg-type]
 
         assert core.modified.isoformat() == "2023-11-14T22:13:20"
+
+
+def _sectioned() -> tuple[bytes, list[str]]:
+    """Build a deck with sections; return its bytes and the ids of its sections."""
+    prs = Presentation()
+    for _ in range(4):
+        prs.slides.add_slide(prs.slide_layouts[6])
+    # -- starting past the first slide also creates a "Default Section" before it --
+    prs.sections.add("Body", start_slide_index=1)
+    prs.sections.add("Appendix", start_slide_index=3)
+    prs.sections.add("Appendix")
+    stream = io.BytesIO()
+    prs.save(stream)
+    return stream.getvalue(), [section.id for section in prs.sections]
+
+
+class DescribeSectionIds:
+    """Section ids are GUIDs: random, except in a pinned build."""
+
+    GUID = r"\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}"
+
+    def it_makes_builds_of_a_deck_with_sections_byte_identical(self, monkeypatch):
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1700000000")
+
+        first, first_ids = _sectioned()
+        second, second_ids = _sectioned()
+
+        assert first_ids == second_ids
+        assert second == first
+
+    def it_still_gives_every_section_its_own_well_formed_id(self, monkeypatch):
+        import re
+
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1700000000")
+
+        _, ids = _sectioned()
+
+        # -- two of the four sections share a name --
+        assert len(ids) == len(set(ids)) == 4
+        assert all(re.fullmatch(self.GUID, section_id) for section_id in ids)
+
+    def it_does_not_reuse_the_id_of_a_section_that_is_still_there(self, monkeypatch):
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1700000000")
+        prs = Presentation()
+        first = prs.sections.add("Same")
+        second = prs.sections.add("Same")
+        # -- the next section has the name and the position `second` was given --
+        first.delete()
+
+        third = prs.sections.add("Same")
+
+        assert third.id != second.id
+
+    def it_keeps_an_id_the_caller_supplies(self, monkeypatch):
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1700000000")
+        supplied = "{11111111-2222-3333-4444-555555555555}"
+        prs = Presentation()
+
+        assert prs.sections.add("Mine", id=supplied).id == supplied
+
+    def it_leaves_unpinned_ids_random(self, monkeypatch):
+        import re
+
+        monkeypatch.delenv(SOURCE_DATE_EPOCH, raising=False)
+
+        _, first_ids = _sectioned()
+        _, second_ids = _sectioned()
+
+        assert not set(first_ids) & set(second_ids)
+        assert all(re.fullmatch(self.GUID, section_id) for section_id in first_ids)
+
+
+class DescribeNewUuid:
+    def it_is_random_when_unpinned(self, monkeypatch):
+        from power_pptx._reproducible import new_uuid
+
+        monkeypatch.delenv(SOURCE_DATE_EPOCH, raising=False)
+
+        assert new_uuid("section", 0, "Intro") != new_uuid("section", 0, "Intro")
+        assert new_uuid("section", 0, "Intro").version == 4
+
+    def it_depends_only_on_what_it_identifies_when_pinned(self, monkeypatch):
+        from power_pptx._reproducible import new_uuid
+
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1700000000")
+        intro = new_uuid("section", 0, "Intro")
+
+        assert new_uuid("section", 0, "Intro") == intro
+        assert new_uuid("section", 1, "Intro") != intro
+        assert new_uuid("section", 0, "Outro") != intro
+        # -- the parts are kept apart, not run together --
+        assert new_uuid("section", 1, "0Intro") != new_uuid("section", 10, "Intro")
+        monkeypatch.setenv(SOURCE_DATE_EPOCH, "1800000000")
+        assert new_uuid("section", 0, "Intro") == intro

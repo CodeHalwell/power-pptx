@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import TYPE_CHECKING, Callable, cast
 
+from power_pptx._reproducible import new_uuid
 from power_pptx.oxml.ns import nsmap, qn
 from power_pptx.oxml.simpletypes import ST_SlideId, ST_SlideSizeCoordinate, XsdString
 from power_pptx.oxml.xmlchemy import (
@@ -234,10 +234,12 @@ class CT_SectionList(BaseOxmlElement):
 
         `name` is the user-visible section label.  `section_id`, when supplied,
         is the brace-wrapped GUID used as the section's `id`; a random one is
-        generated when omitted.
+        generated when omitted.  Under ``SOURCE_DATE_EPOCH`` it is derived
+        from the section's name and position instead, so that two builds of
+        the same deck are byte-identical.
         """
         if section_id is None:
-            section_id = "{%s}" % str(uuid.uuid4()).upper()
+            section_id = self._new_section_id(name)
         section = self._add_section()
         section.name = name
         section.id = section_id
@@ -245,6 +247,21 @@ class CT_SectionList(BaseOxmlElement):
         # -- minOccurs=1); PowerPoint writes it even for an empty section. --
         section.get_or_add_sldIdLst()
         return section
+
+    def _new_section_id(self, name: str) -> str:
+        """Return a brace-wrapped GUID that no section in this list uses yet.
+
+        In a pinned build the same name at the same position gives the same
+        GUID, so the position is advanced until the GUID is free; a random
+        GUID is free the first time.
+        """
+        used = {section.id for section in self.section_lst}
+        position = len(self.section_lst)
+        while True:
+            section_id = "{%s}" % str(new_uuid("section", position, name)).upper()
+            if section_id not in used:
+                return section_id
+            position += 1
 
 
 class CT_Section(BaseOxmlElement):
