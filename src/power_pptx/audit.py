@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from power_pptx.presentation import Presentation
     from power_pptx.shapes.base import BaseShape
     from power_pptx.shapes.picture import Picture
+    from power_pptx.slide import Slide
 
 
 __all__ = ["AuditReport", "audit"]
@@ -191,8 +192,6 @@ def audit(
     in passing-defaults mode; per-slide overrides should be supplied
     via the slide-level ``slide.lint(...)`` API directly.
     """
-    from power_pptx.shapes.picture import Picture
-
     report = AuditReport()
     slides = list(prs.slides)
     report.total_slides = len(slides)
@@ -200,75 +199,56 @@ def audit(
     # Read slide dimensions once for the full-bleed-background heuristic.
     slide_w = int(prs.slide_width) if prs.slide_width else 0
     slide_h = int(prs.slide_height) if prs.slide_height else 0
-    bleed_w = slide_w * 0.95
-    bleed_h = slide_h * 0.95
-
+    checks = _SlideAudit(report, (slide_w, slide_h), size_warn_bytes, check_fonts)
     for idx, slide in enumerate(slides):
+        checks.run(idx, slide)
+    return report
+
+
+#: Image types whose data is decoded to check it.  Vectors and WDP can be
+#: valid without an installed Pillow decoder.
+_RASTER_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff"})
+
+#: What reading or decoding a picture's image data raises when it is broken.
+_IMAGE_ERRORS = (OSError, ValueError, KeyError, AttributeError, TypeError, SyntaxError)
+
+
+class _SlideAudit:
+    """Audits one slide at a time into `report`; see :func:`audit`."""
+
+    def __init__(
+        self,
+        report: AuditReport,
+        slide_size: tuple[int, int],
+        size_warn_bytes: int,
+        check_fonts: bool,
+    ):
+        self._report = report
+        self._slide_size = slide_size
+        self._size_warn_bytes = size_warn_bytes
+        self._check_fonts = check_fonts
+
+    def run(self, idx: int, slide: Slide) -> None:
+        """Add slide `idx`'s lint issues, picture problems, fonts and emptiness."""
+        from power_pptx.shapes.picture import Picture
+
+        report = self._report
         # Lint each slide and prefix with the index.
         for issue in slide.lint().issues:
             report.lint_issues.append((idx, issue))
 
-        fonts = _SlideFonts(slide) if check_fonts else None
+        fonts = _SlideFonts(slide) if self._check_fonts else None
         content_shapes = 0
         for shape in _leaf_shapes(slide.shapes):
             tx_body = _tx_body(shape)
             has_text = tx_body is not None and _has_visible_text(tx_body)
             if fonts is not None:
                 fonts.collect(shape, tx_body)
-            # Skip layout placeholders that are entirely inherited.
-            if shape.is_placeholder and tx_body is not None and not has_text:
-                continue
-            # Skip full-bleed background rectangles — they're decoration,
-            # not content, so a slide that only contains them should be
-            # flagged as empty (matches the documented contract for
-            # ``empty_slides``).
-            try:
-                sw = int(shape.width)
-                sh = int(shape.height)
-            except Exception:
-                sw = sh = 0
-            if (
-                isinstance(shape, Shape)
-                and shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-                and shape.auto_shape_type == MSO_SHAPE.RECTANGLE
-                and bleed_w > 0
-                and bleed_h > 0
-                and sw >= bleed_w
-                and sh >= bleed_h
-                and int(shape.left or 0) <= slide_w * 0.05
-                and int(shape.top or 0) <= slide_h * 0.05
-                and int(shape.left or 0) + sw >= bleed_w
-                and int(shape.top or 0) + sh >= bleed_h
-                and not has_text
-            ):
+            if _is_decoration(shape, tx_body, has_text, self._slide_size):
                 continue
             content_shapes += 1
-
-            # Picture sanity.
             if isinstance(shape, Picture):
-                broken = int(shape.width) <= 0 or int(shape.height) <= 0
-                try:
-                    rId = shape._pic.blip_rId
-                    if rId is None:
-                        raise ValueError("picture has no embedded image")
-                    image_part = shape.part.related_part(rId)
-                    blob = image_part.blob
-                    size_bytes = len(blob)
-                    if size_bytes > size_warn_bytes:
-                        report.size_warnings.append((idx, shape.name, size_bytes))
-                    if not blob:
-                        broken = True
-                    elif image_part.content_type in {
-                        "image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff"
-                    }:
-                        # Validate standard raster formats. Vectors and WDP
-                        # can be valid without an installed Pillow decoder.
-                        with PILImage.open(io.BytesIO(blob)) as image:
-                            image.verify()
-                except (OSError, ValueError, KeyError, AttributeError, TypeError, SyntaxError):
-                    broken = True
-                if broken:
-                    report.broken_pictures.append((idx, shape))
+                self._check_picture(idx, shape)
 
         if fonts is not None:
             report.font_warnings.extend((idx, name) for name in fonts.uncommon())
@@ -276,7 +256,77 @@ def audit(
         if content_shapes == 0:
             report.empty_slides.append(idx)
 
-    return report
+    def _check_picture(self, idx: int, picture: Picture) -> None:
+        """Record `picture` as broken or oversized when it is."""
+        broken = int(picture.width) <= 0 or int(picture.height) <= 0
+        try:
+            image_part = _embedded_image_part(picture)
+            blob = image_part.blob
+            size_bytes = len(blob)
+            if size_bytes > self._size_warn_bytes:
+                self._report.size_warnings.append((idx, picture.name, size_bytes))
+            if not _image_data_is_sound(blob, image_part):
+                broken = True
+        except _IMAGE_ERRORS:
+            broken = True
+        if broken:
+            self._report.broken_pictures.append((idx, picture))
+
+
+def _is_decoration(shape: BaseShape, tx_body, has_text: bool, slide_size: tuple[int, int]) -> bool:
+    """True for a shape that is not content: an empty inherited placeholder or a backdrop.
+
+    A full-bleed background rectangle is decoration, so a slide that only
+    contains them is flagged as empty (the documented contract for
+    ``empty_slides``).
+    """
+    if shape.is_placeholder and tx_body is not None and not has_text:
+        return True
+    return _is_full_bleed_rectangle(shape, has_text, slide_size)
+
+
+def _is_full_bleed_rectangle(shape: BaseShape, has_text: bool, slide_size: tuple[int, int]) -> bool:
+    """True for a rectangle with no text covering at least 95% of the slide each way."""
+    slide_w, slide_h = slide_size
+    bleed_w = slide_w * 0.95
+    bleed_h = slide_h * 0.95
+    try:
+        sw = int(shape.width)
+        sh = int(shape.height)
+    except Exception:
+        sw = sh = 0
+    return (
+        isinstance(shape, Shape)
+        and shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+        and shape.auto_shape_type == MSO_SHAPE.RECTANGLE
+        and bleed_w > 0
+        and bleed_h > 0
+        and sw >= bleed_w
+        and sh >= bleed_h
+        and int(shape.left or 0) <= slide_w * 0.05
+        and int(shape.top or 0) <= slide_h * 0.05
+        and int(shape.left or 0) + sw >= bleed_w
+        and int(shape.top or 0) + sh >= bleed_h
+        and not has_text
+    )
+
+
+def _embedded_image_part(picture: Picture):
+    """The image part `picture` shows; ``ValueError`` when it embeds none."""
+    rId = picture._pic.blip_rId  # pyright: ignore[reportPrivateUsage]
+    if rId is None:
+        raise ValueError("picture has no embedded image")
+    return picture.part.related_part(rId)
+
+
+def _image_data_is_sound(blob: bytes, image_part) -> bool:
+    """False for empty image data; a raster image is decoded, raising if it is corrupt."""
+    if not blob:
+        return False
+    if image_part.content_type in _RASTER_TYPES:
+        with PILImage.open(io.BytesIO(blob)) as image:
+            image.verify()
+    return True
 
 
 def _leaf_shapes(shapes: Iterable[BaseShape]) -> Iterator[BaseShape]:
