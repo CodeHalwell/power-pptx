@@ -3012,78 +3012,126 @@ def _fix_off_slide(
     a picture or group proportionally, anything else along the axis that is
     too long.
     """
-    left, top = int(shape.left or 0), int(shape.top or 0)
-    width, height = int(shape.width or 0), int(shape.height or 0)
-    if width < 0 or height < 0:
+    old = _Frame(
+        int(shape.left or 0), int(shape.top or 0), int(shape.width or 0), int(shape.height or 0)
+    )
+    if old.width < 0 or old.height < 0:
         return None  # InvalidGeometry: there is no area to place
-    rotation = _shape_rotation(shape)
-    g_left, g_top, g_width, g_height = _analyse_text(env, shape).growth
-
-    def extent(at_left: int, at_top: int, w: int, h: int) -> tuple[int, int, int, int]:
-        frame = (
-            at_left + g_left,
-            at_top + g_top,
-            at_left + g_left + w + g_width,
-            at_top + g_top + h + g_height,
-        )
-        return _rotated_extent(frame, rotation)
-
+    area = _RenderedArea(_shape_rotation(shape), _analyse_text(env, shape).growth)
     sw = None if slide_w is None else int(slide_w)
     sh = None if slide_h is None else int(slide_h)
-    new_width, new_height = width, height
-
     # First clamp size: a shape larger than the slide can never be fully
     # on-slide just by translation, so shrink to fit before deciding where
     # to put it.
-    e_left, e_top, e_right, e_bottom = extent(left, top, width, height)
+    sized = _shrunk_to_slide(shape, area, old, sw, sh)
+    e_left, e_top, e_right, e_bottom = area.extent(sized)
+    new = sized._replace(
+        left=old.left + _shift_into(e_left, e_right, sw),
+        top=old.top + _shift_into(e_top, e_bottom, sh),
+    )
+    if new == old:
+        return None
+    if not dry_run:
+        _move_and_resize(shape, old, new)
+    return _describe_clamp(shape.name, old, new)
+
+
+class _Frame(NamedTuple):
+    """A shape's stored position and size, in EMU."""
+
+    left: int
+    top: int
+    width: int
+    height: int
+
+
+class _RenderedArea(NamedTuple):
+    """What turns a shape's stored frame into the area it covers when rendered."""
+
+    rotation: float
+    growth: tuple[float, float, float, float]  # see :attr:`_TextFinding.growth`
+
+    def extent(self, frame: _Frame) -> tuple[int, int, int, int]:
+        """``(left, top, right, bottom)`` of the area `frame` covers when rendered."""
+        g_left, g_top, g_width, g_height = self.growth
+        grown = (
+            frame.left + g_left,
+            frame.top + g_top,
+            frame.left + g_left + frame.width + g_width,
+            frame.top + g_top + frame.height + g_height,
+        )
+        return _rotated_extent(grown, self.rotation)
+
+
+def _shrunk_to_slide(
+    shape: BaseShape, area: _RenderedArea, frame: _Frame, sw: int | None, sh: int | None
+) -> _Frame:
+    """`frame` made small enough that its rendered area fits a `sw` × `sh` slide.
+
+    A picture or group, or any shape not turned by a multiple of 90°, is
+    scaled as a whole; anything else is shortened along the axis that is too
+    long.
+    """
+    e_left, e_top, e_right, e_bottom = area.extent(frame)
     too_wide = sw is not None and e_right - e_left > sw
     too_tall = sh is not None and e_bottom - e_top > sh
-    if too_wide or too_tall:
-        quarter_turns = round(rotation / 90.0)
-        axis_aligned = abs(rotation - 90.0 * quarter_turns) < 1e-6
-        if _scales_as_a_whole(shape) or not axis_aligned:
-            factor = 1.0
-            if sw is not None and e_right > e_left:
-                factor = min(factor, sw / (e_right - e_left))
-            if sh is not None and e_bottom > e_top:
-                factor = min(factor, sh / (e_bottom - e_top))
-            new_width = math.floor(width * factor)
-            new_height = math.floor(height * factor)
-        else:
-            # A quarter turn swaps which stored extent lies along each axis.
-            limit_w, limit_h = (sh, sw) if quarter_turns % 2 else (sw, sh)
-            if limit_w is not None and width > limit_w:
-                new_width = limit_w
-            if limit_h is not None and height > limit_h:
-                new_height = limit_h
+    if not (too_wide or too_tall):
+        return frame
+    quarter_turns = round(area.rotation / 90.0)
+    axis_aligned = abs(area.rotation - 90.0 * quarter_turns) < 1e-6
+    if _scales_as_a_whole(shape) or not axis_aligned:
+        factor = _fit_factor((e_left, e_top, e_right, e_bottom), sw, sh)
+        return frame._replace(
+            width=math.floor(frame.width * factor), height=math.floor(frame.height * factor)
+        )
+    # A quarter turn swaps which stored extent lies along each axis.
+    limit_w, limit_h = (sh, sw) if quarter_turns % 2 else (sw, sh)
+    return frame._replace(
+        width=_capped(frame.width, limit_w), height=_capped(frame.height, limit_h)
+    )
 
-    def shift(low: int, high: int, limit: int | None) -> int:
-        """Move needed to bring ``[low, high]`` inside ``[0, limit]``."""
-        if low < 0:
-            return -low
-        if limit is not None and high > limit:
-            return max(-low, limit - high)
-        return 0
 
-    e_left, e_top, e_right, e_bottom = extent(left, top, new_width, new_height)
-    new_left = left + shift(e_left, e_right, sw)
-    new_top = top + shift(e_top, e_bottom, sh)
+def _fit_factor(extent: tuple[int, int, int, int], sw: int | None, sh: int | None) -> float:
+    """Largest scale, at most 1, at which `extent` fits a `sw` × `sh` slide."""
+    e_left, e_top, e_right, e_bottom = extent
+    factor = 1.0
+    if sw is not None and e_right > e_left:
+        factor = min(factor, sw / (e_right - e_left))
+    if sh is not None and e_bottom > e_top:
+        factor = min(factor, sh / (e_bottom - e_top))
+    return factor
 
-    if (new_left, new_top, new_width, new_height) == (left, top, width, height):
-        return None
+
+def _capped(value: int, limit: int | None) -> int:
+    return limit if limit is not None and value > limit else value
+
+
+def _shift_into(low: int, high: int, limit: int | None) -> int:
+    """Move needed to bring ``[low, high]`` inside ``[0, limit]``."""
+    if low < 0:
+        return -low
+    if limit is not None and high > limit:
+        return max(-low, limit - high)
+    return 0
+
+
+def _move_and_resize(shape: BaseShape, old: _Frame, new: _Frame) -> None:
+    """Give `shape`, stored at `old`, the frame `new`; an unchanged extent is not rewritten."""
+    shape.left = Emu(new.left)
+    shape.top = Emu(new.top)
+    if new.width != old.width:
+        shape.width = Emu(new.width)
+    if new.height != old.height:
+        shape.height = Emu(new.height)
+
+
+def _describe_clamp(name: str, old: _Frame, new: _Frame) -> str:
     parts = []
-    if new_left != left or new_top != top:
-        parts.append(f"position ({left},{top}) → ({new_left},{new_top})")
-    if new_width != width or new_height != height:
-        parts.append(f"size ({width},{height}) → ({new_width},{new_height})")
-    if not dry_run:
-        shape.left = Emu(new_left)
-        shape.top = Emu(new_top)
-        if new_width != width:
-            shape.width = Emu(new_width)
-        if new_height != height:
-            shape.height = Emu(new_height)
-    return f"Clamped '{shape.name}' on-slide: " + "; ".join(parts) + "."
+    if (new.left, new.top) != (old.left, old.top):
+        parts.append(f"position ({old.left},{old.top}) → ({new.left},{new.top})")
+    if (new.width, new.height) != (old.width, old.height):
+        parts.append(f"size ({old.width},{old.height}) → ({new.width},{new.height})")
+    return f"Clamped '{name}' on-slide: " + "; ".join(parts) + "."
 
 
 def _fix_table_row(env: _TextEnv, shape: BaseShape, row_idx: int, dry_run: bool) -> str | None:
