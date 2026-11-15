@@ -337,8 +337,7 @@ def _is_positive_int(value):
 
 
 def _validate(node, context, names):
-    if not isinstance(node, (Container, TextBlock, NativeContent, DataTable)):
-        raise TypeError("children must be native Component objects")
+    kind = _kind_of(node)
     if id(node) in names:
         raise ValueError("Component trees cannot contain cycles or reuse the same instance")
     names.add(id(node))
@@ -347,12 +346,7 @@ def _validate(node, context, names):
         if node.name in names:
             raise ValueError(f"Duplicate component name: {node.name!r}")
         names.add(node.name)
-    if isinstance(node, Container):
-        _validate_container(node, context, names)
-    elif isinstance(node, TextBlock):
-        _validate_text(node, context, names)
-    elif isinstance(node, DataTable):
-        _validate_table(node, context, names)
+    kind.validate(node, context, names)
 
 
 def _validate_size(node):
@@ -625,27 +619,38 @@ def _row_widths(node, available, context):
 
 
 def _measure(node, width, context):
+    """The height `node` takes at `width`: its own height when it fixes one."""
     if node.height is not None:
         return int(node.height)
-    if isinstance(node, TextBlock):
-        return int(_text_measure(node, width, 10**12, context).height)
-    if isinstance(node, DataTable):
-        return sum(_table_layout(node, width, context).heights)
-    if isinstance(node, Container):
-        t, r, b, left_pad = _insets(node.padding)
-        inner = width - left_pad - r
-        if inner <= 0:
-            raise LayoutOverflowError("Container padding consumes its width")
-        if node.direction == "horizontal":
-            widths = _row_widths(node, inner, context)
-            heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
-            return t + b + max(heights, default=0)
-        return (
-            t
-            + b
-            + sum(_measure(c, c.width or inner, context) for c in node.children)
-            + node.gap * max(0, len(node.children) - 1)
-        )
+    return _kind_of(node).height(node, width, context)
+
+
+def _text_height(node, width, context):
+    return int(_text_measure(node, width, 10**12, context).height)
+
+
+def _table_height(node, width, context):
+    return sum(_table_layout(node, width, context).heights)
+
+
+def _container_height(node, width, context):
+    t, r, b, left_pad = _insets(node.padding)
+    inner = width - left_pad - r
+    if inner <= 0:
+        raise LayoutOverflowError("Container padding consumes its width")
+    if node.direction == "horizontal":
+        widths = _row_widths(node, inner, context)
+        heights = [_measure(child, w, context) for child, w in zip(node.children, widths)]
+        return t + b + max(heights, default=0)
+    return (
+        t
+        + b
+        + sum(_measure(c, c.width or inner, context) for c in node.children)
+        + node.gap * max(0, len(node.children) - 1)
+    )
+
+
+def _native_height(node, width, context):
     raise TypeError("NativeContent requires a height")
 
 
@@ -657,16 +662,15 @@ def _plan(node, bbox, context, stretched=False):
     if bbox.width <= 0 or bbox.height <= 0:
         raise LayoutOverflowError("Component regions must have positive dimensions")
     plan = _Plan(node, bbox)
-    if isinstance(node, TextBlock):
-        plan.text = _text_measure(node, bbox.width, bbox.height, context)
-    elif isinstance(node, DataTable):
-        _plan_table(plan, context)
-    elif isinstance(node, Container):
-        _plan_container(plan, context, stretched)
+    _kind_of(node).plan(plan, context, stretched)
     return plan
 
 
-def _plan_table(plan, context):
+def _plan_text(plan, context, stretched):
+    plan.text = _text_measure(plan.node, plan.bbox.width, plan.bbox.height, context)
+
+
+def _plan_table(plan, context, stretched):
     node, bbox = plan.node, plan.bbox
     plan.table = _table_layout(node, bbox.width, context)
     if sum(plan.table.heights) > bbox.height:
@@ -836,17 +840,9 @@ def _child_box(inner, horizontal, along, across, width, height):
 
 
 def _draw(plan, slide, context, result):
-    node = plan.node
     start = len(result.shapes)
-    if isinstance(node, TextBlock):
-        _draw_text(plan, slide, context, result)
-    elif isinstance(node, Container):
-        _draw_container(plan, slide, context, result)
-    elif isinstance(node, DataTable):
-        _draw_data_table(plan, slide, context, result)
-    elif isinstance(node, NativeContent):
-        _draw_native(plan, slide, context, result)
-    _name_first_shape(node, result, start)
+    _kind_of(plan.node).draw(plan, slide, context, result)
+    _name_first_shape(plan.node, result, start)
 
 
 def _name_first_shape(node, result, start):
@@ -981,3 +977,42 @@ def _draw_table(node, plan, slide, context):
             if node.border is not None:
                 cell.borders.outer(Pt(0.75), context.color(node.border))
     return frame
+
+
+# -- kinds of node -----------------------------------------------------------
+
+
+def _nothing(*_args):
+    """A layout phase that a kind of node has no part in."""
+
+
+@dataclass(frozen=True)
+class _Kind:
+    """What each layout phase does with one kind of node.
+
+    ``validate(node, context, names)`` checks the node's own options (and a
+    container's children); ``height(node, width, context)`` measures a node
+    with no fixed height; ``plan(plan, context, stretched)`` fills in what
+    drawing needs for the node's region; ``draw(plan, slide, context,
+    result)`` creates its shapes.
+    """
+
+    validate: Callable[..., None]
+    height: Callable[..., int]
+    plan: Callable[..., None]
+    draw: Callable[..., None]
+
+
+_KINDS = (
+    (Container, _Kind(_validate_container, _container_height, _plan_container, _draw_container)),
+    (TextBlock, _Kind(_validate_text, _text_height, _plan_text, _draw_text)),
+    (NativeContent, _Kind(_nothing, _native_height, _nothing, _draw_native)),
+    (DataTable, _Kind(_validate_table, _table_height, _plan_table, _draw_data_table)),
+)
+
+
+def _kind_of(node) -> _Kind:
+    for cls, kind in _KINDS:
+        if isinstance(node, cls):
+            return kind
+    raise TypeError("children must be native Component objects")
