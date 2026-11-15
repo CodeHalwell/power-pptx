@@ -143,6 +143,102 @@ class Describe_apply_template_fallback:
         assert len(deck2.slides) == 2
 
 
+def _deck_on_layout(index: int, *, name: str | None = None, type_: str | None = None):
+    """A one-slide deck on layout *index*, that layout renamed and retyped as given.
+
+    A *type_* of ``""`` removes the layout's ``type`` attribute.
+    """
+    deck = Presentation()
+    layout = deck.slide_layouts[index]
+    if name is not None:
+        layout._element.cSld.set("name", name)
+    if type_ == "":
+        del layout._element.attrib["type"]
+    elif type_ is not None:
+        layout._element.set("type", type_)
+    deck.slides.add_slide(layout).shapes.add_textbox(
+        Inches(1), Inches(1), Inches(2), Inches(1)
+    ).text_frame.text = "kept"
+    return deck
+
+
+def _layout_relationships(slide) -> list[str]:
+    from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    return [rId for rId, rel in slide.part.rels.items() if rel.reltype == RT.SLIDE_LAYOUT]
+
+
+class Describe_apply_template_layout_matching:
+    """Each slide moves to the template layout of its layout's name, else type, else the first."""
+
+    def it_matches_a_layout_by_name_first(self):
+        # -- "Blank" by name, although the type says "Title Only" --
+        deck = _deck_on_layout(5, name="Blank", type_="titleOnly")
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Blank"
+
+    def it_matches_a_layout_by_type_when_no_name_matches(self):
+        deck = _deck_on_layout(5, name="House style: headline only")
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Only"
+        assert len(_layout_relationships(deck.slides[0])) == 1
+
+    @pytest.mark.parametrize("type_", ["tbl", ""])
+    def it_falls_back_to_the_first_layout_when_neither_matches(self, type_):
+        deck = _deck_on_layout(5, name="House style: headline only", type_=type_)
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Slide"
+        assert _all_text(_round_trip(deck)) == ["kept"]
+
+    def it_finds_the_layout_relationship_among_the_slides_others(self):
+        # -- the layout relationship need not be the slide's first --
+        from lxml import etree
+
+        deck = _deck_on_layout(5, name="House style: headline only")
+        rels_name = "ppt/slides/_rels/slide1.xml.rels"
+        out = io.BytesIO()
+        with zipfile.ZipFile(_as_stream(deck)) as zin, zipfile.ZipFile(out, "w") as zout:
+            for name in zin.namelist():
+                data = zin.read(name)
+                if name == rels_name:
+                    rels = etree.fromstring(data)
+                    link = etree.Element(
+                        "{%s}Relationship" % etree.QName(rels).namespace,
+                        Id="rId90",
+                        Type="http://example.com/link",
+                        Target="http://example.com/",
+                        TargetMode="External",
+                    )
+                    rels.insert(0, link)
+                    data = etree.tostring(rels)
+                zout.writestr(name, data)
+        reopened = Presentation(io.BytesIO(out.getvalue()))
+        assert list(reopened.slides[0].part.rels)[0] == "rId90"
+
+        reopened.apply_template(_as_stream(Presentation()))
+
+        assert reopened.slides[0].slide_layout.name == "Title Only"
+        assert "rId90" in reopened.slides[0].part.rels
+        assert len(_layout_relationships(reopened.slides[0])) == 1
+
+    def it_gives_a_slide_without_a_layout_the_first_one(self):
+        deck = _deck_on_layout(1)
+        slide_part = deck.slides[0].part
+        (rId,) = _layout_relationships(deck.slides[0])
+        slide_part.rels.pop(rId)
+
+        deck.apply_template(_as_stream(Presentation()))
+
+        assert deck.slides[0].slide_layout.name == "Title Slide"
+        assert len(_layout_relationships(deck.slides[0])) == 1
+
+
 # ---------------------------------------------------------------------------
 # Old masters removed
 # ---------------------------------------------------------------------------
