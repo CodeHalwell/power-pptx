@@ -18,6 +18,8 @@ from power_pptx.shapes.shapetree import (
 )
 from power_pptx.util import Emu, Inches
 
+from ..unitutil.file import testfile
+
 
 def _slide():
     prs = Presentation()
@@ -284,7 +286,7 @@ class DescribeAnchorOnAddPicture:
         prs.slide_width = Inches(10)
         prs.slide_height = Inches(7.5)
         pic = slide.shapes.add_picture(
-            "tests/test_files/python-powered.png",
+            testfile("python-powered.png"),
             Inches(0),
             Inches(0),
             height=Inches(0.5),
