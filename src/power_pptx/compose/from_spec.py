@@ -1688,49 +1688,79 @@ def _apply_overlap_allowances(
     raw = entry.get("allow_overlap_with")
     if raw is None:
         return
-    if isinstance(raw, str):
-        refs: list[Any] = [raw]
-    elif isinstance(raw, (list, tuple)):
-        refs = list(raw)
-    else:
-        raise SpecError(
-            f"{where}: 'allow_overlap_with' must be a shape name or a list of "
-            f"shape names; got {type(raw).__name__!r}"
-        )
 
     own_name = entry.get("name")
     targets = []
-    for ref in refs:
-        if not isinstance(ref, str) or not ref.strip():
-            raise SpecError(
-                f"{where}: 'allow_overlap_with' entries must be non-empty "
-                f"shape names; got {ref!r}"
-            )
-        if ref == own_name:
-            raise SpecError(
-                f"{where}: 'allow_overlap_with' names this shape itself "
-                f"({ref!r}); an allowance always describes a pair of shapes."
-            )
+    for ref in _overlap_refs(raw, where):
+        _check_overlap_ref(ref, own_name, where)
         target = by_name.get(ref)
         if target is None:
-            elsewhere = sorted(set(deck_shape_names.get(ref, ())) - {slide_index})
-            if elsewhere:
-                raise SpecError(
-                    f"{where}: 'allow_overlap_with' names shape {ref!r}, which "
-                    f"is defined on slides {elsewhere} — an overlap allowance "
-                    "is keyed on shape id, and shape ids are only unique "
-                    "within a slide, so it can only name a shape on "
-                    f"slides[{slide_index}]."
-                )
-            raise SpecError(
-                f"{where}: 'allow_overlap_with' names unknown shape {ref!r}"
-                f"{_did_you_mean(ref, by_name)} on slides[{slide_index}]. "
-                f"Named shapes on that slide: {sorted(by_name)}"
+            raise _unresolved_overlap_ref(
+                ref,
+                by_name,
+                where=where,
+                slide_index=slide_index,
+                deck_shape_names=deck_shape_names,
             )
         targets.append(target)
 
     if targets:
         shape.allow_overlap_with(*targets)
+
+
+def _overlap_refs(raw: Any, where: str) -> list[Any]:
+    """Return an ``allow_overlap_with`` value as a list of references."""
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    raise SpecError(
+        f"{where}: 'allow_overlap_with' must be a shape name or a list of "
+        f"shape names; got {type(raw).__name__!r}"
+    )
+
+
+def _check_overlap_ref(ref: Any, own_name: Any, where: str) -> None:
+    """Reject a reference that is not a shape name, or that names its own shape."""
+    if not isinstance(ref, str) or not ref.strip():
+        raise SpecError(
+            f"{where}: 'allow_overlap_with' entries must be non-empty "
+            f"shape names; got {ref!r}"
+        )
+    if ref == own_name:
+        raise SpecError(
+            f"{where}: 'allow_overlap_with' names this shape itself "
+            f"({ref!r}); an allowance always describes a pair of shapes."
+        )
+
+
+def _unresolved_overlap_ref(
+    ref: str,
+    by_name: Mapping[str, Any],
+    *,
+    where: str,
+    slide_index: int,
+    deck_shape_names: Mapping[str, list[int]],
+) -> SpecError:
+    """Return the error for a reference to no shape on this slide.
+
+    It says so when the name belongs to a shape on another slide, which
+    an allowance can never name.
+    """
+    elsewhere = sorted(set(deck_shape_names.get(ref, ())) - {slide_index})
+    if elsewhere:
+        return SpecError(
+            f"{where}: 'allow_overlap_with' names shape {ref!r}, which "
+            f"is defined on slides {elsewhere} — an overlap allowance "
+            "is keyed on shape id, and shape ids are only unique "
+            "within a slide, so it can only name a shape on "
+            f"slides[{slide_index}]."
+        )
+    return SpecError(
+        f"{where}: 'allow_overlap_with' names unknown shape {ref!r}"
+        f"{_did_you_mean(ref, by_name)} on slides[{slide_index}]. "
+        f"Named shapes on that slide: {sorted(by_name)}"
+    )
 
 
 _LEGACY_KPI_KEYS = ("label", "value", "delta")
