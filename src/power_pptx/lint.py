@@ -3828,32 +3828,42 @@ def _check_min_font_size(
     at 9pt.  The runs are read from the XML: ``shape.text_frame`` would add a
     ``<p:txBody>`` to a shape without one.
     """
-    issues: list[LintIssue] = []
+    tx_body = _shape_tx_body(shape)
+    smallest = None if tx_body is None else _smallest_run_size(tx_body)
+    if smallest is None:
+        return []
+    pt = smallest / 100.0 * _stored_font_scale(tx_body)
+    if pt < threshold_pt:
+        return [MinFontSize(shape, pt, threshold_pt)]
+    return []
+
+
+def _shape_tx_body(shape: BaseShape):
+    """`shape`'s ``<p:txBody>``, or ``None``; read off the element, adding none."""
     try:
         if not shape.has_text_frame:
-            return issues
-        tx_body = shape._element.txBody  # pyright: ignore[reportPrivateUsage]
+            return None
+        return shape._element.txBody  # pyright: ignore[reportPrivateUsage]
     except Exception:
-        return issues
-    if tx_body is None:
-        return issues
-    smallest: float | None = None
+        return None
+
+
+def _smallest_run_size(tx_body) -> int | None:
+    """The smallest font size set on a run of `tx_body`, in 1/100 pt."""
+    sizes: list[int] = []
     for run in tx_body.iter(_T_R):
         rpr = run.find(_T_RPR)
         size = None if rpr is None else _int_attr(rpr, "sz")
-        if size is None or size <= 0:
-            continue
-        if smallest is None or size < smallest:
-            smallest = size
-    if smallest is None:
-        return issues
+        if size is not None and size > 0:
+            sizes.append(size)
+    return min(sizes, default=None)
+
+
+def _stored_font_scale(tx_body) -> float:
+    """The font scale a ``TEXT_TO_FIT_SHAPE`` frame stores, 1.0 when it stores none."""
     body_pr = tx_body.find(_T_BODYPR)
     norm = None if body_pr is None else body_pr.find(_T_NORMAUTOFIT)
-    scale = 1.0 if norm is None else (_fraction(norm.get("fontScale")) or 1.0)
-    pt = smallest / 100.0 * scale
-    if pt < threshold_pt:
-        issues.append(MinFontSize(shape, pt, threshold_pt))
-    return issues
+    return 1.0 if norm is None else (_fraction(norm.get("fontScale")) or 1.0)
 
 
 # ---------------------------------------------------------------------------
