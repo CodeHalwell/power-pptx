@@ -100,7 +100,38 @@ content kwargs, an optional |DesignTokens|, and an optional
               tokens=tokens)
 
 Recipes use the ``Blank`` layout and place every shape themselves so the
-rendered geometry doesn't depend on the host template's master.
+rendered geometry doesn't depend on the host template's master.  A
+template without a layout named ``Blank`` gets the layout with the fewest
+placeholders, and the placeholders it brings are removed.
+
+The module also provides ``section_divider``, ``chart_slide``,
+``table_slide``, ``code_slide``, ``timeline_slide``, ``comparison_slide``
+and ``figure_slide``.  All recipes follow the same rules:
+
+* **They fit their content.**  Where the text is known at build time,
+  the fitting font size is measured and written into the slide rather
+  than left to an autofit flag (which PowerPoint applies only once the
+  text is edited).  Nothing is set below 9pt.
+* **They fail loudly.**  Content that cannot fit at 9pt raises
+  :class:`ValueError` saying how many items fit — at most 9 KPI cards on a
+  10" slide (12 on 13.33"), 15 timeline milestones (21), 21 comparison
+  rows, about 20 single-line table rows.  ``code_slide`` instead keeps
+  the lines that fit and adds a ``… (+N more lines)`` marker; pass
+  ``overflow="raise"`` to raise.
+* **They validate items.**  ``kpis``, ``milestones``, comparison ``rows``
+  and chart ``series`` dicts must use the documented keys; a typo raises
+  with a did-you-mean hint instead of rendering a blank card.
+* **Their text is readable.**  Text that would fall below 4.5:1 against
+  the card, band or panel it sits on is darkened or lightened, keeping
+  its hue, until it meets the ratio.
+
+``table_slide(widths=...)`` reads bare numbers as relative weights
+(``[50, 25, 25]`` and ``[0.5, 0.25, 0.25]`` are the same) and |Length|
+values as exact widths.  ``code_slide`` writes a single installed
+monospace family (or the ``font=`` you pass) and picks text and syntax
+colours from the panel's brightness.  ``figure_slide`` keeps a figure's
+aspect ratio by default (``fit="contain"``; also ``"cover"`` and
+``"stretch"``) and accepts raw image bytes and binary file objects.
 
 Starter pack
 ------------

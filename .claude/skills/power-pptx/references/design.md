@@ -241,11 +241,71 @@ image_hero_slide(
 ```
 
 Recipes use the `Blank` layout and place every shape themselves so the
-rendered geometry doesn't depend on the host template's master.
+rendered geometry doesn't depend on the host template's master. A
+template with no layout named `Blank` (renamed or localised) gets the
+layout with the fewest placeholders, and any placeholders it brings are
+removed, so recipe slides always start empty.
+
+The same module also has `section_divider`, `chart_slide`, `table_slide`,
+`code_slide`, `timeline_slide`, `comparison_slide` and `figure_slide`;
+`from_spec` reaches them by layout name (`"timeline"`, `"code"`, …).
+
+**Recipes fit their content and fail loudly.** Where the text is known
+at build time the fitting size is measured and written into the slide
+(an autofit flag alone does nothing in PowerPoint until the text is
+edited), never below 9pt. Content that cannot fit at 9pt raises
+`ValueError` saying how many items fit — split it across slides:
+
+| Recipe | Limit (10" × 7.5" / 13.33" × 7.5") |
+|---|---|
+| `kpi_slide` | 9 / 12 cards in the row |
+| `timeline_slide` | 15 / 21 milestones |
+| `comparison_slide` | 21 rows |
+| `table_slide` | ~20 single-line rows; columns ≥ 0.4" |
+| `bullet_slide` | as many bullets as fit at 9pt |
+| `code_slide` | truncates with `… (+N more lines)`; `overflow="raise"` raises |
+
+**Item dicts are validated.** `kpis` (`label`, `value`, optional
+`delta` / `delta_text`), `milestones` (`label`, optional `date` /
+`done`), comparison `rows` (`left`, `right`) and chart `series`
+(`name`, `values`) must use exactly those keys; a typo raises with a
+did-you-mean hint instead of rendering a blank card.
+
+**Text meets 4.5:1 on the surface it sits on.** When a palette role
+does not (e.g. `muted` on `surface`, which is 2.2–3.4:1 in every
+built-in preset), the recipe darkens or lightens it, keeping its hue,
+until it does; a palette whose roles already contrast is used as-is.
 
 `kpi_slide` honours `palette["positive"]` / `palette["negative"]` when
 tinting deltas (falls back to green/red when unset). It applies
-`tokens.shadows["card"]` to each card when present.
+`tokens.shadows["card"]` to each card when present, and sets one value,
+label and delta size across the row.
+
+`table_slide(widths=…)` reads bare numbers as relative weights —
+`[50, 25, 25]`, `[2, 1, 1]` and `[0.5, 0.25, 0.25]` are the same table —
+and `Length` values (`Inches(2)`) as exact widths. Columns past the end
+of the list share what fractions summing below 1 leave (`[0.5]` on three
+columns is 50/25/25); zero or negative widths raise.
+
+`code_slide` writes one installed monospace family (Cascadia Code,
+Consolas, Menlo, DejaVu Sans Mono, Liberation Mono or Courier New;
+Consolas when none is found) flagged fixed-pitch, or the `font=` you
+pass. Text and syntax colours follow the panel's brightness, so it is
+readable with or without tokens. The code is fitted to the panel,
+14pt down to 9pt.
+
+`timeline_slide` alternates labels above and below the rail, keeps them
+inside the slide margins and anchors labels above the rail at the
+bottom, so the slide lints clean for 2–8 milestones on either size.
+
+`figure_slide` contain-fits every figure kind (aspect ratio kept,
+centred in the content area); `fit="cover"` crops to fill and
+`fit="stretch"` distorts. It accepts Plotly / Matplotlib figures, SVG
+or HTML markup, image paths, raw image bytes and binary file objects.
+
+`chart_slide` takes `line`, `line_markers`, `bar`, `column`, `pie`,
+`doughnut` and `area` (category charts; build XY scatter with
+`slide.shapes.add_chart`). A `None` value leaves a gap.
 
 `image_hero_slide` uses `palette["on_primary"]` for overlay text and
 tints the bottom band with `palette["primary"]` at 55% alpha.
@@ -272,7 +332,9 @@ kpi = add_kpi_card(
     tokens=tokens,
 )
 # kpi.card / kpi.value_box / kpi.label_box / kpi.delta_box are
-# accessible for further per-deck tweaks.
+# accessible for further per-deck tweaks. The value/label/delta stack
+# is laid out for a 1.9" card and scales down with a shorter one;
+# below 0.95" it raises ValueError.
 
 bar = add_progress_bar(
     slide,
@@ -308,6 +370,7 @@ add_stat_strip(slide, left=Inches(0.5), top=Inches(1.5),
                       {"label": "NDR", "value": "131%", "delta": +0.03},
                       {"label": "CAC payback", "value": "8 mo"}],
                tokens=tokens)
+# Each card needs at least 0.75" of width; more items raise ValueError.
 ```
 
 ## Starter pack

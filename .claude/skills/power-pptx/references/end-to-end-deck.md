@@ -88,8 +88,10 @@ def build(out_path: str | Path) -> Presentation:
     )
 
     # Bullets — annotated with a sequenced paragraph reveal.
-    # bullet_slide adds the title textbox first and the body textbox
-    # second, so shapes[1] is reliably the body.
+    # bullet_slide adds the body textbox last (after the optional
+    # palette-background rectangle and the title), so shapes[-1] is
+    # reliably the body.  The list is fitted to the slide (never below
+    # 9pt); one too long to fit raises ValueError — split it.
     bs = bullet_slide(
         prs,
         title="Customer impact",
@@ -100,7 +102,7 @@ def build(out_path: str | Path) -> Presentation:
         ],
         tokens=TOKENS,
     )
-    body_tf = bs.shapes[1].text_frame
+    body_tf = bs.shapes[-1].text_frame
     Entrance.fade(bs, body_tf, by_paragraph=True)
 
     # Custom chart slide — chart palette + quick layout

@@ -287,6 +287,17 @@ comparison_columns(
 Each recipe returns a small dataclass (`PipelineResult`, `HubAndSpokeResult`,
 …) exposing the underlying shapes for further tweaks.
 
+Labels are measured and shrunk from `size_pt` to fit their node, never
+splitting a word; circular nodes are fitted to the square inscribed in
+the circle, which is where PowerPoint actually lays out ellipse text.
+`cycle` and `hub_and_spoke` shrink their nodes so neighbours never
+overlap. When a label cannot fit at `min_size_pt` (6pt by default) —
+too many steps for the bbox, or a very long label — the recipe raises
+`ValueError` naming the label and adds nothing to the slide: split the
+diagram, give it a bigger bbox or shorten the labels (or pass a lower
+`min_size_pt`). `decision_tree` indents children under their branch and
+links them with a connector down the indent, so no arrow crosses a card.
+
 Step / column dicts accept per-item `fill` and `text_color` overrides:
 
 ```python
