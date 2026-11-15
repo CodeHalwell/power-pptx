@@ -456,6 +456,15 @@ print(slide.notes)                # "" when the slide has no notes
 end. `move` raises `IndexError` out of range; `reorder` raises
 `ValueError` unless given a clean permutation.
 
+Sections follow the new order. A moved slide behaves as if dragged in
+the slide sorter: it stays in its section if it lands next to it, and
+otherwise joins the section of the slide before it (after it, when it
+becomes first) — so `move(5, 0)` puts slide 5 in the first section.
+`reorder` keeps every slide's section when each section stays in one
+piece (a reversed deck reverses its sections too); otherwise the
+slides that kept their relative order keep their sections and the rest
+are placed as `move` would place them. A section can end up empty.
+
 ## Running as a slide show
 
 ### Slide-show settings (loop, kiosk)

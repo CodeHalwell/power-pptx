@@ -83,6 +83,149 @@ def _remove_section_element(section_elm: CT_Section) -> None:
             target_lst.insert(pos, entry)
 
 
+def _follow_slide_order(
+    prs_elm: CT_Presentation,
+    old_ids: list[int],
+    new_ids: list[int],
+    moved: frozenset[int] | None = None,
+) -> None:
+    """Bring the deck's sections into line after its slides were put in a new order.
+
+    `old_ids` and `new_ids` are the numeric slide ids before and after. A
+    section is a contiguous run of slides, so a slide that lands among another
+    section's slides has to change section, or the section list stops
+    describing the deck (PowerPoint shows such a slide in the wrong group).
+
+    `moved`, when given, names the slides that were moved, as by
+    :meth:`Slides.move`; every other slide keeps its section. Each moved slide
+    is placed the way PowerPoint places a slide dropped in the slide sorter:
+    it stays in its own section when it lands next to another member of it,
+    and otherwise joins the section of the slide before it (of the slide after
+    it, when it lands first).
+
+    Without `moved`, as for :meth:`Slides.reorder`, the order is examined
+    first. When every section's slides are still contiguous — the deck was
+    reversed, say, or whole sections were shuffled — every slide keeps its
+    section and the sections are put in the order of their slides. Otherwise
+    the slides that are still in their old relative order (a longest such
+    run) keep their sections and the others are placed as moved slides are.
+
+    Each section's member list is rewritten in deck order, which also drops
+    references to slides no longer in the deck. Does nothing for a deck
+    without sections.
+    """
+    sectionLst = getattr(prs_elm, "sectionLst", None)
+    if sectionLst is None or old_ids == new_ids:
+        return
+    sections = list(sectionLst.section_lst)
+    in_deck = set(new_ids)
+    owner: dict[int, CT_Section] = {}
+    for section in sections:
+        for sldId in section.sldId_lst:
+            if sldId.id in in_deck:
+                owner.setdefault(sldId.id, section)
+
+    if moved is None:
+        block_order = _sections_as_blocks(sections, new_ids, owner)
+        if block_order is not None:
+            for section in block_order:
+                sectionLst.append(section)  # -- moves it to the end, in turn
+            _write_members(sections, new_ids, owner)
+            return
+        old_position = {slide_id: i for i, slide_id in enumerate(old_ids)}
+        anchored = _longest_increasing_run(new_ids, old_position)
+    else:
+        anchored = in_deck - moved
+
+    final: dict[int, CT_Section | None] = {
+        slide_id: owner.get(slide_id) for slide_id in new_ids if slide_id in anchored
+    }
+    for i, slide_id in enumerate(new_ids):
+        if slide_id in anchored:
+            continue
+        before = final[new_ids[i - 1]] if i > 0 else None
+        after = next(
+            (final[later] for later in new_ids[i + 1 :] if later in anchored), None
+        )
+        own = owner.get(slide_id)
+        if own is not None and (own is before or own is after):
+            final[slide_id] = own
+        elif before is not None:
+            final[slide_id] = before
+        elif after is not None:
+            final[slide_id] = after
+        else:
+            final[slide_id] = own
+    _write_members(sections, new_ids, final)
+
+
+def _sections_as_blocks(
+    sections: list[CT_Section], new_ids: list[int], owner: dict[int, CT_Section]
+) -> list[CT_Section] | None:
+    """The sections in the order their slides now appear, or |None| if any is split.
+
+    A section without slides keeps its place after the section it followed.
+    """
+    seen: list[CT_Section] = []
+    previous = None
+    for slide_id in new_ids:
+        section = owner.get(slide_id)
+        if section is previous:
+            continue
+        if section is not None and section in seen:
+            return None
+        if section is not None:
+            seen.append(section)
+        previous = section
+    order = list(seen)
+    for i, section in enumerate(sections):
+        if section in order:
+            continue
+        # -- empty: after the section it followed, or first if it was first
+        position = order.index(sections[i - 1]) + 1 if i > 0 else 0
+        order.insert(position, section)
+    return order
+
+
+def _longest_increasing_run(new_ids: list[int], old_position: dict[int, int]) -> set[int]:
+    """The ids of a longest set of slides whose relative order did not change."""
+    import bisect
+
+    tails: list[int] = []  # -- old position ending the best run of each length
+    tail_index: list[int] = []  # -- ...and the index in `new_ids` it came from
+    parent: list[int] = [-1] * len(new_ids)
+    for i, slide_id in enumerate(new_ids):
+        position = old_position.get(slide_id, -1)
+        length = bisect.bisect_left(tails, position)
+        if length == len(tails):
+            tails.append(position)
+            tail_index.append(i)
+        else:
+            tails[length] = position
+            tail_index[length] = i
+        parent[i] = tail_index[length - 1] if length > 0 else -1
+    run: set[int] = set()
+    i = tail_index[-1] if tail_index else -1
+    while i != -1:
+        run.add(new_ids[i])
+        i = parent[i]
+    return run
+
+
+def _write_members(
+    sections: list[CT_Section], new_ids: list[int], section_of: dict
+) -> None:
+    """Rewrite each section's member list from `section_of`, in deck order."""
+    for section in sections:
+        sldIdLst = section.get_or_add_sldIdLst()
+        for sldId in list(sldIdLst):
+            sldIdLst.remove(sldId)
+    for slide_id in new_ids:
+        section = section_of.get(slide_id)
+        if section is not None:
+            section.add_sldId(slide_id)
+
+
 class Sections(ParentedElementProxy):
     """Sequence of |Section| objects belonging to a |Presentation|.
 

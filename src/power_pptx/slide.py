@@ -1004,12 +1004,20 @@ class Slides(ParentedElementProxy):
 
             prs.slides.move(0, 2)   # send the first slide to position 2
 
+        In a deck with sections the slide changes section the way it does
+        when dragged in PowerPoint's slide sorter: it stays in its own section
+        if it lands next to another slide of that section, and otherwise joins
+        the section of the slide now before it (or after it, when it becomes
+        the first slide). Every other slide keeps its section, and the section
+        list stays a set of contiguous runs.
+
         Raises |IndexError| if either index is out of range.
         """
         count = len(self._sldIdLst)
         old_index = self._normalized_index(old_index, count)
         new_index = self._normalized_index(new_index, count)
         sldId_lst = self._sldIdLst.sldId_lst
+        old_ids = [s.id for s in sldId_lst]
         sldId = sldId_lst[old_index]
         self._sldIdLst.remove(sldId)
         # -- recompute the insertion reference against the post-removal order --
@@ -1018,6 +1026,17 @@ class Slides(ParentedElementProxy):
             self._sldIdLst.append(sldId)
         else:
             remaining[new_index].addprevious(sldId)
+        self._follow_with_sections(old_ids, moved=frozenset((sldId.id,)))
+
+    def _follow_with_sections(self, old_ids: list[int], moved: frozenset[int] | None) -> None:
+        """Bring the deck's sections, if it has any, into line with the new slide order."""
+        from power_pptx.section import _follow_slide_order
+
+        prs_elm = self._sldIdLst.getparent()
+        if prs_elm is None:
+            return
+        new_ids = [s.id for s in self._sldIdLst.sldId_lst]
+        _follow_slide_order(prs_elm, old_ids, new_ids, moved)
 
     def reorder(self, new_order: "Sequence[int | Slide]") -> None:
         """Rearrange the slides into the permutation given by `new_order`.
@@ -1029,6 +1048,14 @@ class Slides(ParentedElementProxy):
 
             prs.slides.reorder([2, 0, 1])           # by index
             prs.slides.reorder([s2, s0, s1])        # by Slide object
+
+        In a deck with sections, the section list follows the new order. When
+        every section's slides are still contiguous (the deck is reversed, or
+        whole sections are shuffled) each slide keeps its section and the
+        sections are reordered with their slides. Otherwise the slides still
+        in their old relative order keep their sections, and each of the
+        others is placed as :meth:`move` would place it, so a reorder that
+        moves one slide has the same effect on sections as that move.
 
         Raises |ValueError| if `new_order` is not a permutation of exactly the
         slides in this collection (wrong length, duplicates, or unknown items).
@@ -1051,11 +1078,13 @@ class Slides(ParentedElementProxy):
         if sorted(indices) != list(range(count)):
             raise ValueError("new_order must be a permutation of the slides in this collection")
 
+        old_ids = [s.id for s in sldId_lst]
         ordered_sldIds = [sldId_lst[i] for i in indices]
         for sldId in ordered_sldIds:
             self._sldIdLst.remove(sldId)
         for sldId in ordered_sldIds:
             self._sldIdLst.append(sldId)
+        self._follow_with_sections(old_ids, moved=None)
 
     @staticmethod
     def _normalized_index(idx: int, count: int) -> int:
