@@ -48,6 +48,10 @@ jobs:
           src/power_pptx/_reproducible.py src/power_pptx/text/__init__.py
           tests/text/test_font_registration.py tests/design/test_native_typography.py
           tests/test_reproducible.py
+          src/power_pptx/lint_cli.py tests/test_lint_cli.py src/power_pptx/slide_show.py
+          src/power_pptx/parts/presprops.py src/power_pptx/enum/slide_show.py
+          tests/test_slide_show.py tests/test_slide_size.py tests/test_slide_hidden.py
+          tests/test_repo_invariants.py tests/test_review.py
       - name: Check public entry point types
         run: pyright --project pyright-ci.json
       - name: Check release gate behavior
