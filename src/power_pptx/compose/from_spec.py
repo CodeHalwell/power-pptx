@@ -1538,6 +1538,24 @@ def _add_spec_shapes(
 
 def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
     """Create one shape from a ``shapes`` entry and return it."""
+    _check_shape_keys(entry, where)
+    name = _shape_name(entry, where)
+    box = _shape_box(entry, name, where)
+    shape = _new_shape(slide, entry.get("shape", _TEXTBOX_SHAPE_NAME), box, where)
+
+    if name is not None:
+        shape.name = name
+
+    text = entry.get("text")
+    if text is not None:
+        shape.text_frame.text = str(text)
+
+    _apply_lint_intent(shape, entry, where)
+    return shape
+
+
+def _check_shape_keys(entry: Any, where: str) -> None:
+    """Reject a ``shapes`` entry that is not a mapping, or that has an unknown key."""
     if not isinstance(entry, Mapping):
         raise SpecError(
             f"{where}: each 'shapes' entry must be a mapping; got "
@@ -1552,16 +1570,25 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
             f"Valid keys: {sorted(_VALID_SHAPE_KEYS)}"
         )
 
+
+def _shape_name(entry: Mapping[str, Any], where: str) -> Optional[str]:
+    """Return a ``shapes`` entry's checked ``name``, or ``None`` when it has none."""
     name = entry.get("name")
-    if name is not None and (not isinstance(name, str) or not name.strip()):
+    if name is None:
+        return None
+    if not isinstance(name, str) or not name.strip():
         raise SpecError(
             f"{where}: shape 'name' must be a non-empty string; got {name!r}"
         )
-    if name is not None and any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
         raise SpecError(
             f"{where}: shape 'name' must not contain control characters; got {name!r}"
         )
+    return name
 
+
+def _shape_box(entry: Mapping[str, Any], name: Optional[str], where: str) -> tuple[Any, ...]:
+    """Return a ``shapes`` entry's ``(left, top, width, height)`` as lengths."""
     missing = [k for k in _REQUIRED_SHAPE_KEYS if k not in entry]
     if missing:
         raise SpecError(
@@ -1573,7 +1600,7 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
     # the value is a mistake, and writing it would produce a file that
     # fails schema validation (a negative ``cx``) or cannot be opened.
     of_shape = f" of shape {name!r}" if name is not None else ""
-    box = tuple(
+    return tuple(
         _coerce_length(
             entry[k],
             f"{where}: {k!r}{of_shape}",
@@ -1584,30 +1611,29 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
         for k in _REQUIRED_SHAPE_KEYS
     )
 
-    kind = entry.get("shape", _TEXTBOX_SHAPE_NAME)
+
+def _new_shape(slide: Any, kind: Any, box: tuple[Any, ...], where: str) -> Any:
+    """Add the text box or ``MSO_SHAPE`` autoshape *kind* names, at *box*."""
     if not isinstance(kind, str):
         raise SpecError(
             f"{where}: 'shape' must be a string naming an MSO_SHAPE member or "
             f"{_TEXTBOX_SHAPE_NAME!r}; got {type(kind).__name__!r}"
         )
     if kind.strip().lower() == _TEXTBOX_SHAPE_NAME:
-        shape = slide.shapes.add_textbox(*box)
-    else:
-        shape = slide.shapes.add_shape(_resolve_autoshape(kind, where=where), *box)
+        return slide.shapes.add_textbox(*box)
+    return slide.shapes.add_shape(_resolve_autoshape(kind, where=where), *box)
 
-    if name is not None:
-        shape.name = name
 
-    text = entry.get("text")
-    if text is not None:
-        shape.text_frame.text = str(text)
+def _apply_lint_intent(shape: Any, entry: Mapping[str, Any], where: str) -> None:
+    """Set the entry's ``lint_group`` / ``layer`` / ``layer_above`` on *shape*.
 
-    # The three lint-intent scalars are plain pass-throughs: the shape
-    # properties own their validation, so a bad value is rejected for the
-    # same reason whether it came from Python or from a spec.  The spec
-    # layer adds the location, so a rejected value in a 40-slide spec is
-    # findable, and reports it as a ``SpecError`` like every other
-    # problem with a spec's content.
+    The three lint-intent scalars are plain pass-throughs: the shape
+    properties own their validation, so a bad value is rejected for the
+    same reason whether it came from Python or from a spec.  The spec
+    layer adds the location, so a rejected value in a 40-slide spec is
+    findable, and reports it as a ``SpecError`` like every other
+    problem with a spec's content.
+    """
     for field in ("lint_group", "layer", "layer_above"):
         if field not in entry:
             continue
@@ -1617,8 +1643,6 @@ def _add_spec_shape(slide: Any, entry: Any, *, where: str) -> Any:
             raise SpecError(
                 f"{where}: {field!r}: {exc}", path=f"{where}.{field}"
             ) from exc
-
-    return shape
 
 
 def _resolve_autoshape(kind: str, *, where: str) -> Any:
