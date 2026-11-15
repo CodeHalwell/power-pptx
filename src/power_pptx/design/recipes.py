@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
+from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union, overload
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
@@ -689,33 +689,13 @@ def section_divider(
     """
     slide_w, slide_h = _slide_dims(prs)
     margin = Inches(0.8)
-    dot_d = Inches(0.18)
-    dot_gap = Inches(0.10)
-    current = total = 0
-    if progress is not None:
-        current, total = int(progress[0]), int(progress[1])
-        if total < 1 or current < 1 or current > total:
-            raise ValueError(
-                f"progress must be (1≤current≤total, total≥1); got {progress!r}"
-            )
-        fits = int((slide_w - 2 * margin + dot_gap) // (dot_d + dot_gap))
-        if total > fits:
-            raise ValueError(
-                f"section_divider: a row of {total} progress dots does not fit on a slide "
-                f"this wide; at most {fits} fit"
-            )
+    current, total = _progress_counts(progress, slide_w - 2 * margin)
 
     slide = _add_blank(prs)
 
     # Solid backdrop.
     bg_color = _palette(tokens, ("primary", "neutral")) or RGBColor(0x22, 0x22, 0x33)
-    bg = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Emu(0), Emu(0), slide_w, slide_h
-    )
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = bg_color
-    bg.line.fill.background()
-    bg.text_frame.text = ""
+    _add_plain_shape(slide, MSO_SHAPE.RECTANGLE, Emu(0), Emu(0), slide_w, slide_h, bg_color)
 
     title_color = _legible(
         bg_color, _palette(tokens, ("on_primary",)) or RGBColor(0xFF, 0xFF, 0xFF)
@@ -754,25 +734,66 @@ def section_divider(
 
     # Progress dots: row of `total` dots, the `current`-th highlighted.
     if progress is not None:
-        row_w = total * dot_d + (total - 1) * dot_gap
-        row_left = Length(slide_w - margin - row_w)
-        row_top = Length(slide_h - margin - dot_d)
-        active_color = title_color
-        inactive_color = _palette(tokens, ("muted", "lt2")) or RGBColor(0x99, 0x99, 0xAA)
-        for i in range(total):
-            dot_left = Length(row_left + i * (dot_d + dot_gap))
-            dot = slide.shapes.add_shape(
-                MSO_SHAPE.OVAL, dot_left, row_top, dot_d, dot_d
-            )
-            dot.fill.solid()
-            dot.fill.fore_color.rgb = (
-                active_color if (i + 1) == current else inactive_color
-            )
-            dot.line.fill.background()
-            dot.text_frame.text = ""
+        _add_progress_dots(
+            slide,
+            current,
+            total,
+            right=Length(slide_w - margin),
+            bottom=Length(slide_h - margin),
+            active=title_color,
+            inactive=_palette(tokens, ("muted", "lt2")) or RGBColor(0x99, 0x99, 0xAA),
+        )
 
     _apply_transition(slide, transition)
     return slide
+
+
+# Diameter of, and gap between, the section divider's progress dots.
+_PROGRESS_DOT_D = Inches(0.18)
+_PROGRESS_DOT_GAP = Inches(0.10)
+
+
+def _progress_counts(progress: Optional[tuple[int, int]], row_w: int) -> tuple[int, int]:
+    """Return *progress* as ``(current, total)``, or ``(0, 0)`` when it is ``None``.
+
+    Raises :class:`ValueError` for counts out of range and for more dots
+    than a row *row_w* EMU wide holds.
+    """
+    if progress is None:
+        return 0, 0
+    current, total = int(progress[0]), int(progress[1])
+    if total < 1 or current < 1 or current > total:
+        raise ValueError(
+            f"progress must be (1≤current≤total, total≥1); got {progress!r}"
+        )
+    fits = int((row_w + _PROGRESS_DOT_GAP) // (_PROGRESS_DOT_D + _PROGRESS_DOT_GAP))
+    if total > fits:
+        raise ValueError(
+            f"section_divider: a row of {total} progress dots does not fit on a slide "
+            f"this wide; at most {fits} fit"
+        )
+    return current, total
+
+
+def _add_progress_dots(
+    slide: "Slide",
+    current: int,
+    total: int,
+    *,
+    right: Length,
+    bottom: Length,
+    active: RGBColor,
+    inactive: RGBColor,
+) -> None:
+    """Draw a row of *total* dots ending at *right* / *bottom*, the *current*-th *active*."""
+    dot_d, dot_gap = _PROGRESS_DOT_D, _PROGRESS_DOT_GAP
+    row_w = total * dot_d + (total - 1) * dot_gap
+    row_left = Length(right - row_w)
+    row_top = Length(bottom - dot_d)
+    for i in range(total):
+        dot_left = Length(row_left + i * (dot_d + dot_gap))
+        color = active if (i + 1) == current else inactive
+        _add_plain_shape(slide, MSO_SHAPE.OVAL, dot_left, row_top, dot_d, dot_d, color)
 
 
 # ---------------------------------------------------------------------------
@@ -2267,6 +2288,24 @@ def _apply_background(
     rect.text_frame.text = ""
 
 
+def _add_plain_shape(
+    slide: "Slide",
+    shape_type: MSO_SHAPE,
+    left: Length,
+    top: Length,
+    width: Length,
+    height: Length,
+    color: RGBColor,
+) -> Any:
+    """Add a *shape_type* autoshape filled with *color*, with no outline and no text."""
+    shape = slide.shapes.add_shape(shape_type, left, top, width, height)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = color
+    shape.line.fill.background()
+    shape.text_frame.text = ""
+    return shape
+
+
 def _slide_dims(prs: "Presentation") -> tuple[Length, Length]:
     width = prs.slide_width or Inches(13.333)
     height = prs.slide_height or Inches(7.5)
@@ -2313,8 +2352,16 @@ def _contrast(rgb_a: Any, rgb_b: Any) -> float:
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
+@overload
 def _legible(
-    surface: Optional[RGBColor], *candidates: Optional[RGBColor]
+    surface: Optional[RGBColor], first: RGBColor, /, *candidates: Optional[RGBColor]
+) -> RGBColor: ...
+@overload
+def _legible(
+    surface: Optional[RGBColor], /, *candidates: Optional[RGBColor]
+) -> Optional[RGBColor]: ...
+def _legible(
+    surface: Optional[RGBColor], /, *candidates: Optional[RGBColor]
 ) -> Optional[RGBColor]:
     """Return a text colour that reads on *surface* at 4.5:1 or better.
 
