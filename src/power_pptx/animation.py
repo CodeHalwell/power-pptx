@@ -885,6 +885,75 @@ def _click_par_xml(auto_start_after: Optional[str]) -> str:
     )
 
 
+def _step_list(main_seq: Any) -> Any:
+    """The ``<p:childTnLst>`` holding the click steps of *main_seq*, added if it has none.
+
+    A new one goes ahead of a ``<p:subTnLst>``, which comes last in a time node.
+    """
+    steps = main_seq.find(_CHILD_TN_LST)
+    if steps is not None:
+        return steps
+    steps = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
+    sub_lst = main_seq.find(_SUB_TN_LST)
+    if sub_lst is None:
+        main_seq.append(steps)
+    else:
+        sub_lst.addprevious(steps)
+    return steps
+
+
+def _batch_list(click: Any) -> Any:
+    """The ``<p:childTnLst>`` holding the batches of click step *click*, added if it has none."""
+    click_ctn = click.find(_CTN)
+    batches = click_ctn.find(_CHILD_TN_LST)
+    if batches is None:
+        batches = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
+        click_ctn.append(batches)
+    return batches
+
+
+def _effect_list(batch: Any) -> Any:
+    """The ``<p:childTnLst>`` holding the effects of *batch*."""
+    return batch.find(_CTN).find(_CHILD_TN_LST)
+
+
+def _new_batch(delay: int, effect: Any) -> Any:
+    """A batch holding *effect* that starts *delay* ms into its click step."""
+    batch = parse_xml(_batch_par_xml(delay))
+    _effect_list(batch).append(effect)
+    return batch
+
+
+def _new_click_step(main_seq: Any, effect: Any, trigger: PP_ANIM_TRIGGER) -> Any:
+    """A click step of *main_seq* holding *effect*, in a batch of its own.
+
+    The step waits for a click.  When *effect* does not, the step is also set
+    off by the main sequence beginning, if the sequence has an id to name.
+    """
+    auto_start = None
+    if trigger is not PP_ANIM_TRIGGER.ON_CLICK and (main_seq.get("id") or "").isdigit():
+        auto_start = main_seq.get("id")
+    click = parse_xml(_click_par_xml(auto_start))
+    batch = parse_xml(_batch_par_xml(0))
+    click.find(_CTN).find(_CHILD_TN_LST).append(batch)
+    _effect_list(batch).append(effect)
+    return click
+
+
+def _place_in_click_step(click: Any, effect: Any, trigger: PP_ANIM_TRIGGER) -> tuple[Any, Any]:
+    """Where *effect* goes in click step *click*: the node to add, and the list to add it to.
+
+    A with-previous effect joins the last batch.  Any other opens a new batch
+    that starts when the last one is over, or at once in a step that,
+    unusually, has no batch yet.
+    """
+    batches = _child_pars(click)
+    if trigger is PP_ANIM_TRIGGER.WITH_PREVIOUS and batches:
+        return effect, _effect_list(batches[-1])
+    batch = _new_batch(_batch_end(batches[-1]) if batches else 0, effect)
+    return batch, _batch_list(click)
+
+
 # ---------------------------------------------------------------------------
 # SlideAnimations – the object returned by slide.animations
 # ---------------------------------------------------------------------------
@@ -1655,48 +1724,15 @@ class SlideAnimations:
         is over.  With nothing before it, an effect that does not wait for a
         click goes in a step set off by the sequence itself beginning.
         """
-        steps = main_seq.find(_CHILD_TN_LST)
-        if steps is None:
-            steps = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
-            sub_lst = main_seq.find(_SUB_TN_LST)
-            if sub_lst is None:
-                main_seq.append(steps)
-            else:
-                sub_lst.addprevious(steps)
-
+        steps = _step_list(main_seq)
         clicks = steps.findall(_PAR)
-        click = clicks[-1] if clicks else None
-        batches = [] if click is None else _child_pars(click)
-
-        if trigger is PP_ANIM_TRIGGER.ON_CLICK or click is None:
-            auto_start = None
-            if trigger is not PP_ANIM_TRIGGER.ON_CLICK and (main_seq.get("id") or "").isdigit():
-                auto_start = main_seq.get("id")
-            new_node = click = parse_xml(_click_par_xml(auto_start))
-            batch = parse_xml(_batch_par_xml(0))
-            click.find(_CTN).find(_CHILD_TN_LST).append(batch)
-            parent = steps
-        elif trigger is PP_ANIM_TRIGGER.WITH_PREVIOUS and batches:
-            new_node, batch, parent = effect_elm, batches[-1], None
+        if trigger is PP_ANIM_TRIGGER.ON_CLICK or not clicks:
+            node, parent = _new_click_step(main_seq, effect_elm, trigger), steps
         else:
-            # -- after the previous batch (or the first batch of a click step
-            # -- that, unusually, has none yet) --
-            delay = _batch_end(batches[-1]) if batches else 0
-            new_node = batch = parse_xml(_batch_par_xml(delay))
-            click_ctn = click.find(_CTN)
-            parent = click_ctn.find(_CHILD_TN_LST)
-            if parent is None:
-                parent = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
-                click_ctn.append(parent)
-
-        batch_lst = batch.find(_CTN).find(_CHILD_TN_LST)
-        if new_node is effect_elm:
-            self._assign_ids(effect_elm)
-            batch_lst.append(effect_elm)
-        else:
-            batch_lst.append(effect_elm)
-            self._assign_ids(new_node)
-            parent.append(new_node)
+            node, parent = _place_in_click_step(clicks[-1], effect_elm, trigger)
+        # -- ids are numbered from those already in the tree, so before adding --
+        self._assign_ids(node)
+        parent.append(node)
 
     def _get_or_create_root_ctn(self):
         """Return the `p:childTnLst` of the root timing container.
