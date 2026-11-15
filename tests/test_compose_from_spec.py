@@ -1800,9 +1800,11 @@ class DescribeCaptureOptionsFromASpec:
         from_spec(_figure_spec(html_options={
             "selector": "#chart", "viewport": [640, 360], "omit_background": True,
         }))
+        # -- `fit` is not a capture option: figure_slide passes its own
+        # -- (default "contain") to every figure kind --
         assert embed_calls == [{
             "html": "<p>hello</p>", "selector": "#chart", "viewport": (640, 360),
-            "omit_background": True,
+            "omit_background": True, "fit": "contain",
         }]
 
     def it_rejects_an_unknown_capture_option(self):
