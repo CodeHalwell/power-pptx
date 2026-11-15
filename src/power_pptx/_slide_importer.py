@@ -764,23 +764,32 @@ def _remap_rids(
     """
     if not id_map and not dropped:
         return
-    prefix = "{%s}" % _R_NS
-    dead_links = []
-    for el in element.iter("*"):
-        for name, value in list(el.attrib.items()):
-            if not name.startswith(prefix):
-                continue
-            if value in id_map:
-                el.set(name, id_map[value])
-            elif value in dropped:
-                if el.tag.rpartition("}")[2] in _HYPERLINK_TAGS:
-                    dead_links.append(el)
-                else:
-                    del el.attrib[name]
+    dead_links = [el for el in element.iter("*") if _remap_element_rids(el, id_map, dropped)]
     for el in dead_links:
         parent = el.getparent()
         if parent is not None:
             parent.remove(el)
+
+
+def _remap_element_rids(el, id_map: dict[str, str], dropped: set[str] | frozenset[str]) -> bool:
+    """Rewrite the ``r:*`` attributes of *el* itself, not its descendants.
+
+    Returns True when *el* is a hyperlink naming a dropped relationship, which
+    the caller removes; any other attribute naming one is deleted here.
+    """
+    prefix = "{%s}" % _R_NS
+    is_dead_link = False
+    for name, value in list(el.attrib.items()):
+        if not name.startswith(prefix):
+            continue
+        if value in id_map:
+            el.set(name, id_map[value])
+        elif value in dropped:
+            if el.tag.rpartition("}")[2] in _HYPERLINK_TAGS:
+                is_dead_link = True
+            else:
+                del el.attrib[name]
+    return is_dead_link
 
 
 def _master_fingerprint(master_part: Part) -> bytes:
@@ -829,31 +838,39 @@ def _normalized_master_xml(master_part: Part, master_elm) -> bytes:
     clone = deepcopy(master_elm)
     for layout_id_lst in clone.findall("{%s}sldLayoutIdLst" % p_ns):
         clone.remove(layout_id_lst)
-
-    token_cache: dict[str, str] = {}
-
-    def _target_token(rId: str) -> str:
-        if rId in token_cache:
-            return token_cache[rId]
-        token = "unresolved"
-        try:
-            rel = master_part.rels[rId]
-        except KeyError:
-            rel = None
-        if rel is not None:
-            if rel.is_external:
-                token = "external:%s" % rel.target_ref
-            else:
-                token = hashlib.sha1(rel.target_part.blob).hexdigest()
-        token_cache[rId] = token
-        return token
-
-    r_prefix = "{%s}" % _R_NS
-    for el in clone.iter():
-        for attr_name, attr_value in list(el.attrib.items()):
-            if attr_name.startswith(r_prefix):
-                el.set(attr_name, _target_token(attr_value))
+    _replace_rids_with_target_tokens(clone, master_part)
     return etree.tostring(clone)
+
+
+def _replace_rids_with_target_tokens(element, part: Part) -> None:
+    """Replace every ``r:*`` attribute value in *element*'s tree by its target's token.
+
+    Each relationship id of *part* is resolved once, however often it is used.
+    """
+    tokens: dict[str, str] = {}
+    r_prefix = "{%s}" % _R_NS
+    for el in element.iter():
+        for attr_name, rId in list(el.attrib.items()):
+            if not attr_name.startswith(r_prefix):
+                continue
+            if rId not in tokens:
+                tokens[rId] = _target_token(part, rId)
+            el.set(attr_name, tokens[rId])
+
+
+def _target_token(part: Part, rId: str) -> str:
+    """Return a stable token for what relationship *rId* of *part* points at.
+
+    That is the SHA-1 of the target part's bytes, the URL of an external
+    target, or ``"unresolved"`` when *part* has no such relationship.
+    """
+    try:
+        rel = part.rels[rId]
+    except KeyError:
+        return "unresolved"
+    if rel.is_external:
+        return "external:%s" % rel.target_ref
+    return hashlib.sha1(rel.target_part.blob).hexdigest()
 
 
 def _numbered_partname(partname: str) -> tuple[str, str]:
