@@ -744,6 +744,58 @@ class Slide(_BaseSlide):
             union_box = box if union_box is None else union_box.union(box)
         return union_box
 
+    def _shape_boxes(self):
+        """The :class:`BBox` of each shape on this slide whose geometry can be read."""
+        from power_pptx.geometry import BBox
+
+        boxes: list[BBox] = []
+        for shape in self.shapes:
+            try:
+                boxes.append(BBox.from_shape(shape))
+            except Exception:
+                pass
+        return boxes
+
+    @staticmethod
+    def _merge_row_runs(cells):
+        """Merge each run of horizontally adjacent `cells` in the same row into one box.
+
+        `cells` are in row-major order, as :meth:`BBox.grid` produces them.
+        """
+        merged = []
+        for c in cells:
+            if merged:
+                last = merged[-1]
+                if (
+                    int(last.top) == int(c.top)
+                    and int(last.right) == int(c.left)
+                ):
+                    merged[-1] = last.union(c)
+                    continue
+            merged.append(c)
+        return merged
+
+    @staticmethod
+    def _region_target(near):
+        """The box a `find_empty_region(near=...)` argument stands for."""
+        from power_pptx.geometry import BBox
+        from power_pptx.shapes.base import BaseShape
+
+        if isinstance(near, BaseShape):
+            return BBox.from_shape(near)
+        if isinstance(near, BBox):
+            return near
+        raise TypeError(
+            "find_empty_region(near=...) must be a BaseShape or BBox; "
+            f"got {type(near).__name__}"
+        )
+
+    @staticmethod
+    def _nearest_to(boxes, target):
+        """The first of `boxes` whose centre is nearest the centre of `target`."""
+        tx, ty = int(target.cx), int(target.cy)
+        return min(boxes, key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2)
+
     def find_empty_region(
         self,
         *,
@@ -770,29 +822,14 @@ class Slide(_BaseSlide):
         slide_box = BBox.from_slide(self)
         # 12×8 sample grid is fine-grained enough for typical decks.
         cells = slide_box.grid(12, 8)
-        existing = []
-        for shape in self.shapes:
-            try:
-                existing.append(BBox.from_shape(shape))
-            except Exception:
-                pass
+        existing = self._shape_boxes()
 
         free = [c for c in cells if not any(c.intersects(s) for s in existing)]
         if not free:
             return None
 
         # Merge horizontally-adjacent free cells in the same row.
-        merged: list[BBox] = []
-        for c in free:
-            if merged:
-                last = merged[-1]
-                if (
-                    int(last.top) == int(c.top)
-                    and int(last.right) == int(c.left)
-                ):
-                    merged[-1] = last.union(c)
-                    continue
-            merged.append(c)
+        merged = self._merge_row_runs(free)
 
         candidates = [
             m for m in merged
@@ -803,22 +840,7 @@ class Slide(_BaseSlide):
             return None
 
         if near is not None:
-            from power_pptx.shapes.base import BaseShape
-
-            if isinstance(near, BaseShape):
-                target = BBox.from_shape(near)
-            elif isinstance(near, BBox):
-                target = near
-            else:
-                raise TypeError(
-                    "find_empty_region(near=...) must be a BaseShape or BBox; "
-                    f"got {type(near).__name__}"
-                )
-            tx, ty = int(target.cx), int(target.cy)
-            candidates.sort(
-                key=lambda b: (int(b.cx) - tx) ** 2 + (int(b.cy) - ty) ** 2
-            )
-            return candidates[0]
+            return self._nearest_to(candidates, self._region_target(near))
         candidates.sort(key=lambda b: -b.area)
         return candidates[0]
 
