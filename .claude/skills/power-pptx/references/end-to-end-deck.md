@@ -47,7 +47,7 @@ TOKENS = DesignTokens.from_dict(
         },
         "typography": {
             # NB: recipes look up the keys "heading" and "body". Bare
-            # floats are treated as POINTS; bare ints are EMU.
+            # numbers are POINTS (44 and 44.0 mean the same thing).
             "heading": {"family": "Inter", "size": 44.0, "bold": True},
             "body":    {"family": "Inter", "size": 18.0},
         },

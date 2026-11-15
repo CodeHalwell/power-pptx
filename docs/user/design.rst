@@ -24,13 +24,32 @@ for brand tokens — palette, typography, radii, shadows, and spacings::
             "on_primary": "#FFFFFF",
         },
         "typography": {
-            "title": {"family": "Inter", "size": 44, "bold": True},
-            "body":  {"family": "Inter", "size": 18},
+            # Recipes look up "heading" and "body".
+            "heading": {"family": "Inter", "size": 44, "bold": True},
+            "body":    {"family": "Inter", "size": 18},
         },
         "shadows": {
-            "card": {"blur": 18, "distance": 4, "alpha": 0.18},
+            "card": {"blur_radius": 18, "distance": 4, "alpha": 0.18},
         },
+        "radii":    {"card": 12},
+        "spacings": {"sm": 8, "md": 16, "lg": 32},
     })
+
+Length-valued fields — typography ``size``, ``radii``, ``spacings`` and a
+shadow's ``blur_radius`` / ``distance`` — accept a
+:class:`~power_pptx.util.Length` (``Pt(8)``, ``Emu(101600)``,
+``Inches(0.1)``), which is kept exactly, or a bare number, which is read
+as **points**. ``44`` and ``44.0`` mean the same thing, so a brand spec
+loaded from JSON or YAML behaves like the dict above. For backward
+compatibility a bare *integer* of 12700 or more (one point in EMU) is
+still read as EMU, which is what every bare integer used to mean.
+
+Token keys are checked. A typography token takes ``family`` (required),
+``size``, ``bold``, ``italic`` and ``color``; a shadow token takes
+``blur_radius`` (``blur`` is accepted as an alias), ``distance``,
+``direction``, ``color`` and ``alpha``. Any other key raises
+:class:`ValueError` with a did-you-mean hint rather than being dropped,
+and the message names the token (``typography.heading.size: ...``).
 
 Other constructors:
 
@@ -38,7 +57,8 @@ Other constructors:
   — optional ``pyyaml`` dependency.
 * :py:meth:`DesignTokens.from_pptx('template.pptx') <power_pptx.design.tokens.DesignTokens.from_pptx>`
   — extracts the six accent slots, ``dk1`` / ``dk2`` / ``lt1`` / ``lt2``,
-  the hyperlink slots, and major/minor fonts.
+  the hyperlink slots, and major/minor fonts. Accepts a path (``str`` or
+  :class:`pathlib.Path`), an open binary file, or a ``Presentation``.
 * ``tokens.merge(other_tokens)`` layers an override set on top of a base.
 
 Token-resolving shape style

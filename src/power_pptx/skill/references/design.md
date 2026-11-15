@@ -41,30 +41,55 @@ tokens = DesignTokens.from_dict({
     },
     "typography": {
         # Recipes look up the keys "heading" and "body". Other keys are
-        # available for your own use. Bare floats are treated as POINTS;
-        # bare ints are EMU. Use floats unless you know what you're doing.
-        "heading":  {"family": "Inter", "size": 44.0, "bold": True},
-        "body":     {"family": "Inter", "size": 18.0},
-        "caption":  {"family": "Inter", "size": 12.0, "italic": True},
+        # available for your own use. A bare number is POINTS: 44 and
+        # 44.0 mean the same thing.
+        "heading":  {"family": "Inter", "size": 44, "bold": True},
+        "body":     {"family": "Inter", "size": 18},
+        "caption":  {"family": "Inter", "size": 12, "italic": True},
     },
     "shadows": {
-        # 'blur' / 'distance' are bare-float points too.
-        "card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18},
+        # 'blur_radius' (or its alias 'blur') and 'distance' are points too.
+        "card": {"blur_radius": 18, "distance": 4, "alpha": 0.18},
     },
-    "radii":    {"card": 12.0, "button": 6.0},
-    "spacings": {"sm": 8.0, "md": 16.0, "lg": 32.0},
+    "radii":    {"card": 12, "button": 6},
+    "spacings": {"sm": 8, "md": 16, "lg": 32},
 })
 ```
+
+**Units.** Every length field — typography `size`, `radii`, `spacings`,
+shadow `blur_radius` / `distance` — takes either a `Length` (`Pt(8)`,
+`Emu(101600)`, `Inches(0.1)`), which is kept exactly, or a bare number,
+which is read as **points**. Integers and floats are the same (`36` ==
+`36.0`), so a brand spec that went through JSON or YAML behaves like the
+Python dict. The one exception is backward compatibility: a bare
+*integer* of 12700 or more (one point in EMU) is still read as EMU, as
+every bare integer used to be. Pass `Pt(...)` if a value that large
+really is points.
+
+**Keys are checked.** A typography token takes `family` (required),
+`size`, `bold`, `italic`, `color`; a shadow token takes `blur_radius`
+(alias `blur`), `distance`, `direction`, `color`, `alpha`. Anything else
+raises `ValueError` with a did-you-mean hint (`'sise' (did you mean
+'size'?)`) instead of being dropped, and errors name the token
+(`typography.heading.size: ...`). At the top level, keys other than the
+five sections are ignored so a brand file can carry its own data — but a
+near-miss of a section name (`"palete"`, `"shadow"`) raises.
 
 ### Other constructors
 
 ```python
-# Optional pyyaml dependency
+# Optional pyyaml dependency. Write lengths as plain numbers of points
+# (`size: 36`, `radii: {md: 8}`).
 tokens = DesignTokens.from_yaml("brand.yml")
 
 # Extracts the six accent slots, dk1/dk2/lt1/lt2, hyperlink slots, and
-# major/minor fonts from a deck or template
+# major/minor fonts from a deck or template. Takes a path (str or
+# pathlib.Path), an open binary file, or a Presentation.
 tokens = DesignTokens.from_pptx("template.pptx")
+
+# Per-call tweaks: dotted paths or nested dicts, same unit rule
+tokens = tokens.with_overrides({"typography.heading.size": 40,
+                                "shadows.card.blur": 24})
 
 # Layer brand-spec overrides on top of a template-extracted base
 tokens = DesignTokens.from_pptx("template.pptx").merge(
@@ -408,11 +433,11 @@ tokens = DesignTokens.from_dict({
         "on_primary": "#FFFFFF",
     },
     "typography": {
-        # Recipes look up "heading" and "body". Floats = points, ints = EMU.
-        "heading": {"family": "Inter", "size": 44.0, "bold": True},
-        "body":    {"family": "Inter", "size": 18.0},
+        # Recipes look up "heading" and "body". Bare numbers are points.
+        "heading": {"family": "Inter", "size": 44, "bold": True},
+        "body":    {"family": "Inter", "size": 18},
     },
-    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
+    "shadows": {"card": {"blur_radius": 18, "distance": 4, "alpha": 0.18}},
 })
 
 prs = Presentation()

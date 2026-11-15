@@ -294,3 +294,198 @@ class DescribeValidateColorBlindness:
     def it_rejects_an_unknown_kind(self):
         with pytest.raises(ValueError):
             DesignTokens.from_seed("#3B5BDB").validate_color_blindness("x")
+
+
+# ---------------------------------------------------------------------------
+# Length units, aliases and fail-closed keys
+# ---------------------------------------------------------------------------
+
+
+class DescribeTokenLengthUnits:
+    """A bare number in a length field is points; ``Length`` objects are exact."""
+
+    def it_reads_a_bare_integer_as_points(self):
+        tokens = DesignTokens.from_dict(
+            {
+                "typography": {"heading": {"family": "Inter", "size": 36}},
+                "radii": {"md": 8},
+                "spacings": {"lg": 32},
+                "shadows": {"card": {"blur_radius": 8, "distance": 2}},
+            }
+        )
+        assert tokens.typography["heading"].size == Pt(36)
+        assert tokens.radii["md"] == Pt(8)
+        assert tokens.spacings["lg"] == Pt(32)
+        assert tokens.shadows["card"].blur_radius == Pt(8)
+        assert tokens.shadows["card"].distance == Pt(2)
+
+    def it_reads_an_integer_and_a_float_identically(self):
+        # JSON serialisers write ``36`` for ``36.0``; both must mean 36pt.
+        as_int = DesignTokens.from_dict({"radii": {"md": 8}, "spacings": {"sm": 4}})
+        as_float = DesignTokens.from_dict({"radii": {"md": 8.0}, "spacings": {"sm": 4.0}})
+        assert as_int == as_float
+
+    def it_keeps_Length_objects_exact(self):
+        from power_pptx.util import Inches
+
+        tokens = DesignTokens.from_dict(
+            {"radii": {"a": Emu(5), "b": Pt(8), "c": Inches(0.25), "d": Emu(101600)}}
+        )
+        assert tokens.radii == {
+            "a": Emu(5),
+            "b": Emu(101600),
+            "c": Emu(228600),
+            "d": Emu(101600),
+        }
+
+    @pytest.mark.parametrize("emu", [12700, 101600, 457200])
+    def it_still_reads_a_large_bare_integer_as_emu(self, emu):
+        # Backward compatibility for callers who passed raw EMU integers.
+        tokens = DesignTokens.from_dict({"radii": {"md": emu}})
+        assert tokens.radii["md"] == Emu(emu)
+
+    def it_reads_the_largest_small_integer_as_points(self):
+        assert DesignTokens.from_dict({"spacings": {"x": 12699}}).spacings["x"] == Pt(12699)
+
+    def it_reads_an_integer_override_as_points(self):
+        tokens = DesignTokens.from_preset("modern_light").with_overrides(
+            {"typography.heading.size": 40, "radii.md": 12, "shadows.card.distance": 3}
+        )
+        assert tokens.typography["heading"].size == Pt(40)
+        assert tokens.radii["md"] == Pt(12)
+        assert tokens.shadows["card"].distance == Pt(3)
+
+    def it_reads_integers_in_a_yaml_brand_file_as_points(self, tmp_path):
+        pytest.importorskip("yaml")
+        path = tmp_path / "brand.yml"
+        path.write_text(
+            "typography:\n  heading: {family: Inter, size: 36}\nradii: {md: 8}\n",
+            encoding="utf-8",
+        )
+        tokens = DesignTokens.from_yaml(path)
+        assert tokens.typography["heading"].size == Pt(36)
+        assert tokens.radii["md"] == Pt(8)
+
+    def it_names_the_token_path_when_a_font_size_is_out_of_range(self):
+        with pytest.raises(ValueError, match=r"typography\.heading\.size: font size must be"):
+            DesignTokens.from_dict(
+                {"typography": {"heading": {"family": "Inter", "size": Emu(36)}}}
+            )
+        with pytest.raises(ValueError, match=r"typography\.heading\.size: font size must be"):
+            DesignTokens.from_preset("modern_light").with_overrides(
+                {"typography.heading.size": 0.5}
+            )
+
+    @pytest.mark.parametrize("bad", [-5, -5.0, float("nan"), float("inf")])
+    def it_rejects_a_negative_or_non_finite_bare_number(self, bad):
+        with pytest.raises(ValueError, match=r"radii\.md: a length must be"):
+            DesignTokens.from_dict({"radii": {"md": bad}})
+
+    @pytest.mark.parametrize("bad", [True, "36", [8]])
+    def it_rejects_a_value_that_is_not_a_number_or_Length(self, bad):
+        with pytest.raises(TypeError, match=r"radii\.md: cannot coerce"):
+            DesignTokens.from_dict({"radii": {"md": bad}})
+
+
+class DescribeShadowTokenKeys:
+    def it_accepts_blur_as_an_alias_for_blur_radius(self):
+        token = ShadowToken.from_value({"blur": 18.0, "distance": 4.0, "alpha": 0.18})
+        assert token.blur_radius == Pt(18)
+        assert token == ShadowToken.from_value(
+            {"blur_radius": 18.0, "distance": 4.0, "alpha": 0.18}
+        )
+
+    def it_accepts_the_blur_alias_in_overrides(self):
+        tokens = DesignTokens.from_preset("modern_light")
+        dotted = tokens.with_overrides({"shadows.card.blur": 20})
+        nested = tokens.with_overrides({"shadows": {"card": {"blur": 22}}})
+        assert dotted.shadows["card"].blur_radius == Pt(20)
+        assert nested.shadows["card"].blur_radius == Pt(22)
+
+    def it_rejects_blur_and_blur_radius_together(self):
+        with pytest.raises(ValueError, match="'blur' and 'blur_radius' are the same field"):
+            ShadowToken.from_value({"blur": 4, "blur_radius": 8})
+
+    def it_rejects_an_unknown_key_with_a_hint(self):
+        with pytest.raises(ValueError) as exc:
+            DesignTokens.from_dict(
+                {"shadows": {"card": {"blurr_radius": 9.0, "colour": "#FF0000"}}}
+            )
+        message = str(exc.value)
+        assert message.startswith("shadows.card: unknown shadow key(s)")
+        assert "'blurr_radius' (did you mean 'blur_radius'?)" in message
+        assert "'colour' (did you mean 'color'?)" in message
+
+    def it_checks_alpha_in_an_override_too(self):
+        with pytest.raises(ValueError, match=r"shadows\.card\.alpha: shadow alpha"):
+            DesignTokens.from_preset("modern_light").with_overrides({"shadows.card.alpha": 5})
+
+
+class DescribeTypographyTokenKeys:
+    def it_rejects_an_unknown_key_with_a_hint(self):
+        with pytest.raises(
+            ValueError,
+            match=r"typography\.body: unknown typography key\(s\) 'sise' "
+            r"\(did you mean 'size'\?\)",
+        ):
+            DesignTokens.from_dict({"typography": {"body": {"family": "Inter", "sise": 18.0}}})
+
+    def it_rejects_a_non_boolean_bold(self):
+        with pytest.raises(ValueError, match=r"typography\.body\.bold: expected true"):
+            DesignTokens.from_dict({"typography": {"body": {"family": "Inter", "bold": "yes"}}})
+
+    def it_keeps_None_fields_unset(self):
+        token = TypographyToken.from_value({"family": "Inter", "size": None, "bold": None})
+        assert token == TypographyToken(family="Inter")
+
+
+class DescribeTokenSections:
+    def it_rejects_a_misspelt_section_name(self):
+        with pytest.raises(
+            ValueError, match=r"unknown token section 'palete' \(did you mean 'palette'\?\)"
+        ):
+            DesignTokens.from_dict({"palete": {"primary": "#FF0000"}})
+
+    def it_names_a_section_that_is_not_a_mapping(self):
+        with pytest.raises(ValueError, match=r"palette: expected a mapping"):
+            DesignTokens.from_dict({"palette": ["#FF0000"]})
+
+    def it_accepts_a_json_style_rgb_list(self):
+        tokens = DesignTokens.from_dict({"palette": {"primary": [255, 102, 0]}})
+        assert tokens.palette["primary"] == RGBColor(0xFF, 0x66, 0x00)
+
+    def it_names_the_palette_slot_for_a_bad_color(self):
+        with pytest.raises(ValueError, match=r"palette\.primary: hex color string"):
+            DesignTokens.from_dict({"palette": {"primary": "#GGGGGG"}})
+
+    def it_suggests_the_closest_preset(self):
+        with pytest.raises(ValueError, match=r"did you mean 'modern_light'\?"):
+            DesignTokens.from_preset("modern-light")
+
+
+class DescribeOverrideKeys:
+    def it_rejects_a_path_that_is_too_deep(self):
+        with pytest.raises(ValueError, match="is too deep"):
+            DesignTokens.from_preset("modern_light").with_overrides(
+                {"typography.heading.size.unit": Pt(10)}
+            )
+
+    def it_rejects_overrides_that_are_not_a_mapping(self):
+        with pytest.raises(ValueError, match="token overrides must be a mapping"):
+            DesignTokens.from_preset("modern_light").with_overrides(["palette.primary"])
+
+
+class DescribeFromPptxSources:
+    def it_accepts_a_pathlib_path(self, tmp_path):
+        path = tmp_path / "theme.pptx"
+        Presentation().save(str(path))
+        tokens = DesignTokens.from_pptx(path)
+        assert "accent1" in tokens.palette
+        assert "heading" in tokens.typography
+
+    def it_accepts_a_binary_file_object(self, tmp_path):
+        path = tmp_path / "theme.pptx"
+        Presentation().save(str(path))
+        with open(path, "rb") as stream:
+            tokens = DesignTokens.from_pptx(stream)
+        assert "accent1" in tokens.palette
