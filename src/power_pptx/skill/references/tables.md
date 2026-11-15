@@ -217,6 +217,8 @@ if not cell.borders.bottom.width:      # unset reads Emu(0), never None
 Use `cell.text_direction` for matrix-style or rotated column headers:
 
 ```python
+from power_pptx.enum.text import MSO_ANCHOR
+
 cell.text_direction = "rotate90"    # "horizontal" (default), "rotate90",
 cell.text_direction = "stacked"     # "rotate270", "stacked"
 cell.vertical_anchor = MSO_ANCHOR.MIDDLE   # t / ctr / b within the cell

@@ -139,7 +139,7 @@ best_pt = TextFitter.best_fit_font_size(
 from `min_size` up fits); the caller decides what to do with it. It
 measures single-spaced text unless given `line_spacing=`;
 `paragraph_formats=` (a `ParagraphFormat` per paragraph) adds per-paragraph
-spacing and tracking. It handles 1,000 words in well under a second.
+spacing and tracking. It handles 1,000 words in under a second.
 
 ## 2. Auto-fit: let PowerPoint shrink at render time
 
