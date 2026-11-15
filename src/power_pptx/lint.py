@@ -4448,115 +4448,33 @@ def lint_slide(
 
     Returns a :class:`SlideLintReport` with the detected issues.
     """
-    if isinstance(min_severity, str):
-        try:
-            min_severity_enum = LintSeverity(min_severity.lower())
-        except ValueError:
-            raise ValueError(
-                f"min_severity must be one of "
-                f"{[s.value for s in LintSeverity]}, got {min_severity!r}"
-            )
-    else:
-        min_severity_enum = min_severity
-    disabled = frozenset(disable)
-    threshold = _SEVERITY_ORDER[min_severity_enum]
-
-    def wanted(*codes: str) -> bool:
-        """True when a rule emitting any of *codes* can contribute to the report."""
-        return any(
-            code not in disabled and _SEVERITY_ORDER[_RULE_SEVERITY[code]] <= threshold
-            for code in codes
-        )
-
+    severity = _parse_min_severity(min_severity)
+    rules = _RuleSelection(disable, severity)
     slide_w, slide_h = _slide_dimensions(slide)
-    issues: list[LintIssue] = []
     # Read every shape's box and lint metadata once; the checks below work
     # from these records instead of going back to the XML per shape or pair.
     infos = [_ShapeInfo(shape, include_effect_bleed) for shape in slide.shapes]
     text_env = _TextEnv(slide)
 
-    off_slide = wanted("OffSlide", "OffSlideShadow")
-    text_overflow = wanted("TextOverflow")
-    min_font = wanted("MinFontSize")
-    low_contrast = wanted("LowContrast")
-    collisions = wanted("ShapeCollision", "ShapeCollisionShadow")
-    z_order = wanted("ZOrderAnomaly")
-    layer_order = wanted("LayerOrderViolation")
-
     # Measure the text first.  It yields the TextOverflow issues, and for a
     # shape that resizes to its text (or a table, whose rows grow) the box it
     # will really occupy, which is what the geometric checks must test.
-    if text_overflow or off_slide or low_contrast or collisions or z_order or layer_order:
-        for info in infos:
-            finding = _analyse_text(text_env, info.shape)
-            info.text_issues = finding.issues
-            if finding.growth != _NO_GROWTH:
-                info.grow(finding.growth)
+    if rules.wanted("TextOverflow", "OffSlide", "OffSlideShadow", *_PAIRWISE_CODES):
+        _measure_texts(text_env, infos)
 
     # Shapes that actually overlap, found by a sweep rather than by trying
     # every pair; shared by all the cross-shape checks.
     pairs: list[tuple[int, int]] = []
-    if low_contrast or collisions or z_order or layer_order:
+    if rules.wanted(*_PAIRWISE_CODES):
         pairs = _overlapping_pairs([info.bleed_box for info in infos])
-    backdrops = _Backdrops(slide, infos, pairs) if low_contrast else None
+    backdrops = _Backdrops(slide, infos, pairs) if rules.wanted("LowContrast") else None
+    slide_size = (slide_w, slide_h) if slide_w is not None and slide_h is not None else None
 
-    for info in infos:
-        shape = info.shape
-        if info.malformed and wanted("InvalidGeometry"):
-            left, top, right, bottom = _shape_frame(shape)
-            extent = right - left if info.malformed == "width" else bottom - top
-            issues.append(InvalidGeometry(shape, info.malformed, extent))
-        if off_slide and slide_w is not None and slide_h is not None:
-            issues.extend(_check_off_slide(info, slide_w, slide_h, include_effect_bleed))
-        if text_overflow:
-            issues.extend(info.text_issues)
-        if min_font:
-            issues.extend(_check_min_font_size(shape))
-        if backdrops is not None:
-            issues.extend(_check_low_contrast(shape, backdrops))
+    issues = _shape_issues(infos, rules, slide_size, include_effect_bleed, backdrops)
+    issues += _cross_shape_issues(slide, infos, pairs, rules, include_effect_bleed)
 
-    if collisions:
-        issues.extend(_check_collisions(infos, pairs, include_effect_bleed))
-    if wanted("OffGridDrift"):
-        issues.extend(_check_off_grid_drift(infos))
-    if z_order:
-        issues.extend(_check_z_order_anomalies(infos, pairs))
-    if layer_order:
-        issues.extend(_check_layer_order(infos, pairs, include_effect_bleed))
-    if wanted("MasterPlaceholderCollision"):
-        issues.extend(_check_master_placeholder_collision(slide, infos))
-    if wanted("RaggedEdge"):
-        issues.extend(_check_ragged_edges(infos))
-
-    # Per-shape opt-out: drop issues whose code is silenced on *every*
-    # target shape via ``shape.lint_skip``.  Cross-shape issues
-    # (ShapeCollision, ZOrderAnomaly) are only suppressed when *both*
-    # shapes opt out — a one-sided opt-out keeps the warning, since the
-    # other shape might still want to know.
-    skip_cache: dict[int, frozenset[str]] = {
-        id(info.shape._element): info.skip  # pyright: ignore[reportPrivateUsage]
-        for info in infos
-        if hasattr(info.shape, "_element")
-    }
-
-    def _skipped(issue: LintIssue) -> bool:
-        if not issue.shapes:
-            return False
-        for shape in issue.shapes:
-            key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
-            if key not in skip_cache:
-                skip_cache[key] = _shape_lint_skip(shape)
-            if issue.code not in skip_cache[key]:
-                return False
-        return True
-
-    issues = [
-        i for i in issues
-        if not _skipped(i)
-        and i.code not in disabled
-        and _SEVERITY_ORDER[i.severity] <= threshold
-    ]
-
+    skips = _LintSkips(infos)
+    issues = [i for i in issues if not skips.silences(i) and rules.keeps(i)]
     # Sort: errors → warnings → info
     issues.sort(key=lambda x: _SEVERITY_ORDER[x.severity])
 
@@ -4564,6 +4482,145 @@ def lint_slide(
         slide,
         issues,
         include_effect_bleed=include_effect_bleed,
-        disable=tuple(disabled),
-        min_severity=min_severity_enum,
+        disable=tuple(rules.disabled),
+        min_severity=severity,
     )
+
+
+#: Codes of the rules that compare shapes which overlap.
+_PAIRWISE_CODES = (
+    "LowContrast",
+    "ShapeCollision",
+    "ShapeCollisionShadow",
+    "ZOrderAnomaly",
+    "LayerOrderViolation",
+)
+
+
+def _parse_min_severity(min_severity: str | LintSeverity) -> LintSeverity:
+    """`min_severity` as a :class:`LintSeverity`; a string is matched case-insensitively."""
+    if isinstance(min_severity, str):
+        try:
+            return LintSeverity(min_severity.lower())
+        except ValueError:
+            raise ValueError(
+                f"min_severity must be one of "
+                f"{[s.value for s in LintSeverity]}, got {min_severity!r}"
+            )
+    return min_severity
+
+
+class _RuleSelection:
+    """The issue codes one lint run reports: those not disabled, at or above a severity."""
+
+    def __init__(self, disable: Sequence[str], min_severity: LintSeverity):
+        self.disabled = frozenset(disable)
+        self._threshold = _SEVERITY_ORDER[min_severity]
+
+    def wanted(self, *codes: str) -> bool:
+        """True when a rule emitting any of *codes* can contribute to the report."""
+        return any(
+            code not in self.disabled and _SEVERITY_ORDER[_RULE_SEVERITY[code]] <= self._threshold
+            for code in codes
+        )
+
+    def keeps(self, issue: LintIssue) -> bool:
+        """True when `issue` belongs in the report."""
+        if issue.code in self.disabled:
+            return False
+        return _SEVERITY_ORDER[issue.severity] <= self._threshold
+
+
+def _measure_texts(env: _TextEnv, infos: Sequence[_ShapeInfo]) -> None:
+    """Record each shape's ``TextOverflow`` issues and grow its box to its text."""
+    for info in infos:
+        finding = _analyse_text(env, info.shape)
+        info.text_issues = finding.issues
+        if finding.growth != _NO_GROWTH:
+            info.grow(finding.growth)
+
+
+def _invalid_geometry(info: _ShapeInfo, dimension: str) -> InvalidGeometry:
+    left, top, right, bottom = _shape_frame(info.shape)
+    extent = right - left if dimension == "width" else bottom - top
+    return InvalidGeometry(info.shape, dimension, extent)
+
+
+def _shape_issues(
+    infos: Sequence[_ShapeInfo],
+    rules: _RuleSelection,
+    slide_size: tuple[Length, Length] | None,
+    use_bleed: bool,
+    backdrops: _Backdrops | None,
+) -> list[LintIssue]:
+    """The issues each shape has on its own, shape by shape in shape-tree order."""
+    invalid_geometry = rules.wanted("InvalidGeometry")
+    off_slide = slide_size if rules.wanted("OffSlide", "OffSlideShadow") else None
+    text_overflow = rules.wanted("TextOverflow")
+    min_font = rules.wanted("MinFontSize")
+    issues: list[LintIssue] = []
+    for info in infos:
+        if info.malformed and invalid_geometry:
+            issues.append(_invalid_geometry(info, info.malformed))
+        if off_slide is not None:
+            issues.extend(_check_off_slide(info, off_slide[0], off_slide[1], use_bleed))
+        if text_overflow:
+            issues.extend(info.text_issues)
+        if min_font:
+            issues.extend(_check_min_font_size(info.shape))
+        if backdrops is not None:
+            issues.extend(_check_low_contrast(info.shape, backdrops))
+    return issues
+
+
+def _cross_shape_issues(
+    slide: Slide,
+    infos: Sequence[_ShapeInfo],
+    pairs: Sequence[tuple[int, int]],
+    rules: _RuleSelection,
+    use_bleed: bool,
+) -> list[LintIssue]:
+    """The issues that arise between shapes, rule by rule."""
+    issues: list[LintIssue] = []
+    if rules.wanted("ShapeCollision", "ShapeCollisionShadow"):
+        issues.extend(_check_collisions(infos, pairs, use_bleed))
+    if rules.wanted("OffGridDrift"):
+        issues.extend(_check_off_grid_drift(infos))
+    if rules.wanted("ZOrderAnomaly"):
+        issues.extend(_check_z_order_anomalies(infos, pairs))
+    if rules.wanted("LayerOrderViolation"):
+        issues.extend(_check_layer_order(infos, pairs, use_bleed))
+    if rules.wanted("MasterPlaceholderCollision"):
+        issues.extend(_check_master_placeholder_collision(slide, infos))
+    if rules.wanted("RaggedEdge"):
+        issues.extend(_check_ragged_edges(infos))
+    return issues
+
+
+class _LintSkips:
+    """The codes each shape silences through ``shape.lint_skip``.
+
+    An issue is dropped when its code is silenced on *every* shape it names.
+    Cross-shape issues (ShapeCollision, ZOrderAnomaly) are only suppressed
+    when *both* shapes opt out — a one-sided opt-out keeps the warning, since
+    the other shape might still want to know.
+    """
+
+    def __init__(self, infos: Sequence[_ShapeInfo]):
+        self._skips: dict[int, frozenset[str]] = {
+            id(info.shape._element): info.skip  # pyright: ignore[reportPrivateUsage]
+            for info in infos
+            if hasattr(info.shape, "_element")
+        }
+
+    def silences(self, issue: LintIssue) -> bool:
+        if not issue.shapes:
+            return False
+        return all(issue.code in self._skips_of(shape) for shape in issue.shapes)
+
+    def _skips_of(self, shape: BaseShape) -> frozenset[str]:
+        """The codes `shape` silences; read from the XML for a shape inside a group."""
+        key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
+        if key not in self._skips:
+            self._skips[key] = _shape_lint_skip(shape)
+        return self._skips[key]
