@@ -29,10 +29,14 @@ prs.import_slide(source.slides[0])            # deep-copy between decks
 prs.apply_template("corporate.potx")          # masters, layouts, theme`;
 
 const s1 = `slide = prs.slides[0]
-report = slide.lint()                # SlideLintReport
+report = slide.lint()                # SlideLintReport; never modifies the slide
+slide.lint(disable=["MinFontSize"],  # skipped rules are not run at all
+           min_severity="warning")
 report.issues                        # list[LintIssue]
 report.auto_fix()                    # mutates: OffSlide, TextOverflow,
-                                     # OffGridDrift, LayerOrderViolation
+                                     # LayerOrderViolation; returns list[str]
+report.auto_fix(dry_run=True,        # describe only
+                fix_grid_drift=True) # OffGridDrift too (off by default)
 slide.tidy()                         # one-call lint + safe fixes
 slide.tidy(fix_grid_drift=True,      # per-fix opt in / out
            fix_layer_order=False)
@@ -43,12 +47,25 @@ from power_pptx.lint import (
     ShapeCollision, ShapeCollisionShadow,
     MinFontSize, OffGridDrift, LowContrast,
     ZOrderAnomaly, LayerOrderViolation,
-    MasterPlaceholderCollision,
+    MasterPlaceholderCollision, RaggedEdge,
+    InvalidGeometry,                 # negative width/height; ERROR
 )
 
 errors = [i for i in report.issues if i.severity is LintSeverity.ERROR]
+overflow = [i for i in report.issues if isinstance(i, TextOverflow)]
+# TextOverflow: ratio, dimension ("height" | "width"), overflow_pt,
+#   auto_size ("NONE" | "SHAPE_TO_FIT_TEXT" | "TEXT_TO_FIT_SHAPE" | None),
+#   estimated (fallback metrics), row / col (table cell, else None)
+# InvalidGeometry: dimension ("width" | "height"), value_emu`;
 
-# Declaring an intentional overlap, widest to narrowest
+const sCli = `power-pptx lint DECK [DECK ...]
+    [--format {text,json,sarif}]         # default text, grouped by slide
+    [--min-severity {info,warning,error}]
+    [--fail-on {error,warning,never}]    # default error
+    [--fix (--output PATH | --in-place)] # slide.tidy() on each slide first
+# exit: 0 clean, 1 issues at or above --fail-on, 2 usage error / unreadable deck`;
+
+const s1b = `# Declaring an intentional overlap, widest to narrowest
 slide.lint_group("kpi-1", card, accent_bar, value_box)  # n-ary, symmetric
 badge.allow_overlap_with(card)       # exactly one pair
 badge.disallow_overlap_with(card)    # revoke
@@ -207,6 +224,25 @@ rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 
   <h2 id="lint"><code>power_pptx.lint</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s1} />
+  <Code code={s1b} />
+  <p>
+    <code>TextOverflow</code> is measured with the font metrics and line breaking
+    <code>fit_text</code> uses, and is an error only on a fixed-size frame: overflow on a frame
+    that auto-sizes, or on a table row, is a warning. See
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a> for every rule and fix.
+  </p>
+
+  <h3 id="lint-cli">The <code>power-pptx lint</code> command <strong class="text-primary">fork</strong></h3>
+  <Code code={sCli} lang="bash" />
+  <p>
+    Runs <code>slide.lint()</code> over every slide of each deck, hidden slides included.
+    <code>--format json</code> emits one document whose slide entries are
+    <code>report.to_dict()</code> plus <code>index</code>, <code>number</code>,
+    <code>title</code> and <code>hidden</code>; <code>--format sarif</code> emits
+    <code>lint_report_to_sarif</code> output with one run per deck. <code>--fix</code> never
+    writes over the input without <code>--in-place</code>. Also reachable as
+    <code>python -m power_pptx lint</code>.
+  </p>
 
   <h2 id="lint-ci">The linter in CI <strong class="text-primary">fork</strong></h2>
   <p>

@@ -147,10 +147,33 @@ warnings.simplefilter("error", FontMetricsWarning)`;
   <h2 id="fit-text">fit_text and the text-fit estimator</h2>
   <p>
     <code>fit_text</code> measures your exact string against the box geometry using real font
-    metrics — not heuristics. You can also use the estimator directly when you want the size
-    without mutating the frame:
+    metrics — not heuristics — and with the formatting it leaves in place: each paragraph's line
+    spacing and the space between paragraphs, capitals (<code>all_caps</code> /
+    <code>small_caps</code>) and letter spacing, whether set on the text or inherited by a
+    placeholder from its layout and master. Lines break where PowerPoint and LibreOffice break
+    them: at spaces, after hyphens, dashes and the slashes of a URL, and between Chinese, Japanese
+    and Korean characters under their line-start and line-end rules. A line is reserved
+    1.2 × size × line spacing, as a renderer draws it in a shape. For East Asian text it writes
+    the East Asian typeface (<code>&lt;a:ea&gt;</code>) alongside the Latin one.
+  </p>
+  <p>
+    <code>min_size=</code> refuses an unreadably small fit, <code>max_lines=</code> caps the line
+    count, <code>preserve_breaks=True</code> forbids wrapping beyond your own breaks, and
+    <code>line_spacing=</code> (a multiple such as <code>1.2</code>, or a length such as
+    <code>Pt(28)</code>) is applied to every paragraph and measured. A constraint that cannot be
+    met raises <code>ValueError</code> before anything is changed. You can also use the estimator
+    directly when you want the size without mutating the frame:
   </p>
   <Code code={snippet1} />
+  <p>
+    <code>best_fit_font_size</code> takes the same <code>min_size</code>, <code>max_lines</code>,
+    <code>preserve_breaks</code> and <code>line_spacing</code>, plus
+    <code>paragraph_formats=</code> (spacing per paragraph), <code>in_table=True</code> (lines as
+    tall as the font's own ascent and descent, as LibreOffice draws table cells) and
+    <code>break_long_words=</code>. It returns <code>None</code> when nothing from
+    <code>min_size</code> up fits. <code>power_pptx.text.measure_text()</code> answers the inverse
+    question — the lines and height a string takes at a given size — without touching a slide.
+  </p>
 
   <h2 id="font-availability">Font availability and the fit guarantee</h2>
   <p>
@@ -187,7 +210,16 @@ warnings.simplefilter("error", FontMetricsWarning)`;
     TrueType file whether or not it matches the family, bold and italic you also passed — which is
     what you want when the brand font is vendored in the repo rather than installed system-wide.
     Note that lookup is per <em>style</em>: a machine can have Inter Regular but not Inter Bold,
-    and <code>fit_text(..., bold=True)</code> will fall back on the latter.
+    and <code>fit_text(..., bold=True)</code> will fall back on the latter. To vendor a whole
+    family once instead of passing a file to every call, register its folder with
+    <code>power_pptx.text.register_font_dir("assets/fonts")</code> (or set
+    <code>POWER_PPTX_FONT_DIRS</code>); lookups then find it by name, including faces inside
+    <code>.ttc</code> / <code>.otc</code> collections, case-insensitively.
+  </p>
+  <p>
+    <code>slide.lint()</code> measures with the same metrics, so it shares the limitation: an
+    overflow measured with fallback metrics says so in its message and has
+    <code>estimated == True</code>.
   </p>
   <p>
     The third response is to refuse to ship the guess at all — the right default for a release
@@ -208,15 +240,20 @@ warnings.simplefilter("error", FontMetricsWarning)`;
       <tr><th>Issue</th><th>Meaning</th><th>Auto-fixable</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>TextOverflow</code></td><td>Estimated text extent exceeds the shape's frame</td><td>Yes — flipped to <code>TEXT_TO_FIT_SHAPE</code>; <code>fit_text</code> bakes a size in instead</td></tr>
-      <tr><td><code>OffSlide</code></td><td>Shape extends beyond the slide bounds</td><td>Yes — shrunk if oversized, then clamped back inside</td></tr>
+      <tr><td><code>TextOverflow</code></td><td>The text, measured with <code>fit_text</code>'s metrics and line breaking, does not fit its frame or table row</td><td>Yes — a stored shrink scale, a resized box, reduced sizes or a taller row, as the frame's auto-size setting asks; <code>fit_text</code> before save is still better</td></tr>
+      <tr><td><code>OffSlide</code></td><td>Shape extends beyond the slide bounds — including a box that grows to fit its text</td><td>Yes — shrunk if oversized, then clamped back inside</td></tr>
       <tr><td><code>ShapeCollision</code></td><td>Two shapes overlap unintentionally</td><td>No — fix placement with Grid/Stack, or declare the overlap</td></tr>
       <tr><td><code>LayerOrderViolation</code></td><td>A shape declares it sits above a layer but is drawn below it</td><td>Yes — restacked to match the declaration; geometry untouched</td></tr>
     </tbody>
   </table>
   <p>
-    Each issue carries a <code>LintSeverity</code> (<code>"error"</code> / <code>"warning"</code>)
-    so CI can fail hard on errors while tolerating warnings.
+    Each issue carries a <code>LintSeverity</code> (<code>"error"</code> / <code>"warning"</code> /
+    <code>"info"</code>) so CI can fail hard on errors while tolerating warnings. Overflow is an
+    error only where nothing will repair it — a fixed-size frame. On a frame that resizes or
+    shrinks to fit, and on a table row, it is a warning, because a renderer adjusts those when the
+    deck is opened or the text is edited; the stored geometry is merely stale. The full rule set
+    is on
+    <a href={withBase("/advanced/lint")}>Lint &amp; Audit</a>.
   </p>
 
   <h2 id="intentional-overlap">Deliberate layering isn't a collision</h2>
