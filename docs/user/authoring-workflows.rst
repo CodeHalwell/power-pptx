@@ -110,6 +110,9 @@ full-slide capture. Hybrid requires contain fitting and installed native fonts.
 * ``data-pptx="chart"`` requires ``data-pptx-chart`` JSON with a type,
   categories, and named series. Supported types are column, bar, line, area,
   pie, and doughnut. Native styling is minimal; data is editable in a workbook.
+  A background colour, border, gradient or radius on the chart region itself
+  is rejected — the native chart has no fill of its own — so put the card on
+  an unmarked parent.
 * ``data-pptx="table"`` belongs on a table and creates editable cells, merges,
   row/column dimensions, basic fonts, fills, padding, and borders.
 * ``data-pptx="capture"`` captures a complex visual as an independent PNG.

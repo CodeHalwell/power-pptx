@@ -41,12 +41,34 @@ python -m playwright install --with-deps chromium
 `[html]` and `[svg]` are also available separately. All renderer imports are
 lazy; ordinary deck authoring does not require a browser. Use
 `browser_path="/path/to/chromium"` or `POWER_PPTX_CHROMIUM` to select an
-existing Chromium executable. `FigureBackendUnavailable` reports missing
-Playwright / Chromium with an install hint.
+existing Chromium executable. `browser_path` names a program to run, so
+never fill it from model or user input; `from_spec` refuses it inside a
+spec. `FigureBackendUnavailable` reports missing Playwright / Chromium
+with an install hint.
 
 These are synchronous APIs. In an async app/agent, call them in a worker
-with `await asyncio.to_thread(from_html, ...)` instead of running the
-Playwright sync API inside the active event loop.
+with `await asyncio.to_thread(from_html, ...)`; calling them on a thread
+that is running an event loop raises a `RuntimeError` saying exactly that.
+
+## HTML you did not write: `allow_network=False`
+
+Capturing HTML means running it in a browser, with whatever network access
+the process has. A page can fetch an internal URL in an `<iframe>` and bake
+the answer into the slide. When the markup comes from a model, a user or
+anywhere else you do not control, pass `allow_network=False` to
+`capture_html`, `add_html_figure`, `add_plotly_figure` or `from_html`:
+
+```python
+add_html_figure(slide, generated_html, *bbox, allow_network=False)
+```
+
+The page may then load only `data:` / `blob:` URLs and, for a file input,
+the files in its own directory. Anything else is blocked — including
+channels request routing cannot see, such as a WebSocket opened from a
+worker — and the capture raises `ValueError` listing the blocked URLs
+rather than producing a picture with pieces missing. Inline what the page
+needs (data URLs, `<style>`, `<script>`). For decks built from a spec,
+`from_spec(spec, safe=True)` sets this for every figure; see `compose.md`.
 
 These composition/capture additions are new in this source tree. For an
 older pinned package, check that `power_pptx.compose.from_html` is available
@@ -86,10 +108,15 @@ Use a fixed canvas matching the deck, usually 1280 × 720 CSS pixels for
 
 Keep assets under the HTML file's directory (e.g. `assets/logo.svg`,
 `fonts/brand.woff2`, `style.css`). Local file inputs are served temporarily
-on localhost so relative CSS, image, and font URLs resolve. Files outside
-that asset root are not served; move shared assets under it. Inline markup
+on localhost so relative CSS, image, and font URLs resolve. Only regular
+files under that directory are served: no directory listings, and a symlink
+that leads outside it answers 404 like any other file outside the asset
+root, so copy shared assets in rather than linking them. Inline markup
 should use self-contained data URLs or explicit absolute resource URLs.
 Remote resources still require network access.
+
+An `<img>` with no `src` (a placeholder showing only its `alt` text) is
+fine; an image that fails to load or decode still fails the capture.
 
 For an existing long webpage, reorganize its content into slide sections
 before composing. `full_page=True` captures a long image; it does not
@@ -115,7 +142,11 @@ prs = from_html(
 prs.save("deck.pptx")
 ```
 
-Sections become static PNG pictures. Visible text is copied to speaker
+Sections become static PNG pictures. If nothing matches `selector`, the
+call raises `ValueError` at once naming the selector — after a bounded wait
+when the page has scripts that might still add the sections — and a
+matching but invisible (zero-size, `display:none`) section is reported the
+same way. Visible text is copied to speaker
 notes and picture alt text; `data-title`, `aria-label`, or the first
 heading names each picture. Notes and alt text help preserve content but
 do not make the slide's text selectable/editable or replace a full
@@ -160,7 +191,10 @@ explicit CSS background colors remain visible.
 
 For JSON authoring, a `figure` slide can use an HTML path or markup plus
 `html_options={"selector": "#architecture", "viewport": [1280, 720]}`.
-The same options work with `design.recipes.figure_slide`.
+The same options work with `design.recipes.figure_slide`. A spec may not
+set `browser_path` (the process chooses the browser), and
+`from_spec(spec, safe=True)` captures every figure with
+`allow_network=False` and keeps figure paths inside `base_dir`.
 
 ## Embed SVG as a vector asset
 

@@ -190,6 +190,9 @@ the native desktop face.
 Supported types: column, bar, line, area, pie, doughnut. Series values must match
 the categories and be finite numbers or null. Options: colors, title, legend.
 It uses a minimal native chart style; HTML chart styling is not translated.
+The native chart has no fill or outline of its own, so a background colour,
+border, gradient or radius on the chart region itself is rejected; put the
+card behind it on an unmarked parent.
 The browser region must already contain a visual for a meaningful reference.
 
 `table` builds editable cells, merges, column/row dimensions, basic cell fonts,

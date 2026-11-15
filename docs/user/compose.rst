@@ -16,11 +16,12 @@ shapes before construction (no JSON Schema is involved)::
     from power_pptx.compose import from_spec
 
     prs = from_spec({
-        "theme": {"palette": "modern_blue", "fonts": "inter"},
+        "slide_size": "16:9",
+        "tokens": {"preset": "modern_light", "palette": {"primary": "#1D4ED8"}},
         "slides": [
             {"layout": "title", "title": "Q4 Review",
              "subtitle": "April 2026", "transition": "morph"},
-            {"layout": "kpi_grid", "title": "Run-rate metrics",
+            {"layout": "kpi", "title": "Run-rate metrics",
              "kpis": [
                 {"label": "ARR", "value": "$182M", "delta": +0.27},
                 {"label": "NDR", "value": "131%",  "delta": +0.03},
@@ -36,6 +37,9 @@ shapes before construction (no JSON Schema is involved)::
 
 Layout names map either to Phase-9 design recipes (where supplied) or to
 a small built-in set of layouts using the host presentation's master.
+When ``tokens`` are given, ``title`` and ``bullets`` use the token-styled
+recipes. ``slide_size`` (1–56 inches per side) also rescales the
+template's masters and layouts, so placeholder layouts fill the new size.
 
 Legacy and recipe layouts both reject unknown fields with a
 :class:`ValueError` naming the slide and suggesting corrections. For
@@ -43,6 +47,79 @@ example, ``subtitel`` on a ``title`` slide suggests ``subtitle`` instead
 of silently losing the content. Named standard layouts such as
 ``Title Slide`` populate the same fields as their aliases. Slide entries
 must be mappings and layout names must be strings.
+
+Values are checked as well, so nothing is dropped or mangled: text fields
+are strings; ``bullets`` is a list of strings or ``{"text": ..., "level":
+n}`` mappings (the placeholder layouts indent by level, the styled recipe
+draws a flat list); ``kpis``, ``milestones``, chart ``series`` and
+comparison ``rows`` are lists of mappings; table ``rows`` may not be longer
+than ``columns``; ``chart_palette`` must name a real palette or list
+colours. A key the layout has nowhere to put — a ``title`` on a ``blank``
+slide — is an error. ``null`` means "not given".
+
+Errors
+~~~~~~
+
+Every problem with a spec's content raises
+:class:`power_pptx.compose.SpecError`, a :class:`ValueError` subclass. Its
+message starts with the location of the offending value and its ``path``
+attribute carries that location alone, ready to hand back to the program
+that wrote the spec::
+
+    from power_pptx.compose import SpecError
+
+    try:
+        prs = from_spec(spec)
+    except SpecError as exc:
+        print(exc.path)  # "slides[2].kpis[0]"
+
+Missing files, templates that are not presentations and failures inside a
+recipe are reported the same way and chained from the original exception.
+A missing optional dependency is still an :class:`ImportError`.
+
+Tokens
+~~~~~~
+
+``tokens`` (or its alias ``theme``) is a preset (``{"preset":
+"modern_light"}``), a YAML brand file (``{"yaml": "brand.yml"}``), inline
+token sections (``palette``, ``typography``, ``radii``, ``shadows``,
+``spacings``), a :class:`~power_pptx.design.tokens.DesignTokens`
+instance, or a mix: the preset is the base, the YAML file is merged over
+it, inline sections override individual slots and fields, and
+``overrides`` (dotted paths or nested dicts) go on last. Unknown keys are
+rejected. Bare numbers in length fields are points. A recipe slide may
+carry its own ``tokens`` in the same forms, layered over the deck's;
+``"tokens": null`` opts it out.
+
+Variables
+~~~~~~~~~
+
+``"vars": {"company": "ACME"}`` (or ``from_spec(spec, vars=...)``) turns on
+``{{company}}`` substitution in every string; ``{{a.b}}`` walks nested
+mappings, and an unknown name raises :class:`~power_pptx.compose.SpecError`.
+A spec without variables is left exactly as written, so code samples keep
+their braces. In a spec that does use variables, write ``\{{`` for a
+literal ``{{``, or set ``"interpolate": false`` on a slide (or the whole
+spec) to switch substitution off there.
+
+Specs from a model or a user
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Build a spec you did not write with ``safe=True``::
+
+    prs = from_spec(spec, safe=True, base_dir="/srv/decks/job-42")
+
+Every file the spec names — ``template``, a token ``yaml``, ``image``, a
+``figure`` path — must then resolve inside *base_dir* (default: the
+current working directory) after following symlinks, and HTML and Plotly
+figures are captured with ``allow_network=False``, so a page can load only
+``data:`` URLs and its own document directory. *base_dir* also resolves
+relative paths when ``safe`` is off. ``from_yaml`` takes the same two
+arguments.
+
+Whatever ``safe`` is, a spec cannot choose the browser executable:
+``browser_path`` in ``html_options`` / ``plotly_options`` is rejected. Set
+``POWER_PPTX_CHROMIUM`` or pass ``browser_path=`` from Python instead.
 
 The ``"lint"`` field accepts ``"off"`` (the default), ``"warn"``, or
 ``"raise"``, and acts only on error-severity issues.  Decks that were not
@@ -83,7 +160,8 @@ Entry keys:
    * - ``left`` / ``top`` / ``width`` / ``height``
      - **Required.**  Plain numbers are inches (matching ``slide_size``);
        pass a :class:`~power_pptx.util.Length` such as ``Inches(1.5)`` to
-       opt out.
+       opt out.  Sizes cannot be negative, no value may exceed 56 inches
+       (PowerPoint's limit) and non-finite numbers are rejected.
    * - ``name``
      - The shape's name, which doubles as the handle
        ``allow_overlap_with`` resolves against.  Must be unique within
