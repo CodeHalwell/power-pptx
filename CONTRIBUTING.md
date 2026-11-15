@@ -80,10 +80,11 @@ pyright
 The repository-wide strict configuration still has inherited typing debt.
 CI starts with basic checking of the maintained public entry points in
 ``pyright-ci.json``; expand that scope as modules are brought into shape.
-Ruff correctness rules run over all source and tests, with the complete
-configured rule set also enforced on the authoring/validation modules
-listed in ``.github/workflows/ci.yml``. Tool versions are pinned in
-``requirements-quality.txt``.
+The complete Ruff rule set and the Ruff formatter are enforced over all
+source and tests, and ``complexipy`` keeps every function in ``src``,
+``tests`` and ``examples`` at a cognitive complexity of 15 or less. Tool
+versions are pinned in ``requirements-quality.txt``; use them, since
+formatting can differ between Ruff releases.
 
 Rendering integration tests under ``tests/integration/test_render_libreoffice.py``
 use real LibreOffice and Poppler. They skip when those tools are absent;
@@ -107,12 +108,16 @@ locally to reproduce it, or ``stress.py --render --out-dir /tmp/pptx-stress``
 to exercise all pages of the 14 broad feature probes. Read the example README
 for prerequisites and the distinction between structural and visual checks.
 
-Formatting and lint:
+Formatting, lint and complexity:
 
 ```bash
 ruff check src tests
 ruff format src tests
+complexipy
 ```
+
+To have ``git blame`` skip the bulk reformatting commit, run
+``git config blame.ignoreRevsFile .git-blame-ignore-revs`` once.
 
 ## Preparing a release
 

@@ -141,9 +141,19 @@ behave --stop                        # Gherkin acceptance tests under features/
 
 ```bash
 ruff check src tests                 # lint (line-length 100; rules in pyproject.toml)
-ruff format src tests                # format
+ruff format src tests                # format (Markdown code blocks are left alone)
+complexipy                           # every function at cognitive complexity <= 15
+pyright --project pyright-ci.json    # the type-checked entry points CI enforces
 pyright                              # strict type-checking on src/power_pptx + tests
 ```
+
+CI fails on any `ruff check` finding, any file `ruff format --check` would
+change, and any function in `src`, `tests` or `examples` whose complexipy
+cognitive complexity is over 15. Keep new functions under the limit by
+extracting well-named helpers, guard clauses or dispatch tables; do not
+add `# complexipy: ignore`. Tool versions are pinned in
+`requirements-quality.txt`; run those versions, since formatting can differ
+between ruff releases.
 
 `docs/`, `lab/`, `spec/`, and `ref/` are excluded from ruff. `lab/` is
 deliberately undisciplined experimental code.
@@ -166,9 +176,10 @@ A PR must keep all of these green:
 4. **schema-validation** — `pytest tests/schema` against bundled OOXML XSDs.
 5. **html-embedding** — real Chromium HTML/SVG capture tests and the
    captured/native companion decks in `examples/html_embedding/`.
-6. **quality** — repository-wide Ruff correctness rules, full Ruff checks
-   on maintained modules, `pyright --project pyright-ci.json`, and release
-   gate unit tests. Optional renderer dependencies are installed in this job.
+6. **quality** — `ruff check` and `ruff format --check` over `src` and
+   `tests`, `complexipy` (cognitive complexity of 15 or less everywhere),
+   `pyright --project pyright-ci.json`, and release gate unit tests.
+   Optional renderer dependencies are installed in this job.
 7. **modern-gallery** — builds, validates, round-trips, and renders all 32
    modern example slides, then uploads previews and the manifest for review.
 8. **render-integration** — exercises the real LibreOffice/Poppler pipeline.
