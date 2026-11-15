@@ -2015,7 +2015,7 @@ class DescribeShapeEntryChecks:
     def it_rejects_an_entry_that_is_not_a_mapping(self):
         error = _spec_error(_shapes_spec("card"))
         assert str(error) == "slides[0].shapes[0]: each 'shapes' entry must be a mapping; got 'str'"
-        assert error.path == ""
+        assert error.path == "slides[0].shapes[0]"  # -- was "" --
 
     @pytest.mark.parametrize(("name", "shown"), [("  ", "'  '"), (5, "5")])
     def it_rejects_a_blank_or_non_string_name(self, name, shown):
@@ -2058,7 +2058,51 @@ class DescribeShapeEntryChecks:
             "slides[0].shapes[1]: 'allow_overlap_with' entries must be non-empty shape "
             f"names; got {shown}"
         )
-        assert error.path == ""
+        assert error.path == "slides[0].shapes[1].allow_overlap_with"  # -- was "" --
+
+    @pytest.mark.parametrize(
+        ("shapes", "where", "key"),
+        [
+            ({"left": 1}, "slides[0]", "shapes"),
+            (["card"], "slides[0].shapes[0]", None),
+            ([_box(colour="red")], "slides[0].shapes[0]", None),
+            ([{"left": 1, "top": 1, "width": 2}], "slides[0].shapes[0]", None),
+            ([_box(name="  ")], "slides[0].shapes[0]", "name"),
+            ([_box(name="a\x01b")], "slides[0].shapes[0]", "name"),
+            ([_box(name="a"), _box(name="a")], "slides[0].shapes[1]", "name"),
+            ([_box(shape=3)], "slides[0].shapes[0]", "shape"),
+            ([_box(shape="rectangel")], "slides[0].shapes[0]", "shape"),
+            ([_box(name="a", allow_overlap_with=7)], "slides[0].shapes[0]", "allow_overlap_with"),
+            ([_box(name="a", allow_overlap_with="a")], "slides[0].shapes[0]",
+             "allow_overlap_with"),
+            ([_box(name="a"), _box(name="b", allow_overlap_with="carrd")], "slides[0].shapes[1]",
+             "allow_overlap_with"),
+        ],
+        ids=[
+            "not-a-list", "not-a-mapping", "unknown-key", "missing-key", "blank-name",
+            "control-character", "duplicate-name", "kind-not-a-string", "unknown-kind",
+            "overlap-not-a-name", "overlap-self", "overlap-unknown",
+        ],
+    )
+    def it_gives_the_location_of_a_shape_entry_error_as_its_path(self, shapes, where, key):
+        # -- the message always started with the location; `.path` used to be "" --
+        error = _spec_error({"slides": [{"layout": "blank", "shapes": shapes}]})
+
+        assert str(error).startswith(where + ": ")
+        assert error.path == (where if key is None else "%s.%s" % (where, key))
+
+    def it_gives_a_cross_slide_overlap_reference_its_path(self):
+        error = _spec_error(
+            {
+                "slides": [
+                    {"layout": "blank", "shapes": [_box(name="card")]},
+                    {"layout": "blank", "shapes": [_box(name="b", allow_overlap_with="card")]},
+                ]
+            }
+        )
+
+        assert "is defined on slides [0]" in str(error)
+        assert error.path == "slides[1].shapes[0].allow_overlap_with"
 
     def it_accepts_a_tuple_of_overlap_names(self):
         prs = from_spec(

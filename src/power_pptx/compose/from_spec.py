@@ -1504,7 +1504,8 @@ def _add_spec_shapes(
     if not isinstance(shape_specs, list):
         raise SpecError(
             f"{where_slide}: 'shapes' must be a list of shape entries; got "
-            f"{type(shape_specs).__name__!r}"
+            f"{type(shape_specs).__name__!r}",
+            path=f"{where_slide}.shapes",
         )
 
     built: list[tuple[Mapping[str, Any], Any]] = []
@@ -1518,7 +1519,8 @@ def _add_spec_shapes(
                 raise SpecError(
                     f"{where}: duplicate shape name {name!r} on {where_slide}. "
                     "Shape names must be unique within a slide so "
-                    "'allow_overlap_with' can resolve them."
+                    "'allow_overlap_with' can resolve them.",
+                    path=f"{where}.name",
                 )
             by_name[name] = shape
         built.append((entry, shape))
@@ -1559,7 +1561,8 @@ def _check_shape_keys(entry: Any, where: str) -> None:
     if not isinstance(entry, Mapping):
         raise SpecError(
             f"{where}: each 'shapes' entry must be a mapping; got "
-            f"{type(entry).__name__!r}"
+            f"{type(entry).__name__!r}",
+            path=where,
         )
 
     unknown = set(entry) - _VALID_SHAPE_KEYS
@@ -1567,7 +1570,8 @@ def _check_shape_keys(entry: Any, where: str) -> None:
         raise SpecError(
             f"{where}: unknown shape keys "
             f"{_format_unknown(unknown, _VALID_SHAPE_KEYS)}. "
-            f"Valid keys: {sorted(_VALID_SHAPE_KEYS)}"
+            f"Valid keys: {sorted(_VALID_SHAPE_KEYS)}",
+            path=where,
         )
 
 
@@ -1578,11 +1582,13 @@ def _shape_name(entry: Mapping[str, Any], where: str) -> Optional[str]:
         return None
     if not isinstance(name, str) or not name.strip():
         raise SpecError(
-            f"{where}: shape 'name' must be a non-empty string; got {name!r}"
+            f"{where}: shape 'name' must be a non-empty string; got {name!r}",
+            path=f"{where}.name",
         )
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
         raise SpecError(
-            f"{where}: shape 'name' must not contain control characters; got {name!r}"
+            f"{where}: shape 'name' must not contain control characters; got {name!r}",
+            path=f"{where}.name",
         )
     return name
 
@@ -1593,7 +1599,8 @@ def _shape_box(entry: Mapping[str, Any], name: Optional[str], where: str) -> tup
     if missing:
         raise SpecError(
             f"{where}: shape entries require keys "
-            f"{list(_REQUIRED_SHAPE_KEYS)}; missing {missing}"
+            f"{list(_REQUIRED_SHAPE_KEYS)}; missing {missing}",
+            path=where,
         )
     # Sizes cannot be negative and nothing can be larger, or further
     # away, than the largest slide PowerPoint allows: outside that range
@@ -1617,7 +1624,8 @@ def _new_shape(slide: Any, kind: Any, box: tuple[Any, ...], where: str) -> Any:
     if not isinstance(kind, str):
         raise SpecError(
             f"{where}: 'shape' must be a string naming an MSO_SHAPE member or "
-            f"{_TEXTBOX_SHAPE_NAME!r}; got {type(kind).__name__!r}"
+            f"{_TEXTBOX_SHAPE_NAME!r}; got {type(kind).__name__!r}",
+            path=f"{where}.shape",
         )
     if kind.strip().lower() == _TEXTBOX_SHAPE_NAME:
         return slide.shapes.add_textbox(*box)
@@ -1664,7 +1672,8 @@ def _resolve_autoshape(kind: str, *, where: str) -> Any:
         f"{where}: unknown shape type {kind!r}"
         f"{_did_you_mean(member.lower(), candidates)}. Valid values are "
         f"{_TEXTBOX_SHAPE_NAME!r} or any MSO_SHAPE member name, e.g. "
-        "'rectangle', 'rounded_rectangle', 'oval'."
+        "'rectangle', 'rounded_rectangle', 'oval'.",
+        path=f"{where}.shape",
     )
 
 
@@ -1716,7 +1725,8 @@ def _overlap_refs(raw: Any, where: str) -> list[Any]:
         return list(raw)
     raise SpecError(
         f"{where}: 'allow_overlap_with' must be a shape name or a list of "
-        f"shape names; got {type(raw).__name__!r}"
+        f"shape names; got {type(raw).__name__!r}",
+        path=f"{where}.allow_overlap_with",
     )
 
 
@@ -1725,12 +1735,14 @@ def _check_overlap_ref(ref: Any, own_name: Any, where: str) -> None:
     if not isinstance(ref, str) or not ref.strip():
         raise SpecError(
             f"{where}: 'allow_overlap_with' entries must be non-empty "
-            f"shape names; got {ref!r}"
+            f"shape names; got {ref!r}",
+            path=f"{where}.allow_overlap_with",
         )
     if ref == own_name:
         raise SpecError(
             f"{where}: 'allow_overlap_with' names this shape itself "
-            f"({ref!r}); an allowance always describes a pair of shapes."
+            f"({ref!r}); an allowance always describes a pair of shapes.",
+            path=f"{where}.allow_overlap_with",
         )
 
 
@@ -1754,12 +1766,14 @@ def _unresolved_overlap_ref(
             f"is defined on slides {elsewhere} — an overlap allowance "
             "is keyed on shape id, and shape ids are only unique "
             "within a slide, so it can only name a shape on "
-            f"slides[{slide_index}]."
+            f"slides[{slide_index}].",
+            path=f"{where}.allow_overlap_with",
         )
     return SpecError(
         f"{where}: 'allow_overlap_with' names unknown shape {ref!r}"
         f"{_did_you_mean(ref, by_name)} on slides[{slide_index}]. "
-        f"Named shapes on that slide: {sorted(by_name)}"
+        f"Named shapes on that slide: {sorted(by_name)}",
+        path=f"{where}.allow_overlap_with",
     )
 
 
