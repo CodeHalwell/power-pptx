@@ -2633,21 +2633,31 @@ def _table_row_needs(env: _TextEnv, shape: BaseShape) -> list[tuple[int, int, fl
 def _own_cells(tr) -> Iterator[tuple[Any, Any, int, int]]:
     """Yield ``(tc, tx_body, first_column, column_span)`` for each cell of row `tr`.
 
-    Cells merged into another, and cells whose attributes cannot be read, are
-    left out but still take up their columns.
+    Cells merged into another, cells whose text runs across the row rather than
+    along it (rotated or stacked), and cells whose attributes cannot be read are
+    left out. A row holds one ``a:tc`` for every grid column, the columns a
+    merge covers included (marked ``hMerge``), so each one is a column on.
     """
-    col_idx = 0
-    for tc in tr.tc_lst:
+    for col_idx, tc in enumerate(tr.tc_lst):
         try:
             span = max(1, int(tc.gridSpan))
             merged = bool(tc.hMerge) or bool(tc.vMerge) or int(tc.rowSpan) > 1
             tx_body = tc.txBody
         except Exception:
             span, merged, tx_body = 1, True, None
-        start = col_idx
-        col_idx += span
-        if not merged and tx_body is not None:
-            yield tc, tx_body, start, span
+        if not merged and tx_body is not None and _cell_text_runs_along_row(tc):
+            yield tc, tx_body, col_idx, span
+
+
+def _cell_text_runs_along_row(tc) -> bool:
+    """True when the text of table cell `tc` is horizontal.
+
+    Rotated text runs up or down the cell, so its length, not its line count,
+    decides the row height, and how far a renderer grows the row for it is not
+    modelled. Such a cell is not measured rather than misreported.
+    """
+    tcPr = tc.tcPr
+    return tcPr is None or (tcPr.vert or "horz") == "horz"
 
 
 def _tallest_cell(

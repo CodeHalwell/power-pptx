@@ -161,8 +161,9 @@ print(report.markdown())`;
     effective size and typeface (including what a placeholder inherits from its layout and
     master), wrapped inside the frame's margins where <code>fit_text</code> breaks lines — at
     spaces, after hyphens, dashes and URL slashes, between East Asian characters — and stacked at
-    the frame's line and paragraph spacing. Text inside groups and table cells is measured too, and
-    a frame <code>fit_text</code> has sized is never flagged.
+    the frame's line and paragraph spacing. Text inside groups and table cells is measured too
+    (except a cell whose text is rotated or stacked), and a frame <code>fit_text</code> has sized
+    is never flagged.
   </p>
   <Code code={snippetOverflow} />
   <p>

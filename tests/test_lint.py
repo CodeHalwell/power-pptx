@@ -3718,6 +3718,36 @@ class DescribeTableRowMeasurementEdges:
         # The unreadable cell is skipped and counts as one grid column.
         assert [(i.row, i.col) for i in issues] == [(0, 1)]
 
+    def it_finds_the_cell_after_a_horizontal_merge(self, outfit):
+        # -- a merged row still holds an `a:tc` for each column it covers, marked hMerge --
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 3, Inches(1), Inches(1), Inches(6), Inches(0.3))
+        table = frame.table
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 2).text = _long_text(3)
+        _set_font(table.cell(0, 2).text_frame, outfit, 14)
+
+        issues = _overflows(slide)
+
+        assert [(i.row, i.col) for i in issues] == [(0, 2)]
+        slide.tidy()
+        assert _overflows(slide) == []
+
+    @pytest.mark.parametrize("direction", ["rotate90", "rotate270", "stacked"])
+    def it_does_not_measure_text_that_runs_across_the_row(self, outfit, direction):
+        # -- a narrow, tall cell: laid out horizontally its text needs ~11 lines --
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(1, 1, Inches(1), Inches(1), Inches(0.35), Inches(2.5))
+        cell = frame.table.cell(0, 0)
+        cell.text = "Rotated text"
+        _set_font(cell.text_frame, outfit, 24)
+        cell.margin_left = cell.margin_right = Pt(2)
+        assert [(i.row, i.col) for i in _overflows(slide)] == [(0, 0)]
+
+        cell.text_direction = direction
+
+        assert _overflows(slide) == []
+
 
 class DescribeAutoFixWhenTheIssueIsStale:
     """``auto_fix`` re-measures, so an issue the slide no longer has fixes nothing."""

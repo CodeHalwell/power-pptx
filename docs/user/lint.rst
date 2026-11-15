@@ -61,8 +61,8 @@ Issue types
   margins where ``fit_text`` breaks lines (at spaces, after hyphens and
   dashes, between East Asian characters, at the slashes of a long path) and
   stacked at its line and paragraph spacing.  Text in groups and
-  table cells is checked too, and a frame ``fit_text`` has sized is never
-  flagged.  When a typeface is not installed the engine's fallback metrics
+  table cells is checked too (except a cell whose text is rotated or
+  stacked), and a frame ``fit_text`` has sized is never flagged.  When a typeface is not installed the engine's fallback metrics
   are used, without a warning, and the issue's ``estimated`` is ``True``.
 
   A fixed-size frame (``MSO_AUTO_SIZE.NONE`` or no setting) that overflows
