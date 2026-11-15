@@ -1,5 +1,9 @@
 root => {
     const base = root.getBoundingClientRect();
+    // A computed colour is fully transparent when its alpha is zero, whatever its RGB:
+    // `rgba(255, 255, 255, 0)` paints no more than `transparent` (`rgba(0, 0, 0, 0)`) does.
+    const transparentColour = c => /^rgba\((?:[^,]*,){3}\s*0(?:\.0*)?\s*\)$/.test(c) ||
+        /\/\s*0(?:\.0*)?%?\s*\)$/.test(c);
     const style = el => {
         const s = getComputedStyle(el);
         return {font:s.fontFamily, size:parseFloat(s.fontSize), weight:s.fontWeight,
@@ -39,7 +43,7 @@ root => {
                     fail('native chart/table decorations require an unmarked parent or capture');
                 // A native chart is drawn without a fill or outline of its own, so a
                 // background colour or border on the region would vanish from the slide.
-                if (kind==='chart' && (s.backgroundColor!=='rgba(0, 0, 0, 0)' ||
+                if (kind==='chart' && (!transparentColour(s.backgroundColor) ||
                     ['Top','Right','Bottom','Left'].some(edge=>parseFloat(s['border'+edge+'Width'])>0)))
                     fail('native chart decorations (background colour, border) require an unmarked parent or capture');
                 for(let a=el;a && a!==root.parentElement;a=a.parentElement)
@@ -53,14 +57,14 @@ root => {
             const checkTextStyle = cs => {
                 if (cs.textTransform!=='none') fail('text transforms require capture or authored transformed text');
                 if (!['normal','0px'].includes(cs.letterSpacing) || cs.textShadow!=='none' ||
-                    cs.backgroundImage!=='none' || cs.backgroundColor!=='rgba(0, 0, 0, 0)' ||
+                    cs.backgroundImage!=='none' || !transparentColour(cs.backgroundColor) ||
                     ['Top','Right','Bottom','Left'].some(edge=>parseFloat(cs['border'+edge+'Width'])>0))
                     fail('native text decorations/backgrounds require an unmarked parent or capture');
                 if (cs.verticalAlign!=='baseline') fail('superscript and subscript require capture');
             };
             checkTextStyle(s);
             if (!['normal','0px'].includes(s.letterSpacing) || s.textShadow!=='none' ||
-                s.backgroundImage!=='none' || s.webkitTextFillColor==='rgba(0, 0, 0, 0)' || s.textIndent!=='0px')
+                s.backgroundImage!=='none' || transparentColour(s.webkitTextFillColor) || s.textIndent!=='0px')
                 fail('letter spacing, gradient/shadow text, and indentation require capture');
             if (s.writingMode!=='horizontal-tb' || s.direction==='rtl') fail('vertical/RTL text requires capture');
             if (el.querySelector('img,svg,canvas,video')) fail('text regions cannot contain visuals');

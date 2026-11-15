@@ -147,6 +147,25 @@ def test_invalid_annotations_fail_contextually(browser_path, content, match):
         from_html(annotated(content), mode="hybrid", browser_path=browser_path)
 
 
+@pytest.mark.parametrize(
+    "background", ["transparent", "rgba(255, 255, 255, 0)", "rgb(10 20 30 / 0)"]
+)
+def test_a_fully_transparent_background_is_not_a_decoration(browser_path, background):
+    # -- only the alpha says whether a background paints anything --
+    chart = (
+        '{"type":"column","categories":["Q1","Q2"],"series":[{"name":"Revenue","values":[1,2]}]}'
+    )
+    content = (
+        f'<h1 data-pptx="text" style="background-color:{background}">Headline</h1>'
+        f'<div class="chart" data-pptx="chart" style="background-color:{background}"'
+        f" data-pptx-chart='{chart}'>Chart</div>"
+    )
+    prs = from_html(annotated(content), mode="hybrid", browser_path=browser_path)
+    shapes = list(prs.slides[0].shapes)
+    assert any(s.has_chart for s in shapes)
+    assert any(s.has_text_frame and s.text == "Headline" for s in shapes)
+
+
 @pytest.mark.parametrize("format", ["png", "svg"])
 def test_real_plotly_browser_export_and_round_trip(browser_path, format):
     go = pytest.importorskip("plotly.graph_objects")

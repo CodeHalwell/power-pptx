@@ -292,7 +292,9 @@ Fixed
   on the right; every transition kind, ``comb`` included, is accepted.
 * HTML capture reports a missing ``[data-slide]`` section at once, skips an
   ``<img>`` with no source, explains the error inside a running event loop,
-  and rejects unsupported styling on hybrid chart regions.
+  and rejects unsupported styling on hybrid chart regions. A hybrid text or
+  chart region whose background is fully transparent, such as
+  ``rgba(255, 255, 255, 0)``, is no longer rejected as decorated.
 
 **Recipes, components and diagrams**
 
