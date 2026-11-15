@@ -390,19 +390,7 @@ class DescribeThemeAlias:
         # the title colour to that, so the title run reflects the preset.
         from power_pptx.dml.color import RGBColor
 
-        title_rgb = None
-        for sh in slide.shapes:
-            if not sh.has_text_frame:
-                continue
-            for p in sh.text_frame.paragraphs:
-                for r in p.runs:
-                    if r.text:
-                        title_rgb = r.font.color.rgb
-                        break
-                if title_rgb:
-                    break
-            if title_rgb:
-                break
+        title_rgb = DescribeSlideLevelTokens._title_rgb(slide)
         assert title_rgb == RGBColor(0x7C, 0x5C, 0xFF)
 
     def it_prefers_tokens_over_theme_when_both_are_set(self):
@@ -1967,3 +1955,256 @@ class DescribeSafeMode:
         with pytest.raises(SpecError, match="is outside base_dir"):
             from_yaml(str(deck), safe=True, base_dir=base)
         assert len(from_yaml(str(deck)).slides) == 1
+
+
+# ---------------------------------------------------------------------------
+# Exact messages and paths for checks no other test pins down
+# ---------------------------------------------------------------------------
+
+
+def _spec_error(spec, **kwargs):
+    """Return the SpecError ``from_spec(spec, **kwargs)`` raises."""
+    with pytest.raises(SpecError) as exc:
+        from_spec(spec, **kwargs)
+    return exc.value
+
+
+def _shapes_spec(*entries):
+    return {"slides": [{"layout": "blank", "shapes": list(entries)}]}
+
+
+def _box(**entry):
+    return {"left": 1, "top": 1, "width": 2, "height": 1, **entry}
+
+
+class DescribeSpecStructureChecks:
+    def it_rejects_a_slides_value_that_is_not_a_list(self):
+        error = _spec_error({"slides": {"layout": "blank"}})
+        assert (str(error), error.path) == ("'slides' must be a list", "slides")
+
+    def it_rejects_a_slide_that_is_not_a_mapping(self):
+        error = _spec_error({"slides": [{"layout": "blank"}, "blank"]})
+        assert (str(error), error.path) == (
+            "slides[1]: each slide must be a mapping", "slides[1]"
+        )
+
+    def it_rejects_a_layout_that_is_not_a_string(self):
+        error = _spec_error({"slides": [{"layout": 3}]})
+        assert (str(error), error.path) == (
+            "slides[0].layout must be a string", "slides[0].layout"
+        )
+
+    @pytest.mark.parametrize(
+        ("lint", "message"),
+        [
+            (["raise"], "lint must be one of ['off', 'raise', 'warn'], got ['raise']"),
+            ("rase", "lint must be one of ['off', 'raise', 'warn'], got 'rase' "
+                     "(did you mean 'raise'?)"),
+        ],
+    )
+    def it_rejects_an_unknown_lint_mode(self, lint, message):
+        error = _spec_error({"lint": lint, "slides": []})
+        assert (str(error), error.path) == (message, "lint")
+
+    def it_rejects_vars_that_are_not_a_mapping(self):
+        error = _spec_error({"vars": ["a"], "slides": []})
+        assert (str(error), error.path) == ("spec 'vars' must be a mapping", "vars")
+
+
+class DescribeShapeEntryChecks:
+    def it_rejects_an_entry_that_is_not_a_mapping(self):
+        error = _spec_error(_shapes_spec("card"))
+        assert str(error) == "slides[0].shapes[0]: each 'shapes' entry must be a mapping; got 'str'"
+        assert error.path == ""
+
+    @pytest.mark.parametrize(("name", "shown"), [("  ", "'  '"), (5, "5")])
+    def it_rejects_a_blank_or_non_string_name(self, name, shown):
+        error = _spec_error(_shapes_spec(_box(name=name)))
+        assert str(error) == (
+            f"slides[0].shapes[0]: shape 'name' must be a non-empty string; got {shown}"
+        )
+
+    def it_rejects_a_shape_kind_that_is_not_a_string(self):
+        error = _spec_error(_shapes_spec(_box(shape=3)))
+        assert str(error) == (
+            "slides[0].shapes[0]: 'shape' must be a string naming an MSO_SHAPE member "
+            "or 'textbox'; got 'int'"
+        )
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (True, "'width' of shape 'card' must be a number (inches) or Length; got bool: True"),
+            ("2", "'width' of shape 'card' must be a number (inches) or Length; got 'str': '2'"),
+        ],
+    )
+    def it_rejects_a_size_that_is_not_a_number(self, value, message):
+        error = _spec_error(_shapes_spec(_box(name="card", width=value)))
+        assert str(error) == f"slides[0].shapes[0]: {message}"
+        assert error.path == "slides[0].shapes[0].width"
+
+    def it_treats_the_textbox_kind_case_insensitively_and_stringifies_text(self):
+        prs = from_spec(_shapes_spec(_box(shape=" TextBox ", text=42)))
+        shape = prs.slides[0].shapes[0]
+        assert shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+        assert shape.text_frame.text == "42"
+
+    @pytest.mark.parametrize(("ref", "shown"), [("", "''"), (3, "3")])
+    def it_rejects_a_blank_or_non_string_overlap_name(self, ref, shown):
+        error = _spec_error(
+            _shapes_spec(_box(name="a"), _box(name="b", allow_overlap_with=["a", ref]))
+        )
+        assert str(error) == (
+            "slides[0].shapes[1]: 'allow_overlap_with' entries must be non-empty shape "
+            f"names; got {shown}"
+        )
+        assert error.path == ""
+
+    def it_accepts_a_tuple_of_overlap_names(self):
+        prs = from_spec(
+            _shapes_spec(_box(name="a"), _box(name="b", allow_overlap_with=("a",)))
+        )
+        a, b = prs.slides[0].shapes
+        assert b.overlap_allowances == frozenset({a.shape_id})
+
+
+class DescribeLegacyKpiCards:
+    @staticmethod
+    def _cards(kpis):
+        prs = from_spec({"slides": [{"layout": "kpi_grid", "title": "x", "kpis": kpis}]})
+        return [s for s in prs.slides[0].shapes if not s.is_placeholder]
+
+    def it_adds_no_cards_for_an_empty_list(self):
+        assert self._cards([]) == []
+
+    def it_shows_a_missing_label_or_value_as_empty_text(self):
+        value, label = self._cards([{"value": 7}])
+        assert (value.text_frame.text, label.text_frame.text) == ("7", "")
+
+    def it_colours_a_delta_by_its_sign(self):
+        from power_pptx.dml.color import RGBColor
+
+        red, green = RGBColor(0xCC, 0x00, 0x00), RGBColor(0x00, 0x8A, 0x00)
+        deltas = [0.1, 0, -0.25, "−3 pts", "–1", " -2", "+5"]
+        cards = self._cards([{"label": "k", "value": "1", "delta": d} for d in deltas])
+        shown = [
+            (box.text_frame.text, box.text_frame.paragraphs[0].runs[0].font.color.rgb)
+            for box in cards[2::3]
+        ]
+        assert shown == [
+            ("+10%", green),
+            ("+0%", green),
+            ("-25%", red),
+            ("−3 pts", red),
+            ("–1", red),
+            (" -2", red),
+            ("+5", green),
+        ]
+
+
+class DescribeLengthCoercion:
+    @pytest.mark.parametrize(
+        ("bounds", "value", "message"),
+        [
+            ({"minimum": 0.0}, -1, "width must be at least 0 inches; got -1"),
+            ({"maximum": 56.0}, 60, "width must be at most 56 inches; got 60"),
+            (
+                {"minimum": 0.0, "maximum": 56.0},
+                60,
+                "width must be between 0 and 56 inches; got 60",
+            ),
+        ],
+    )
+    def it_names_the_bounds_a_value_breaks(self, bounds, value, message):
+        from power_pptx.compose.from_spec import _coerce_length
+
+        with pytest.raises(SpecError) as exc:
+            _coerce_length(value, "width", path="w", **bounds)
+        assert (str(exc.value), exc.value.path) == (message, "w")
+
+    def it_returns_numbers_as_inches_and_lengths_as_they_are(self):
+        from power_pptx.compose.from_spec import _coerce_length
+        from power_pptx.util import Emu, Inches
+
+        assert _coerce_length(2, "width") == Inches(2)
+        assert _coerce_length(Emu(5), "width", minimum=0.0) == Emu(5)
+        assert _coerce_length(60, "width", minimum=0.0) == Inches(60)
+
+
+class DescribeInterpolationPaths:
+    _UNKNOWN = (
+        "interpolation variable {name!r} not found in vars={names!r}. Write \\{{{{ for a "
+        "literal '{{{{', or set \"interpolate\": false on the slide (or the whole spec) to "
+        "switch substitution off"
+    )
+
+    def it_interpolates_inside_tuples(self):
+        prs = from_spec({
+            "vars": {"q": "Q1"},
+            "slides": [{
+                "layout": "chart",
+                "title": "x",
+                "categories": ("{{q}}", "Q2"),
+                "series": [{"name": "a", "values": [1, 2]}],
+            }],
+        })
+        chart = next(s.chart for s in prs.slides[0].shapes if s.has_chart)
+        assert [c.label for c in chart.plots[0].categories] == ["Q1", "Q2"]
+
+    def it_names_the_tuple_item_holding_an_unknown_variable(self):
+        error = _spec_error({
+            "vars": {"q": "Q1"},
+            "slides": [{
+                "layout": "chart",
+                "title": "x",
+                "categories": ("{{q}}", "{{z}}"),
+                "series": [{"name": "a", "values": [1, 2]}],
+            }],
+        })
+        assert error.path == "slides[0].categories[1]"
+        assert str(error) == "slides[0].categories[1]: " + self._UNKNOWN.format(
+            name="z", names=["q"]
+        )
+
+    def it_interpolates_a_top_level_key_under_its_own_name(self):
+        error = _spec_error({"vars": {}, "template": "{{nope}}", "slides": []})
+        assert error.path == "template"
+        assert str(error) == "template: " + self._UNKNOWN.format(name="nope", names=[])
+
+    def it_does_not_walk_a_dotted_name_through_a_string(self):
+        error = _spec_error(
+            {"vars": {"a": "s"}, "slides": [{"layout": "title", "title": "{{a.b}}"}]}
+        )
+        assert error.path == "slides[0].title"
+        assert "variable 'a.b' not found in vars=['a']" in str(error)
+
+    def it_keys_a_path_less_walk_on_the_mapping_keys(self):
+        from power_pptx.compose.from_spec import _interpolate
+
+        assert _interpolate({"a": ["{{x}}", 3, ("{{x}}",)]}, {"x": 1}) == {"a": ["1", 3, ("1",)]}
+        with pytest.raises(SpecError) as exc:
+            _interpolate({"a": {"b": "{{y}}"}}, {})
+        assert exc.value.path == "a.b"
+
+
+class DescribeTokenSectionChecks:
+    def it_rejects_a_section_that_is_not_a_mapping(self):
+        error = _spec_error(
+            {"tokens": {"preset": "modern_light", "palette": ["#fff"]}, "slides": []}
+        )
+        assert (str(error), error.path) == (
+            "tokens.palette: expected a mapping of token names to values; got list ['#fff']",
+            "tokens.palette",
+        )
+
+    def it_skips_a_null_section(self):
+        prs = from_spec({
+            "tokens": {"preset": "modern_light", "palette": None},
+            "slides": [{"layout": "title", "title": "x"}],
+        })
+        assert len(prs.slides) == 1
+
+    def it_puts_a_colon_after_the_key_for_an_error_with_no_path_of_its_own(self):
+        error = _spec_error({"tokens": {"preset": "nope"}, "slides": []})
+        assert error.path == "tokens"
+        assert str(error).startswith("tokens: Unknown preset 'nope'")
