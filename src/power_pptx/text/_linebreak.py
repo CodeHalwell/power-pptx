@@ -219,6 +219,21 @@ def asian_latin_gaps(text: str) -> int:
     return gaps
 
 
+def split_full_width(text: str) -> tuple[str, int]:
+    """Return `text` without its wide and fullwidth characters, and how many there were.
+
+    Those characters occupy exactly one em in every East Asian font, and a
+    renderer draws them in such a font even when the run names a Latin face
+    that has no glyph for them. Measuring them in the named face would give
+    the width of its "missing glyph" box instead (0.69 em in Outfit, for
+    example), so the engine counts each as one em and measures the rest.
+    """
+    if text.isascii():
+        return text, 0
+    narrow = [char for char in text if unicodedata.east_asian_width(char) not in ("W", "F")]
+    return "".join(narrow), len(text) - len(narrow)
+
+
 def has_east_asian(text: str) -> bool:
     """True when `text` has a wide or fullwidth character, as East Asian scripts do."""
     return not text.isascii() and any(

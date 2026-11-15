@@ -14,6 +14,7 @@ from power_pptx.text._linebreak import (
     asian_latin_gaps,
     break_offsets,
     is_character_start,
+    split_full_width,
     split_words,
 )
 from power_pptx.util import Length
@@ -84,7 +85,7 @@ class TextFitter(tuple):
         letter_spacing: int = 0,
         paragraph_formats: Sequence[ParagraphFormat] | None = None,
         in_table: bool = False,
-        break_long_words: bool = False,
+        break_long_words: bool | None = None,
     ) -> int | None:
         """Return whole-number best fit point size less than or equal to `max_size`.
 
@@ -95,10 +96,12 @@ class TextFitter(tuple):
         error (see :meth:`TextFrame._best_fit_font_size`).
 
         Text wraps where PowerPoint and LibreOffice wrap it: at spaces, after
-        hyphens and slashes, and between East Asian characters. Words are kept
-        whole when some size from `min_size` up allows it. Only when none does,
-        or when `break_long_words` is true, is a word wider than the box split
-        at the edge of the box, which is what the renderers do with it.
+        hyphens and slashes, and between East Asian characters. By default
+        (`break_long_words` |None|) words are kept whole when some size from
+        `min_size` up allows it, and only when none does is a word wider than
+        the box split at the edge of the box, which is what the renderers do
+        with it. |True| splits such a word at any size; |False| never splits
+        one, so |None| is returned when no size fits with every word whole.
 
         `line_spacing` is the spacing the paragraphs will be rendered with: a
         multiple of single spacing, a |Length| for an exact line height, or
@@ -120,11 +123,11 @@ class TextFitter(tuple):
             max_lines,
             preserve_breaks,
             in_table,
-            break_long_words,
+            bool(break_long_words),
         )
         text_fitter = cls(_LineSource(text), extents, font_file, letter_spacing, layout)
         size = text_fitter._best_fit_font_size(max_size, min_size)
-        if size is None and not break_long_words:
+        if size is None and break_long_words is None:
             layout = layout._replace(break_long_words=True)
             text_fitter = cls(_LineSource(text), extents, font_file, letter_spacing, layout)
             size = text_fitter._best_fit_font_size(max_size, min_size)
@@ -723,6 +726,9 @@ def _rendered_size(text, point_size, font_file):
     Return a (width, height) pair representing the size of *text* in English
     Metric Units (EMU) when rendered at *point_size* in the font defined in
     *font_file*.
+
+    Wide and fullwidth East Asian characters are counted as one em each,
+    whatever the font (see `split_full_width`).
     """
     emu_per_inch = 914400
     px_per_inch = 72.0
@@ -733,11 +739,24 @@ def _rendered_size(text, point_size, font_file):
     except AttributeError:
         left, top, right, bottom = font.getbbox(text)
         px_width, px_height = right - left, bottom - top
+    narrow, full_width = split_full_width(text)
+    if full_width:
+        # -- a point is a pixel at 72 px per inch --
+        px_width = full_width * point_size + (_ink_width(font, narrow) if narrow else 0)
 
     emu_width = int(px_width / px_per_inch * emu_per_inch)
     emu_height = int(px_height / px_per_inch * emu_per_inch)
 
     return emu_width, emu_height
+
+
+def _ink_width(font, text):
+    """Width in pixels of the ink of *text* in the Pillow *font*."""
+    try:
+        return font.getsize(text)[0]
+    except AttributeError:
+        left, _, right, _ = font.getbbox(text)
+        return right - left
 
 
 @functools.lru_cache(maxsize=65536)
@@ -746,11 +765,15 @@ def _advance(text, point_size, font_file):
 
     Unlike `_rendered_size`, the advances of the pieces of a line add up to
     the advance of the line, so one cached value per word estimates the width
-    of any line the word appears in.
+    of any line the word appears in. Wide and fullwidth East Asian characters
+    advance one em each, whatever the font (see `split_full_width`).
     """
+    narrow, full_width = split_full_width(text)
+    if not narrow:
+        return float(full_width * point_size)
     font = _Fonts.font(font_file, point_size)
     try:
-        return font.getlength(text)
+        return full_width * point_size + font.getlength(narrow)
     except AttributeError:
         # -- Pillow's unsized bitmap default font, before Pillow 9.2 --
-        return _rendered_size(text, point_size, font_file)[0] / 12700.0
+        return full_width * point_size + _rendered_size(narrow, point_size, font_file)[0] / 12700.0

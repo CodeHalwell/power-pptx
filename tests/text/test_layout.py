@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import unicodedata
+from pathlib import Path
 
 import pytest
 
@@ -273,6 +274,18 @@ class DescribeTextFitterFitting(object):
         # -- four lines of five characters at 40pt take 192pt of the 200pt --
         assert size == 40
 
+    def and_it_never_breaks_a_word_when_told_to_keep_words_whole(self):
+        size = TextFitter.best_fit_font_size(
+            "Supercalifragilistic",
+            (Pt(100), Pt(200)),
+            40,
+            None,
+            min_size=14,
+            break_long_words=False,
+        )
+
+        assert size is None
+
     def it_measures_single_spacing_by_default(self):
         text = "one\ntwo\nthree"
 
@@ -318,6 +331,30 @@ class DescribeTextFitterFitting(object):
             TextFitter.best_fit_font_size(
                 "one\ntwo", (Pt(500), Pt(36)), 40, None, paragraph_formats=[ParagraphFormat()]
             )
+
+
+class DescribeFullWidthCharacters(object):
+    """Wide and fullwidth East Asian characters measure one em in any font.
+
+    A renderer draws them in an East Asian font even when the run names a
+    Latin face without the glyphs, so measuring them in that face (its
+    "missing glyph" box, 0.69 em in Outfit) under-counted their width.
+    """
+
+    OUTFIT = str(Path(__file__).parents[1] / "fonts" / "Outfit-Regular.ttf")
+
+    def it_advances_one_em_per_character_in_a_face_without_the_glyphs(self):
+        assert layout._advance("四半期の売上", 100, self.OUTFIT) == pytest.approx(600)
+
+    def and_it_measures_the_ink_of_a_line_the_same_way(self):
+        width, _ = layout._rendered_size("四半期の売上", 100, self.OUTFIT)
+
+        assert width == 600 * 12700
+
+    def and_it_still_measures_the_Latin_text_beside_them_in_the_face(self):
+        latin = layout._advance("Q3", 100, self.OUTFIT)
+
+        assert layout._advance("売上Q3", 100, self.OUTFIT) == pytest.approx(200 + latin)
 
 
 class Describe_BinarySearchTree(object):

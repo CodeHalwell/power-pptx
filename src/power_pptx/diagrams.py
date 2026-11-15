@@ -228,7 +228,13 @@ def _fit_label(
     size = None
     if width > 0 and height > 0:
         size = TextFitter.best_fit_font_size(
-            text, (Emu(width), Emu(height)), top, font_file, min_size=floor, line_spacing=1.0
+            text,
+            (Emu(width), Emu(height)),
+            top,
+            font_file,
+            min_size=floor,
+            line_spacing=1.0,
+            break_long_words=False,
         )
     if size is None:
         raise ValueError(
