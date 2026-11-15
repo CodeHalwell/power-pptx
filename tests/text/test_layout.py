@@ -454,6 +454,12 @@ class Describe_LineSource(object):
 class Describe_Fonts(object):
     """Unit-test suite for `power_pptx.text.layout._Fonts` object."""
 
+    def it_names_a_font_file_it_cannot_open(self, tmp_path):
+        missing = str(tmp_path / "no-such-font.ttf")
+
+        with pytest.raises(OSError, match="no-such-font.ttf"):
+            layout._Fonts._load(missing, 12)
+
     def it_uses_pillows_default_font_when_no_path_is_given(self, request):
         """Pillow's bundled default lets `fit_text` work on platforms without
         the requested family installed (notably most Linux runtimes)."""

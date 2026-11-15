@@ -780,7 +780,13 @@ class _Fonts(object):
                 # never blows up.
                 return ImageFont.load_default()
         # -- a face of a font collection other than its first carries its index --
-        return ImageFont.truetype(font_path, point_size, index=getattr(font_path, "face_index", 0))
+        try:
+            return ImageFont.truetype(
+                font_path, point_size, index=getattr(font_path, "face_index", 0)
+            )
+        except OSError as exc:
+            # -- Pillow's own message ("cannot open resource") names no file --
+            raise OSError(f"cannot open font file {str(font_path)!r}: {exc}") from exc
 
 
 def _rendered_size(text, point_size, font_file):
