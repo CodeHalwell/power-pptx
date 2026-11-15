@@ -219,18 +219,42 @@ class DescribeDrawingFamily:
 
 
 class DescribeRenderedLineHeight:
-    def it_reserves_the_fonts_own_line_height(self):
+    # PowerPoint, and LibreOffice opening a .pptx, make a single-spaced line in a
+    # shape 1.2 times the point size whatever the font (Outfit, whose ascent and
+    # descent are 1.26 em, included) and scale that by the line spacing. Only in
+    # a table cell does LibreOffice use the font's own ascent and descent.
+
+    def it_reserves_the_line_spacing_times_a_single_spaced_line(self):
+        register_font_dir(FONTS)
+        text = "one two three four five six seven eight"
+
+        m = measure_text(text, Pt(80), size_pt=18, font_family="Outfit", strict=True)
+        single = measure_text(
+            text, Pt(80), size_pt=18, font_family="Outfit", strict=True, line_spacing=None
+        )
+
+        assert len(m.lines) > 1
+        assert m.height == pytest.approx(Pt(18 * 1.2 * 1.2) * len(m.lines), abs=len(m.lines))
+        assert single.height == pytest.approx(Pt(18 * 1.2) * len(m.lines), abs=len(m.lines))
+
+    def it_reserves_the_fonts_own_line_height_in_a_table(self):
         from PIL import ImageFont
 
         register_font_dir(FONTS)
         ascent, descent = ImageFont.truetype(str(FONTS / "Outfit-Regular.ttf"), 1000).getmetrics()
         text = "one two three four five six seven eight"
 
-        m = measure_text(text, Pt(80), size_pt=18, font_family="Outfit", strict=True)
+        m = measure_text(text, Pt(80), size_pt=18, font_family="Outfit", in_table=True)
 
-        per_line = round(18 * 1.2 * (ascent + descent) / 1000 * 12700)
-        assert len(m.lines) > 1
-        assert m.height == per_line * len(m.lines)
+        per_line = 18 * 1.2 * (ascent + descent) / 1000 * 12700
+        assert m.height == pytest.approx(per_line * len(m.lines), abs=len(m.lines))
+
+    def it_takes_an_exact_line_height(self):
+        register_font_dir(FONTS)
+
+        m = measure_text("one\ntwo", Pt(80), size_pt=18, font_family="Outfit", line_spacing=Pt(30))
+
+        assert m.height == Pt(60)
 
     def it_uses_the_same_lines_when_fitting(self):
         from power_pptx.text.layout import TextFitter
@@ -240,7 +264,7 @@ class DescribeRenderedLineHeight:
         line = measure_text("Revenue", Pt(400), size_pt=18, font_family="Outfit").height
 
         # Room for the measured line fits 18pt; 1 EMU less forces a smaller size.
-        kwargs = {"min_size": 6, "max_lines": 1}
+        kwargs = {"min_size": 6, "max_lines": 1, "line_spacing": 1.2}
         assert TextFitter.best_fit_font_size("Revenue", (Pt(400), line), 18, path, **kwargs) == 18
         assert (
             TextFitter.best_fit_font_size("Revenue", (Pt(400), line - 1), 18, path, **kwargs) < 18
