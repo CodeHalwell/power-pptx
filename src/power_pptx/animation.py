@@ -233,6 +233,40 @@ _EMPHASIS_PRESETS = {
 # an exit leaves by.
 _DIRECTION_SUBTYPES = {"top": 1, "right": 2, "bottom": 4, "left": 8}
 
+# Presets whose `direction` chooses that edge, with the one they take when no
+# direction is given.  Every other preset ignores `direction`.
+_DIRECTIONAL_PRESETS = {"fly_in": "bottom", "fly_out": "bottom", "wipe": "left"}
+
+# animEffect filter of a wipe from each edge.  The filter names the edge the
+# wipe starts from, "up" and "down" standing for the top and the bottom: that
+# is how LibreOffice reads them and writes its own wipes.
+_WIPE_FILTERS = {
+    "left": "wipe(left)",
+    "right": "wipe(right)",
+    "top": "wipe(up)",
+    "bottom": "wipe(down)",
+}
+
+
+def _resolve_direction(preset: str, direction: str | None) -> str | None:
+    """The direction *preset* is to take: *direction*, or the preset's own default.
+
+    |None| for a preset that has no direction, which ignores the argument.
+    Raises |ValueError| for a direction a directional preset cannot take,
+    rather than quietly using its default.
+    """
+    default = _DIRECTIONAL_PRESETS.get(preset)
+    if default is None:
+        return None
+    if direction is None:
+        return default
+    if direction not in _DIRECTION_SUBTYPES:
+        raise ValueError(
+            f"direction for {preset!r} must be one of {sorted(_DIRECTION_SUBTYPES)}; "
+            f"got {direction!r}"
+        )
+    return direction
+
 # Reverse mappings from (presetID, presetSubtype) → preset name, keyed by
 # preset class.  Used by AnimationEntry.preset for read-side introspection.
 # Subtype matches are preferred but falling back to a "subtype-agnostic"
@@ -265,6 +299,13 @@ _EFFECT_FILTER = {
     "wheel":       "wheel(1)",
     "random_bars": "randombar(vertical)",
 }
+
+
+def _effect_filter(preset: str, direction: str | None = None) -> str:
+    """The animEffect filter of *preset*, taking *direction* for a wipe."""
+    if preset == "wipe":
+        return _WIPE_FILTERS[direction or "left"]
+    return _EFFECT_FILTER.get(preset, "fade")
 
 # FlyIn/FlyOut path templates (M start L end E)
 _FLY_PATHS_IN = {
@@ -973,7 +1014,7 @@ class SlideAnimations:
         trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
-        direction: str = "bottom",
+        direction: str | None = None,
         by_paragraph: bool = False,
         easing: str | tuple[float, float] | None = None,
     ) -> None:
@@ -983,8 +1024,11 @@ class SlideAnimations:
         ``"float_in"``, ``"wipe"``, ``"zoom"``, ``"wheel"``,
         ``"random_bars"``.
 
-        *direction* is only used for ``"fly_in"``; accepted values are
-        ``"bottom"`` (default), ``"top"``, ``"left"``, ``"right"``.
+        *direction* is the edge the shape comes in from, ``"bottom"``,
+        ``"top"``, ``"left"`` or ``"right"``.  It is used by ``"fly_in"``
+        (from the bottom by default) and ``"wipe"`` (from the left by
+        default); any other value raises :class:`ValueError`.  Other
+        presets have no direction and ignore it.
 
         Pass ``by_paragraph=True`` to animate each paragraph of a text
         frame separately.  *shape* may then be either a |TextFrame| or
@@ -993,7 +1037,8 @@ class SlideAnimations:
         *trigger*; subsequent paragraphs fire after the previous one.
         Currently supports the ``"fade"``, ``"appear"``, ``"wipe"``,
         ``"zoom"``, ``"wheel"``, and ``"random_bars"`` presets — others
-        raise :class:`ValueError`.
+        raise :class:`ValueError`.  *direction* and *easing* apply to
+        every paragraph.
 
         *delay* and *duration* are in milliseconds.  A float is rounded to
         the nearest whole millisecond; a negative value raises
@@ -1006,10 +1051,17 @@ class SlideAnimations:
             )
         delay = _milliseconds(delay, "delay")
         duration = _milliseconds(duration, "duration")
+        direction = _resolve_direction(preset, direction)
 
         if by_paragraph:
             self._add_entrance_by_paragraph(
-                preset, shape, trigger=trigger, delay=delay, duration=duration
+                preset,
+                shape,
+                trigger=trigger,
+                delay=delay,
+                duration=duration,
+                direction=direction,
+                easing=easing,
             )
             return
 
@@ -1025,8 +1077,8 @@ class SlideAnimations:
             )
         bshape = cast("BaseShape", shape)
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
-        if preset == "fly_in":
-            preset_subtype = _DIRECTION_SUBTYPES.get(direction, preset_subtype)
+        if direction is not None:
+            preset_subtype = _DIRECTION_SUBTYPES[direction]
         behaviors = self._entrance_behaviors(preset, bshape.shape_id, duration, direction)
         self._append_effect(
             bshape.shape_id, preset_id, "entr", preset_subtype, trigger, delay,
@@ -1041,13 +1093,17 @@ class SlideAnimations:
         trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
-        direction: str = "bottom",
+        direction: str | None = None,
     ) -> None:
         """Append an exit animation for *shape* to the slide timeline.
 
         *preset* is one of: ``"disappear"``, ``"fade"``, ``"fly_out"``,
         ``"float_out"``, ``"wipe"``, ``"zoom"``, ``"wheel"``,
         ``"random_bars"``.
+
+        *direction* is used by ``"fly_out"`` (the edge the shape leaves by,
+        the bottom by default) and ``"wipe"`` (the edge the wipe starts
+        from, the left by default), and checked as for :meth:`add_entrance`.
 
         *delay* and *duration* are in milliseconds, checked as for
         :meth:`add_entrance`.
@@ -1059,9 +1115,10 @@ class SlideAnimations:
             )
         delay = _milliseconds(delay, "delay")
         duration = _milliseconds(duration, "duration")
+        direction = _resolve_direction(preset, direction)
         preset_id, preset_subtype = _EXIT_PRESETS[preset]
-        if preset == "fly_out":
-            preset_subtype = _DIRECTION_SUBTYPES.get(direction, preset_subtype)
+        if direction is not None:
+            preset_subtype = _DIRECTION_SUBTYPES[direction]
         behaviors = self._exit_behaviors(preset, shape.shape_id, duration, direction)
         self._append_effect(
             shape.shape_id, preset_id, "exit", preset_subtype, trigger, delay, behaviors
@@ -1239,7 +1296,7 @@ class SlideAnimations:
     # -- behavior builders ---------------------------------------------------
 
     def _entrance_behaviors(
-        self, preset: str, spid: int, duration: int, direction: str
+        self, preset: str, spid: int, duration: int, direction: str | None
     ) -> str:
         ids = self._reserve_ids(3)
         vis_xml = _visibility_set_xml(ids[0], spid, visible=True)
@@ -1248,7 +1305,7 @@ class SlideAnimations:
             return vis_xml
 
         if preset == "fly_in":
-            path = _FLY_PATHS_IN.get(direction, _FLY_PATHS_IN["bottom"])
+            path = _FLY_PATHS_IN[direction or "bottom"]
             return vis_xml + _anim_motion_xml(ids[1], spid, duration, path)
 
         if preset == "float_in":
@@ -1261,11 +1318,11 @@ class SlideAnimations:
         if preset == "zoom":
             return vis_xml + _zoom_xml(ids[1:], spid, duration, entering=True)
 
-        filter_str = _EFFECT_FILTER.get(preset, "fade")
+        filter_str = _effect_filter(preset, direction)
         return vis_xml + _anim_effect_xml(ids[1], spid, duration, filter_str, "in")
 
     def _exit_behaviors(
-        self, preset: str, spid: int, duration: int, direction: str
+        self, preset: str, spid: int, duration: int, direction: str | None
     ) -> str:
         ids = self._reserve_ids(3)
 
@@ -1278,7 +1335,7 @@ class SlideAnimations:
         hide_at = max(duration - 1, 0)
 
         if preset == "fly_out":
-            path = _FLY_PATHS_OUT.get(direction, _FLY_PATHS_OUT["bottom"])
+            path = _FLY_PATHS_OUT[direction or "bottom"]
             vis_xml = _visibility_set_xml(ids[1], spid, visible=False, delay=hide_at)
             return _anim_motion_xml(ids[0], spid, duration, path) + vis_xml
 
@@ -1294,7 +1351,7 @@ class SlideAnimations:
             vis_xml = _visibility_set_xml(ids[2], spid, visible=False, delay=hide_at)
             return _zoom_xml(ids[:2], spid, duration, entering=False) + vis_xml
 
-        filter_str = _EFFECT_FILTER.get(preset, "fade")
+        filter_str = _effect_filter(preset, direction)
         vis_xml = _visibility_set_xml(ids[1], spid, visible=False, delay=hide_at)
         # For exit: animEffect first, then hide
         return _anim_effect_xml(ids[0], spid, duration, filter_str, "out") + vis_xml
@@ -1339,6 +1396,8 @@ class SlideAnimations:
         trigger: PP_ANIM_TRIGGER,
         delay: int,
         duration: int,
+        direction: str | None = None,
+        easing: str | tuple[float, float] | None = None,
     ) -> None:
         """Append one entrance effect per paragraph of a text frame.
 
@@ -1389,6 +1448,8 @@ class SlideAnimations:
 
         spid: int = shape.shape_id
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
+        if direction is not None:
+            preset_subtype = _DIRECTION_SUBTYPES[direction]
         # Resolve the first trigger now so subsequent effects can chain
         # off it via AFTER_PREVIOUS.  The default trigger inside a
         # `sequence()` context is honoured via _resolve_default_trigger.
@@ -1396,7 +1457,9 @@ class SlideAnimations:
         for i, _para in enumerate(text_frame.paragraphs):
             effect_trigger = first_trigger if i == 0 else PP_ANIM_TRIGGER.AFTER_PREVIOUS
             effect_delay = delay if i == 0 else 0
-            behaviors = self._paragraph_entrance_behaviors(preset, spid, i, duration)
+            behaviors = self._paragraph_entrance_behaviors(
+                preset, spid, i, duration, direction
+            )
             self._append_effect(
                 spid,
                 preset_id,
@@ -1405,10 +1468,16 @@ class SlideAnimations:
                 effect_trigger,
                 effect_delay,
                 behaviors,
+                easing=easing,
             )
 
     def _paragraph_entrance_behaviors(
-        self, preset: str, spid: int, paragraph_idx: int, duration: int
+        self,
+        preset: str,
+        spid: int,
+        paragraph_idx: int,
+        duration: int,
+        direction: str | None = None,
     ) -> str:
         """Return the behaviors XML for a paragraph-targeted entrance preset."""
         ids = self._reserve_ids(3)
@@ -1419,7 +1488,7 @@ class SlideAnimations:
             return vis_xml
         if preset == "zoom":
             return vis_xml + _zoom_xml(ids[1:], spid, duration, True, paragraph_idx)
-        filter_str = _EFFECT_FILTER.get(preset, "fade")
+        filter_str = _effect_filter(preset, direction)
         return vis_xml + _anim_effect_xml_for_paragraph(
             ids[1], spid, paragraph_idx, duration, filter_str, "in"
         )
@@ -1672,6 +1741,9 @@ class SlideAnimations:
         Default uses the ``"wipe"`` preset, which is the closest visual
         analogue to a typewriter reveal; pass any other entrance preset
         (``"fade"``, ``"appear"``, etc.) for the effect of your choice.
+        *direction* is the edge each shape comes in from for the presets
+        that have one (``"wipe"``, ``"fly_in"``), checked as for
+        :meth:`add_entrance`; the others ignore it.
 
         Example::
 
@@ -2031,10 +2103,16 @@ class Entrance:
         trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
+        direction: str = "left",
     ) -> None:
-        """Shape is revealed by a wipe from the left."""
+        """Shape is revealed by a wipe from *direction* (left/right/top/bottom)."""
         slide.animations.add_entrance(
-            "wipe", shape, trigger=trigger, delay=delay, duration=duration
+            "wipe",
+            shape,
+            trigger=trigger,
+            delay=delay,
+            duration=duration,
+            direction=direction,
         )
 
     @classmethod
@@ -2062,7 +2140,7 @@ class Entrance:
         delay: int = 0,
         duration: int = 500,
     ) -> None:
-        """Shape spins into view like a wheel."""
+        """Shape is revealed by a single spoke sweeping round like a clock hand."""
         slide.animations.add_entrance(
             "wheel", shape, trigger=trigger, delay=delay, duration=duration
         )
@@ -2162,10 +2240,16 @@ class Exit:
         trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
         delay: int = 0,
         duration: int = 500,
+        direction: str = "left",
     ) -> None:
-        """Shape is wiped away from the left."""
+        """Shape is wiped away, starting from *direction* (left/right/top/bottom)."""
         slide.animations.add_exit(
-            "wipe", shape, trigger=trigger, delay=delay, duration=duration
+            "wipe",
+            shape,
+            trigger=trigger,
+            delay=delay,
+            duration=duration,
+            direction=direction,
         )
 
     @classmethod
@@ -2181,6 +2265,36 @@ class Exit:
         """Shape zooms away to the center."""
         slide.animations.add_exit(
             "zoom", shape, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def wheel(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 500,
+    ) -> None:
+        """Shape is hidden by a single spoke sweeping round like a clock hand."""
+        slide.animations.add_exit(
+            "wheel", shape, trigger=trigger, delay=delay, duration=duration
+        )
+
+    @classmethod
+    def random_bars(
+        cls,
+        slide: Slide,
+        shape: BaseShape,
+        *,
+        trigger: PP_ANIM_TRIGGER = _TRIGGER_UNSET,  # pyright: ignore[reportArgumentType]
+        delay: int = 0,
+        duration: int = 500,
+    ) -> None:
+        """Shape disappears through random horizontal bars."""
+        slide.animations.add_exit(
+            "random_bars", shape, trigger=trigger, delay=delay, duration=duration
         )
 
 

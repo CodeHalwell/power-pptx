@@ -1707,3 +1707,129 @@ class DescribeExitTiming:
         Exit.fade(slide, shape, duration=800)
 
         assert slide.animations.list()[0].duration == 800
+
+
+class DescribeDirections:
+    """`direction` picks the edge of a directional preset, and only valid ones."""
+
+    @pytest.mark.parametrize(
+        ("direction", "subtype", "wipe_filter"),
+        [
+            ("left", "8", "wipe(left)"),
+            ("right", "2", "wipe(right)"),
+            ("top", "1", "wipe(up)"),
+            ("bottom", "4", "wipe(down)"),
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["entrance", "exit"])
+    def it_wipes_from_the_edge_it_is_given(
+        self, slide_with_shape, kind, direction, subtype, wipe_filter
+    ):
+        # `direction` used to be refused for a wipe (Entrance.wipe) or ignored
+        # (add_entrance), which always wiped from the left.
+        slide, shape = slide_with_shape
+        wipe = Entrance.wipe if kind == "entrance" else Exit.wipe
+
+        wipe(slide, shape, direction=direction)
+
+        assert _effect_ctn(slide).get("presetSubtype") == subtype
+        assert [e.get("filter") for e in slide._element.iter(qn("p:animEffect"))] == [wipe_filter]
+
+    def it_wipes_from_the_left_when_given_no_direction(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        slide.animations.add_entrance("wipe", shape)
+
+        assert [e.get("filter") for e in slide._element.iter(qn("p:animEffect"))] == ["wipe(left)"]
+
+    @pytest.mark.parametrize(
+        "add",
+        [
+            lambda s, sh, d: Entrance.fly_in(s, sh, direction=d),
+            lambda s, sh, d: Exit.fly_out(s, sh, direction=d),
+            lambda s, sh, d: Entrance.wipe(s, sh, direction=d),
+            lambda s, sh, d: Exit.wipe(s, sh, direction=d),
+            lambda s, sh, d: s.animations.add_entrance("fly_in", sh, direction=d),
+        ],
+        ids=["fly_in", "fly_out", "wipe_in", "wipe_out", "add_entrance"],
+    )
+    @pytest.mark.parametrize("direction", ["up", "down", "diagonal", "Left", ""])
+    def it_rejects_a_direction_it_cannot_take(self, slide_with_shape, add, direction):
+        # `fly_in(direction="up")` used to fly in from the bottom without a word.
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="direction"):
+            add(slide, shape, direction)
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    @pytest.mark.parametrize("preset", ["fade", "zoom", "wheel", "random_bars", "appear"])
+    def but_a_preset_without_a_direction_ignores_one(self, slide_with_shape, preset):
+        slide, shape = slide_with_shape
+
+        slide.animations.add_entrance(preset, shape, direction="diagonal")
+
+        assert slide.animations.list()[0].preset == preset
+
+    def it_sends_a_typewriter_cascade_in_from_the_edge_it_is_given(self, slide_with_shape):
+        # The direction used to be passed to wipe, which ignored it.
+        slide, shape = slide_with_shape
+        other = slide.shapes.add_shape(1, Inches(1), Inches(3), Inches(2), Inches(1))
+
+        slide.animations.typewriter([shape, other], direction="right")
+
+        filters = [e.get("filter") for e in slide._element.iter(qn("p:animEffect"))]
+        assert filters == ["wipe(right)", "wipe(right)"]
+
+    def it_wipes_each_paragraph_from_the_edge_it_is_given(self, slide_with_shape):
+        slide, _ = slide_with_shape
+        box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(4), Inches(1))
+        box.text_frame.text = "one"
+        box.text_frame.add_paragraph().text = "two"
+
+        slide.animations.add_entrance("wipe", box, by_paragraph=True, direction="top")
+
+        filters = [e.get("filter") for e in slide._element.iter(qn("p:animEffect"))]
+        assert filters == ["wipe(up)", "wipe(up)"]
+        assert [e.get("presetSubtype") for e in _effect_ctns(slide)] == ["1", "1"]
+
+
+class DescribeByParagraphEasing:
+    def it_eases_every_paragraph(self, slide_with_shape):
+        # `easing=` used to be dropped when `by_paragraph=True`.
+        slide, _ = slide_with_shape
+        box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(4), Inches(1))
+        box.text_frame.text = "one"
+        box.text_frame.add_paragraph().text = "two"
+
+        slide.animations.add_entrance("fade", box, by_paragraph=True, easing="ease_in")
+
+        eased = [
+            c.get("accel") for c in slide._element.iter(qn("p:cTn")) if c.get("dur") == "500"
+        ]
+        assert eased == ["50000", "50000"]
+
+    def it_rejects_an_unknown_easing_before_writing_anything(self, slide_with_shape):
+        slide, _ = slide_with_shape
+        box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(4), Inches(1))
+        box.text_frame.text = "one"
+
+        with pytest.raises(ValueError, match="easing"):
+            slide.animations.add_entrance("fade", box, by_paragraph=True, easing="bouncy")
+
+        assert slide._element.find(qn("p:timing")) is None
+
+
+class DescribeExitPresetMethods:
+    @pytest.mark.parametrize("name", ["wheel", "random_bars"])
+    def it_offers_every_exit_preset_as_a_method(self, slide_with_shape, name):
+        slide, shape = slide_with_shape
+
+        getattr(Exit, name)(slide, shape, duration=700)
+
+        (entry,) = slide.animations
+        assert (entry.kind, entry.preset, entry.duration) == ("exit", name, 700)
+
+
+def _effect_ctns(slide):
+    return [c for c in slide._element.iter(qn("p:cTn")) if c.get("presetClass")]

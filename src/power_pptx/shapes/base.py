@@ -427,7 +427,8 @@ class BaseShape(object):
         ``"after_previous"``. ``delay_ms`` and ``duration_ms`` are
         OOXML milliseconds. ``direction`` is consumed by ``fly_in`` /
         ``fly_out`` / ``wipe`` (``"left"``, ``"right"``, ``"top"``,
-        ``"bottom"``); ignored otherwise.
+        ``"bottom"``; anything else raises ``ValueError``); ignored
+        otherwise. A preset name not listed above raises ``ValueError``.
 
         For animation types not covered here, drop down to
         :class:`power_pptx.animation.Entrance` /
@@ -441,7 +442,7 @@ class BaseShape(object):
                 f"got entry={entry!r}, exit={exit!r}, emphasis={emphasis!r}"
             )
 
-        from power_pptx.animation import Emphasis, Entrance, Exit
+        from power_pptx.animation import _EMPHASIS_PRESETS, _ENTRANCE_PRESETS, _EXIT_PRESETS
         from power_pptx.enum.animation import PP_ANIM_TRIGGER
 
         try:
@@ -462,34 +463,31 @@ class BaseShape(object):
             )
         trig = trigger_map[trigger]
 
-        common_kwargs = {"trigger": trig, "delay": int(delay_ms)}
-
-        def _call(facade_method, preset, *, supports_direction=False):
-            kwargs = dict(common_kwargs)
-            if preset != "appear" and preset != "disappear":
-                kwargs["duration"] = int(duration_ms)
-            if supports_direction and direction is not None:
-                kwargs["direction"] = direction
-            facade_method(slide, self, **kwargs)
-
+        # The preset tables are the list of what exists; looking a name up as
+        # an attribute of the Entrance/Exit/Emphasis classes would also find
+        # `mro` or `__class__`, and miss presets with no facade method.
+        timing = {"trigger": trig, "delay": delay_ms, "duration": duration_ms}
+        animations = slide.animations
         if entry is not None:
-            preset = entry
-            method = getattr(Entrance, preset, None)
-            if method is None:
-                raise ValueError(f"unknown entry preset: {preset!r}")
-            _call(method, preset, supports_direction=preset in ("fly_in", "wipe"))
+            if entry not in _ENTRANCE_PRESETS:
+                raise ValueError(
+                    f"unknown entry preset: {entry!r}; choose from {sorted(_ENTRANCE_PRESETS)}"
+                )
+            animations.add_entrance(entry, self, direction=direction, **timing)
         elif exit is not None:
-            preset = exit
-            method = getattr(Exit, preset, None)
-            if method is None:
-                raise ValueError(f"unknown exit preset: {preset!r}")
-            _call(method, preset, supports_direction=preset in ("fly_out", "wipe"))
+            if exit not in _EXIT_PRESETS:
+                raise ValueError(
+                    f"unknown exit preset: {exit!r}; choose from {sorted(_EXIT_PRESETS)}"
+                )
+            animations.add_exit(exit, self, direction=direction, **timing)
         else:  # emphasis
-            preset = emphasis  # type: ignore[assignment]
-            method = getattr(Emphasis, preset, None)
-            if method is None:
-                raise ValueError(f"unknown emphasis preset: {preset!r}")
-            _call(method, preset)
+            assert emphasis is not None
+            if emphasis not in _EMPHASIS_PRESETS:
+                raise ValueError(
+                    f"unknown emphasis preset: {emphasis!r}; "
+                    f"choose from {sorted(_EMPHASIS_PRESETS)}"
+                )
+            animations.add_emphasis(emphasis, self, **timing)
 
     @property
     def lint_skip(self) -> frozenset[str]:
