@@ -9,6 +9,7 @@ and card boxes where I intended" review), not a PowerPoint-fidelity renderer.
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 
@@ -126,127 +127,177 @@ def _text_color(shape):
         return (30, 30, 30)
 
 
+# A transform maps a shape's local EMU coords to slide EMU coords:
+#   slide = (tx + local * s).  Top-level shapes use the identity; group
+#   children compose the group's offset + child-space scaling so nested
+#   groups render in the right place and size.
+IDENT = (0.0, 0.0, 1.0, 1.0)
+
+# Charts / tables / OLE / media are drawn as a labeled placeholder box.
+PLACEHOLDER_LABELS = {
+    MSO_SHAPE_TYPE.CHART: "CHART",
+    MSO_SHAPE_TYPE.TABLE: "TABLE",
+    MSO_SHAPE_TYPE.MEDIA: "MEDIA/OLE",
+    MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT: "MEDIA/OLE",
+}
+
+
 def render_slide(slide, prs, scale, idx):
     W = int(prs.slide_width / EMU * scale)
     H = int(prs.slide_height / EMU * scale)
     img = Image.new("RGB", (W, H), (255, 255, 255))
-    d = ImageDraw.Draw(img, "RGBA")
+    canvas = _Canvas(img, ImageDraw.Draw(img, "RGBA"), scale)
+    canvas.paint_background(slide, W, H)
+    for shape in slide.shapes:
+        canvas.draw_shape(shape)
 
-    # slide background
+    # slide number badge
+    d = canvas.draw
+    d.rectangle([0, H - 22, 60, H], fill=(0, 0, 0))
+    d.text((6, H - 20), f"#{idx}", fill=(255, 255, 255), font=_font(14, True))
+    return img
+
+
+def _shape_type(shape):
     try:
-        bg = slide.background
-        kind, data = _fill_color_obj(bg.fill)
-        if kind == "solid" and data:
-            d.rectangle([0, 0, W, H], fill=data)
-        elif kind == "gradient" and data:
-            _draw_gradient(img, (0, 0, W, H), data)
+        return shape.shape_type
+    except Exception:
+        return None
+
+
+def _child_transform(group, tf):
+    """Compose *tf* with *group*'s child-space → parent-space mapping."""
+    tx, ty, sx, sy = tf
+    try:
+        xfrm = group._element.grpSpPr.xfrm
+        off, ext = xfrm.off, xfrm.ext
+        ch_off, ch_ext = xfrm.chOff, xfrm.chExt
+        csx = (ext.cx / ch_ext.cx) * sx if ch_ext.cx else sx
+        csy = (ext.cy / ch_ext.cy) * sy if ch_ext.cy else sy
+        ctx = tx + off.x * sx - ch_off.x * csx
+        cty = ty + off.y * sy - ch_off.y * csy
+        return (ctx, cty, csx, csy)
+    except Exception:
+        # Fall back to a plain translate by the group's slide position.
+        return (tx + group.left * sx, ty + group.top * sy, sx, sy)
+
+
+def _outline_flags(shape):
+    """``(is_oval, is_round)`` from the shape's preset geometry, when it has one."""
+    is_oval = False
+    is_round = False
+    try:
+        asn = shape.auto_shape_type
+        if asn is not None:
+            an = getattr(asn, "name", "")
+            is_oval = an == "OVAL"
+            is_round = "ROUND" in an
     except Exception:
         pass
+    return is_oval, is_round
 
-    # A transform maps a shape's local EMU coords to slide EMU coords:
-    #   slide = (tx + local * s).  Top-level shapes use the identity; group
-    #   children compose the group's offset + child-space scaling so nested
-    #   groups render in the right place and size.
-    IDENT = (0.0, 0.0, 1.0, 1.0)
 
-    def emu_box(shape, tf):
+class _Canvas:
+    """The slide image being drawn, its RGBA draw handle and px-per-inch scale."""
+
+    def __init__(self, img, draw, scale):
+        self.img = img
+        self.draw = draw
+        self.scale = scale
+
+    def paint_background(self, slide, W, H):
+        try:
+            bg = slide.background
+            kind, data = _fill_color_obj(bg.fill)
+            if kind == "solid" and data:
+                self.draw.rectangle([0, 0, W, H], fill=data)
+            elif kind == "gradient" and data:
+                _draw_gradient(self.img, (0, 0, W, H), data)
+        except Exception:
+            pass
+
+    def emu_box(self, shape, tf):
+        """The pixel box ``[x0, y0, x1, y1]`` of *shape* under transform *tf*."""
         tx, ty, sx, sy = tf
+        scale = self.scale
         x0 = int((tx + shape.left * sx) / EMU * scale)
         y0 = int((ty + shape.top * sy) / EMU * scale)
         x1 = int((tx + (shape.left + shape.width) * sx) / EMU * scale)
         y1 = int((ty + (shape.top + shape.height) * sy) / EMU * scale)
         return [x0, y0, x1, y1]
 
-    def _child_transform(group, tf):
-        """Compose *tf* with *group*'s child-space → parent-space mapping."""
-        tx, ty, sx, sy = tf
-        try:
-            xfrm = group._element.grpSpPr.xfrm
-            off, ext = xfrm.off, xfrm.ext
-            ch_off, ch_ext = xfrm.chOff, xfrm.chExt
-            csx = (ext.cx / ch_ext.cx) * sx if ch_ext.cx else sx
-            csy = (ext.cy / ch_ext.cy) * sy if ch_ext.cy else sy
-            ctx = tx + off.x * sx - ch_off.x * csx
-            cty = ty + off.y * sy - ch_off.y * csy
-            return (ctx, cty, csx, csy)
-        except Exception:
-            # Fall back to a plain translate by the group's slide position.
-            return (tx + group.left * sx, ty + group.top * sy, sx, sy)
-
-    def draw_shape(shape, tf=IDENT):
-        try:
-            st = shape.shape_type
-        except Exception:
-            st = None
+    def draw_shape(self, shape, tf=IDENT):
+        st = _shape_type(shape)
         # groups: recurse with the composed child transform (offset + scale)
         if st == MSO_SHAPE_TYPE.GROUP:
-            child_tf = _child_transform(shape, tf)
-            try:
-                for sub in shape.shapes:
-                    draw_shape(sub, child_tf)
-            except Exception:
-                pass
+            self._draw_group(shape, tf)
             return
-        try:
-            box = emu_box(shape, tf)
-        except Exception:
+        box = self._visible_box(shape, tf)
+        if box is None:
             return
-        if box[2] <= box[0] or box[3] <= box[1]:
-            return
-
-        # pictures: paste actual image
         if st == MSO_SHAPE_TYPE.PICTURE:
-            try:
-                blob = shape.image.blob
-                import io as _io
-                pim = Image.open(_io.BytesIO(blob)).convert("RGB")
-                pim = pim.resize((box[2] - box[0], box[3] - box[1]))
-                img.paste(pim, (box[0], box[1]))
-                return
-            except Exception:
-                d.rectangle(box, fill=(220, 220, 225), outline=(150, 150, 150))
-                d.text((box[0] + 4, box[1] + 4), "IMG", fill=(80, 80, 80), font=_font(14))
-                return
+            self._draw_picture(shape, box)
+        elif st in PLACEHOLDER_LABELS:
+            self._draw_placeholder(shape, box, PLACEHOLDER_LABELS[st])
+        elif st == MSO_SHAPE_TYPE.LINE:
+            self._draw_line(shape, box)
+        else:
+            self._draw_autoshape(shape, box)
 
-        # charts / tables / ole / media → labeled placeholder
-        label = None
-        if st == MSO_SHAPE_TYPE.CHART:
-            label = "CHART"
-        elif st == MSO_SHAPE_TYPE.TABLE:
-            label = "TABLE"
-        elif st in (MSO_SHAPE_TYPE.MEDIA, getattr(MSO_SHAPE_TYPE, "EMBEDDED_OLE_OBJECT", None)):
-            label = "MEDIA/OLE"
-        if label:
-            d.rectangle(box, fill=(238, 240, 245), outline=(120, 130, 150), width=2)
-            d.text((box[0] + 6, box[1] + 6), label, fill=(70, 80, 110), font=_font(16, True))
-            if label == "TABLE":
-                _draw_table(d, shape, box)
-            return
-
-        # connectors / lines
-        if st == MSO_SHAPE_TYPE.LINE:
-            col = _rgb(shape.line.color) or (60, 60, 60)
-            d.line([box[0], box[1], box[2], box[3]], fill=col, width=2)
-            return
-
-        # autoshapes / textboxes
-        kind, data = _fill_color(shape)
-        is_oval = False
-        is_round = False
+    def _draw_group(self, group, tf):
+        child_tf = _child_transform(group, tf)
         try:
-            asn = shape.auto_shape_type
-            if asn is not None:
-                an = getattr(asn, "name", "")
-                is_oval = an == "OVAL"
-                is_round = "ROUND" in an
+            for sub in group.shapes:
+                self.draw_shape(sub, child_tf)
         except Exception:
             pass
 
+    def _visible_box(self, shape, tf):
+        """The shape's pixel box, or ``None`` when it has no geometry or no area."""
+        try:
+            box = self.emu_box(shape, tf)
+        except Exception:
+            return None
+        if box[2] <= box[0] or box[3] <= box[1]:
+            return None
+        return box
+
+    def _draw_picture(self, shape, box):
+        """Paste the actual image, or an "IMG" placeholder when it can't be read."""
+        try:
+            blob = shape.image.blob
+            pim = Image.open(io.BytesIO(blob)).convert("RGB")
+            pim = pim.resize((box[2] - box[0], box[3] - box[1]))
+            self.img.paste(pim, (box[0], box[1]))
+        except Exception:
+            self.draw.rectangle(box, fill=(220, 220, 225), outline=(150, 150, 150))
+            self.draw.text((box[0] + 4, box[1] + 4), "IMG", fill=(80, 80, 80), font=_font(14))
+
+    def _draw_placeholder(self, shape, box, label):
+        d = self.draw
+        d.rectangle(box, fill=(238, 240, 245), outline=(120, 130, 150), width=2)
+        d.text((box[0] + 6, box[1] + 6), label, fill=(70, 80, 110), font=_font(16, True))
+        if label == "TABLE":
+            _draw_table(d, shape, box)
+
+    def _draw_line(self, shape, box):
+        """Connectors / lines."""
+        col = _rgb(shape.line.color) or (60, 60, 60)
+        self.draw.line([box[0], box[1], box[2], box[3]], fill=col, width=2)
+
+    def _draw_autoshape(self, shape, box):
+        """Autoshapes / textboxes: fill, border, then the first lines of text."""
+        kind, data = _fill_color(shape)
+        is_oval, is_round = _outline_flags(shape)
+        self._paint_fill(box, kind, data, is_oval, is_round)
+        self._paint_border(shape, box, is_oval)
+        self._paint_text(shape, box)
+
+    def _paint_fill(self, box, kind, data, is_oval, is_round):
+        d = self.draw
         if kind == "gradient" and data:
-            _draw_gradient(img, tuple(box), data)
-            if is_oval:
-                # mask non-ellipse corners lightly (approx) — skip for simplicity
-                pass
+            # (an oval's corners are not masked off — kept simple)
+            _draw_gradient(self.img, tuple(box), data)
         elif kind == "solid" and data:
             if is_oval:
                 d.ellipse(box, fill=data)
@@ -254,46 +305,38 @@ def render_slide(slide, prs, scale, idx):
                 d.rounded_rectangle(box, radius=max(4, (box[3]-box[1])//8), fill=data)
             else:
                 d.rectangle(box, fill=data)
+        # no fill — faint outline so we can see the box
+        elif is_oval:
+            d.ellipse(box, outline=(200, 200, 205))
         else:
-            # no fill — faint outline so we can see the box
-            if is_oval:
-                d.ellipse(box, outline=(200, 200, 205))
-            else:
-                d.rectangle(box, outline=(205, 205, 210))
+            d.rectangle(box, outline=(205, 205, 210))
 
-        # border
+    def _paint_border(self, shape, box, is_oval):
         try:
             lc = _rgb(shape.line.color)
-            if lc:
-                if is_oval:
-                    d.ellipse(box, outline=lc, width=2)
-                else:
-                    d.rectangle(box, outline=lc, width=2)
+            if not lc:
+                return
+            if is_oval:
+                self.draw.ellipse(box, outline=lc, width=2)
+            else:
+                self.draw.rectangle(box, outline=lc, width=2)
         except Exception:
             pass
 
-        # text
+    def _paint_text(self, shape, box):
         txt = _text_of(shape)
-        if txt:
-            tc = _text_color(shape)
-            fs = max(10, min(int((box[3]-box[1]) * 0.32), 26))
-            f = _font(fs, True)
-            lines = txt.split("\n")[:4]
-            ty = box[1] + 4
-            for ln in lines:
-                d.text((box[0] + 5, ty), ln[:60], fill=tc, font=f)
-                ty += fs + 2
-                if ty > box[3] - fs:
-                    break
-
-    for shape in slide.shapes:
-        draw_shape(shape)
-
-    # slide number badge
-    d.rectangle([0, H - 22, 60, H], fill=(0, 0, 0))
-    d.text((6, H - 20), f"#{idx}", fill=(255, 255, 255), font=_font(14, True))
-    return img
-
+        if not txt:
+            return
+        tc = _text_color(shape)
+        fs = max(10, min(int((box[3]-box[1]) * 0.32), 26))
+        f = _font(fs, True)
+        lines = txt.split("\n")[:4]
+        ty = box[1] + 4
+        for ln in lines:
+            self.draw.text((box[0] + 5, ty), ln[:60], fill=tc, font=f)
+            ty += fs + 2
+            if ty > box[3] - fs:
+                break
 
 def _fill_color_obj(fill):
     """Like _fill_color but for a FillFormat directly (slide background)."""
