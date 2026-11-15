@@ -114,6 +114,12 @@ prs.theme.to_dark_mode()                 # in place; returns the Theme
 prs.theme.to_dark_mode(min_contrast=7.0) # AAA accents
 ```
 
+It is safe to call on a theme that is already dark, or twice: each
+background/text pair is only swapped while the background slot (`lt1`,
+`lt2`) holds the lighter colour, so a dark theme stays dark. Accents
+that fall short of `min_contrast` are moved *away* from the canvas —
+lightened on a dark one, darkened on a light one — keeping their hue.
+
 Bootstrap a whole palette from one brand colour:
 
 ```python

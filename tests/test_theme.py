@@ -161,6 +161,37 @@ def _contrast(a, b) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
+_PALETTE_SLOTS = tuple(slot for slot in MSO_THEME_COLOR if slot.xml_value)
+
+
+class DescribeRaiseContrast:
+    """`_raise_contrast()` moves a color away from its background."""
+
+    @pytest.mark.parametrize(
+        ("rgb", "background"),
+        [
+            (RGBColor(0x0A, 0x0A, 0x0A), RGBColor(0x00, 0x00, 0x00)),
+            (RGBColor(0x40, 0x20, 0x80), RGBColor(0x12, 0x12, 0x12)),
+            (RGBColor(0xF0, 0xF0, 0x60), RGBColor(0xFF, 0xFF, 0xFF)),
+            (RGBColor(0x80, 0xC0, 0xFF), RGBColor(0xF4, 0xF4, 0xF4)),
+        ],
+    )
+    def it_reaches_the_contrast_target_on_either_kind_of_background(self, rgb, background):
+        from power_pptx.theme import _raise_contrast
+
+        fixed = _raise_contrast(rgb, background, 4.5)
+
+        assert _contrast(fixed, background) >= 4.5 - 1e-6
+        moved_lighter = _relative_luminance(fixed) > _relative_luminance(rgb)
+        assert moved_lighter is (_relative_luminance(background) < 0.18)
+
+    def it_leaves_a_color_that_already_contrasts_alone(self):
+        from power_pptx.theme import _raise_contrast
+
+        rgb = RGBColor(0x12, 0x34, 0x56)
+        assert _raise_contrast(rgb, RGBColor(0xFF, 0xFF, 0xFF), 4.5) is rgb
+
+
 class DescribeThemeToDarkMode:
     def it_swaps_the_dark_light_background_text_pairs(self, theme):
         before_dk1 = theme.colors[MSO_THEME_COLOR.DARK_1]
@@ -190,6 +221,49 @@ class DescribeThemeToDarkMode:
         ):
             accent = theme.colors[slot]
             assert _contrast(accent, bg) >= 4.5 - 1e-6
+
+    def it_is_idempotent(self, theme):
+        # Regression: a second call swapped the pairs back to light and then
+        # "raised" every accent's contrast by lightening it, on a white canvas,
+        # turning most of them white.
+        theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0x0A, 0x0A, 0x0A)
+        theme.to_dark_mode()
+        once = {slot: theme.colors.get(slot) for slot in _PALETTE_SLOTS}
+
+        theme.to_dark_mode()
+
+        assert {slot: theme.colors.get(slot) for slot in _PALETTE_SLOTS} == once
+
+    def it_leaves_a_theme_that_is_already_dark_dark(self, theme):
+        colors = theme.colors
+        colors[MSO_THEME_COLOR.DARK_1] = RGBColor(0xF5, 0xF5, 0xF5)
+        colors[MSO_THEME_COLOR.LIGHT_1] = RGBColor(0x10, 0x14, 0x1C)
+        colors[MSO_THEME_COLOR.DARK_2] = RGBColor(0xC0, 0xC8, 0xD0)
+        colors[MSO_THEME_COLOR.LIGHT_2] = RGBColor(0x22, 0x28, 0x33)
+        accent = RGBColor(0x5B, 0xC0, 0xEB)
+        colors[MSO_THEME_COLOR.ACCENT_1] = accent
+
+        theme.to_dark_mode()
+
+        assert colors[MSO_THEME_COLOR.LIGHT_1] == RGBColor(0x10, 0x14, 0x1C)
+        assert colors[MSO_THEME_COLOR.LIGHT_2] == RGBColor(0x22, 0x28, 0x33)
+        assert colors[MSO_THEME_COLOR.ACCENT_1] == accent
+
+    def it_darkens_accents_that_are_too_light_for_a_light_canvas(self, theme):
+        # A canvas that is still light after the swap (light-grey "text" over
+        # white): an accent can only gain contrast by getting darker.
+        colors = theme.colors
+        colors[MSO_THEME_COLOR.DARK_1] = RGBColor(0xEE, 0xEE, 0xEE)
+        colors[MSO_THEME_COLOR.LIGHT_1] = RGBColor(0xFF, 0xFF, 0xFF)
+        colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0xE0, 0x80)
+
+        theme.to_dark_mode()
+
+        bg = colors[MSO_THEME_COLOR.LIGHT_1]
+        accent = colors[MSO_THEME_COLOR.ACCENT_1]
+        assert bg == RGBColor(0xEE, 0xEE, 0xEE)
+        assert _contrast(accent, bg) >= 4.5 - 1e-6
+        assert _relative_luminance(accent) < _relative_luminance(RGBColor(0xFF, 0xE0, 0x80))
 
     def it_round_trips_after_dark_mode(self):
         from tests.integration.round_trip import assert_round_trip

@@ -141,11 +141,19 @@ class Theme:
         Swaps the two background/text pairs — ``dk1``↔``lt1`` and
         ``dk2``↔``lt2`` — so the slot that previously held the (light)
         page background now holds the (dark) one and text/background
-        invert.  Accent colors are then nudged *only as needed* to keep
-        them legible against the new dark background: any accent whose
-        WCAG contrast ratio against the new ``lt1`` (the dark canvas)
-        falls below *min_contrast* is lightened in HSL space until it
-        clears the threshold (or reaches white).
+        invert.  A pair whose background slot (``lt1`` / ``lt2``) already
+        holds the darker of its two colors is left as it is, so a theme
+        that is already dark is not turned light again, and calling this
+        method twice gives the same palette as calling it once.  A pair
+        with a slot whose color cannot be resolved to RGB is left alone
+        too, since there is no telling which way round it is.
+
+        Accent colors are then nudged *only as needed* to keep them
+        legible against the background: any accent whose WCAG contrast
+        ratio against ``lt1`` (the canvas) falls below *min_contrast* is
+        moved away from it in HSL space — lightened on a dark canvas,
+        darkened on a light one — until it clears the threshold (or
+        reaches white or black).  Hue and saturation are kept.
 
         The default ``min_contrast`` of 4.5 is the WCAG AA threshold for
         normal-size text.  The swap and any accent adjustments are
@@ -156,23 +164,25 @@ class Theme:
         """
         colors = self.colors
 
-        # 1. Swap the dark/light background-text pairs.  Read both ends
-        #    of each pair first so the in-place writes don't clobber a
-        #    value we still need.
+        # 1. Orient each dark/light background-text pair so the background
+        #    slot holds the darker color. Comparing rather than blindly
+        #    swapping is what makes a second call (or a call on a theme that
+        #    is dark already) a no-op instead of flipping the theme back.
         for dark_slot, light_slot in (
             (MSO_THEME_COLOR.DARK_1, MSO_THEME_COLOR.LIGHT_1),
             (MSO_THEME_COLOR.DARK_2, MSO_THEME_COLOR.LIGHT_2),
         ):
-            dark_rgb = colors.get(dark_slot)
-            light_rgb = colors.get(light_slot)
-            if dark_rgb is not None:
-                colors[light_slot] = dark_rgb
-            if light_rgb is not None:
-                colors[dark_slot] = light_rgb
+            text_rgb = colors.get(dark_slot)
+            canvas_rgb = colors.get(light_slot)
+            if text_rgb is None or canvas_rgb is None:
+                continue
+            if _relative_luminance(canvas_rgb) > _relative_luminance(text_rgb):
+                colors[light_slot] = text_rgb
+                colors[dark_slot] = canvas_rgb
 
-        # 2. The new page background is whatever lt1 now resolves to
-        #    (lt1/bg1 is the canonical canvas slot).  Raise each accent's
-        #    contrast against it to at least min_contrast.
+        # 2. The page background is whatever lt1 now resolves to (lt1/bg1 is
+        #    the canonical canvas slot).  Raise each accent's contrast
+        #    against it to at least min_contrast.
         background = colors.get(MSO_THEME_COLOR.LIGHT_1)
         if background is not None:
             accent_slots = (
@@ -666,16 +676,24 @@ def _contrast_ratio(rgb_a: RGBColor, rgb_b: RGBColor) -> float:
 
 
 def _raise_contrast(rgb: RGBColor, background: RGBColor, min_contrast: float) -> RGBColor:
-    """Lighten *rgb* in HSL space until it clears *min_contrast* on *background*.
+    """Move *rgb* away from *background* in HSL space until it clears *min_contrast*.
 
     Returns *rgb* unchanged when it already meets the threshold.  The hue
-    and saturation are preserved; only lightness is raised, in small
-    steps, until the contrast target is met or the color reaches white.
+    and saturation are preserved; only lightness changes, in small steps,
+    until the contrast target is met or the color reaches white or black.
+    The direction is the one with the more room: lighter on a background
+    that contrasts better with white than with black (a dark one), darker
+    otherwise. Lightening an accent on a light background would only ever
+    lower its contrast.
     """
     import colorsys
 
     if _contrast_ratio(rgb, background) >= min_contrast:
         return rgb
+
+    white, black = RGBColor(0xFF, 0xFF, 0xFF), RGBColor(0x00, 0x00, 0x00)
+    lighten = _contrast_ratio(white, background) >= _contrast_ratio(black, background)
+    target = 1.0 if lighten else 0.0
 
     h, light, s = colorsys.rgb_to_hls(
         rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
@@ -683,7 +701,7 @@ def _raise_contrast(rgb: RGBColor, background: RGBColor, min_contrast: float) ->
     best = rgb
     steps = 100
     for i in range(1, steps + 1):
-        new_l = light + (1.0 - light) * (i / steps)
+        new_l = light + (target - light) * (i / steps)
         r, g, b = colorsys.hls_to_rgb(h, new_l, s)
         candidate = RGBColor(
             round(r * 255), round(g * 255), round(b * 255)
