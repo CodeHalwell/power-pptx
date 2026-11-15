@@ -36,8 +36,26 @@ Shadow, glow, soft edges, blur, reflection
     shape.reflection.start_alpha = 0.5
     shape.reflection.end_alpha = 0.0
 
+Lengths may be floats, so arithmetic such as ``Pt(8) / 2`` works; the
+value is rounded to whole EMU.  The same holds for the 3-D lengths
+(``three_d.bevel_top.width``, ``extrusion_height``, ``contour_width``)
+and ``line.width``.  A value a setter rejects — a negative radius, an
+alpha above 1.0, a string — raises without touching the shape.
+
 Setting every explicit property to |None| drops the corresponding XML
-element again so the shape inherits the master/theme value.
+element again so the shape inherits the master/theme value.  For the
+effects that carry a colour (outer and inner shadow, glow) that includes
+the colour, if you set one::
+
+    shadow.blur_radius = None
+    shadow.distance = None
+    shadow.direction = None
+    shadow.color = None
+
+When that removes the last effect on the shape, the ``<a:effectLst>``
+goes too; an empty ``<a:effectLst/>`` would keep overriding the theme.
+A preset shadow is defined by its preset and is removed with
+``shape.preset_shadow.preset = None``.
 
 Removing a shadow: ``shadow.clear()``
 -------------------------------------

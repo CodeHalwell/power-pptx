@@ -70,6 +70,17 @@ class DescribeShapeStyle:
         assert shape.shadow.blur_radius is None
         assert shape.shadow.distance is None
 
+    def and_clearing_leaves_no_shadow_xml_to_override_the_theme(self, shape):
+        before = shape._element.xml
+        shape.style.shadow = ShadowToken(
+            blur_radius=Pt(8), distance=Pt(2), direction=90.0, color="#102030", alpha=0.25
+        )
+
+        shape.style.shadow = None
+
+        assert shape._element.spPr.effectLst is None
+        assert shape._element.xml == before
+
     def it_applies_a_font_token_to_every_run(self, shape):
         shape.text_frame.text = "hello"
         token = TypographyToken(family="Inter", size=Pt(20), bold=True)

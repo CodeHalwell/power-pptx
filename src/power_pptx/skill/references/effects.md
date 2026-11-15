@@ -25,8 +25,27 @@ shadow.color.rgb   = RGBColor(0, 0, 0)
 shadow.color.alpha = 0.35          # 35% opacity
 ```
 
-To restore inheritance, assign `None` to each property — the
-`<a:outerShdw>` element is dropped when the last attribute goes away.
+Lengths may be floats — `Pt(8) / 2` is fine, it's rounded to whole EMU
+— on every effect, 3-D and `line.width` setter. A value a setter
+rejects (negative radius, alpha above 1.0, a string) leaves the shape
+exactly as it was.
+
+To restore inheritance, assign `None` to each property, the colour
+included:
+
+```python
+shadow.blur_radius = None
+shadow.distance    = None
+shadow.direction   = None
+shadow.color       = None          # only needed if you set a colour
+```
+
+Once nothing explicit is left the `<a:outerShdw>` element is dropped,
+and the `<a:effectLst>` with it if that was its last effect — an empty
+`<a:effectLst/>` would still override the theme. Inner shadow, glow,
+soft edges, blur and reflection clear the same way. A preset shadow is
+defined by its preset, so it is removed with
+`shape.preset_shadow.preset = None`.
 
 ### Removing a shadow entirely: `shadow.clear()`
 

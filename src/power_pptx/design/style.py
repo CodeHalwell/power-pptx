@@ -120,6 +120,8 @@ class ShapeStyle:
             shadow.blur_radius = None
             shadow.distance = None
             shadow.direction = None
+            # -- a token's colour/alpha would otherwise keep `<a:outerShdw>` alive
+            shadow.color = None
             return
         if not isinstance(value, ShadowToken):
             value = ShadowToken.from_value(value)

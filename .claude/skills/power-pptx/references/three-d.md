@@ -32,6 +32,16 @@ bevel entirely (`three_d.bevel_top.preset = BevelPreset.NONE`). Don't
 worry about it emitting an invalid `"none"` token; the setter maps it to
 element removal, so the deck stays schema-clean.
 
+Assigning Python `None` clears one property at a time
+(`bevel_top.preset = None` keeps an explicit width/height). Clearing
+the last one removes the bevel too: an empty `<a:bevelT/>` is not "no
+bevel", it is the schema default — a 6 pt circle.
+
+Widths and heights may be floats (`Pt(6) / 2`), rounded to whole EMU.
+A rejected value — negative, not a number, a preset that isn't a
+`BevelPreset` member — leaves the shape untouched rather than a
+half-built `<a:scene3d>` / `<a:sp3d>`.
+
 ## Extrusion
 
 ```python

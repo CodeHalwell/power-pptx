@@ -335,3 +335,30 @@ class DescribeLineFormat(object):
         line = LineFormat(spPr)
         line.tail_end.type = None
         assert spPr.xml == xml("p:spPr/a:ln/a:tailEnd{w=med}")
+
+
+class DescribeLineFormatWidthCoercion(object):
+    """`line.width` takes float lengths and validates before creating `<a:ln>`."""
+
+    def it_accepts_a_float_width(self):
+        from power_pptx.util import Pt
+
+        spPr = element("p:spPr{a:b=c}")
+        half = Pt(3) / 2
+        assert isinstance(half, float)
+
+        LineFormat(spPr).width = half
+
+        assert spPr.xml == xml("p:spPr{a:b=c}/a:ln{w=19050}")
+
+    @pytest.mark.parametrize(
+        ("bad", "exc"),
+        [(-1, ValueError), (20116801, ValueError), ("2pt", TypeError), (True, TypeError)],
+    )
+    def it_leaves_the_shape_untouched_when_the_width_is_rejected(self, bad, exc):
+        spPr = element("p:spPr{a:b=c}")
+
+        with pytest.raises(exc):
+            LineFormat(spPr).width = bad
+
+        assert spPr.xml == xml("p:spPr{a:b=c}")

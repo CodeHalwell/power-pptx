@@ -13,6 +13,21 @@ from power_pptx.util import Emu, Inches
 from ..unitutil.cxml import element, xml
 
 
+def _same_xml(elm, cxml: str) -> bool:
+    """True if `elm` is the XML `cxml` describes, wherever its namespaces are declared.
+
+    An element that has gained and then lost an `a:` child keeps (or lacks) the
+    `xmlns:a` declaration depending on how it was built, which a plain string
+    comparison would trip over.
+    """
+    from lxml import etree
+
+    def canonical(e):
+        return etree.tostring(e, method="c14n", exclusive=True)
+
+    return canonical(elm) == canonical(element(cxml))
+
+
 class DescribeShadowFormat(object):
     def it_knows_whether_it_inherits(self, inherit_get_fixture):
         shadow, expected_value = inherit_get_fixture
@@ -145,10 +160,16 @@ class DescribeBlurFormat(object):
 
         blur.radius = None
 
-        # blur child is dropped; the surrounding effectLst can stay since
-        # it may host other effects
-        assert spPr.effectLst is not None
-        assert spPr.effectLst.blur is None
+        # blur child is dropped, and the effectLst it emptied goes with it: an
+        # empty <a:effectLst/> would keep overriding the theme's effects
+        assert _same_xml(spPr, "p:spPr")
+
+    def but_it_keeps_an_effectLst_that_hosts_another_effect(self):
+        spPr = element("p:spPr/a:effectLst/(a:blur{rad=63500},a:softEdge{rad=12700})")
+
+        BlurFormat(spPr).radius = None
+
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:softEdge{rad=12700}")
 
     def it_can_round_trip_grow(self):
         spPr = element("p:spPr")
@@ -235,10 +256,16 @@ class DescribeReflectionFormat(object):
 
         reflection.blur_radius = None
 
-        # the empty <a:reflection> element should have been removed; the
-        # surrounding <a:effectLst> can stay since it may host other effects
-        assert spPr.effectLst is not None
-        assert spPr.effectLst.reflection is None
+        # the empty <a:reflection> element is removed, along with the
+        # <a:effectLst> it emptied, so theme effects are inherited again
+        assert _same_xml(spPr, "p:spPr")
+
+    def but_it_keeps_an_effectLst_that_hosts_another_effect(self):
+        spPr = element("p:spPr/a:effectLst/(a:reflection{blurRad=38100},a:softEdge{rad=12700})")
+
+        ReflectionFormat(spPr).blur_radius = None
+
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:softEdge{rad=12700}")
 
     def it_keeps_reflection_when_other_attributes_remain(self):
         spPr = element("p:spPr/a:effectLst/a:reflection{blurRad=38100,dist=50800}")
@@ -392,8 +419,24 @@ class DescribePresetShadowFormat(object):
 
         preset.preset = None
 
-        assert spPr.effectLst is not None
-        assert spPr.effectLst.prstShdw is None
+        # the element goes, and so does the <a:effectLst> it emptied
+        assert _same_xml(spPr, "p:spPr")
+
+    def but_it_keeps_the_preset_when_only_distance_is_cleared(self):
+        # The preset is what defines the effect, so it survives clearing an
+        # override; `preset = None` is what removes a preset shadow.
+        from power_pptx.dml.effect import PresetShadowFormat
+        from power_pptx.enum.dml import MSO_PRESET_SHADOW
+
+        spPr = element("p:spPr")
+        preset = PresetShadowFormat(spPr)
+        preset.preset = "shdw1"
+        preset.distance = Emu(38100)
+
+        preset.distance = None
+
+        assert preset.preset is MSO_PRESET_SHADOW.SHADOW_1
+        assert preset.distance is None
 
     def it_supports_direct_color_assignment(self):
         from power_pptx.dml.color import RGBColor
@@ -551,3 +594,398 @@ def _autoshape():
 def _effect_ref_idx(shape):
     style = shape._element.find(qn("p:style"))
     return style.find(qn("a:effectRef")).get("idx")
+
+
+# ---------------------------------------------------------------------------
+# Lengths may be floats; a rejected value leaves no XML behind; and assigning
+# None gives the theme its say back.
+# ---------------------------------------------------------------------------
+
+_HALF = Emu(76200) / 2  # a float, as any arithmetic on a Length produces
+
+
+def _effect(name):
+    """Return (spPr, proxy) for the effect proxy class called `name`."""
+    from power_pptx.dml import effect
+
+    spPr = element("p:spPr")
+    return spPr, getattr(effect, name)(spPr)
+
+
+class DescribeEffectLengthCoercion(object):
+    """Float lengths are rounded to whole EMU, as `shape.left` does."""
+
+    @pytest.mark.parametrize(
+        ("cls_name", "prop"),
+        [
+            ("ShadowFormat", "blur_radius"),
+            ("ShadowFormat", "distance"),
+            ("InnerShadowFormat", "blur_radius"),
+            ("InnerShadowFormat", "distance"),
+            ("PresetShadowFormat", "distance"),
+            ("GlowFormat", "radius"),
+            ("SoftEdgeFormat", "radius"),
+            ("BlurFormat", "radius"),
+            ("ReflectionFormat", "blur_radius"),
+            ("ReflectionFormat", "distance"),
+        ],
+    )
+    def it_accepts_a_float_length(self, cls_name, prop):
+        assert isinstance(_HALF, float)
+        _, proxy = _effect(cls_name)
+
+        setattr(proxy, prop, _HALF)
+
+        assert getattr(proxy, prop) == Emu(38100)
+
+    def it_rounds_a_fractional_emu_count(self):
+        spPr, glow = _effect("GlowFormat")
+        glow.radius = 12700.6
+        assert spPr.effectLst.glow.get("rad") == "12701"
+
+    @pytest.mark.parametrize("bad", ["38100", True, float("nan"), float("inf")])
+    def but_it_rejects_a_value_that_is_not_a_length(self, bad):
+        spPr, shadow = _effect("ShadowFormat")
+        with pytest.raises(TypeError):
+            shadow.blur_radius = bad
+        assert _same_xml(spPr, "p:spPr")
+
+
+class DescribeEffectSettersAreAtomic(object):
+    """A setter that rejects its value must not leave an element behind."""
+
+    @pytest.mark.parametrize(
+        ("cls_name", "prop", "bad", "exc"),
+        [
+            ("ShadowFormat", "blur_radius", -1, ValueError),
+            ("ShadowFormat", "distance", "far", TypeError),
+            ("ShadowFormat", "direction", "down", TypeError),
+            ("ShadowFormat", "direction", float("nan"), ValueError),
+            ("ShadowFormat", "color", "not-a-colour", ValueError),
+            ("InnerShadowFormat", "blur_radius", -1, ValueError),
+            ("InnerShadowFormat", "direction", [45], TypeError),
+            ("PresetShadowFormat", "preset", "shdw21", ValueError),
+            ("PresetShadowFormat", "preset", 99, ValueError),
+            ("PresetShadowFormat", "distance", -1, ValueError),
+            ("PresetShadowFormat", "direction", "down", TypeError),
+            ("GlowFormat", "radius", -1, ValueError),
+            ("GlowFormat", "color", (300, 0, 0), ValueError),
+            # -- <a:softEdge/> without its required `rad` is schema-invalid
+            ("SoftEdgeFormat", "radius", -1, ValueError),
+            ("SoftEdgeFormat", "radius", "3pt", TypeError),
+            ("BlurFormat", "radius", -1, ValueError),
+            # -- a bare <a:reflection/> is a full default reflection
+            ("ReflectionFormat", "start_alpha", 1.2, ValueError),
+            ("ReflectionFormat", "end_alpha", -0.1, ValueError),
+            ("ReflectionFormat", "blur_radius", -1, ValueError),
+            ("ReflectionFormat", "distance", "far", TypeError),
+            ("ReflectionFormat", "direction", "down", TypeError),
+        ],
+    )
+    def it_leaves_the_shape_untouched_when_the_value_is_rejected(
+        self, cls_name, prop, bad, exc
+    ):
+        spPr, proxy = _effect(cls_name)
+
+        with pytest.raises(exc):
+            setattr(proxy, prop, bad)
+
+        assert _same_xml(spPr, "p:spPr")
+
+    @pytest.mark.parametrize(
+        ("cls_name", "sub_prop", "bad"),
+        [
+            ("ShadowFormat", "rgb", "#FFF"),
+            ("ShadowFormat", "alpha", 1.5),
+            ("InnerShadowFormat", "rgb", (1, 2)),
+            ("PresetShadowFormat", "rgb", "red"),
+            ("GlowFormat", "alpha", -0.1),
+        ],
+    )
+    def it_leaves_the_shape_untouched_when_a_colour_value_is_rejected(
+        self, cls_name, sub_prop, bad
+    ):
+        spPr, proxy = _effect(cls_name)
+
+        with pytest.raises(ValueError):
+            setattr(proxy.color, sub_prop, bad)
+
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_rejects_a_theme_colour_with_no_xml_form_before_creating_anything(self):
+        from power_pptx.enum.dml import MSO_THEME_COLOR
+
+        spPr, shadow = _effect("ShadowFormat")
+
+        with pytest.raises(ValueError):
+            shadow.color.theme_color = MSO_THEME_COLOR.NOT_THEME_COLOR
+
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_does_not_create_a_shadow_to_hold_a_cleared_alpha(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.color.alpha = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_keeps_an_existing_effect_intact_when_a_later_value_is_rejected(self):
+        from power_pptx.dml.effect import SoftEdgeFormat
+
+        spPr = element("p:spPr/a:effectLst/a:softEdge{rad=12700}")
+
+        with pytest.raises(ValueError):
+            SoftEdgeFormat(spPr).radius = -5
+
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:softEdge{rad=12700}")
+
+
+class DescribeEffectClearingRestoresInheritance(object):
+    """Assigning None drops the element, and an effectLst that leaves empty."""
+
+    def it_drops_the_outer_shadow_once_every_property_is_cleared(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.blur_radius = Emu(101600)
+        shadow.distance = Emu(38100)
+        shadow.direction = 45.0
+
+        shadow.blur_radius = None
+        shadow.distance = None
+        assert spPr.effectLst.outerShdw is not None  # -- `dir` still explicit
+        shadow.direction = None
+
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_treats_an_explicit_plain_black_like_the_default_colour(self):
+        # Indistinguishable in the XML from the colour the setters insert.
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.blur_radius = Emu(101600)
+        shadow.color.rgb = "000000"
+
+        shadow.blur_radius = None
+
+        assert _same_xml(spPr, "p:spPr")
+
+    def but_it_keeps_a_shadow_that_carries_a_colour_the_caller_chose(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.blur_radius = Emu(101600)
+        shadow.color.rgb = "000000"
+        shadow.color.alpha = 0.35
+
+        shadow.blur_radius = None
+
+        assert _same_xml(
+            spPr, "p:spPr/a:effectLst/a:outerShdw/a:srgbClr{val=000000}/a:alpha{val=35000}"
+        )
+
+    def and_color_None_clears_that_colour_too(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.blur_radius = Emu(101600)
+        shadow.color.rgb = "FF0000"
+        shadow.blur_radius = None
+
+        shadow.color = None
+
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_falls_back_to_the_default_colour_while_geometry_remains(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.blur_radius = Emu(101600)
+        shadow.color.rgb = "FF0000"
+
+        shadow.color = None
+
+        assert _same_xml(
+            spPr, "p:spPr/a:effectLst/a:outerShdw{blurRad=101600}/a:srgbClr{val=000000}"
+        )
+
+    def it_ignores_color_None_when_there_is_no_shadow(self):
+        spPr, shadow = _effect("ShadowFormat")
+        shadow.color = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_keeps_an_attribute_it_does_not_expose(self):
+        spPr = element(
+            "p:spPr/a:effectLst/a:outerShdw{blurRad=5,rotWithShape=0}/a:srgbClr{val=000000}"
+        )
+
+        ShadowFormat(spPr).blur_radius = None
+
+        assert _same_xml(
+            spPr, "p:spPr/a:effectLst/a:outerShdw{rotWithShape=0}/a:srgbClr{val=000000}"
+        )
+
+    def it_drops_the_inner_shadow_once_every_property_is_cleared(self):
+        spPr, inner = _effect("InnerShadowFormat")
+        inner.distance = Emu(38100)
+        inner.distance = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_drops_the_glow_when_its_radius_is_cleared(self):
+        spPr, glow = _effect("GlowFormat")
+        glow.radius = Emu(76200)
+        glow.radius = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def but_it_keeps_a_glow_colour_the_caller_chose_until_it_is_cleared(self):
+        spPr, glow = _effect("GlowFormat")
+        glow.radius = Emu(76200)
+        glow.color.rgb = "4F9DFF"
+
+        glow.radius = None
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:glow/a:srgbClr{val=4F9DFF}")
+
+        glow.color = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_drops_the_soft_edge_and_its_emptied_effectLst(self):
+        spPr, soft = _effect("SoftEdgeFormat")
+        soft.radius = Emu(38100)
+        soft.radius = None
+        assert _same_xml(spPr, "p:spPr")
+
+    def it_resets_a_preset_shadow_colour_but_keeps_the_preset(self):
+        spPr, preset = _effect("PresetShadowFormat")
+        preset.preset = "shdw5"
+        preset.color.rgb = "AABBCC"
+
+        preset.color = None
+
+        assert _same_xml(
+            spPr, "p:spPr/a:effectLst/a:prstShdw{prst=shdw5}/a:srgbClr{val=000000}"
+        )
+
+    def it_keeps_the_effectLst_while_another_effect_lives_in_it(self):
+        from power_pptx.dml.effect import SoftEdgeFormat
+
+        spPr, shadow = _effect("ShadowFormat")
+        SoftEdgeFormat(spPr).radius = Emu(12700)
+        shadow.distance = Emu(38100)
+
+        shadow.distance = None
+
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:softEdge{rad=12700}")
+
+    def it_leaves_an_effectLst_it_did_not_empty_alone(self):
+        # `shadow.clear()` writes an empty list on purpose; a no-op `= None`
+        # must not undo that.
+        from power_pptx.dml.effect import GlowFormat
+
+        spPr = element("p:spPr/a:effectLst")
+
+        ShadowFormat(spPr).blur_radius = None
+        GlowFormat(spPr).radius = None
+
+        assert _same_xml(spPr, "p:spPr/a:effectLst")
+
+    def it_restores_theme_inheritance_on_a_real_autoshape(self):
+        shape = _autoshape()
+        before = shape._element.xml
+        shape.shadow.blur_radius = Emu(101600)
+        shape.shadow.distance = Emu(38100)
+        shape.shadow.direction = 45
+        shape.glow.radius = Emu(50800)
+        shape.inner_shadow.distance = Emu(50800)
+        shape.soft_edges.radius = Emu(50800)
+        shape.blur.radius = Emu(50800)
+        shape.reflection.distance = Emu(50800)
+        shape.preset_shadow.distance = Emu(50800)
+
+        shape.shadow.blur_radius = None
+        shape.shadow.distance = None
+        shape.shadow.direction = None
+        shape.glow.radius = None
+        shape.inner_shadow.distance = None
+        shape.soft_edges.radius = None
+        shape.blur.radius = None
+        shape.reflection.distance = None
+        shape.preset_shadow.preset = None
+
+        assert shape._element.xml == before
+        # -- the theme's effect style is referenced again, untouched --
+        assert _effect_ref_idx(shape) == "2"
+
+
+def _deck_with_float_effects():
+    """A deck whose every effect length came from float arithmetic."""
+    from power_pptx.enum.dml import BevelPreset
+    from power_pptx.util import Pt
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    sp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5))
+    sp.shadow.blur_radius = Pt(8) / 2
+    sp.shadow.distance = Pt(8) * 0.5
+    sp.glow.radius = Pt(6) / 2
+    sp.soft_edges.radius = Pt(6) / 2
+    sp.blur.radius = Pt(6) / 2
+    sp.reflection.distance = Pt(6) / 2
+    sp.inner_shadow.blur_radius = Pt(6) / 2
+    sp.line.width = Pt(3) / 2
+    sp.three_d.bevel_top.width = Pt(6) / 2
+    sp.three_d.extrusion_height = Pt(6) / 2
+    sp.three_d.contour_width = Pt(6) / 2
+
+    # -- a second shape on which every assignment is rejected --
+    bad = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1), Inches(3), Inches(3), Inches(1.5))
+    for proxy, prop, value in (
+        (bad.soft_edges, "radius", -1),
+        (bad.reflection, "start_alpha", 1.2),
+        (bad.three_d.bevel_top, "width", -1),
+        (bad.three_d.extrusion_color, "rgb", "nope"),
+        (bad.glow, "radius", "wide"),
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            setattr(proxy, prop, value)
+
+    # -- and a third on which everything is set, then cleared --
+    gone = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(5), Inches(3), Inches(3), Inches(1.5))
+    gone.shadow.blur_radius = Pt(4)
+    gone.shadow.blur_radius = None
+    gone.soft_edges.radius = Pt(4)
+    gone.soft_edges.radius = None
+    gone.three_d.bevel_top.preset = BevelPreset.CIRCLE
+    gone.three_d.bevel_top.preset = None
+    return prs
+
+
+class DescribeFloatEffectLengthsInASavedDeck(object):
+    def it_writes_whole_emu_for_float_lengths(self):
+        prs = _deck_with_float_effects()
+        sp = prs.slides[0].shapes[0]
+        assert sp.shadow.blur_radius == Emu(50800)
+        assert sp.glow.radius == Emu(38100)
+        assert sp.line.width == Emu(19050)
+        assert sp.three_d.bevel_top.width == Emu(38100)
+        # -- no attribute anywhere under spPr holds a fractional number --
+        assert not [
+            v for el in sp._element.spPr.iter() for v in el.attrib.values() if "." in v
+        ]
+
+    def it_leaves_no_residue_from_rejected_or_cleared_assignments(self):
+        shapes = _deck_with_float_effects().slides[0].shapes
+        rejected, cleared = shapes[1]._element.spPr, shapes[2]._element.spPr
+        assert rejected.effectLst is None
+        assert rejected.scene3d is None
+        assert rejected.sp3d is None
+        assert cleared.effectLst is None
+        # -- an empty <a:bevelT/> would render as the default circle bevel --
+        assert cleared.sp3d.bevelT is None
+
+    def it_is_schema_valid(self):
+        import io
+
+        from tests.schema.oxml_schema_validator import (
+            iter_schema_violations,
+            schema_validation_available,
+        )
+
+        if not schema_validation_available():
+            pytest.skip("schema validation unavailable")
+
+        buf = io.BytesIO()
+        _deck_with_float_effects().save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []
+
+    def it_round_trips(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(_deck_with_float_effects())
