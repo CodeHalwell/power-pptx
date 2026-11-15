@@ -37,6 +37,7 @@ Declaring intentional overlap (so the collision detector stays quiet)::
 from __future__ import annotations
 
 import functools
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -603,13 +604,25 @@ class SlideLintReport:
           when it triggered multiple OffSlide issues (e.g. left + right).
         * ``OffGridDrift`` — snaps the shape's drifted edge onto the dominant
           grid line (Tier 3 of the auto-fix tier list).
-        * ``TextOverflow`` — flips the offending text frame's auto-size
-          setting to ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` so PowerPoint
-          shrinks the runs at render time.  This is a non-destructive
-          fix: the text content is preserved verbatim, only the
-          render-time sizing changes.  Frames that already have a
-          non-NONE auto-size are skipped (they should not have linted
-          in the first place).
+        * ``TextOverflow`` — makes the text fit, in the way the frame's own
+          auto-size setting asks for.  The text content is preserved
+          verbatim in every case:
+
+          - a frame with no auto-size setting is set to
+            ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` *with the font scale that
+            makes the text fit* — the value PowerPoint stores when it
+            shrinks text itself.  (Setting the mode alone would shrink
+            nothing until the text was next edited in PowerPoint.)  A
+            frame already set to ``TEXT_TO_FIT_SHAPE`` gets the same
+            computed scale;
+          - a ``SHAPE_TO_FIT_TEXT`` frame is resized to its text;
+          - a frame explicitly set to ``MSO_AUTO_SIZE.NONE`` keeps that
+            setting and has its font sizes reduced in place, as
+            ``fit_text`` does;
+          - a table row is made tall enough for its text.
+
+          Text that would need shrinking below a quarter of its size is
+          left alone; the issue stays in the report.
 
         * ``LayerOrderViolation`` — restacks the shape that declared
           ``layer_above`` to sit immediately after the layer it named, so
@@ -630,6 +643,7 @@ class SlideLintReport:
         """
         fixes: list[str] = []
         slide_w, slide_h = _slide_dimensions(self._slide)
+        text_env = _TextEnv(self._slide)
 
         # Cross-issue de-dup: a single shape can pop several OffSlide
         # issues (left + right, or top + bottom) and the per-issue loop
@@ -641,84 +655,24 @@ class SlideLintReport:
         # auto_fix pass, so interacting declarations can't ping-pong.
         restacked: set[int] = set()
 
+        # Text first: resizing a shape to its text or growing a table row
+        # changes geometry the OffSlide fix below has to work from.
+        for issue in list(self._issues):
+            if isinstance(issue, TextOverflow):
+                desc = _fix_text_overflow(text_env, issue, dry_run)
+                if desc is not None:
+                    fixes.append(desc)
+
         for issue in list(self._issues):
             if isinstance(issue, OffSlide):
                 shape = issue.shapes[0]
                 shape_key = id(shape._element)  # pyright: ignore[reportPrivateUsage]
                 if shape_key in clamped:
                     continue
-                left, top, width, height = shape.left, shape.top, shape.width, shape.height
-                new_left, new_top = left, top
-                new_width, new_height = width, height
-
-                # First clamp size: a shape larger than the slide can
-                # never be fully on-slide just by translation, so shrink
-                # to fit before deciding where to put it.  This used to
-                # be a silent no-op — auto_fix would translate but never
-                # converge.
-                if slide_w is not None and int(width) > int(slide_w):
-                    new_width = Emu(int(slide_w))
-                if slide_h is not None and int(height) > int(slide_h):
-                    new_height = Emu(int(slide_h))
-
-                if int(left) < 0:
-                    new_left = Emu(0)
-                if int(top) < 0:
-                    new_top = Emu(0)
-                if slide_w is not None and (int(new_left) + int(new_width)) > int(slide_w):
-                    new_left = Emu(max(0, int(slide_w) - int(new_width)))
-                if slide_h is not None and (int(new_top) + int(new_height)) > int(slide_h):
-                    new_top = Emu(max(0, int(slide_h) - int(new_height)))
-
-                changed = (
-                    new_left != left
-                    or new_top != top
-                    or new_width != width
-                    or new_height != height
-                )
-                if changed:
-                    parts = []
-                    if new_left != left or new_top != top:
-                        parts.append(
-                            f"position ({left},{top}) → ({new_left},{new_top})"
-                        )
-                    if new_width != width or new_height != height:
-                        parts.append(
-                            f"size ({width},{height}) → ({new_width},{new_height})"
-                        )
-                    desc = f"Clamped '{shape.name}' on-slide: " + "; ".join(parts) + "."
+                desc = _fix_off_slide(text_env, shape, slide_w, slide_h, dry_run)
+                if desc is not None:
                     fixes.append(desc)
-                    if not dry_run:
-                        shape.left = new_left
-                        shape.top = new_top
-                        if new_width != width:
-                            shape.width = new_width
-                        if new_height != height:
-                            shape.height = new_height
                     clamped.add(shape_key)
-
-            elif isinstance(issue, TextOverflow):
-                shape = issue.shapes[0]
-                # Skip silently if the shape no longer has a text frame
-                # (defensive — TextOverflow only fires for has_text_frame).
-                if not getattr(shape, "has_text_frame", False):
-                    continue
-                tf = shape.text_frame  # type: ignore[attr-defined]
-                # Only fix frames whose auto-size hasn't been set yet —
-                # SHAPE_TO_FIT_TEXT or TEXT_TO_FIT_SHAPE owners have made
-                # an explicit choice and shouldn't be silently flipped.
-                if tf.auto_size in (
-                    MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT,
-                    MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE,
-                ):
-                    continue
-                desc = (
-                    f"Set '{shape.name}' text frame auto_size = "
-                    f"TEXT_TO_FIT_SHAPE (estimated {issue.ratio:.1f}× overflow)."
-                )
-                fixes.append(desc)
-                if not dry_run:
-                    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
             elif isinstance(issue, LayerOrderViolation):
                 above, below = issue.shapes[0], issue.shapes[1]
@@ -1168,27 +1122,33 @@ class _ShapeInfo:
 
     __slots__ = (
         "shape",
+        "stored_box",
         "box",
         "bleed_box",
+        "text_issues",
         "group",
         "allow",
         "layer",
         "skip",
         "shape_id",
+        "_bleed",
         "_backdrop",
     )
 
     def __init__(self, shape: BaseShape, include_effect_bleed: bool = False):
         self.shape = shape
-        #: ``(left, top, right, bottom)`` the shape occupies.
-        self.box = _shape_bbox(shape)
+        #: ``(left, top, right, bottom)`` of the geometry stored in the XML.
+        self.stored_box = _shape_bbox(shape)
+        #: The box the shape occupies when rendered: `stored_box`, enlarged
+        #: by :meth:`grow` for a shape that resizes to its text.
+        self.box = self.stored_box
         #: `box` widened by the shadow, when effect bleed is being checked.
         self.bleed_box = self.box
-        if include_effect_bleed:
-            inflate = _shadow_inflation(shape)
-            if inflate > 0:
-                left, top, right, bottom = self.box
-                self.bleed_box = (left - inflate, top - inflate, right + inflate, bottom + inflate)
+        self._bleed = _shadow_inflation(shape) if include_effect_bleed else 0
+        if self._bleed > 0:
+            self.grow(_NO_GROWTH)
+        #: ``TextOverflow`` issues found while measuring this shape's text.
+        self.text_issues: list[LintIssue] = []
         cNvPr = _shape_cNvPr(shape)
         self.group = _lint_group_of(shape, cNvPr)
         self.shape_id: int | None = None
@@ -1202,6 +1162,18 @@ class _ShapeInfo:
             self.skip = _read_lint_skip(cNvPr)
             self.shape_id = _int_attr(cNvPr, "id")
         self._backdrop: Any = _UNSET
+
+    def grow(self, growth: tuple[float, float, float, float]) -> None:
+        """Enlarge `box` by a ``(d_left, d_top, d_width, d_height)`` growth."""
+        d_left, d_top, d_width, d_height = growth
+        left, top, right, bottom = self.stored_box
+        left = math.floor(left + d_left)
+        top = math.floor(top + d_top)
+        right = math.ceil(right + d_left + d_width)
+        bottom = math.ceil(bottom + d_top + d_height)
+        self.box = (left, top, right, bottom)
+        bleed = self._bleed
+        self.bleed_box = (left - bleed, top - bleed, right + bleed, bottom + bleed)
 
     @property
     def backdrop(self) -> tuple[str, Any]:
@@ -2167,25 +2139,64 @@ def _auto_size_name(autofit: MSO_AUTO_SIZE | None) -> str | None:
     return None if autofit is None else autofit.name
 
 
-def _frame_overflow_issue(target: _TextTarget, measure: _TextMeasure) -> LintIssue | None:
-    """Return the ``TextOverflow`` for a measured text frame, or ``None``."""
+def _frame_overflow(target: _TextTarget, measure: _TextMeasure) -> tuple[float, float]:
+    """Return ``(over_w, over_h)``: EMU by which the text exceeds its frame.
+
+    Both are zero when the text fits — including when the layout finds a
+    marginal overflow that ``TextFitter`` itself does not (see
+    :func:`_engine_says_it_fits`).
+    """
     over_w, over_h = measure.over_w, measure.over_h
-    if not over_w and not over_h:
-        return None
-    if not over_w and _engine_says_it_fits(target.tx_body, measure):
-        return None
+    if over_h and not over_w and _engine_says_it_fits(target.tx_body, measure):
+        over_h = 0.0
+    return over_w, over_h
+
+
+def _frame_overflow_issue(
+    target: _TextTarget, measure: _TextMeasure, over_w: float, over_h: float
+) -> LintIssue:
+    """Return the ``TextOverflow`` for a text frame that is `over_w` / `over_h` out.
+
+    A frame that resizes or shrinks to fit is a WARNING: a renderer repairs it
+    when the deck is opened or the text is edited.  A fixed frame is an ERROR.
+    """
     # Report the dimension that is further out; width only arises with
     # word wrap off, where it is usually the whole story.
     ratio_w = measure.text_w / measure.avail_w if over_w else 0.0
     ratio_h = measure.text_h / measure.avail_h if over_h else 0.0
+    autofit = measure.body.autofit
+    repairable = autofit in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE)
     return TextOverflow(
         target.shape,
         max(ratio_w, ratio_h),
+        severity=LintSeverity.WARNING if repairable else LintSeverity.ERROR,
         dimension="width" if ratio_w >= ratio_h else "height",
         overflow_pt=(over_w if ratio_w >= ratio_h else over_h) / _EMU_PER_PT,
-        auto_size=_auto_size_name(measure.body.autofit),
+        auto_size=_auto_size_name(autofit),
         missing_font=measure.missing_font,
     )
+
+
+_NO_GROWTH = (0.0, 0.0, 0.0, 0.0)
+
+
+def _auto_size_growth(
+    measure: _TextMeasure, over_w: float, over_h: float
+) -> tuple[float, float, float, float]:
+    """Change in ``(left, top, width, height)`` when a shape resizes to its text.
+
+    A ``SHAPE_TO_FIT_TEXT`` shape keeps the edge its text is anchored to and
+    grows away from it: down from a top anchor, up from a bottom anchor, both
+    ways from the middle; a line that cannot wrap grows away from the side the
+    paragraph is aligned to.
+    """
+    if measure.body.vert != "horz":
+        return _NO_GROWTH
+    grow_h = over_h / measure.body.cols
+    grow_w = over_w
+    d_top = {"ctr": -grow_h / 2, "b": -grow_h}.get(measure.body.anchor, 0.0)
+    d_left = {"ctr": -grow_w / 2, "r": -grow_w}.get(measure.align, 0.0)
+    return (d_left, d_top, grow_w, grow_h)
 
 
 def _table_cell_body(tc) -> _BodyProps:
@@ -2266,60 +2277,305 @@ def _table_row_needs(env: _TextEnv, shape: BaseShape) -> list[tuple[int, int, fl
     return needs
 
 
-def _table_overflow_issues(env: _TextEnv, shape: BaseShape) -> list[LintIssue]:
-    """Return a ``TextOverflow`` warning for each table row too short for its text."""
-    issues: list[LintIssue] = []
-    for row_idx, row_h, needed, col_idx, measure in _table_row_needs(env, shape):
-        over = needed - row_h
-        if over <= measure.lines * _LINE_TOLERANCE_EMU or row_h <= 0:
-            continue
-        issues.append(
-            TextOverflow(
-                shape,
-                needed / row_h,
-                severity=LintSeverity.WARNING,
-                overflow_pt=over / _EMU_PER_PT,
-                missing_font=measure.missing_font,
-                row=row_idx,
-                col=col_idx,
-            )
-        )
-    return issues
+class _TextFinding(NamedTuple):
+    """What measuring the text a top-level shape holds found."""
+
+    issues: list[LintIssue]
+    #: Change to the shape's stored ``(left, top, width, height)`` a renderer
+    #: makes when it resizes the shape to its text or grows a table's rows.
+    growth: tuple[float, float, float, float]
 
 
-def _check_text_overflow(shape: BaseShape, env: _TextEnv | None = None) -> list[LintIssue]:
-    """Return TextOverflow issues for the text `shape` holds.
+def _analyse_text(env: _TextEnv, shape: BaseShape) -> _TextFinding:
+    """Measure the text `shape` holds: its overflow issues and how it will grow.
 
     Covers the shape's own text frame, the text frames of every shape inside
     it when it is a group, and each row when it is a table.  The text is laid
     out with the text engine's font metrics (see :func:`_measure_text_body`);
     a frame that ``TextFrame.fit_text`` has sized is never reported.
+
+    Writing ``<a:spAutoFit/>`` or ``<a:normAutofit/>`` only records an
+    intention: nothing resizes the shape or the text until a renderer does.
+    So a frame set to auto-size is measured like any other.  When it resizes
+    to its text (``SHAPE_TO_FIT_TEXT``) or is a table, whose rows grow to fit,
+    the extent it will actually occupy is returned as `growth`, so that the
+    off-slide and collision checks see the box a viewer sees rather than the
+    stale stored one.
     """
-    if env is None:
-        env = _TextEnv(None)
     issues: list[LintIssue] = []
+    growth = _NO_GROWTH
     for member in _iter_text_shapes([shape]):
         if getattr(member, "has_table", False):
-            issues.extend(_table_overflow_issues(env, member))
+            grow_h = 0.0
+            for row_idx, row_h, needed, col_idx, measure in _table_row_needs(env, member):
+                over = needed - row_h
+                if over <= measure.lines * _LINE_TOLERANCE_EMU or row_h <= 0:
+                    continue
+                grow_h += over
+                issues.append(
+                    TextOverflow(
+                        member,
+                        needed / row_h,
+                        severity=LintSeverity.WARNING,
+                        overflow_pt=over / _EMU_PER_PT,
+                        missing_font=measure.missing_font,
+                        row=row_idx,
+                        col=col_idx,
+                    )
+                )
+            if member is shape and grow_h:
+                growth = (0.0, 0.0, 0.0, grow_h)
             continue
         target = _shape_text_target(env, member)
         if target is None:
-            continue
-        # Frames that resize or shrink to fit are not checked yet.
-        if target.body.autofit in (
-            MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT,
-            MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE,
-        ):
             continue
         measure = _measure_text_body(
             env, target.tx_body, target.body, target.levels, target.width, target.height
         )
         if measure is None:
             continue
-        issue = _frame_overflow_issue(target, measure)
-        if issue is not None:
-            issues.append(issue)
-    return issues
+        over_w, over_h = _frame_overflow(target, measure)
+        if not over_w and not over_h:
+            continue
+        issues.append(_frame_overflow_issue(target, measure, over_w, over_h))
+        if member is shape and measure.body.autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
+            growth = _auto_size_growth(measure, over_w, over_h)
+    return _TextFinding(issues, growth)
+
+
+def _check_text_overflow(shape: BaseShape, env: _TextEnv | None = None) -> list[LintIssue]:
+    """Return TextOverflow issues for the text `shape` holds; see :func:`_analyse_text`."""
+    return _analyse_text(_TextEnv(None) if env is None else env, shape).issues
+
+
+# ---------------------------------------------------------------------------
+# Fixing text overflow.  Each fix leaves the frame in a state the measurement
+# above can still see: a stored font scale is applied when measuring, baked
+# sizes and grown shapes are simply what the XML now says.
+# ---------------------------------------------------------------------------
+
+#: The ``(fontScale, lnSpcReduction)`` steps PowerPoint itself walks down when
+#: it shrinks text on overflow; the first that fits is stored.
+_AUTOFIT_STEPS = (
+    (0.925, 0.10),
+    (0.85, 0.20),
+    (0.775, 0.20),
+    (0.70, 0.20),
+    (0.625, 0.20),
+    (0.55, 0.20),
+    (0.475, 0.20),
+    (0.40, 0.20),
+    (0.325, 0.20),
+    (0.25, 0.20),
+)
+#: Smallest factor explicit font sizes are baked down by; below this the text
+#: is unreadable and the frame needs a human.
+_MIN_BAKE_PCT = 25
+
+
+def _fits_scaled(env: _TextEnv, target: _TextTarget, scale: float, reduction: float) -> bool:
+    """True when the text of `target` fits with its fonts scaled by `scale`."""
+    body = target.body._replace(font_scale=scale, ln_reduction=reduction)
+    trial = _measure_text_body(
+        env, target.tx_body, body, target.levels, target.width, target.height
+    )
+    return trial is None or (not trial.over_w and not trial.over_h)
+
+
+def _iter_sized_elements(env: _TextEnv, target: _TextTarget) -> Iterator[tuple[Any, bool, int]]:
+    """Yield ``(element, is_end_mark, size)`` for everything that carries a font size.
+
+    `element` is an ``<a:r>``, ``<a:fld>`` or ``<a:br>``, or the ``<a:p>``
+    itself for its end-of-paragraph mark; `size` is the effective size in
+    1/100 pt, resolved the way the measurement resolves it.
+    """
+    for paragraph in target.tx_body.findall(_T_P):
+        ppr = paragraph.find(_T_PPR)
+        level = 0 if ppr is None else min(8, max(0, _int_attr(ppr, "lvl") or 0))
+        char_props, _ = env.level_props(target.levels, level)
+        if ppr is not None:
+            char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+        for child in paragraph:
+            if child.tag in (_T_R, _T_FLD, _T_BR):
+                yield child, False, _apply_char_props(char_props, child.find(_T_RPR))[0]
+        yield paragraph, True, _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))[0]
+
+
+def _describe_overflow(over_w: float, measure: _TextMeasure) -> str:
+    if over_w:
+        return f"the text was {measure.text_w / measure.avail_w:.1f}× the frame width"
+    return f"the text needed {measure.text_h / measure.avail_h:.1f}× the frame height"
+
+
+def _fix_text_overflow(env: _TextEnv, issue: TextOverflow, dry_run: bool) -> str | None:
+    """Make the text of the frame in `issue` fit; return a description, or ``None``.
+
+    What "fit" means follows the frame's own auto-size setting, so the fix is
+    the one a renderer would apply rather than a change of mode:
+
+    * ``SHAPE_TO_FIT_TEXT`` — the shape is resized to its text.
+    * ``TEXT_TO_FIT_SHAPE``, or no setting at all — the frame is set to
+      ``TEXT_TO_FIT_SHAPE`` with the font scale (and line-spacing reduction)
+      that makes the text fit, the values PowerPoint stores when it shrinks
+      text itself.  A bare ``<a:normAutofit/>`` would shrink nothing until the
+      text was next edited.
+    * ``NONE`` — the author asked for no auto-fit, so the sizes are reduced in
+      place, as ``fit_text`` does, and the setting is left alone.
+    * a table row — the row is made tall enough for its text.
+
+    Returns ``None``, changing nothing, when the frame no longer overflows or
+    no legible size fits.
+    """
+    shape = issue.shapes[0]
+    if issue.row is not None:
+        return _fix_table_row(env, shape, issue.row, dry_run)
+    target = _shape_text_target(env, shape)
+    if target is None:
+        return None
+    measure = _measure_text_body(
+        env, target.tx_body, target.body, target.levels, target.width, target.height
+    )
+    if measure is None:
+        return None
+    over_w, over_h = _frame_overflow(target, measure)
+    if not over_w and not over_h:
+        return None
+    autofit = measure.body.autofit
+    was = _describe_overflow(over_w, measure)
+
+    if autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
+        d_left, d_top, d_width, d_height = _auto_size_growth(measure, over_w, over_h)
+        if not d_width and not d_height:
+            return None
+        scale_x, scale_y = _group_scale(target.tx_body.getparent())
+        left, top = int(shape.left or 0), int(shape.top or 0)
+        width, height = int(shape.width or 0), int(shape.height or 0)
+        new_width = width + math.ceil(d_width / scale_x)
+        new_height = height + math.ceil(d_height / scale_y)
+        if not dry_run:
+            shape.left = Emu(left + math.floor(d_left / scale_x))
+            shape.top = Emu(top + math.floor(d_top / scale_y))
+            shape.width = Emu(new_width)
+            shape.height = Emu(new_height)
+        return (
+            f"Resized '{shape.name}' to fit its text: size ({width},{height}) → "
+            f"({new_width},{new_height})."
+        )
+
+    if autofit == MSO_AUTO_SIZE.NONE:
+        low, high = _MIN_BAKE_PCT, 99
+        if not _fits_scaled(env, target, low / 100.0, 0.0):
+            return None
+        while low < high:  # largest percentage that fits
+            middle = (low + high + 1) // 2
+            if _fits_scaled(env, target, middle / 100.0, 0.0):
+                low = middle
+            else:
+                high = middle - 1
+        # Round each size down to a half point, never up: the text must fit.
+        planned = [
+            (element, is_end, size * low // 100 // 50 * 50)
+            for element, is_end, size in _iter_sized_elements(env, target)
+        ]
+        if any(size < 100 for _, _, size in planned):
+            return None
+        if not dry_run:
+            for element, is_end, size in planned:
+                rpr = element.get_or_add_endParaRPr() if is_end else element.get_or_add_rPr()
+                rpr.set("sz", str(size))
+        return (
+            f"Reduced the font sizes in '{shape.name}' to {low}% so the text fits its "
+            f"frame ({was})."
+        )
+
+    for scale, reduction in _AUTOFIT_STEPS:
+        if scale < measure.body.font_scale and _fits_scaled(env, target, scale, reduction):
+            break
+    else:
+        return None
+    body_pr = target.tx_body.find(_T_BODYPR)
+    if body_pr is None:
+        return None
+    if not dry_run:
+        body_pr.autofit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        norm = body_pr.find(_T_NORMAUTOFIT)
+        norm.set("fontScale", str(round(scale * 100000)))
+        norm.set("lnSpcReduction", str(round(reduction * 100000)))
+    return (
+        f"Set '{shape.name}' text frame auto_size = TEXT_TO_FIT_SHAPE with a "
+        f"{scale * 100:g}% font scale ({was})."
+    )
+
+
+def _fix_off_slide(
+    env: _TextEnv,
+    shape: BaseShape,
+    slide_w: Length | None,
+    slide_h: Length | None,
+    dry_run: bool,
+) -> str | None:
+    """Clamp `shape` on-slide; return a description, or ``None`` if nothing changes.
+
+    Works from the box the shape occupies when rendered: a shape that resizes
+    to its text is moved far enough for the grown box to be on the slide.
+    """
+    left, top = int(shape.left or 0), int(shape.top or 0)
+    width, height = int(shape.width or 0), int(shape.height or 0)
+    d_left, d_top, d_width, d_height = _analyse_text(env, shape).growth
+    new_width, new_height = width, height
+
+    # First clamp size: a shape larger than the slide can
+    # never be fully on-slide just by translation, so shrink
+    # to fit before deciding where to put it.  This used to
+    # be a silent no-op — auto_fix would translate but never
+    # converge.
+    if slide_w is not None and width > int(slide_w):
+        new_width = int(slide_w)
+    if slide_h is not None and height > int(slide_h):
+        new_height = int(slide_h)
+
+    def place(position: int, size: int, lead: float, extra: float, limit: Length | None) -> int:
+        """Stored position that puts the rendered span inside ``[0, limit]``."""
+        start = position + math.floor(lead)
+        span = size + math.ceil(extra)
+        if start < 0:
+            start = 0
+        if limit is not None and start + span > int(limit):
+            start = max(0, int(limit) - span)
+        return start - math.floor(lead)
+
+    new_left = place(left, new_width, d_left, d_width, slide_w)
+    new_top = place(top, new_height, d_top, d_height, slide_h)
+
+    if (new_left, new_top, new_width, new_height) == (left, top, width, height):
+        return None
+    parts = []
+    if new_left != left or new_top != top:
+        parts.append(f"position ({left},{top}) → ({new_left},{new_top})")
+    if new_width != width or new_height != height:
+        parts.append(f"size ({width},{height}) → ({new_width},{new_height})")
+    if not dry_run:
+        shape.left = Emu(new_left)
+        shape.top = Emu(new_top)
+        if new_width != width:
+            shape.width = Emu(new_width)
+        if new_height != height:
+            shape.height = Emu(new_height)
+    return f"Clamped '{shape.name}' on-slide: " + "; ".join(parts) + "."
+
+
+def _fix_table_row(env: _TextEnv, shape: BaseShape, row_idx: int, dry_run: bool) -> str | None:
+    """Grow row `row_idx` of the table in `shape` to the height its text needs."""
+    for index, row_h, needed, _col_idx, measure in _table_row_needs(env, shape):
+        if index != row_idx:
+            continue
+        if needed - row_h <= measure.lines * _LINE_TOLERANCE_EMU:
+            return None
+        new_h = math.ceil(needed)
+        if not dry_run:
+            shape.table.rows[row_idx].height = Emu(new_h)  # type: ignore[attr-defined]
+        return f"Grew row {row_idx} of '{shape.name}' from {row_h} to {new_h} EMU to fit its text."
+    return None
 
 
 # Minimum overlap fraction to report a collision (avoids noise from barely
@@ -2967,8 +3223,10 @@ def _check_min_font_size(
 ) -> list[LintIssue]:
     """Return a single MinFontSize issue if any run is below *threshold_pt*.
 
-    Only sizes set on a run are considered.  The runs are read from the XML:
-    ``shape.text_frame`` would add a ``<p:txBody>`` to a shape without one.
+    Only sizes set on a run are considered, scaled by the font scale stored
+    on a ``TEXT_TO_FIT_SHAPE`` frame: a frame shrunk to 50% shows an 18pt run
+    at 9pt.  The runs are read from the XML: ``shape.text_frame`` would add a
+    ``<p:txBody>`` to a shape without one.
     """
     issues: list[LintIssue] = []
     try:
@@ -2989,7 +3247,10 @@ def _check_min_font_size(
             smallest = size
     if smallest is None:
         return issues
-    pt = smallest / 100.0
+    body_pr = tx_body.find(_T_BODYPR)
+    norm = None if body_pr is None else body_pr.find(_T_NORMAUTOFIT)
+    scale = 1.0 if norm is None else (_fraction(norm.get("fontScale")) or 1.0)
+    pt = smallest / 100.0 * scale
     if pt < threshold_pt:
         issues.append(MinFontSize(shape, pt, threshold_pt))
     return issues
@@ -3039,7 +3300,8 @@ def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
         return issues
 
     shapes = [info.shape for info in infos]
-    bboxes = [info.box for info in infos]
+    # Alignment is about where shapes were placed, so the stored geometry.
+    bboxes = [info.stored_box for info in infos]
 
     for axis_name, edge_idx in (("left", 0), ("top", 1)):
         edges = [b[edge_idx] for b in bboxes]
@@ -3403,7 +3665,7 @@ def _check_master_placeholder_collision(
         shape = info.shape
         if shape.is_placeholder:
             continue
-        sl, st, sr, sb = info.box
+        sl, st, sr, sb = info.stored_box
         if sr - sl <= 0 or sb - st <= 0:
             continue
         for pl, pt, pr, pb, idx in ph_bboxes:
@@ -3593,6 +3855,16 @@ def lint_slide(
     z_order = wanted("ZOrderAnomaly")
     layer_order = wanted("LayerOrderViolation")
 
+    # Measure the text first.  It yields the TextOverflow issues, and for a
+    # shape that resizes to its text (or a table, whose rows grow) the box it
+    # will really occupy, which is what the geometric checks must test.
+    if text_overflow or off_slide or low_contrast or collisions or z_order or layer_order:
+        for info in infos:
+            finding = _analyse_text(text_env, info.shape)
+            info.text_issues = finding.issues
+            if finding.growth != _NO_GROWTH:
+                info.grow(finding.growth)
+
     # Shapes that actually overlap, found by a sweep rather than by trying
     # every pair; shared by all the cross-shape checks.
     pairs: list[tuple[int, int]] = []
@@ -3605,7 +3877,7 @@ def lint_slide(
         if off_slide and slide_w is not None and slide_h is not None:
             issues.extend(_check_off_slide(info, slide_w, slide_h, include_effect_bleed))
         if text_overflow:
-            issues.extend(_check_text_overflow(shape, text_env))
+            issues.extend(info.text_issues)
         if min_font:
             issues.extend(_check_min_font_size(shape))
         if backdrops is not None:

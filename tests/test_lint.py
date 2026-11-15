@@ -2809,3 +2809,269 @@ class DescribeTextOverflowMeasurement:
         assert issue.ratio == pytest.approx(96 / 64.8, rel=0.01)
         assert issue.overflow_pt == pytest.approx(96 - 64.8, abs=0.5)
         assert issue.to_dict()["overflow_pt"] == issue.overflow_pt
+
+
+def _long_text(sentences=3):
+    return " ".join([_SENTENCE] * sentences)
+
+
+def _codes(issues):
+    return sorted((i.code, i.severity.value) for i in issues)
+
+
+class DescribeTextOverflowOnAutoSizeFrames:
+    """``add_text`` / ``add_textbox`` write ``<a:spAutoFit/>`` and resize nothing.
+
+    The stored box is stale until a renderer lays the text out, so lint has to
+    measure these frames and check the box they will really occupy.
+    """
+
+    def it_reports_a_default_text_box_that_will_grow_off_the_slide(self, outfit):
+        from power_pptx import BBox
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_text(
+            BBox.from_inches(1, 6.4, 3, 0.6), text=_long_text(), size_pt=24, font=outfit
+        )
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+
+        issues = slide.lint().issues
+
+        # The overflow itself is repaired by the renderer (warning); the box
+        # it grows into crossing the slide edge is not (error).
+        assert _codes(issues) == [("OffSlide", "error"), ("TextOverflow", "warning")]
+        off_slide = next(i for i in issues if isinstance(i, OffSlide))
+        assert off_slide.side == "bottom"
+        overflow = next(i for i in issues if isinstance(i, TextOverflow))
+        assert overflow.auto_size == "SHAPE_TO_FIT_TEXT"
+
+    def it_grows_the_box_down_from_a_top_anchor(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 18)
+        below = slide.shapes.add_shape(1, Inches(1), Inches(2), Inches(3), Inches(1))
+
+        issues = slide.lint().issues
+
+        # Stored boxes do not touch; the grown text box covers the rectangle.
+        assert int(box.top) + int(box.height) < int(below.top)
+        collisions = [i for i in issues if isinstance(i, ShapeCollision)]
+        assert [c.shapes for c in collisions] == [(box, below)]
+        assert not any(isinstance(i, OffSlide) for i in issues)
+
+    def it_grows_a_bottom_anchored_box_upwards(self, outfit):
+        from power_pptx.enum.text import MSO_ANCHOR
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.vertical_anchor = MSO_ANCHOR.BOTTOM
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 18)
+
+        sides = [i.side for i in slide.lint().issues if isinstance(i, OffSlide)]
+
+        assert sides == ["top"]
+
+    def it_reports_a_line_that_will_grow_past_the_edge_with_wrap_off(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(2), Inches(0.5))
+        box.text_frame.text = _SENTENCE
+        _set_font(box.text_frame, outfit, 24)
+        assert box.text_frame.word_wrap is False
+
+        issues = slide.lint().issues
+
+        assert _codes(issues) == [("OffSlide", "error"), ("TextOverflow", "warning")]
+        assert next(i for i in issues if isinstance(i, TextOverflow)).dimension == "width"
+
+    def it_does_not_report_a_box_that_already_fits(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "Short"
+        _set_font(box.text_frame, outfit, 18)
+
+        assert slide.lint().issues == []
+
+    def it_warns_when_shrink_on_overflow_has_not_shrunk_anything(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text()
+        _set_font(box.text_frame, outfit, 24)
+
+        issues = _overflows(slide)
+
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.WARNING
+        assert issues[0].auto_size == "TEXT_TO_FIT_SHAPE"
+
+    def it_measures_at_the_font_scale_a_shrunk_frame_stores(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        assert len(_overflows(slide)) == 1
+        norm = box.text_frame._bodyPr.normAutofit
+
+        norm.set("fontScale", "55000")
+
+        assert _overflows(slide) == []
+
+    def it_reports_a_title_placeholder_that_inherits_shrink_on_overflow(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
+        title = slide.shapes.title
+        title.text_frame.text = _long_text()
+
+        issues = _overflows(slide)
+
+        # The master's title bodyPr carries <a:normAutofit/>.
+        assert len(issues) == 1
+        assert issues[0].severity == LintSeverity.WARNING
+        assert issues[0].auto_size == "TEXT_TO_FIT_SHAPE"
+
+    def it_does_not_fail_lint_on_save_for_an_overflow_the_renderer_repairs(
+        self, outfit, tmp_path
+    ):
+        prs, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 18)
+        assert _overflows(slide)[0].severity == LintSeverity.WARNING
+        prs.lint_on_save = "raise"
+
+        prs.save(str(tmp_path / "deck.pptx"))
+
+
+def _assert_fits(slide):
+    assert _overflows(slide) == []
+
+
+class DescribeAutoFixTextOverflowFitsTheText:
+    """``auto_fix`` leaves text that fits, and never a state lint cannot see."""
+
+    def it_stores_the_font_scale_that_makes_the_text_fit(self, outfit):
+        from power_pptx.lint import _measure_text_body, _shape_text_target, _TextEnv
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        assert box.text_frame.auto_size is None
+        report = slide.lint()
+
+        fixes = report.auto_fix()
+
+        assert len(fixes) == 1
+        assert "font scale" in fixes[0]
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        scale = box.text_frame._bodyPr.normAutofit.get("fontScale")
+        assert scale is not None
+        assert 25000 <= int(scale) < 100000
+        assert [i for i in report.issues if isinstance(i, TextOverflow)] == []
+        # Measured at the stored scale, the text really does fit the frame.
+        env = _TextEnv(slide)
+        target = _shape_text_target(env, box)
+        measure = _measure_text_body(
+            env, target.tx_body, target.body, target.levels, target.width, target.height
+        )
+        assert measure.text_h <= measure.avail_h
+
+    def it_does_not_leave_a_bare_shrink_setting_that_shrinks_nothing(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide)
+        box.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+
+        slide.tidy()
+
+        assert box.text_frame._bodyPr.normAutofit.get("fontScale") is not None
+        _assert_fits(slide)
+
+    def it_reduces_the_sizes_of_a_frame_set_to_no_autofit(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=4, height=1.5)
+        box.text_frame.text = _long_text(2)
+        _set_font(box.text_frame, outfit, 28)
+
+        fixes = slide.tidy()
+
+        assert "Reduced the font sizes" in fixes[0]
+        # The author's explicit "no auto-fit" is kept; the sizes changed.
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.NONE
+        size = box.text_frame.paragraphs[0].runs[0].font.size
+        assert size < Pt(28)
+        _assert_fits(slide)
+
+    def it_resizes_a_shape_set_to_fit_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.5))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 18)
+
+        fixes = slide.tidy()
+
+        assert fixes[0].startswith("Resized 'TextBox 1' to fit its text")
+        assert box.height > Inches(0.5)
+        assert box.text_frame.auto_size == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+        assert slide.lint().issues == []
+
+    def it_resizes_then_moves_a_box_that_grows_off_the_slide(self, outfit):
+        from power_pptx import BBox
+
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_text(
+            BBox.from_inches(1, 6.4, 3, 0.6), text=_long_text(), size_pt=18, font=outfit
+        )
+
+        slide.tidy()
+
+        assert int(box.top) + int(box.height) <= int(Inches(7.5))
+        assert slide.lint().issues == []
+
+    def it_grows_a_table_row_to_fit_its_text(self, outfit):
+        _, slide = _new_blank_slide()
+        frame = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(0.8))
+        cell = frame.table.cell(1, 0)
+        cell.text = _long_text(2)
+        _set_font(cell.text_frame, outfit, 14)
+        before = frame.table.rows[1].height
+
+        fixes = slide.tidy()
+
+        assert fixes[0].startswith("Grew row 1")
+        assert frame.table.rows[1].height > before
+        assert frame.height == sum(row.height for row in frame.table.rows)
+        _assert_fits(slide)
+
+    def it_leaves_text_alone_that_would_have_to_become_illegible(self, outfit):
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=1, height=0.3)
+        box.text_frame.text = _long_text(4)
+        _set_font(box.text_frame, outfit, 24)
+        before = box._element.xml
+
+        fixes = slide.tidy()
+
+        assert fixes == []
+        assert box._element.xml == before
+        assert len(_overflows(slide)) == 1
+
+    def it_previews_without_changing_anything(self, outfit):
+        _, slide = _new_blank_slide()
+        box = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = _long_text(1)
+        _set_font(box.text_frame, outfit, 24)
+        before = slide._element.xml
+
+        fixes = slide.lint().auto_fix(dry_run=True)
+
+        assert len(fixes) == 1
+        assert slide._element.xml == before

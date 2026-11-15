@@ -344,3 +344,19 @@ class DescribeSlidePartRenamingRoundTrip:
             again.slides[1].part.partname,
             again.slides[0].shapes[1].click_action.target_slide.part.partname,
         ] == ["/ppt/slides/slide1.xml", "/ppt/slides/slide2.xml", "/ppt/slides/slide3.xml"]
+
+    def it_round_trips_text_fitted_by_lint_auto_fix(self):
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        text = "Revenue grew faster than forecast across every region this quarter " * 3
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(3), Inches(1)).text = text
+        fixed = slide.shapes.add_textbox(Inches(4), Inches(0.5), Inches(3), Inches(1))
+        fixed.text_frame.word_wrap = True
+        fixed.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        fixed.text = text
+        table = slide.shapes.add_table(2, 2, Inches(4), Inches(2), Inches(4), Inches(0.8)).table
+        table.cell(1, 1).text = text
+        assert len(slide.tidy()) == 3
+        assert_round_trip(prs)

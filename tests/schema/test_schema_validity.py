@@ -544,6 +544,34 @@ def _deck_lint_relationship_model() -> bytes:
     return _saved(prs)
 
 
+def _deck_lint_text_fixes() -> bytes:
+    """Every kind of XML ``auto_fix()`` writes to make overflowing text fit.
+
+    ``<a:normAutofit fontScale lnSpcReduction>``, run sizes reduced in place
+    (including ``<a:endParaRPr>``), a resized auto-fit shape, and a table row
+    grown to its text.
+    """
+    from power_pptx.enum.text import MSO_AUTO_SIZE
+
+    text = "Revenue grew faster than forecast across every region this quarter " * 3
+    prs = Presentation()
+    s = _blank_slide(prs)
+    shrink = s.shapes.add_shape(1, Inches(0.5), Inches(0.5), Inches(3), Inches(1))
+    shrink.text_frame.text = text
+    fixed = s.shapes.add_textbox(Inches(4), Inches(0.5), Inches(3), Inches(1))
+    fixed.text_frame.word_wrap = True
+    fixed.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    fixed.text_frame.text = text + "\n\nsecond paragraph"
+    grow = s.shapes.add_textbox(Inches(0.5), Inches(2), Inches(3), Inches(0.5))
+    grow.text_frame.word_wrap = True
+    grow.text_frame.text = text
+    table = s.shapes.add_table(2, 2, Inches(4), Inches(2), Inches(4), Inches(0.8)).table
+    table.cell(1, 1).text = text
+    fixes = s.tidy()
+    assert len(fixes) == 4, fixes
+    return _saved(prs)
+
+
 def _deck_svg_embedding() -> bytes:
     from PIL import Image
 
@@ -618,6 +646,7 @@ _DECK_BUILDERS = {
     "diagrams": _deck_diagrams,
     "ergonomics": _deck_ergonomics,
     "lint_relationship_model": _deck_lint_relationship_model,
+    "lint_text_fixes": _deck_lint_text_fixes,
 }
 
 
