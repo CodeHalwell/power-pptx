@@ -52,7 +52,7 @@ def _render(prs, directory, *, dpi, soffice_bin, timeout, font_dirs=None):
             raise RuntimeError(
                 "LibreOffice PDF export failed: " + result.stderr.decode("utf-8", "replace")[:2000]
             )
-        pages = _pdf_to_pngs(pdf, work, dpi=dpi)
+        pages = _pdf_to_pngs(pdf, work, dpi=dpi, timeout=timeout)
         if len(pages) != len(prs.slides):
             raise RuntimeError(f"Expected {len(prs.slides)} rendered pages; received {len(pages)}")
         shutil.copy2(pdf, directory / "presentation.pdf")

@@ -6,7 +6,12 @@ handling, and selection of slide indexes — not the actual rendering.
 
 from __future__ import annotations
 
+import os
+import signal
+import sys
 import tempfile
+import time
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
@@ -313,8 +318,10 @@ class DescribePdfFallback:
 
         return _runner
 
-    def _fake_pdf_split(self, work_dir, *, num_pages):
-        def _split(pdf_path, out_dir, *, dpi):
+    def _fake_pdf_split(self, work_dir, *, num_pages, captured=None):
+        def _split(pdf_path, out_dir, *, dpi, timeout=None):
+            if captured is not None:
+                captured.update(dpi=dpi, timeout=timeout)
             paths = []
             prefix = pdf_path.stem + "-page"
             for i in range(num_pages):
@@ -368,6 +375,19 @@ class DescribePdfFallback:
         assert len(paths) == 2
         assert not png_called
 
+    def it_bounds_the_pdf_split_with_the_same_timeout(self, tmp_path, two_slide_prs):
+        captured = {}
+
+        with patch("power_pptx.render.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "power_pptx.render._run_soffice_pdf", side_effect=self._fake_pdf_run(tmp_path)
+        ), patch(
+            "power_pptx.render._pdf_to_pngs",
+            side_effect=self._fake_pdf_split(tmp_path, num_pages=2, captured=captured),
+        ):
+            render_slide_thumbnails(two_slide_prs, out_dir=tmp_path, strategy="pdf", timeout=7)
+
+        assert captured["timeout"] == 7
+
     def it_does_not_return_stale_pages_from_an_earlier_render(self, tmp_path, two_slide_prs):
         one_slide = Presentation()
         one_slide.slides.add_slide(one_slide.slide_layouts[6])
@@ -408,6 +428,99 @@ class DescribePdfFallback:
         ):
             with pytest.raises(ThumbnailRendererError, match="status 1"):
                 render_slide_thumbnails(two_slide_prs, out_dir=tmp_path)
+
+
+def _is_running(pid):
+    """True while process *pid* is still doing work (a zombie is not)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    if not os.path.isdir("/proc"):
+        return True
+    try:
+        # -- Linux: killed, but not yet collected by whatever adopted it --
+        return "zombie" not in Path(f"/proc/{pid}/status").read_text().lower()
+    except OSError:
+        return False
+
+
+def _wait_until_stopped(pid, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while _is_running(pid):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the fake launchers are POSIX shell scripts")
+class DescribeProcessTimeouts:
+    """A converter that overruns is stopped, with all it started, and reported."""
+
+    @pytest.fixture
+    def hanging(self, tmp_path):
+        """Make a launcher that starts a worker and waits on it, as `soffice` does.
+
+        Returns a function giving the launcher's path for a name, and the file
+        the launcher writes its worker's pid to.
+        """
+        pid_file = tmp_path / "worker.pid"
+
+        def make(name):
+            script = tmp_path / name
+            script.write_text(f"#!/bin/sh\nsleep 300 &\necho $! > '{pid_file}'\nwait\n")
+            script.chmod(0o755)
+            return script
+
+        yield make, pid_file
+        if pid_file.exists():
+            with suppress(OSError, ValueError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+    @pytest.mark.parametrize("strategy", ["pdf", "png"])
+    def it_stops_a_hung_soffice_and_raises_the_renderer_error(
+        self, hanging, two_slide_prs, strategy
+    ):
+        make, pid_file = hanging
+
+        with pytest.raises(ThumbnailRendererError, match="did not finish within 2 seconds"):
+            render_slide_thumbnails(
+                two_slide_prs,
+                soffice_bin=str(make("soffice")),
+                timeout=2,
+                strategy=strategy,
+                return_bytes=True,
+            )
+
+        worker = int(pid_file.read_text())
+        assert _wait_until_stopped(worker), "the process soffice started was left running"
+
+    def it_stops_a_hung_pdftoppm_too(self, hanging, tmp_path):
+        from power_pptx.render import _pdf_to_pngs_via_pdftoppm
+
+        make, pid_file = hanging
+        pdf = tmp_path / "deck.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n")
+
+        with pytest.raises(ThumbnailRendererError, match="pdftoppm did not finish within 2"):
+            _pdf_to_pngs_via_pdftoppm(str(make("pdftoppm")), pdf, tmp_path, dpi=72, timeout=2)
+
+        assert _wait_until_stopped(int(pid_file.read_text()))
+
+    def it_returns_the_exit_status_and_output_of_a_command_that_finishes(self):
+        from power_pptx.render import _run
+
+        result = _run(
+            [sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(3)"],
+            timeout=60,
+        )
+
+        assert result.returncode == 3
+        assert result.stderr == b"boom"
+        assert result.stdout == b""
 
 
 class DescribeRenderSlideThumbnailCleanup:

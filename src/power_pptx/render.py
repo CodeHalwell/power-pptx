@@ -38,7 +38,9 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 from contextlib import suppress
 from pathlib import Path
@@ -61,7 +63,7 @@ class ThumbnailRendererUnavailable(RuntimeError):
 
 
 class ThumbnailRendererError(RuntimeError):
-    """Raised when LibreOffice runs but produces no output (or errors)."""
+    """Raised when LibreOffice runs but produces no output, errors or times out."""
 
 
 def _resolve_binary(binary: Optional[str]) -> str:
@@ -137,13 +139,92 @@ def _soffice_env(
     return env
 
 
+def _kill_process_tree(process: "subprocess.Popen[bytes]") -> None:
+    """Stop *process* and every process it started.
+
+    ``soffice`` is only a launcher (a shell script on Linux and macOS,
+    ``soffice.exe`` on Windows) for the real ``soffice.bin``, so killing the
+    one process we started would leave the converter running.
+    """
+    if sys.platform == "win32":
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+    else:
+        # -- the process leads its own group; see `start_new_session` in `_run` --
+        with suppress(OSError):
+            os.killpg(process.pid, signal.SIGKILL)
+    with suppress(OSError):
+        process.kill()
+
+
+def _run(
+    cmd: Sequence[str], *, timeout: float, env: Optional[dict] = None
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run *cmd* to completion and return its result, never leaving it running.
+
+    The command gets its own session, hence its own process group, so the
+    whole group can be stopped when it overruns *timeout* (seconds) or the
+    caller is interrupted.  A timeout raises :class:`ThumbnailRendererError`.
+    """
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(process)
+            raise ThumbnailRendererError(
+                "%s did not finish within %s seconds and was stopped; pass a "
+                "larger timeout= if the deck needs longer to convert."
+                % (Path(cmd[0]).name, timeout)
+            ) from None
+        except BaseException:
+            _kill_process_tree(process)
+            raise
+    return subprocess.CompletedProcess(list(cmd), process.returncode, stdout, stderr)
+
+
+def _soffice_convert(
+    soffice_bin: str,
+    deck_path: Path,
+    out_dir: Path,
+    timeout: float,
+    env: Optional[dict],
+    target: str,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run ``soffice --convert-to <target>`` on *deck_path*, writing into *out_dir*."""
+    cmd = [
+        soffice_bin,
+        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
+        "--headless",
+        "--norestore",
+        "--nologo",
+        "--nofirststartwizard",
+        "--convert-to",
+        target,
+        "--outdir",
+        str(out_dir),
+        str(deck_path),
+    ]
+    return _run(cmd, timeout=timeout, env=env)
+
+
 def _run_soffice(
     soffice_bin: str,
     deck_path: Path,
     out_dir: Path,
-    timeout: int,
+    timeout: float,
     env: Optional[dict] = None,
-) -> subprocess.CompletedProcess:
+) -> "subprocess.CompletedProcess[bytes]":
     """Convert *deck_path* to PNG using ``soffice --convert-to png``.
 
     Stock LibreOffice 7+ writes only the first slide for a multi-slide
@@ -152,61 +233,23 @@ def _run_soffice(
     count matches the slide count and falling back to the PDF path when
     it doesn't.
     """
-    cmd = [
-        soffice_bin,
-        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "png",
-        "--outdir",
-        str(out_dir),
-        str(deck_path),
-    ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env=env,
-    )
+    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, "png")
 
 
 def _run_soffice_pdf(
     soffice_bin: str,
     deck_path: Path,
     out_dir: Path,
-    timeout: int,
+    timeout: float,
     env: Optional[dict] = None,
-) -> subprocess.CompletedProcess:
+) -> "subprocess.CompletedProcess[bytes]":
     """Convert *deck_path* to PDF using ``soffice --convert-to pdf``.
 
     Unlike the PNG filter, the PDF export reliably contains every slide
     on every LibreOffice version we've tested, which makes it the
     authoritative source for per-slide thumbnails.
     """
-    cmd = [
-        soffice_bin,
-        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(out_dir),
-        str(deck_path),
-    ]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env=env,
-    )
+    return _soffice_convert(soffice_bin, deck_path, out_dir, timeout, env, "pdf")
 
 
 def render_slide_thumbnails(
@@ -253,10 +296,14 @@ def render_slide_thumbnails(
     ``POWER_PPTX_FONT_DIRS`` (which are always passed through). They're set
     through a temporary ``fonts.conf`` for the ``soffice`` subprocess only.
 
+    `timeout` is how many seconds each external process (the LibreOffice
+    conversion, then the PDF split) may take.  One that overruns is
+    stopped, along with every process it started.
+
     Raises :class:`ThumbnailRendererUnavailable` when ``soffice`` cannot
     be located, and :class:`ThumbnailRendererError` when the conversion
-    completes with no PNG output (typically a corrupted deck or a
-    LibreOffice version that doesn't ship the PNG filter).
+    times out or completes with no PNG output (typically a corrupted deck
+    or a LibreOffice version that doesn't ship the PNG filter).
     """
     if strategy not in ("auto", "png", "pdf"):
         raise ValueError(
@@ -403,23 +450,26 @@ def _render_via_pdf(
 
     pdf_path = pdfs[0]
     try:
-        return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi)
+        return _pdf_to_pngs(pdf_path, work_dir, dpi=dpi, timeout=timeout)
     finally:
         with suppress(OSError):
             pdf_path.unlink()
 
 
-def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
+def _pdf_to_pngs(
+    pdf_path: Path, out_dir: Path, *, dpi: int, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> List[Path]:
     """Split a PDF into one PNG per page in *out_dir* and return the paths.
 
     Tries ``pdftoppm`` first (Poppler), then ``pypdfium2``.  Raises
     :class:`ThumbnailRendererError` with an install hint when neither is
     available — the message names both options so the user can pick
-    whichever fits their environment.
+    whichever fits their environment.  *timeout* (seconds) bounds the
+    ``pdftoppm`` process.
     """
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm is not None:
-        return _pdf_to_pngs_via_pdftoppm(pdftoppm, pdf_path, out_dir, dpi=dpi)
+        return _pdf_to_pngs_via_pdftoppm(pdftoppm, pdf_path, out_dir, dpi=dpi, timeout=timeout)
 
     try:
         import pypdfium2  # type: ignore[import-not-found]  # noqa: F401
@@ -434,7 +484,12 @@ def _pdf_to_pngs(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
 
 
 def _pdf_to_pngs_via_pdftoppm(
-    pdftoppm: str, pdf_path: Path, out_dir: Path, *, dpi: int
+    pdftoppm: str,
+    pdf_path: Path,
+    out_dir: Path,
+    *,
+    dpi: int,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> List[Path]:
     prefix = pdf_path.stem + "-page"
     cmd = [
@@ -445,7 +500,7 @@ def _pdf_to_pngs_via_pdftoppm(
         str(pdf_path),
         str(out_dir / prefix),
     ]
-    result = subprocess.run(cmd, capture_output=True, check=False)
+    result = _run(cmd, timeout=timeout)
     if result.returncode != 0:
         raise ThumbnailRendererError(
             "pdftoppm exited with status %d: %s"

@@ -130,6 +130,10 @@ except ThumbnailRendererError as e:
     print(e)
 ```
 
+`timeout=` (seconds, default 120) applies to the LibreOffice conversion and
+to the PDF split separately. A step that overruns is stopped, together with
+the worker processes LibreOffice started, before the error is raised.
+
 ## Patterns
 
 ### Generate review images for an HTML preview
