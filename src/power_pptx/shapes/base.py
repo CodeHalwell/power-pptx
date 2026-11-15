@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from copy import deepcopy
-from typing import TYPE_CHECKING, Iterable, cast
+from typing import TYPE_CHECKING, Iterable, Iterator, cast
 
 from power_pptx.action import ActionSetting
 from power_pptx.dml.effect import (
@@ -841,30 +841,18 @@ class BaseShape(object):
         """
         from power_pptx.lint import _read_lint_allow, _shape_cNvPr, _write_lint_allow
 
-        def _walk(shapes):
-            for shape in shapes:
-                yield shape
-                nested = getattr(shape, "shapes", None)
-                if nested is not None:
-                    try:
-                        yield from _walk(nested)
-                    except Exception:
-                        continue
-
         try:
-            shapes = list(_walk(slide.shapes))
+            shapes = list(_iter_shapes_leniently(slide.shapes))
         except Exception:
             return
         for shape in shapes:
-            try:
+            with contextlib.suppress(Exception):
                 cNvPr = _shape_cNvPr(shape)
                 if cNvPr is None:
                     continue
                 allowances = _read_lint_allow(cNvPr)
                 if allowances & deleted_ids:
                     _write_lint_allow(cNvPr, allowances - deleted_ids)
-            except Exception:
-                continue
 
     @property
     def shape_type(self) -> MSO_SHAPE_TYPE:
@@ -1028,6 +1016,21 @@ class BaseShape(object):
                 for run in para.runs:
                     _replace_rPr(run._r, rPr_template)  # type: ignore[attr-defined]
         return self
+
+
+def _iter_shapes_leniently(shapes) -> Iterator[BaseShape]:
+    """Generate each of `shapes` and, depth-first after a group, the shapes inside it.
+
+    A group whose members cannot be walked is passed over: whatever it yielded
+    before failing stands, and the walk carries on with the group's next sibling.
+    """
+    for shape in shapes:
+        yield shape
+        nested = getattr(shape, "shapes", None)
+        if nested is None:
+            continue
+        with contextlib.suppress(Exception):
+            yield from _iter_shapes_leniently(nested)
 
 
 def _first_paragraph_formatting(text_frame) -> tuple:
