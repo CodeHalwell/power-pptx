@@ -14,6 +14,10 @@ deliberately just a tidy public surface so callers can do::
 
 without having to remember three different module paths.
 
+:class:`SpecError` is the :class:`ValueError` subclass :func:`from_spec`
+raises for anything wrong with a spec's content; its message starts with
+the location of the offending value (``slides[2].kpis[0]: ...``).
+
 ``import_slide`` and ``apply_template`` are the function forms of
 ``Presentation.import_slide`` and ``Presentation.apply_template`` and
 take the destination presentation first::
@@ -31,6 +35,6 @@ from __future__ import annotations
 from power_pptx._slide_importer import import_slide
 from power_pptx._template_applier import apply_template
 from power_pptx.compose.from_html import from_html
-from power_pptx.compose.from_spec import from_spec, from_yaml
+from power_pptx.compose.from_spec import SpecError, from_spec, from_yaml
 
-__all__ = ["apply_template", "from_html", "from_spec", "from_yaml", "import_slide"]
+__all__ = ["SpecError", "apply_template", "from_html", "from_spec", "from_yaml", "import_slide"]

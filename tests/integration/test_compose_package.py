@@ -34,8 +34,16 @@ class Describe_compose_package:
 
     def it_advertises_all_composition_entry_points(self):
         assert set(compose.__all__) == {
-            "from_spec", "from_yaml", "from_html", "import_slide", "apply_template"
+            "from_spec", "from_yaml", "from_html", "import_slide", "apply_template", "SpecError"
         }
+
+    def it_reexports_the_spec_error(self):
+        from power_pptx.compose.from_spec import SpecError
+        from power_pptx.exc import PythonPptxError
+
+        assert compose.SpecError is SpecError
+        assert issubclass(SpecError, ValueError)
+        assert issubclass(SpecError, PythonPptxError)
 
     def it_can_drive_from_spec_end_to_end(self):
         prs = compose.from_spec(
