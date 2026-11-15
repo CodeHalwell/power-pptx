@@ -285,63 +285,124 @@ class TextFitter(tuple):
     def _wrap_units(self, units, point_size, letter_spacing):
         """The lines one explicit line of text wraps to, or ``None`` on no-fit.
 
-        Each line takes as many whole units as fit this fitter's width. The
-        rough width of every candidate comes from adding up cached advance
-        widths; only the candidates next to the edge of the box are measured
-        exactly, so a long text costs a couple of measurements a line.
+        Each line takes as many whole units as fit this fitter's width; see |_LineBreaker|.
         """
-        text, starts, ends = units.text, units.starts, units.ends
-        count = len(ends)
-        if not count:
+        if not units.ends:
             return [""]
-        width, font_file = self._width, self._font_file
+        return _LineBreaker(self, units, point_size, letter_spacing).lines()
 
-        def fits(begin, end):
-            return self._line_width(text[begin:end], point_size, letter_spacing) <= width
 
-        estimates = units.estimates(point_size, font_file, letter_spacing)
-        budget = width / 12700.0
-        tracking = letter_spacing / 12700.0
+class _LineBreaker(object):
+    """Wraps one explicit line of text, cut into |_Units|, to the width of a fitter's box.
+
+    Each line takes as many whole units as fit. The rough width of every
+    candidate comes from adding up cached advance widths; only the candidates
+    next to the edge of the box are measured exactly, so a long text costs a
+    couple of measurements a line.
+    """
+
+    __slots__ = (
+        "_units",
+        "_estimates",
+        "_point_size",
+        "_letter_spacing",
+        "_tracking",
+        "_width",
+        "_budget",
+        "_font_file",
+        "_line_width",
+        "_break_long_words",
+    )
+
+    def __init__(self, fitter, units, point_size, letter_spacing):
+        self._units = units
+        self._point_size, self._letter_spacing = point_size, letter_spacing
+        self._font_file, self._width = fitter._font_file, fitter._width
+        self._line_width = fitter._line_width
+        self._break_long_words = fitter._layout.break_long_words
+        self._estimates = units.estimates(point_size, self._font_file, letter_spacing)
+        # -- in points, as the estimates are --
+        self._budget = self._width / 12700.0
+        self._tracking = letter_spacing / 12700.0
+
+    def lines(self):
+        """The wrapped lines, or ``None`` when a word would have to be split and may not be."""
+        text, count = self._units.text, len(self._units.ends)
         lines = []
         first, begin = 0, 0
         while first < count:
-            head = ends[first] - begin
-            used = estimates[first] - tracking * head
-            used -= _advance(text[begin : ends[first]], point_size, font_file)
-            last = max(first, bisect.bisect_right(estimates, used + budget, first, count) - 1)
-            if fits(begin, ends[last]):
-                while last + 1 < count and fits(begin, ends[last + 1]):
-                    last += 1
-            else:
-                last -= 1
-                while last >= first and not fits(begin, ends[last]):
-                    last -= 1
+            last = self._last_fitting(first, begin)
             if last == count - 1:
                 lines.append(text[begin:])
                 break
-            # -- `cut` is the unit the line ends on, or None when no break fits on it --
-            cut = last if last >= first else None
-            if cut is not None and units.breaks_after_slash(last):
-                cut = self._slash_break(units, first, begin, last, fits)
-            if cut is None:
-                # -- a renderer then cuts the line where the box ends --
-                if not self._layout.break_long_words:
-                    return None
-                floor = ends[last] if last >= first else begin
-                end = _fill(text, begin, floor, ends[last + 1], fits)
-            else:
-                end = ends[cut]
+            end = self._line_end(first, begin, last)
+            if end is None:
+                return None
             lines.append(text[begin:end])
-            first = bisect.bisect_left(ends, end)
-            if ends[first] == end:
-                first += 1
-                begin = starts[first] if first < count else end
-            else:
-                begin = end
+            first, begin = self._next_line_start(end)
         return lines
 
-    @staticmethod
-    def _slash_break(units, first, begin, last, fits):
+    def _fits(self, begin, end):
+        """True when the text from offset `begin` to `end` fits the width of the box."""
+        line = self._units.text[begin:end]
+        return self._line_width(line, self._point_size, self._letter_spacing) <= self._width
+
+    def _last_fitting(self, first, begin):
+        """Index of the last unit that fits on a line starting at `begin`, in unit `first`.
+
+        One less than `first` when not even unit `first` fits.
+        """
+        ends = self._units.ends
+        last = self._estimated_last_fitting(first, begin)
+        if self._fits(begin, ends[last]):
+            while last + 1 < len(ends) and self._fits(begin, ends[last + 1]):
+                last += 1
+            return last
+        last -= 1
+        while last >= first and not self._fits(begin, ends[last]):
+            last -= 1
+        return last
+
+    def _estimated_last_fitting(self, first, begin):
+        """`_last_fitting` by the estimated widths, but never less than `first`."""
+        text, ends, estimates = self._units.text, self._units.ends, self._estimates
+        # -- the estimate of unit `first` includes the text before `begin`; take it off --
+        used = estimates[first] - self._tracking * (ends[first] - begin)
+        used -= _advance(text[begin : ends[first]], self._point_size, self._font_file)
+        reach = bisect.bisect_right(estimates, used + self._budget, first, len(ends))
+        return max(first, reach - 1)
+
+    def _line_end(self, first, begin, last):
+        """Offset at which the line starting at `begin`, in unit `first`, ends.
+
+        `last` is the last unit that fits on the line (see `_last_fitting`).
+        Returns ``None`` when the line would have to be cut inside a word and
+        long words are kept whole.
+        """
+        units = self._units
+        # -- `cut` is the unit the line ends on, or None when no break fits on it --
+        cut = last if last >= first else None
+        if cut is not None and units.breaks_after_slash(last):
+            cut = self._slash_break(first, begin, last)
+        if cut is not None:
+            return units.ends[cut]
+        # -- a renderer then cuts the line where the box ends --
+        if not self._break_long_words:
+            return None
+        floor = units.ends[last] if last >= first else begin
+        return _fill(units.text, begin, floor, units.ends[last + 1], self._fits)
+
+    def _next_line_start(self, end):
+        """The first unit and the offset of the line after one that ends at offset `end`."""
+        starts, ends = self._units.starts, self._units.ends
+        first = bisect.bisect_left(ends, end)
+        if ends[first] != end:
+            # -- the line was cut inside unit `first`, which the next line goes on with --
+            return first, end
+        first += 1
+        return first, starts[first] if first < len(ends) else end
+
+    def _slash_break(self, first, begin, last):
         """Index of the unit a line ends on when unit `last`, which ends in a slash, fits.
 
         Returns ``None`` when the line is to be cut where the box ends instead.
@@ -351,8 +412,9 @@ class TextFitter(tuple):
         whole path goes to the next line, or, when the path starts the line, is
         cut at the edge of the box.
         """
+        units = self._units
         ends, word_starts = units.ends, units.word_starts
-        if not fits(begin, ends[last] + 1):
+        if not self._fits(begin, ends[last] + 1):
             if last == first:
                 return last
             last -= 1
