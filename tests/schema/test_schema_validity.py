@@ -963,6 +963,213 @@ def _with_doctype(doctype: bytes):
     return edit
 
 
+_REL_TYPES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+
+
+def _rel_ids(blob: bytes, rels_name: str, rel_type: str) -> "list[str]":
+    """Return the ids of the *rel_type* relationships (``"theme"``, …) in *rels_name*."""
+    import zipfile
+
+    from lxml import etree
+
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        rels = etree.fromstring(zf.read(rels_name))
+    return [rel.get("Id") for rel in rels if rel.get("Type") == _REL_TYPES + rel_type]
+
+
+class DescribeIdListReferences:
+    """An id-list entry must name a relationship of its own kind.
+
+    The XML here is edited by hand: the checks must hold whatever produced
+    the package, and must not depend on the code that used to produce it.
+    """
+
+    MASTER = "ppt/slideMasters/slideMaster1.xml"
+    MASTER_RELS = "ppt/slideMasters/_rels/slideMaster1.xml.rels"
+    PRESENTATION_RELS = "ppt/_rels/presentation.xml.rels"
+
+    def it_detects_a_layout_id_that_resolves_to_the_theme(self):
+        # -- what a master is left with when its relationship ids shift by one --
+        original = _deck_blank()
+        (theme_rid,) = _rel_ids(original, self.MASTER_RELS, "theme")
+        layout_rid = _rel_ids(original, self.MASTER_RELS, "slideLayout")[0]
+
+        def edit(data: bytes) -> bytes:
+            old = b'r:id="%s"/>' % layout_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'r:id="%s"/>' % theme_rid.encode())
+
+        violations = list(iter_schema_violations(_rewritten(original, {self.MASTER: edit})))
+
+        assert violations == [
+            (
+                self.MASTER,
+                "<sldLayoutId> r:id=%r resolves to a relationship of type 'theme', not "
+                "'slideLayout' — PowerPoint repairs an id list that points at the wrong "
+                "kind of part" % theme_rid,
+            )
+        ]
+
+    def it_detects_a_slide_id_that_resolves_to_a_master(self):
+        original = _deck_blank()
+        (slide_rid,) = _rel_ids(original, self.PRESENTATION_RELS, "slide")
+        (master_rid,) = _rel_ids(original, self.PRESENTATION_RELS, "slideMaster")
+
+        def edit(data: bytes) -> bytes:
+            old = b'<p:sldId id="256" r:id="%s"/>' % slide_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'<p:sldId id="256" r:id="%s"/>' % master_rid.encode())
+
+        violations = list(
+            iter_schema_violations(_rewritten(original, {"ppt/presentation.xml": edit}))
+        )
+
+        assert (
+            "ppt/presentation.xml",
+            "<sldId> r:id=%r resolves to a relationship of type 'slideMaster', not 'slide' — "
+            "PowerPoint repairs an id list that points at the wrong kind of part" % master_rid,
+        ) in violations
+
+    def it_leaves_a_missing_relationship_to_the_dangling_reference_check(self):
+        original = _deck_blank()
+        layout_rid = _rel_ids(original, self.MASTER_RELS, "slideLayout")[0]
+
+        def edit(data: bytes) -> bytes:
+            old = b'r:id="%s"/>' % layout_rid.encode()
+            assert data.count(old) == 1
+            return data.replace(old, b'r:id="rId999"/>')
+
+        violations = list(iter_schema_violations(_rewritten(original, {self.MASTER: edit})))
+
+        # -- one finding for one defect: there is no relationship to have a type --
+        assert len(violations) == 1
+        assert "dangling id='rId999' on <sldLayoutId>" in violations[0][1]
+
+    def but_it_accepts_the_strict_relationship_namespace(self):
+        # -- ISO "strict" packages spell relationship types under purl.oclc.org --
+        strict = b"http://purl.oclc.org/ooxml/officeDocument/relationships/"
+
+        def edit(data: bytes) -> bytes:
+            assert _REL_TYPES.encode() in data
+            return data.replace(_REL_TYPES.encode(), strict)
+
+        blob = _rewritten(
+            _deck_blank(), {self.MASTER_RELS: edit, self.PRESENTATION_RELS: edit}
+        )
+
+        assert list(iter_schema_violations(blob)) == []
+
+
+#: A hand-written "Appear" entrance, as PowerPoint writes it, for the shape
+#: ``{target}``, with a paragraph build for the shape ``{build}``.
+_TIMING = """\
+<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot">\
+<p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" \
+nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst>\
+<p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" fill="hold">\
+<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="5" presetID="1" \
+presetClass="entr" presetSubtype="0" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst>\
+<p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1" fill="hold">\
+<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{target}"/>\
+</p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>\
+<p:to><p:strVal val="visible"/></p:to></p:set><p:animEffect transition="in" filter="fade">\
+<p:cBhvr><p:cTn id="7" dur="500"/><p:tgtEl><p:spTgt spid="{target}"/></p:tgtEl></p:cBhvr>\
+</p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst>\
+</p:cTn></p:par></p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl>\
+<p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0">\
+<p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par>\
+</p:tnLst><p:bldLst><p:bldP spid="{build}" grpId="0"/></p:bldLst></p:timing>"""
+
+
+class DescribeAnimationTargets:
+    """An animation must target a shape that is on its slide.
+
+    The timing XML is written by hand rather than through the animation API,
+    so these hold whatever produced the package.
+    """
+
+    SLIDE = "ppt/slides/slide1.xml"
+
+    def _deck(self, target, build):
+        """Return a saved deck whose slide animates shape *target* and builds *build*.
+
+        The slide holds a rectangle and, nested two groups deep, a diamond.
+        Either argument is ``"rectangle"`` or ``"nested"``, standing for that
+        shape's id, or else the id to write, as a string.
+        """
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = _blank_slide(prs)
+        self.rectangle = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+        )
+        outer = slide.shapes.add_group_shape()
+        inner = outer.shapes.add_group_shape()
+        self.nested = inner.shapes.add_shape(
+            MSO_SHAPE.DIAMOND, Inches(4), Inches(1), Inches(1), Inches(1)
+        )
+
+        ids = {
+            "rectangle": str(self.rectangle.shape_id),
+            "nested": str(self.nested.shape_id),
+        }
+        timing = _TIMING.format(
+            target=ids.get(target, target), build=ids.get(build, build)
+        ).encode()
+
+        def edit(data: bytes) -> bytes:
+            assert data.count(b"</p:sld>") == 1
+            assert b"<p:timing" not in data
+            return data.replace(b"</p:sld>", timing + b"</p:sld>")
+
+        return _rewritten(_saved(prs), {self.SLIDE: edit})
+
+    def it_accepts_targets_that_are_on_the_slide(self):
+        assert list(iter_schema_violations(self._deck("rectangle", "rectangle"))) == []
+
+    def it_counts_shapes_nested_in_groups(self):
+        assert list(iter_schema_violations(self._deck("nested", "nested"))) == []
+
+    def it_compares_ids_as_numbers(self):
+        blob = self._deck("rectangle", "rectangle")
+        rectangle_id = str(self.rectangle.shape_id).encode()
+
+        def edit(data: bytes) -> bytes:
+            old = b'<p:spTgt spid="%s"/>' % rectangle_id
+            assert old in data
+            return data.replace(old, b'<p:spTgt spid="0%s"/>' % rectangle_id)
+
+        assert list(iter_schema_violations(_rewritten(blob, {self.SLIDE: edit}))) == []
+
+    def it_detects_an_animation_target_that_is_not_on_the_slide(self):
+        violations = list(iter_schema_violations(self._deck("999", "rectangle")))
+
+        # -- reported once, though two behaviours of the effect name the shape --
+        assert violations == [
+            (
+                self.SLIDE,
+                "p:spTgt spid=999 names no shape on this slide — PowerPoint repairs an "
+                "animation whose target shape is missing",
+            )
+        ]
+
+    def it_detects_a_build_entry_whose_shape_is_not_on_the_slide(self):
+        violations = list(iter_schema_violations(self._deck("nested", "4242")))
+
+        assert violations == [
+            (
+                self.SLIDE,
+                "p:bldP spid=4242 names no shape on this slide — PowerPoint repairs an "
+                "animation whose target shape is missing",
+            )
+        ]
+
+    def it_checks_only_slides_that_have_a_timeline(self):
+        # -- no p:timing, nothing to resolve: the common case costs nothing --
+        assert list(iter_schema_violations(_deck_blank())) == []
+
+
 class DescribeUntrustedPackages:
     """The validator reads a package from anywhere without resolving entities."""
 

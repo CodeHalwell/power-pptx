@@ -189,10 +189,76 @@ _ID_CHECKED_PREFIXES = (
 )
 
 
+_PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+# ``r:id`` references that only make sense when their relationship is of one
+# type: the entries of the presentation's and a slide master's id lists.  Keyed
+# by element, the value is the last segment of the relationship type, which is
+# the same in the transitional and strict relationship namespaces.  An entry
+# that resolves to another kind of part (a master's ``p:sldLayoutId`` naming
+# its theme relationship, say) reopens here but is a repair in PowerPoint.
+_TYPED_REFERENCES = {
+    "{%s}sldLayoutId" % _PML_NS: "slideLayout",
+    "{%s}sldMasterId" % _PML_NS: "slideMaster",
+    "{%s}sldId" % _PML_NS: "slide",
+    "{%s}notesMasterId" % _PML_NS: "notesMaster",
+    "{%s}handoutMasterId" % _PML_NS: "handoutMaster",
+}
+
+# Descendants of ``p:timing`` whose ``spid`` names the shape they animate or
+# build: every animation target, and the paragraph builds of the build list.
+_SPID_ELEMENTS = ("{%s}spTgt" % _PML_NS, "{%s}bldP" % _PML_NS)
+
+
 def _rels_partname_for(partname: str) -> str:
     """Return the ``.rels`` partname that holds *partname*'s relationships."""
     folder, base = posixpath.split(partname)
     return posixpath.join(folder, "_rels", base + ".rels")
+
+
+def _shape_id_key(raw: str) -> "int | str":
+    """Return a shape id in comparable form, so ``"07"`` and ``"7"`` are one id."""
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+def _iter_animation_target_violations(name: str, doc) -> "Iterator[tuple[str, str]]":
+    """Yield violations for animation targets that name no shape on the slide.
+
+    A ``p:spTgt`` or ``p:bldP`` inside ``p:timing`` refers to its shape by
+    id.  When that shape is gone — deleted or replaced without its animations —
+    PowerPoint reports the deck as needing repair, while XSD validation only
+    sees a well-typed ``unsignedInt``.
+
+    Every ``cNvPr`` in the part counts as a shape, whatever its namespace and
+    however deeply it sits in groups or ``mc:AlternateContent`` branches, so a
+    reference is reported only when nothing on the slide can be its target.
+    """
+    timings = list(doc.iter("{%s}timing" % _PML_NS))
+    if not timings:
+        return
+    shape_ids = {
+        _shape_id_key(el.get("id"))
+        for el in doc.iter("*")
+        if etree.QName(el).localname == "cNvPr" and el.get("id") is not None
+    }
+    reported: "set[tuple[str, int | str]]" = set()
+    for timing in timings:
+        for el in timing.iter(*_SPID_ELEMENTS):
+            raw = el.get("spid")
+            if raw is None:
+                continue
+            key = (el.tag, _shape_id_key(raw))
+            if key[1] in shape_ids or key in reported:
+                continue
+            reported.add(key)
+            yield (
+                name,
+                "p:%s spid=%s names no shape on this slide — PowerPoint repairs "
+                "an animation whose target shape is missing" % (etree.QName(el).localname, raw),
+            )
 
 
 def _iter_duplicate_shape_id_violations(name: str, doc) -> "Iterator[tuple[str, str]]":
@@ -271,10 +337,12 @@ def _rels_source_dir(rels_name: str) -> str:
 def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
     """Yield violations for broken relationships and dangling ``r:id`` references.
 
-    Catches two repair triggers the XSD cannot see: an internal relationship
-    whose target part does not exist in the package, and an ``r:id`` /
+    Catches three repair triggers the XSD cannot see: an internal relationship
+    whose target part does not exist in the package, an ``r:id`` /
     ``r:embed`` / ``r:link`` attribute whose target relationship is absent from
-    the referencing part's ``.rels``.
+    the referencing part's ``.rels``, and an id-list entry (``p:sldLayoutId``,
+    ``p:sldId``, …; see ``_TYPED_REFERENCES``) whose relationship is of the
+    wrong type.
 
     Every ``.rels`` part is checked for missing targets — including the
     package-root ``_rels/.rels`` (whose ``officeDocument`` relationship points
@@ -312,7 +380,7 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
         if not part.endswith(".xml") or "/_rels/" in part or part.startswith("_rels/"):
             continue
         rels_name = _rels_partname_for(part)
-        rel_ids = set()
+        rel_types: "dict[str | None, str]" = {}
         if rels_name in name_set:
             try:
                 rels = parse_xml(zf.read(rels_name))
@@ -320,7 +388,10 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
                 # Pass 1 already reported this malformed .rels; skip the r:id
                 # scan for this part rather than flag every ref as dangling.
                 continue
-            rel_ids = {rel.get("Id") for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)}
+            rel_types = {
+                rel.get("Id"): rel.get("Type") or ""
+                for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)
+            }
         try:
             doc = parse_xml(zf.read(part))
         except etree.XMLSyntaxError:
@@ -329,11 +400,24 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
             for attr, value in el.attrib.items():
                 if not attr.startswith("{%s}" % _R_NS) or not value:
                     continue
-                if value not in rel_ids:
+                if value not in rel_types:
                     yield (
                         part,
                         "dangling %s=%r on <%s> — no such relationship in %s"
                         % (attr.split("}")[1], value, etree.QName(el).localname, rels_name),
+                    )
+                    continue
+                # -- 3. an id-list entry must name a relationship of its kind --
+                expected = _TYPED_REFERENCES.get(el.tag)
+                if expected is None or attr != "{%s}id" % _R_NS:
+                    continue
+                actual = rel_types[value].rsplit("/", 1)[-1]
+                if actual != expected:
+                    yield (
+                        part,
+                        "<%s> r:id=%r resolves to a relationship of type %r, not %r — "
+                        "PowerPoint repairs an id list that points at the wrong kind of part"
+                        % (etree.QName(el).localname, value, actual, expected),
                     )
 
 
@@ -434,8 +518,10 @@ def iter_schema_violations(
     is resolved to its fallback first.  In addition, package-wide structural
     checks run that the XSD cannot express — duplicate zip member names, parts
     that declare a DTD, parts missing from ``[Content_Types].xml``,
-    broken/dangling relationships, slide parts absent from ``p:sldIdLst``, and
-    duplicate shape ids — because each is a real "PowerPoint repairs the file"
+    broken/dangling relationships, id-list entries (``p:sldLayoutId``,
+    ``p:sldId``, …) whose relationship is of the wrong type, slide parts absent
+    from ``p:sldIdLst``, duplicate shape ids, and animation targets that name no
+    shape on their slide — because each is a real "PowerPoint repairs the file"
     trigger.  Yields nothing for a clean package.
 
     Parts are parsed without resolving entities or touching the network, so
@@ -473,6 +559,8 @@ def iter_schema_violations(
                     raw_doc = None
                 if raw_doc is not None:
                     yield from _iter_duplicate_shape_id_violations(name, raw_doc)
+                    if name.startswith("ppt/slides/slide"):
+                        yield from _iter_animation_target_violations(name, raw_doc)
 
             if not _should_check(name):
                 continue

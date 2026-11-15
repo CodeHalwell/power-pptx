@@ -26,6 +26,19 @@ from tests.schema.oxml_schema_validator import iter_schema_violations
 violations = list(iter_schema_violations(pptx_path_or_bytes))  # (partname, message) pairs
 ```
 
+The validator also runs structural checks for repair triggers no XSD can
+express: duplicate zip member names, parts that declare a DTD, parts missing
+from `[Content_Types].xml`, relationships to missing parts, dangling `r:id`
+references, id-list entries (`p:sldLayoutId`, `p:sldId`, …) whose
+relationship is of the wrong type, slide parts absent from `p:sldIdLst`,
+duplicate shape ids, out-of-range chart axis ids, and animation targets
+(`p:spTgt`, `p:bldP`) that name no shape on their slide. Each has a self-test
+in `test_schema_validity.py` built from hand-edited XML, plus tests that the
+valid form is accepted.
+
+Parts are parsed without resolving entities or touching the network, so the
+validator is safe to run on a package from an unknown source.
+
 The tests skip automatically if `lxml` or the bundled XSDs are unavailable.
 
 ## Adding coverage
