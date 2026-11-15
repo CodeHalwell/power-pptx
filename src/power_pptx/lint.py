@@ -2065,40 +2065,13 @@ class _TextEnv:
         frame's own, then — for a placeholder — the layout and master
         placeholders and the master text style, then the presentation default.
         """
-        body_prs = []
-        levels = []
-        body_pr = tx_body.find(_T_BODYPR)
-        if body_pr is not None:
-            body_prs.append(body_pr)
-        lst_style = tx_body.find(_T_LSTSTYLE)
-        if lst_style is not None and len(lst_style):
-            levels.append(lst_style)
-        ph_type = _UNSET
-        if shape is not None:
-            try:
-                if shape.is_placeholder:
-                    ph = shape._element.ph  # pyright: ignore[reportPrivateUsage]
-                    ph_type = None if ph is None else ph.get("type")
-            except Exception:
-                ph_type = _UNSET
+        body_prs: list = []
+        levels: list = []
+        _add_own_sources(tx_body, body_prs, levels)
+        ph_type = _placeholder_type(shape)
         if ph_type is not _UNSET:
-            base: Any = shape
-            for _ in range(2):  # layout placeholder, then master placeholder
-                try:
-                    base = base._base_placeholder  # pyright: ignore[reportPrivateUsage]
-                    base_tx = None if base is None else base._element.txBody
-                except Exception:
-                    break
-                if base is None:
-                    break
-                if base_tx is None:
-                    continue
-                inherited = base_tx.find(_T_BODYPR)
-                if inherited is not None:
-                    body_prs.append(inherited)
-                inherited = base_tx.find(_T_LSTSTYLE)
-                if inherited is not None and len(inherited):
-                    levels.append(inherited)
+            for base_tx in _base_text_bodies(shape):
+                _add_own_sources(base_tx, body_prs, levels)
             master_style = self.master_style(ph_type)
             if master_style is not None:
                 levels.append(master_style)
@@ -2127,55 +2100,118 @@ class _TextEnv:
         return cached[0], cached[1]
 
 
+def _list_style(tx_body):
+    """`tx_body`'s own ``<a:lstStyle>``, or ``None`` when it sets nothing."""
+    lst_style = tx_body.find(_T_LSTSTYLE)
+    return lst_style if lst_style is not None and len(lst_style) else None
+
+
+def _add_own_sources(tx_body, body_prs: list, levels: list) -> None:
+    """Append the ``<a:bodyPr>`` and the list style `tx_body` itself holds."""
+    body_pr = tx_body.find(_T_BODYPR)
+    if body_pr is not None:
+        body_prs.append(body_pr)
+    lst_style = _list_style(tx_body)
+    if lst_style is not None:
+        levels.append(lst_style)
+
+
+def _placeholder_type(shape: BaseShape | None):
+    """The ``<p:ph type>`` of `shape` (``None`` when it names none).
+
+    `_UNSET` when `shape` is not a placeholder or cannot be asked.
+    """
+    if shape is None:
+        return _UNSET
+    try:
+        if not shape.is_placeholder:
+            return _UNSET
+        ph = shape._element.ph  # pyright: ignore[reportPrivateUsage]
+        return None if ph is None else ph.get("type")
+    except Exception:
+        return _UNSET
+
+
+def _base_text_bodies(shape: Any) -> Iterator[Any]:
+    """Yield the text bodies of the layout, then the master, placeholder `shape` inherits."""
+    base = shape
+    for _ in range(2):
+        try:
+            base = base._base_placeholder  # pyright: ignore[reportPrivateUsage]
+            base_tx = None if base is None else base._element.txBody
+        except Exception:
+            return
+        if base is None:
+            return
+        if base_tx is not None:
+            yield base_tx
+
+
+def _first_attr(body_prs: Sequence, name: str) -> str | None:
+    """The value of attribute `name` on the nearest ``<a:bodyPr>`` that sets it."""
+    for body_pr in body_prs:
+        value = body_pr.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _inset(body_prs: Sequence, name: str, default: int) -> int:
+    """An inset attribute from a nearest-first ``<a:bodyPr>`` chain, in EMU."""
+    value = _first_attr(body_prs, name)
+    try:
+        return default if value is None else int(value)
+    except ValueError:
+        return default
+
+
+def _autofit_setting(body_pr) -> tuple[MSO_AUTO_SIZE, float, float] | None:
+    """``(mode, font_scale, ln_reduction)`` that `body_pr` writes, or ``None``."""
+    norm = body_pr.find(_T_NORMAUTOFIT)
+    if norm is not None:
+        return (
+            MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE,
+            _fraction(norm.get("fontScale")) or 1.0,
+            _fraction(norm.get("lnSpcReduction")) or 0.0,
+        )
+    if body_pr.find(_T_SPAUTOFIT) is not None:
+        return MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, 1.0, 0.0
+    if body_pr.find(_T_NOAUTOFIT) is not None:
+        return MSO_AUTO_SIZE.NONE, 1.0, 0.0
+    return None
+
+
+def _resolve_autofit(
+    body_prs: Sequence,
+) -> tuple[MSO_AUTO_SIZE | None, MSO_AUTO_SIZE | None, float, float]:
+    """``(autofit, own_autofit, font_scale, ln_reduction)``; see :class:`_BodyProps`.
+
+    The nearest ``<a:bodyPr>`` that sets an auto-size decides it.
+    """
+    for index, body_pr in enumerate(body_prs):
+        setting = _autofit_setting(body_pr)
+        if setting is not None:
+            autofit, font_scale, ln_reduction = setting
+            return autofit, (autofit if index == 0 else None), font_scale, ln_reduction
+    return None, None, 1.0, 0.0
+
+
 def _resolve_body_props(body_prs: Sequence) -> _BodyProps:
     """Effective ``<a:bodyPr>`` settings from a nearest-first chain."""
-
-    def first(name: str) -> str | None:
-        for body_pr in body_prs:
-            value = body_pr.get(name)
-            if value is not None:
-                return value
-        return None
-
-    def inset(name: str, default: int) -> int:
-        value = first(name)
-        try:
-            return default if value is None else int(value)
-        except ValueError:
-            return default
-
-    autofit = own_autofit = None
-    font_scale, ln_reduction = 1.0, 0.0
-    for index, body_pr in enumerate(body_prs):
-        found = None
-        norm = body_pr.find(_T_NORMAUTOFIT)
-        if norm is not None:
-            found = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
-            font_scale = _fraction(norm.get("fontScale")) or 1.0
-            ln_reduction = _fraction(norm.get("lnSpcReduction")) or 0.0
-        elif body_pr.find(_T_SPAUTOFIT) is not None:
-            found = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
-        elif body_pr.find(_T_NOAUTOFIT) is not None:
-            found = MSO_AUTO_SIZE.NONE
-        if found is not None:
-            autofit = found
-            if index == 0:
-                own_autofit = found
-            break
-
+    autofit, own_autofit, font_scale, ln_reduction = _resolve_autofit(body_prs)
     cols = 1
     col_gap = 0
     if body_prs:
         cols = max(1, _int_attr(body_prs[0], "numCol") or 1)
         col_gap = max(0, _int_attr(body_prs[0], "spcCol") or 0)
     return _BodyProps(
-        l_ins=inset("lIns", 91440),
-        t_ins=inset("tIns", 45720),
-        r_ins=inset("rIns", 91440),
-        b_ins=inset("bIns", 45720),
-        wrap=first("wrap") != "none",
-        anchor=first("anchor") or "t",
-        vert=first("vert") or "horz",
+        l_ins=_inset(body_prs, "lIns", 91440),
+        t_ins=_inset(body_prs, "tIns", 45720),
+        r_ins=_inset(body_prs, "rIns", 91440),
+        b_ins=_inset(body_prs, "bIns", 45720),
+        wrap=_first_attr(body_prs, "wrap") != "none",
+        anchor=_first_attr(body_prs, "anchor") or "t",
+        vert=_first_attr(body_prs, "vert") or "horz",
         cols=cols,
         col_gap=col_gap,
         autofit=autofit,
