@@ -9,6 +9,8 @@ from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import MSO_THEME_COLOR
 from power_pptx.theme import Theme, ThemeColors, ThemeFonts
 
+from .unitutil.cxml import xml
+
 
 @pytest.fixture
 def prs():
@@ -114,6 +116,97 @@ class DescribeThemeApply:
     def it_rejects_non_theme_arguments(self, theme):
         with pytest.raises(TypeError):
             theme.apply("not a theme")  # type: ignore[arg-type]
+
+    def it_keeps_its_own_font_where_the_other_theme_names_none(self):
+        src_prs = Presentation()
+        src_theme_elm = src_prs.theme._theme_elm  # type: ignore[attr-defined]
+        for latin in src_theme_elm.xpath("a:themeElements/a:fontScheme/a:majorFont/a:latin"):
+            del latin.attrib["typeface"]
+        src_prs.theme.fonts.minor = "Inter"
+        dst_prs = Presentation()
+        major = dst_prs.theme.fonts.major
+
+        rebound = dst_prs.theme.apply(src_prs.theme)
+
+        assert rebound == 0
+        assert dst_prs.theme.fonts.major == major
+        assert dst_prs.theme.fonts.minor == "Inter"
+
+    def it_rebinds_literal_colors_of_the_old_palette_on_every_slide(self, prs):
+        from power_pptx.oxml.ns import qn
+        from power_pptx.oxml.xmlchemy import OxmlElement
+        from power_pptx.util import Inches
+
+        old_accent = prs.theme.colors[MSO_THEME_COLOR.ACCENT_1]
+        fills = []
+        for color in (old_accent, RGBColor(0x12, 0x34, 0x56), old_accent):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = color
+            fills.append(shape._element.spPr.find(qn("a:solidFill")))
+        srgbClr = fills[0][0]
+        srgbClr.set("val", srgbClr.get("val").lower())
+        for tag, val in (("a:alpha", "50000"), ("a:lumMod", "75000")):
+            srgbClr.append(OxmlElement(tag))
+            srgbClr[-1].set("val", val)
+        new_prs = Presentation()
+        new_prs.theme.colors[MSO_THEME_COLOR.ACCENT_1] = RGBColor(0xFF, 0x00, 0x00)
+
+        rebound = prs.theme.apply(new_prs.theme, rebind_shape_colors=True, presentation=prs)
+
+        assert rebound == 2
+        assert [_without_nsdecls(fill.xml) for fill in fills] == [
+            _without_nsdecls(xml(cxml))
+            for cxml in (
+                "a:solidFill/a:schemeClr{val=accent1}/(a:alpha{val=50000},a:lumMod{val=75000})",
+                "a:solidFill/a:srgbClr{val=123456}",
+                "a:solidFill/a:schemeClr{val=accent1}",
+            )
+        ]
+
+    def it_rebinds_nothing_for_an_empty_palette(self, prs):
+        from power_pptx.theme import _rebind_shape_colors
+
+        assert _rebind_shape_colors(prs, {}) == 0
+
+
+def _without_nsdecls(xml_str: str) -> str:
+    import re
+
+    return re.sub(r' xmlns:\w+="[^"]*"', "", xml_str)
+
+
+class DescribeEmbeddedFontEntry:
+    """`_add_embedded_font_entry()` keeps one `p:embeddedFont` per typeface."""
+
+    def it_points_an_existing_weight_slot_at_the_new_font_part(self):
+        from power_pptx.oxml import parse_xml
+        from power_pptx.theme import _add_embedded_font_entry
+
+        pres = parse_xml(
+            b'<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/'
+            b'main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+            b'"/>'
+        )
+
+        class _Presentation:
+            _element = pres
+
+        for typeface, weight, rId in (
+            ("Inter", "bold", "rId1"),
+            ("Inter", "regular", "rId2"),
+            ("Lora", "italic", "rId3"),
+            ("Inter", "bold", "rId4"),
+        ):
+            _add_embedded_font_entry(_Presentation, typeface, weight, rId)
+
+        assert pres.get("embedTrueTypeFonts") == "1"
+        assert pres.xml == xml(
+            "p:presentation{embedTrueTypeFonts=1}/p:embeddedFontLst/("
+            "p:embeddedFont/(p:font{typeface=Inter},p:regular{r:id=rId2},p:bold{r:id=rId4}),"
+            "p:embeddedFont/(p:font{typeface=Lora},p:italic{r:id=rId3}))"
+        )
 
 
 class DescribeThemeName:
