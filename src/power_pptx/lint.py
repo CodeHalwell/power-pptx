@@ -1253,35 +1253,47 @@ def _connector_path(shape: BaseShape) -> list[tuple[_Point, _Point]] | None:
     width, height = right - left, bottom - top
     if width < 0 or height < 0:
         return None
-
-    def adj(name: str, default: float) -> float:
-        for gd in geom.iter(_A + "gd"):
-            if gd.get("name") == name:
-                formula = (gd.get("fmla") or "").split()
-                if len(formula) == 2 and formula[0] == "val":
-                    try:
-                        return float(formula[1]) / 100000.0
-                    except ValueError:
-                        return default
-        return default
-
-    if prst in ("line", "straightConnector1"):
-        local = [(0.0, 0.0), (1.0, 1.0)]
-    elif prst == "bentConnector2":
-        local = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
-    elif prst in ("bentConnector3", "curvedConnector3"):
-        mid = adj("adj1", 0.5)
-        local = [(0.0, 0.0), (mid, 0.0), (mid, 1.0), (1.0, 1.0)]
-    else:
+    route = _connector_route(prst, geom)
+    if route is None:
         return None
     points = [
-        (
-            left + width * ((1.0 - x) if flip_h else x),
-            top + height * ((1.0 - y) if flip_v else y),
-        )
-        for x, y in local
+        (left + width * _flipped(x, flip_h), top + height * _flipped(y, flip_v)) for x, y in route
     ]
     return list(zip(points, points[1:]))
+
+
+def _connector_route(prst: str | None, geom) -> list[tuple[float, float]] | None:
+    """The points a connector of preset geometry `prst` passes through, in its frame.
+
+    As fractions of the frame's width and height, from its start to its end;
+    ``None`` for a geometry whose route is not known.
+    """
+    if prst in ("line", "straightConnector1"):
+        return [(0.0, 0.0), (1.0, 1.0)]
+    if prst == "bentConnector2":
+        return [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+    if prst in ("bentConnector3", "curvedConnector3"):
+        mid = _adjust_value(geom, "adj1", 0.5)
+        return [(0.0, 0.0), (mid, 0.0), (mid, 1.0), (1.0, 1.0)]
+    return None
+
+
+def _adjust_value(geom, name: str, default: float) -> float:
+    """The ``<a:gd name fmla="val N">`` adjustment `name` of `geom`, as a fraction."""
+    for gd in geom.iter(_A + "gd"):
+        if gd.get("name") != name:
+            continue
+        formula = (gd.get("fmla") or "").split()
+        if len(formula) == 2 and formula[0] == "val":
+            try:
+                return float(formula[1]) / 100000.0
+            except ValueError:
+                return default
+    return default
+
+
+def _flipped(fraction: float, flip: bool) -> float:
+    return (1.0 - fraction) if flip else fraction
 
 
 def _segment_enters_box(segment: tuple[_Point, _Point], box: tuple[int, int, int, int]) -> bool:
