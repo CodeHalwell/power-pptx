@@ -1895,7 +1895,9 @@ class DescribeTimelineSlideLabels:
         assert [[text[:5] for text, _ in box] for box in runs] == [
             ["Q1", "Alpha"], ["Q2", "Gener"], ["GA"]
         ]
-        assert {size for box in runs for _, size in box} == {Pt(12)}  # body is 16pt
+        # -- body is 16pt; the long label needs 13pt at the 1.2 em line pitch
+        # -- PowerPoint and LibreOffice give a shape --
+        assert {size for box in runs for _, size in box} == {Pt(13)}
         assert all(
             box.text_frame.auto_size != MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
             for box in _text_boxes(slide)[1:]
