@@ -635,3 +635,34 @@ class DescribeInheritedDimensionSiblings(object):
         body.height = Inches(0)
 
         assert body.height == 0
+
+
+class DescribePlaceholderGeometryCoercion(object):
+    """Placeholder position and size accept float lengths, as every other shape does."""
+
+    @staticmethod
+    def _body_placeholder():
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        return prs, slide.placeholders[1]
+
+    @pytest.mark.parametrize("dimension", ["left", "top", "width", "height"])
+    def it_accepts_a_length_computed_with_float_arithmetic(self, dimension):
+        from power_pptx.util import Inches
+
+        _, placeholder = self._body_placeholder()
+
+        setattr(placeholder, dimension, Inches(3) / 2)
+
+        assert getattr(placeholder, dimension) == Inches(1.5)
+
+    def but_it_changes_nothing_when_the_value_is_rejected(self):
+        prs, placeholder = self._body_placeholder()
+        before = placeholder._element.xml
+
+        with pytest.raises(TypeError):
+            placeholder.height = "tall"
+
+        assert placeholder._element.xml == before

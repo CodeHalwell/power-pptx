@@ -15,7 +15,7 @@ from power_pptx.oxml.shapes.picture import CT_Picture
 from power_pptx.shapes.autoshape import Shape
 from power_pptx.shapes.graphfrm import GraphicFrame
 from power_pptx.shapes.picture import Picture
-from power_pptx.util import Emu
+from power_pptx.util import Emu, _coerce_emu
 
 if TYPE_CHECKING:
     from power_pptx.oxml.shapes.autoshape import CT_Shape
@@ -45,8 +45,9 @@ class _InheritsDimensions(object):
         # ``cy`` shares its parent element with the sibling dimension, so
         # writing it materialises that sibling too -- at zero unless the
         # inherited value is pinned down first.  See ``_freeze_sibling``.
+        emu = _coerce_emu(value)
         self._freeze_sibling("height")
-        self._element.cy = value
+        self._element.cy = emu
 
     @property
     def left(self):
@@ -62,8 +63,9 @@ class _InheritsDimensions(object):
         # ``x`` shares its parent element with the sibling dimension, so
         # writing it materialises that sibling too -- at zero unless the
         # inherited value is pinned down first.  See ``_freeze_sibling``.
+        emu = _coerce_emu(value)
         self._freeze_sibling("left")
-        self._element.x = value
+        self._element.x = emu
 
     @property
     def shape_type(self):
@@ -88,8 +90,9 @@ class _InheritsDimensions(object):
         # ``y`` shares its parent element with the sibling dimension, so
         # writing it materialises that sibling too -- at zero unless the
         # inherited value is pinned down first.  See ``_freeze_sibling``.
+        emu = _coerce_emu(value)
         self._freeze_sibling("top")
-        self._element.y = value
+        self._element.y = emu
 
     @property
     def width(self):
@@ -105,8 +108,9 @@ class _InheritsDimensions(object):
         # ``cx`` shares its parent element with the sibling dimension, so
         # writing it materialises that sibling too -- at zero unless the
         # inherited value is pinned down first.  See ``_freeze_sibling``.
+        emu = _coerce_emu(value)
         self._freeze_sibling("width")
-        self._element.cx = value
+        self._element.cx = emu
 
     #: The dimension each setter must pin down before writing, because the
     #: two share one XML element: ``left``/``top`` live in ``<a:off>`` and

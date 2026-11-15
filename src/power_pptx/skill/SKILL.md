@@ -416,8 +416,7 @@ These changes ship after v2.5 and are easy to miss:
   `(Inches(N) - gutter) / 2` style expressions can be passed straight
   through. Pre-2.6.1 these produced float-valued `<a:off>` / `<a:ext>`
   attributes that PowerPoint rejected with the "Repair?" dialog.
-  Placeholders are the exception: their setters raise `TypeError` for a
-  float, so write `placeholder.width = int(card_w)`.
+  Placeholders coerce the same way from 2.15.0.
 
 ## Anti-patterns to avoid
 

@@ -472,9 +472,8 @@ Both ``/`` (true division → float) and ``//`` (floor division → int)
 work; pick whichever reads more cleanly. The coercion is round-half-
 to-even, so it's unbiased over long expression chains.
 
-Placeholder shapes are the exception: their `left` / `top` / `width` /
-`height` setters raise `TypeError` for a float, so convert first
-(`slide.placeholders[1].width = int(card_w)`).
+Placeholder `left` / `top` / `width` / `height` setters coerce the same
+way (from 2.15.0; earlier releases raised `TypeError` for a float).
 
 ### International & layout text properties
 
