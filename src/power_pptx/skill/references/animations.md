@@ -21,15 +21,20 @@ from power_pptx.util import Inches, Pt
 
 `Trigger` is an alias for `power_pptx.enum.animation.PP_ANIM_TRIGGER`.
 
-## Triggers and delay
+## Triggers, delay and duration
 
-Every preset accepts an optional `trigger` and `delay` (milliseconds):
+Every preset accepts an optional `trigger`, `delay` and (except
+`appear` / `disappear`) `duration`, both in milliseconds:
 
 ```python
 Entrance.fade(slide, shape)                                    # default: ON_CLICK
 Entrance.fly_in(slide, shape, trigger=Trigger.WITH_PREVIOUS)
-Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=500)
+Entrance.zoom(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=500,
+              duration=750)
 ```
+
+A float time is rounded to the nearest millisecond; a negative one raises
+`ValueError`.
 
 ## Entrance presets
 
@@ -76,13 +81,21 @@ Reveal a text frame one paragraph at a time, fired by a single click:
 ```python
 body = slide.placeholders[1].text_frame
 Entrance.fade(slide, body, by_paragraph=True)
+
+# Other presets, and easing, go through slide.animations.add_entrance:
+slide.animations.add_entrance("wipe", body, by_paragraph=True,
+                              direction="top", easing="ease_out")
 ```
 
-Supported presets for `by_paragraph=True`: `appear`, `fade`, `wipe`,
-`zoom`, `wheel`, `random_bars`. The first paragraph fires on the
-caller-supplied trigger (or `ON_CLICK`); subsequent paragraphs default
-to `Trigger.AFTER_PREVIOUS`. `direction` (for `wipe`) and `easing`
-apply to every paragraph.
+`Entrance.fade` is the only shortcut that takes `by_paragraph`; for
+`appear`, `wipe`, `zoom`, `wheel` and `random_bars` call
+`slide.animations.add_entrance(preset, ...)`, which takes the same
+`trigger` / `delay` / `duration` / `direction`. Other presets raise
+`ValueError`. The first paragraph fires on the caller-supplied trigger
+(or `ON_CLICK`); subsequent paragraphs default to
+`Trigger.AFTER_PREVIOUS`. `direction` (for `wipe`) and `easing`
+(`"linear"`, `"ease_in"`, `"ease_out"`, `"ease_in_out"`, or an
+`(accel, decel)` pair of fractions) apply to every paragraph.
 
 ## Sequencing — chain effects from one click
 
@@ -188,6 +201,8 @@ them; on a slide PowerPoint animated, they go into its main sequence,
 nested the way PowerPoint nests its own:
 
 ```python
+from power_pptx import Presentation
+
 prs = Presentation("hand-authored.pptx")
 slide = prs.slides[0]
 Entrance.fade(slide, slide.shapes[0])           # adds, doesn't disturb

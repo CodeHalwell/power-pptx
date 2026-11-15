@@ -59,6 +59,8 @@ anywhere else you do not control, pass `allow_network=False` to
 `capture_html`, `add_html_figure`, `add_plotly_figure` or `from_html`:
 
 ```python
+from power_pptx import add_html_figure
+
 add_html_figure(slide, generated_html, *bbox, allow_network=False)
 ```
 

@@ -45,7 +45,8 @@ and the `<a:effectLst>` with it if that was its last effect — an empty
 `<a:effectLst/>` would still override the theme. Inner shadow, glow,
 soft edges, blur and reflection clear the same way. A preset shadow is
 defined by its preset, so it is removed with
-`shape.preset_shadow.preset = None`.
+`shape.preset_shadow.preset = None`; `preset_shadow.color = None` drops
+only the colour you chose.
 
 ### Removing a shadow entirely: `shadow.clear()`
 
@@ -57,6 +58,8 @@ properties and that inherited shadow is what you're left with: the
 "phantom shadow I never asked for".
 
 ```python
+from power_pptx.enum.shapes import MSO_SHAPE
+
 card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, *box)
 card.shadow.clear()          # flat card, guaranteed
 ```
@@ -148,7 +151,7 @@ OOXML stores in `adjustments[0]`:
 
 ```python
 card.corner_radius = Pt(6)
-card.corner_radius.pt        # -> 6.0
+card.corner_radius.pt        # -> 6.0 (to within rounding of the stored fraction)
 ```
 
 Defined for `ROUNDED_RECTANGLE`, `ROUND_1_RECTANGLE`,

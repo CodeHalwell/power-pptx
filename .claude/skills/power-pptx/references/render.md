@@ -78,6 +78,8 @@ a 12-slide deck), whichever path rendered them. For names of your own use
 ### Fonts that aren't in a system folder
 
 ```python
+from power_pptx.render import render_slides
+
 render_slides(prs, out_dir="thumbs", font_dirs=["assets/fonts"])
 ```
 

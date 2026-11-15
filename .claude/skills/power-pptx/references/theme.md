@@ -52,6 +52,8 @@ typeface.
 ## Bulk-copy from another theme
 
 ```python
+from power_pptx import Presentation
+
 brand = Presentation("brand.potx")
 prs.theme.apply(brand.theme)        # copies palette + major/minor fonts
 ```

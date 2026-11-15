@@ -220,7 +220,7 @@ Original views are saved by `reference_dir` for render comparisons.
 ```python
 from power_pptx import add_plotly_figure
 add_plotly_figure(slide, figure, *bbox, backend="browser", format="svg",
-                  browser_path="/usr/bin/chromium", width_px=1100, height_px=400)
+                  width_px=1100, height_px=400)   # browser_path= picks a Chromium
 # figure_slide(..., plotly_options={"backend": "browser"}) also works.
 ```
 

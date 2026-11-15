@@ -10,6 +10,8 @@ org-chart template whose names need refreshing every quarter.
 ## Iterating SmartArt on a slide
 
 ```python
+from power_pptx import Presentation
+
 prs = Presentation("org-chart-template.pptx")
 slide = prs.slides[0]
 

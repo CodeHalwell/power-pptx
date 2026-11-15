@@ -41,7 +41,8 @@ from power_pptx.chart.data import CategoryChartData
 
 data = CategoryChartData()
 data.categories = ["Q1", "Q2", "Q3", "Q4"]
-data.add_series("FY27", (18.2, 19.6, 21.4, 24.9))
+data.add_series("ARR", (196, 214, 233, 249))
+data.add_series("NDR (%)", (132, 133, 135, 136))
 
 chart.replace_data(data)      # formatting survives; the embedded
                               # worksheet is rewritten to match
@@ -108,8 +109,8 @@ from power_pptx.chart.palettes import (
     resolve_palette,
 )
 
-print(palette_names())                 # → ['modern', 'classic', ...]
-colors = resolve_palette("editorial")  # → list[RGBColor]
+print(palette_names())                 # → ('modern', 'classic', ...)
+colors = resolve_palette("editorial")  # → tuple of RGBColor
 ```
 
 `resolve_palette` is also handy for sharing the same colors with

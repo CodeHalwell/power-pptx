@@ -19,7 +19,8 @@ Every rectangular region on a slide can be expressed as a
 
 ```python
 from power_pptx import BBox
-from power_pptx.util import Inches
+from power_pptx.enum.shapes import MSO_SHAPE
+from power_pptx.util import Inches, Pt
 
 bb = BBox.from_inches(1, 2, 8, 4)        # left, top, width, height
 bb.right                                  # Emu(9 inches)
@@ -210,12 +211,15 @@ draws native shapes in the freed area.
 
 When the picture sits inside a "card" rectangle plus a heading,
 `picture.enclosing_container()` returns the bbox of the enclosing card
-(trimmed to avoid sibling text). This is the bbox you actually want
-to redraw into, not the picture's own bbox:
+(trimmed to avoid sibling text), or `None` when nothing encloses it.
+That is usually the box you want to redraw into. `replace_with` always
+hands the builder the picture's own box, so for the card area delete the
+picture and call the builder yourself:
 
 ```python
-container_bbox = picture.enclosing_container(exclude_text=True)
-picture.replace_with(builder, padding=Inches(0.05))
+box = picture.enclosing_container(exclude_text=True) or picture.bbox
+picture.delete()
+diagram(slide, box.inset(all=Inches(0.05)))
 ```
 
 ---
