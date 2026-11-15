@@ -1272,6 +1272,20 @@ class DescribePowerPointAuthoredTiming:
         assert list(slide._element.iter(qn("p:timing"))) == []
         assert slide._element.find("{%s}AlternateContent" % mc) is None
 
+    def it_empties_a_timing_tree_it_has_no_parent_to_remove_it_from(self):
+        from power_pptx.animation import _prune_empty_timing
+        from power_pptx.oxml import parse_xml
+
+        timing = parse_xml(_powerpoint_timing(5))
+        main_seq_steps = timing.xpath(".//p:cTn[@nodeType='mainSeq']/p:childTnLst")[0]
+        main_seq_steps.getparent().remove(main_seq_steps)
+        timing.xpath(".//p:cTn[@nodeType='tmRoot']/p:childTnLst")[0].clear()
+
+        _prune_empty_timing(timing)
+
+        assert timing.tag == qn("p:timing")
+        assert len(timing) == 0
+
 
 class DescribeAppendingToAMainSequence:
     """A new effect on a PowerPoint-animated slide joins its main sequence."""
