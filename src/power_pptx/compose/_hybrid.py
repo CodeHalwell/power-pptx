@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Any, NamedTuple
 
 from power_pptx._color import coerce_color
 from power_pptx.chart.data import CategoryChartData
@@ -227,102 +228,182 @@ def _add_chart(slide, record, bounds, scale):
 
 
 def _add_table(slide, record, bounds, scale):
+    cells, column_count = _place_cells(record["rows"])
+    row_count = len(record["rows"])
+    if any(placed.row + placed.cell["rowspan"] > row_count for placed in cells):
+        raise ValueError("Table rowspan extends beyond its rows")
+    shape = slide.shapes.add_table(row_count, column_count, *bounds, style="clean")
+    table = shape.table
+    table.clear_style()
+    column_widths = _column_widths(cells, column_count)
+    for i, width in enumerate(_proportional_sizes(bounds.width, column_widths)):
+        table.columns[i].width = width
+    for i, height in enumerate(_proportional_sizes(bounds.height, record["rowHeights"])):
+        table.rows[i].height = height
+    shared = _shared_borders(cells)
+    for placed in cells:
+        _format_cell(table, placed, scale, shared)
+    return shape
+
+
+# CSS alignments a native table cell can show; any other value (``start``,
+# ``baseline``, ...) is drawn top left.
+_CELL_ALIGNS = frozenset({"left", "right", "center", "justify"})
+_CELL_ANCHORS = frozenset({"top", "middle", "bottom"})
+
+# A cell's sides, in the order CSS lists border widths and colours.
+_CELL_EDGES = ("top", "right", "bottom", "left")
+
+
+class _GridCell(NamedTuple):
+    """An HTML table cell placed at its native table grid position."""
+
+    row: int
+    column: int
+    cell: dict[str, Any]
+
+    @property
+    def last_row(self) -> int:
+        """The grid row just below this cell."""
+        return self.row + self.cell["rowspan"]
+
+    @property
+    def last_column(self) -> int:
+        """The grid column just right of this cell."""
+        return self.column + self.cell["colspan"]
+
+    def edge_keys(self):
+        """Return the grid-edge keys along this cell's top, right, bottom and left sides.
+
+        ``("h", row, column)`` is the horizontal edge above a grid cell and
+        ``("v", column, row)`` the vertical edge to its left, so two cells
+        that share a side share its keys.
+        """
+        rows, columns = range(self.row, self.last_row), range(self.column, self.last_column)
+        return (
+            [("h", self.row, x) for x in columns],
+            [("v", self.last_column, y) for y in rows],
+            [("h", self.last_row, x) for x in columns],
+            [("v", self.column, y) for y in rows],
+        )
+
+
+def _place_cells(rows):
+    """Return each cell at its grid position, and the grid's column count.
+
+    As in an HTML table, a cell starts at the first column of its row that
+    no row-spanning cell from a row above already covers.
+    """
     cells = []
     occupied = set()
-    count = 0
-    for r, row in enumerate(record["rows"]):
+    column_count = 0
+    for r, row in enumerate(rows):
         c = 0
         for cell in row:
             while (r, c) in occupied:
                 c += 1
-            for rr in range(r, r + cell["rowspan"]):
-                for cc in range(c, c + cell["colspan"]):
-                    occupied.add((rr, cc))
-            cells.append((r, c, cell))
-            count = max(count, c + cell["colspan"])
-            c += cell["colspan"]
-    row_count = len(record["rows"])
-    if any(r + cell["rowspan"] > row_count for r, c, cell in cells):
-        raise ValueError("Table rowspan extends beyond its rows")
-    shape = slide.shapes.add_table(row_count, count, *bounds, style="clean")
-    table = shape.table
-    table.clear_style()
-    widths = [0.0] * count
-    for r, c, cell in cells:
-        if cell["colspan"] == 1:
-            widths[c] = cell["bounds"][2]
-    for r, c, cell in cells:
-        for i in range(c, c + cell["colspan"]):
+            placed = _GridCell(r, c, cell)
+            occupied.update(
+                (rr, cc)
+                for rr in range(r, placed.last_row)
+                for cc in range(c, placed.last_column)
+            )
+            cells.append(placed)
+            column_count = max(column_count, placed.last_column)
+            c = placed.last_column
+    return cells, column_count
+
+
+def _column_widths(cells, column_count):
+    """Return the browser width of each grid column.
+
+    A column takes the width of a cell that spans it alone; a column only
+    spanning cells cover takes an even share of the first such cell.
+    """
+    widths = [0.0] * column_count
+    for placed in cells:
+        if placed.cell["colspan"] == 1:
+            widths[placed.column] = placed.cell["bounds"][2]
+    for placed in cells:
+        for i in range(placed.column, placed.last_column):
             if not widths[i]:
-                widths[i] = cell["bounds"][2] / cell["colspan"]
-    total = sum(widths)
+                widths[i] = placed.cell["bounds"][2] / placed.cell["colspan"]
+    return widths
+
+
+def _proportional_sizes(length, weights):
+    """Split *length* EMU in proportion to *weights*.
+
+    Each running edge is rounded, so the sizes always add up to *length*.
+    """
+    total = sum(weights)
+    sizes = []
     used = 0
-    for i, w in enumerate(widths):
-        edge = round(bounds.width * sum(widths[: i + 1]) / total)
-        table.columns[i].width = Emu(edge - used)
+    for i in range(len(weights)):
+        edge = round(length * sum(weights[: i + 1]) / total)
+        sizes.append(Emu(edge - used))
         used = edge
-    total = sum(record["rowHeights"])
-    used = 0
-    for i, h in enumerate(record["rowHeights"]):
-        edge = round(bounds.height * sum(record["rowHeights"][: i + 1]) / total)
-        table.rows[i].height = Emu(edge - used)
-        used = edge
-    # Office resolves shared cell edges differently from CSS collapse. Give
-    # both neighbors the same strongest border so an explicit noFill cannot
-    # erase the other cell's visible bottom/right edge in LibreOffice.
+    return sizes
+
+
+def _shared_borders(cells):
+    """Return the strongest ``(width, colour)`` border along each grid edge.
+
+    Office resolves shared cell edges differently from CSS collapse. Give
+    both neighbors the same strongest border so an explicit noFill cannot
+    erase the other cell's visible bottom/right edge in LibreOffice.
+    """
     shared = {}
-
-    def edge_keys(r, c, cell):
-        bottom, right = r + cell["rowspan"], c + cell["colspan"]
-        return (
-            [("h", r, x) for x in range(c, right)],
-            [("v", right, y) for y in range(r, bottom)],
-            [("h", bottom, x) for x in range(c, right)],
-            [("v", c, y) for y in range(r, bottom)],
-        )
-
-    for r, c, cell in cells:
+    for placed in cells:
+        style = placed.cell["style"]
         for keys, width, color in zip(
-            edge_keys(r, c, cell), cell["style"]["border"], cell["style"]["borderColors"]
+            placed.edge_keys(), style["border"], style["borderColors"]
         ):
             for key in keys:
                 if width >= shared.get(key, (0, "transparent"))[0]:
                     shared[key] = (width, color)
-    for r, c, cell in cells:
-        target = table.cell(r, c)
-        style = cell["style"]
-        if cell["rowspan"] > 1 or cell["colspan"] > 1:
-            target.merge(table.cell(r + cell["rowspan"] - 1, c + cell["colspan"] - 1))
-        target.text = cell["text"]
-        fill, opacity = css_color(cell["fill"])
-        target.format(
-            font=cell["native_font"],
-            size_pt=style["size"] * scale / 12700,
-            bold=int(style["weight"]) >= 600,
-            italic=style["italic"],
-            color=css_color(style["color"])[0],
-            fill=fill if opacity else "none",
-            align=style["align"]
-            if style["align"] in {"left", "right", "center", "justify"}
-            else "left",
-            anchor=style["verticalAlign"]
-            if style["verticalAlign"] in {"top", "middle", "bottom"}
-            else "top",
-            margin=tuple(p * scale / 12700 for p in style["padding"]),
-        )
-        target.borders.none()
-        if opacity:
-            target.fill.fore_color.alpha = opacity
-        for paragraph in target.text_frame.paragraphs:
-            for run in paragraph.runs:
-                _apply_font(run.font, style, cell["native_font"], scale)
-        for edge, keys in zip(("top", "right", "bottom", "left"), edge_keys(r, c, cell)):
-            width, color = max((shared[key] for key in keys), key=lambda item: item[0])
-            line = getattr(target.borders, edge)
-            if width > 0:
-                line.width = Emu(round(width * scale))
-                line.color.rgb = css_color(color)[0]
-                line.color.alpha = css_color(color)[1]
-            else:
-                line.fill.background()
-    return shape
+    return shared
+
+
+def _format_cell(table, placed, scale, shared):
+    """Merge, fill, write and outline the native cell for *placed*."""
+    cell, style = placed.cell, placed.cell["style"]
+    target = table.cell(placed.row, placed.column)
+    if cell["rowspan"] > 1 or cell["colspan"] > 1:
+        target.merge(table.cell(placed.last_row - 1, placed.last_column - 1))
+    target.text = cell["text"]
+    fill, opacity = css_color(cell["fill"])
+    target.format(
+        font=cell["native_font"],
+        size_pt=style["size"] * scale / 12700,
+        bold=int(style["weight"]) >= 600,
+        italic=style["italic"],
+        color=css_color(style["color"])[0],
+        fill=fill if opacity else "none",
+        align=_supported(style["align"], _CELL_ALIGNS, "left"),
+        anchor=_supported(style["verticalAlign"], _CELL_ANCHORS, "top"),
+        margin=tuple(p * scale / 12700 for p in style["padding"]),
+    )
+    target.borders.none()
+    if opacity:
+        target.fill.fore_color.alpha = opacity
+    for paragraph in target.text_frame.paragraphs:
+        for run in paragraph.runs:
+            _apply_font(run.font, style, cell["native_font"], scale)
+    for edge, keys in zip(_CELL_EDGES, placed.edge_keys()):
+        width, color = max((shared[key] for key in keys), key=lambda item: item[0])
+        _set_border(getattr(target.borders, edge), width, color, scale)
+
+
+def _supported(value, choices, fallback):
+    """Return *value* when it is one of *choices*, otherwise *fallback*."""
+    return value if value in choices else fallback
+
+
+def _set_border(line, width, color, scale):
+    """Draw *line* at the CSS *width* and *color*, or hide it when *width* is 0."""
+    if width > 0:
+        line.width = Emu(round(width * scale))
+        line.color.rgb, line.color.alpha = css_color(color)
+    else:
+        line.fill.background()
