@@ -100,17 +100,22 @@ supported names.
 
 When the linter detects :class:`~power_pptx.lint.TextOverflow`, calling
 :meth:`SlideLintReport.auto_fix() <power_pptx.lint.SlideLintReport.auto_fix>`
-flips the offending text frame's ``auto_size`` to
-:attr:`MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
-<power_pptx.enum.text.MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE>` so PowerPoint
-shrinks the runs at render time.  Frames with an explicit auto-size
-(``SHAPE_TO_FIT_TEXT`` or ``TEXT_TO_FIT_SHAPE``) are skipped — the
-fixer respects designer choice.
+makes the text fit in the way the frame's own auto-size setting asks:
 
-This is a non-destructive fix: text content is preserved verbatim,
-only the render-time sizing changes.  When generating decks from
-runtime-supplied text, ``auto_fix()`` is the single biggest lever
-for "lint-or-die" pipelines.
+* no setting, or :attr:`MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+  <power_pptx.enum.text.MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE>` — the frame is
+  set to shrink text with the font scale that fits stored on it, as
+  PowerPoint stores it.  (The flag alone would shrink nothing until the
+  text is next edited in PowerPoint.)
+* ``SHAPE_TO_FIT_TEXT`` — the shape is resized to its text.
+* ``NONE`` — the setting is kept and the font sizes are reduced in place,
+  as ``fit_text`` does.
+* a table row — the row is grown to its text.
+
+The text content is always preserved verbatim.  Text that would have to
+shrink below a quarter of its size is left alone and stays in the report.
+When generating decks from runtime-supplied text, ``auto_fix()`` is the
+single biggest lever for "lint-or-die" pipelines.
 
 Recipes use the Blank layout
 ----------------------------
@@ -162,11 +167,11 @@ preserved verbatim; only unset properties are filled in.
 Pricing-card / badge text in shapes ≤ 0.5" tall
 -----------------------------------------------
 
-Short single-line strings (≤ 20 chars) get a tighter character-width
-heuristic than longer text in the linter — but if you're targeting
-a < 0.5"-tall pill or badge, set ``auto_size = TEXT_TO_FIT_SHAPE``
-right after writing the text to avoid the :class:`TextOverflow` lint
-entirely.
+The linter measures a pill or badge label with real font metrics, so a
+short label that fits is not flagged.  The metrics are those of the font
+on the build machine: name a family that is installed (or register the
+brand font with :func:`power_pptx.text.register_font_dir`) so a tight
+badge is judged by the face it will be drawn in.
 
 Designed-overlap groups
 -----------------------
@@ -277,6 +282,7 @@ first::
     tf.fit_text(family, max_size=24)
 
 :func:`power_pptx.text.fonts.installed_font_families` lists what the
-build machine can actually measure.  ``slide.lint()`` is unaffected —
-its overflow check uses a font-agnostic character-width heuristic — so
-the lint pass remains worth running when the metrics are approximate.
+build machine can actually measure.  ``slide.lint()`` measures with the
+same metrics, so it shares the limitation: a
+:class:`~power_pptx.lint.TextOverflow` measured with fallback metrics
+says so in its message and has ``estimated == True``.

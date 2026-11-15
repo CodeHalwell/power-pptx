@@ -91,10 +91,10 @@ tf.fit_text(family, max_size=24)
 
 When none of those apply, treat the display-font sizes as
 hand-tunable and verify with a real render
-(`power_pptx.render.render_slides`, needs LibreOffice). Note that
-`slide.lint()` is **not** affected — its overflow check uses a
-font-agnostic character-width heuristic — which is why layer 3 below
-still earns its keep when the metrics are approximate.
+(`power_pptx.render.render_slides`, needs LibreOffice). `slide.lint()`
+measures with the same metrics, so it shares the limitation: a
+`TextOverflow` measured with fallback metrics says so in its message and
+has `issue.estimated == True`.
 
 For finer control (e.g. you want to size text *for* a known box but
 leave styling to a recipe), use the underlying fitter directly:
@@ -144,10 +144,30 @@ should grow vertically.
 
 ## 3. The linter: catch what slipped through
 
-Run `slide.lint()` before save. It uses Pillow font metrics so it
-catches overflow even on auto-fit text frames, and it knows the slide's
-real dimensions so off-slide shapes are caught regardless of slide
-size:
+Run `slide.lint()` before save. Its `TextOverflow` check lays the text
+out with the same Pillow font metrics `fit_text` uses — every run at its
+effective size and typeface, including sizes a placeholder inherits from
+the layout and master — inside the frame's margins, at its line and
+paragraph spacing, and it looks inside groups and table cells. A frame
+`fit_text` has sized is never flagged. It knows the slide's real
+dimensions, so off-slide shapes are caught regardless of slide size, and
+it checks a rotated shape by the area it really covers.
+
+Auto-fit frames are checked too, because `power-pptx` only writes the
+flag (see the warning above) — nothing resizes until a renderer does:
+
+* A `SHAPE_TO_FIT_TEXT` frame (what `add_textbox` and `add_text` create)
+  whose text is taller or wider than its stored box gets a `TextOverflow`
+  **warning**, and `OffSlide` / `ShapeCollision` test the box it will grow
+  into — down from a top anchor, up from a bottom anchor, both ways from
+  the middle. A box that grows off the slide is an `OffSlide` **error**.
+* A `TEXT_TO_FIT_SHAPE` frame is measured at the font scale it stores; if
+  the text does not fit at that scale, that is a `TextOverflow`
+  **warning**. PowerPoint only shrinks the text when it is next edited.
+* A fixed-size frame (`NONE`, or no setting) that overflows is an
+  **error** — it spills in every renderer.
+* A table row shorter than its text is a **warning**: rows grow to fit
+  when rendered, so the table ends up taller than its stored size.
 
 ```python
 from power_pptx.lint import OffSlide, TextOverflow, ShapeCollision
@@ -157,11 +177,11 @@ errors = []
 for slide in prs.slides:
     report = slide.lint()
 
-    # Cheap auto-fix first (currently nudges off-slide shapes back in)
+    # Safe fixes first: on-slide clamping, text that fits, layer order
     report.auto_fix()
 
-    # Re-collect what's left
-    for issue in slide.lint().issues:
+    # auto_fix() refreshes report.issues with what is left
+    for issue in report.issues:
         if issue.severity.value == "error":
             errors.append(issue)
 
@@ -170,6 +190,14 @@ if errors:
 
 prs.save("out.pptx")
 ```
+
+`auto_fix()` makes overflowing text fit the way the frame's own setting
+asks: a `TEXT_TO_FIT_SHAPE` frame (or one with no setting) gets the font
+scale that fits, stored the way PowerPoint stores it; a
+`SHAPE_TO_FIT_TEXT` shape is resized to its text; a frame you set to
+`NONE` keeps that setting and has its font sizes reduced, as `fit_text`
+would. Text that would have to shrink below a quarter of its size is
+left alone and stays in the report.
 
 For decks built through `power_pptx.compose.from_spec(...)`, fold the linter
 into the spec itself:

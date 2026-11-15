@@ -472,8 +472,10 @@ Flagging them up front saves the trial-and-error round.
   raises `CairoSvgUnavailable`. Either install cairosvg or supply a
   pre-rasterised PNG.
 - **`auto_fix()` repairs geometry, not judgment.** It clamps `OffSlide`,
-  flips `TextOverflow` frames to `TEXT_TO_FIT_SHAPE`, snaps
-  `OffGridDrift`, and restacks `LayerOrderViolation`. It will never
+  makes `TextOverflow` text fit (a stored font scale, a resized
+  auto-fit box, or reduced sizes on a `NONE` frame), restacks
+  `LayerOrderViolation`, and snaps `OffGridDrift` only when called with
+  `fix_grid_drift=True`. It will never
   touch `ShapeCollision`, `LowContrast`, `MinFontSize` or
   `ZOrderAnomaly` — those need a designer. Prefer `tf.fit_text(...)`
   *before* save over relying on the overflow fix.

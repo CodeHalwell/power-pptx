@@ -230,8 +230,8 @@ slide.tidy()                             # lint + auto_fix(safe subset)
 ```
 
 `tidy()` is the one-call cleanup before save: it lints, runs the safe
-subset of auto-fixes (OffSlide clamp, TextOverflow flip), and returns
-the list of fixes applied.
+subset of auto-fixes (OffSlide clamp, text that overflows made to fit,
+layer-order restack), and returns the list of fixes applied.
 
 ---
 
