@@ -2192,127 +2192,182 @@ def _measure_text_body(
     if line_len <= 0 or inner_h <= 0:
         return None
 
-    text_w = text_h = 0.0
-    line_count = 0
-    missing_font: str | None = None
-    styles_seen: set[tuple[str, bool, bool, int]] = set()
-    spacings_seen: set[float | None] = set()
-    plain = body.cols == 1 and body.wrap and body.vert == "horz" and body.font_scale == 1.0
-    first_align = None
+    layout = _TextLayout(env, body, levels, line_len, in_table)
     paragraphs = tx_body.findall(_T_P)
-    last = len(paragraphs) - 1
+    for index, paragraph in enumerate(paragraphs):
+        layout.add_paragraph(paragraph, first=index == 0, last=index == len(paragraphs) - 1)
+    return _TextMeasure(
+        text_w=layout.text_w,
+        text_h=layout.text_h,
+        avail_w=line_len,
+        avail_h=inner_h * body.cols,
+        lines=layout.lines,
+        body=body,
+        align=layout.first_align or "l",
+        missing_font=layout.missing_font,
+        uniform=layout.uniform(),
+    )
 
-    def style_for(props: _CharProps, track: bool) -> _RunStyle:
-        nonlocal missing_font, plain
+
+def _paragraph_props(env: _TextEnv, levels: list, paragraph) -> tuple[_CharProps, _ParaProps]:
+    """Character and paragraph properties of `paragraph`: its level's, then its own."""
+    ppr = paragraph.find(_T_PPR)
+    level = 0 if ppr is None else min(8, max(0, _int_attr(ppr, "lvl") or 0))
+    char_props, para_props = env.level_props(levels, level)
+    if ppr is not None:
+        para_props = _apply_para_props(para_props, ppr)
+        char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+    return char_props, para_props
+
+
+def _run_text(run) -> str:
+    """The text of an ``<a:r>`` or ``<a:fld>``."""
+    t = run.find(_T_T)
+    return "" if t is None else (t.text or "")
+
+
+def _is_exact(line_spacing) -> bool:
+    """True for a line spacing given in points rather than as a multiple."""
+    return line_spacing is not None and line_spacing[0] == "pts"
+
+
+def _paragraph_gap(value, line_pt: float) -> float:
+    """Paragraph spacing in EMU; a percentage is of the line it adjoins."""
+    if value is None:
+        return 0.0
+    if value[0] == "pts":
+        return value[1]
+    return value[1] * line_pt * _EMU_PER_PT
+
+
+class _TextLayout:
+    """Lays a text body out paragraph by paragraph, keeping the running extent.
+
+    Serves one :func:`_measure_text_body` call.  Besides the extent it notes
+    what :func:`_engine_says_it_fits` needs to know: a typeface that was not
+    installed, and whether every run shares one plain style.
+    """
+
+    def __init__(
+        self, env: _TextEnv, body: _BodyProps, levels: list, line_len: float, in_table: bool
+    ):
+        self.env = env
+        self.body = body
+        self.levels = levels
+        self.line_len = line_len
+        self.in_table = in_table
+        self.text_w = 0.0
+        self.text_h = 0.0
+        self.lines = 0
+        self.first_align: str | None = None
+        self.missing_font: str | None = None
+        #: False once anything but ``fit_text``'s own settings shapes the layout.
+        self.plain = body.cols == 1 and body.wrap and body.vert == "horz" and body.font_scale == 1.0
+        self._styles: set[tuple[str, bool, bool, int]] = set()
+        self._spacings: set[float | None] = set()
+
+    def style(self, props: _CharProps, track: bool = False) -> _RunStyle:
+        """How text with character properties `props` is measured.
+
+        With `track` the text is visible, and its style counts towards
+        `missing_font` and :meth:`uniform`.
+        """
         size, bold, italic, face, spacing, caps = props
-        family = env.family(face)
-        font_file, installed = env.font_file(family, bold, italic)
+        family = self.env.family(face)
+        font_file, installed = self.env.font_file(family, bold, italic)
         if track:
-            if not installed and missing_font is None:
-                missing_font = family
-            styles_seen.add((family, bold, italic, size))
+            if not installed and self.missing_font is None:
+                self.missing_font = family
+            self._styles.add((family, bold, italic, size))
             if spacing or caps:
-                plain = False
+                self.plain = False
         return _RunStyle(
-            size=size / 100.0 * body.font_scale,
+            size=size / 100.0 * self.body.font_scale,
             font_file=font_file,
             spacing=spacing * _EMU_PER_PT / 100.0,
             caps=caps,
-            line_em=_line_em(font_file, in_table),
+            line_em=_line_em(font_file, self.in_table),
         )
 
-    def gap(value, line_pt: float) -> float:
-        """Paragraph spacing in EMU; a percentage is of the line it adjoins."""
-        if value is None:
-            return 0.0
-        if value[0] == "pts":
-            return value[1]
-        return value[1] * line_pt * _EMU_PER_PT
+    def add_paragraph(self, paragraph, first: bool, last: bool) -> None:
+        """Lay `paragraph` out below the text so far.
 
-    for index, paragraph in enumerate(paragraphs):
-        ppr = paragraph.find(_T_PPR)
-        level = 0 if ppr is None else min(8, max(0, _int_attr(ppr, "lvl") or 0))
-        char_props, para_props = env.level_props(levels, level)
-        if ppr is not None:
-            para_props = _apply_para_props(para_props, ppr)
-            char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+        Space before the first paragraph and after the last is not counted.
+        """
+        char_props, para_props = _paragraph_props(self.env, self.levels, paragraph)
         line_spacing, before, after, mar_l, indent, mar_r, align = para_props
-        if first_align is None:
-            first_align = align
+        if self.first_align is None:
+            self.first_align = align
         if mar_l or indent or mar_r:
-            plain = False
-        limit = max(1.0, line_len - mar_l - mar_r)
-        first_limit = max(1.0, limit - max(0, indent))
+            self.plain = False
+        limit = max(1.0, self.line_len - mar_l - mar_r)
+        lines, end_h = self._wrap(paragraph, char_props, max(1.0, limit - max(0, indent)), limit)
+        paragraph_h = 0.0
+        for line_width, line_pt in lines:
+            self.text_w = max(self.text_w, line_width + mar_l + mar_r)
+            paragraph_h += self._advance(line_pt, line_spacing)
+        self.lines += len(lines)
+        line_h = lines[0][1] or end_h
+        space_before = 0.0 if first else _paragraph_gap(before, line_h)
+        space_after = 0.0 if last else _paragraph_gap(after, line_h)
+        self.text_h += space_before + paragraph_h + space_after
+        if space_before or space_after or _is_exact(line_spacing):
+            self.plain = False
+        self._spacings.add(None if line_spacing is None else line_spacing[1])
 
-        # -- split the paragraph into explicit lines at each <a:br> --
+    def uniform(self) -> tuple[str, bool, bool, int, float | None] | None:
+        """See :attr:`_TextMeasure.uniform`."""
+        if not self.plain or len(self._styles) != 1 or len(self._spacings) != 1:
+            return None
+        family, bold, italic, size = next(iter(self._styles))
+        if size % 100:
+            return None
+        return (family, bold, italic, size // 100, next(iter(self._spacings)))
+
+    def _wrap(
+        self, paragraph, char_props: _CharProps, first_limit: float, limit: float
+    ) -> tuple[list[tuple[float, float]], float]:
+        """The lines `paragraph` renders as, ``(width, line_height_pt)`` each.
+
+        Also returns the height of the paragraph's end mark.  Every explicit
+        line takes at least one line: an empty one is as tall as the break
+        that ends it, or as the end mark when it is the last.
+        """
+        explicit, break_heights = self._explicit_lines(paragraph, char_props)
+        end_props = _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))
+        end_h = self.style(end_props).line_pt
+        lines: list[tuple[float, float]] = []
+        for index, (fragments, empty_h) in enumerate(zip(explicit, [*break_heights, end_h])):
+            cap = first_limit if index == 0 else limit
+            lines.extend(_wrap_fragments(fragments, cap, limit, self.body.wrap) or [(0.0, empty_h)])
+        return lines, end_h
+
+    def _explicit_lines(
+        self, paragraph, char_props: _CharProps
+    ) -> tuple[list[list[tuple[str, _RunStyle]]], list[float]]:
+        """Split `paragraph` at each ``<a:br>``: each line's runs, and each break's height."""
         explicit: list[list[tuple[str, _RunStyle]]] = [[]]
         break_heights: list[float] = []
         for child in paragraph:
             tag = child.tag
             if tag in (_T_R, _T_FLD):
-                t = child.find(_T_T)
-                text = "" if t is None else (t.text or "")
-                if not text:
-                    continue
-                style = style_for(
-                    _apply_char_props(char_props, child.find(_T_RPR)), bool(text.strip())
-                )
-                explicit[-1].append((text, style))
+                text = _run_text(child)
+                if text:
+                    props = _apply_char_props(char_props, child.find(_T_RPR))
+                    explicit[-1].append((text, self.style(props, bool(text.strip()))))
             elif tag == _T_BR:
                 props = _apply_char_props(char_props, child.find(_T_RPR))
-                break_heights.append(style_for(props, False).line_pt)
+                break_heights.append(self.style(props).line_pt)
                 explicit.append([])
-        # An empty line takes the height of the paragraph's end mark.
-        end_props = _apply_char_props(char_props, paragraph.find(_T_ENDPARARPR))
-        end_h = style_for(end_props, False).line_pt
+        return explicit, break_heights
 
-        paragraph_h = 0.0
-        first_h = None
-        for line_index, fragments in enumerate(explicit):
-            lines = _wrap_fragments(
-                fragments, first_limit if line_index == 0 else limit, limit, body.wrap
-            )
-            if not lines:
-                lines = [
-                    (0.0, break_heights[line_index] if line_index < len(break_heights) else end_h)
-                ]
-            for line_width, line_pt in lines:
-                if first_h is None:
-                    first_h = line_pt
-                text_w = max(text_w, line_width + mar_l + mar_r)
-                if line_spacing is not None and line_spacing[0] == "pts":
-                    paragraph_h += line_spacing[1]
-                else:
-                    factor = 1.0 if line_spacing is None else line_spacing[1]
-                    factor = max(0.1, factor - body.ln_reduction)
-                    paragraph_h += line_pt * _EMU_PER_PT * factor
-            line_count += len(lines)
-
-        space_before = gap(before, first_h or end_h) if index > 0 else 0.0
-        space_after = gap(after, first_h or end_h) if index < last else 0.0
-        text_h += space_before + paragraph_h + space_after
-        if space_before or space_after:
-            plain = False
-        if line_spacing is not None and line_spacing[0] == "pts":
-            plain = False
-        spacings_seen.add(None if line_spacing is None else line_spacing[1])
-
-    uniform = None
-    if plain and len(styles_seen) == 1 and len(spacings_seen) == 1:
-        family, bold, italic, size = next(iter(styles_seen))
-        if size % 100 == 0:
-            uniform = (family, bold, italic, size // 100, next(iter(spacings_seen)))
-    return _TextMeasure(
-        text_w=text_w,
-        text_h=text_h,
-        avail_w=line_len,
-        avail_h=inner_h * body.cols,
-        lines=line_count,
-        body=body,
-        align=first_align or "l",
-        missing_font=missing_font,
-        uniform=uniform,
-    )
+    def _advance(self, line_pt: float, line_spacing) -> float:
+        """Distance in EMU from a line `line_pt` tall to the next, at `line_spacing`."""
+        if _is_exact(line_spacing):
+            return line_spacing[1]
+        factor = 1.0 if line_spacing is None else line_spacing[1]
+        factor = max(0.1, factor - self.body.ln_reduction)
+        return line_pt * _EMU_PER_PT * factor
 
 
 def _engine_says_it_fits(tx_body, measure: _TextMeasure) -> bool:
@@ -2674,11 +2729,7 @@ def _iter_sized_elements(env: _TextEnv, target: _TextTarget) -> Iterator[tuple[A
     1/100 pt, resolved the way the measurement resolves it.
     """
     for paragraph in target.tx_body.findall(_T_P):
-        ppr = paragraph.find(_T_PPR)
-        level = 0 if ppr is None else min(8, max(0, _int_attr(ppr, "lvl") or 0))
-        char_props, _ = env.level_props(target.levels, level)
-        if ppr is not None:
-            char_props = _apply_char_props(char_props, ppr.find(_T_DEFRPR))
+        char_props, _ = _paragraph_props(env, target.levels, paragraph)
         for child in paragraph:
             if child.tag in (_T_R, _T_FLD, _T_BR):
                 yield child, False, _apply_char_props(char_props, child.find(_T_RPR))[0]
