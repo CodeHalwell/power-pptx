@@ -193,34 +193,45 @@ _NS = {"p": _P_NS}
 # Preset metadata
 # ---------------------------------------------------------------------------
 
-# presetID values match PowerPoint's internal numbering
+# (presetID, presetSubtype) of each preset.  These numbers are what tells
+# PowerPoint (and LibreOffice) which effect of its gallery an effect is: they
+# name it in the animation pane and decide what its effect options edit.  The
+# values below are the ones LibreOffice's PPTX import and export tables give
+# for the effect each preset builds, checked by converting decks with
+# LibreOffice in both directions.  `presetSubtype` names the direction of a
+# directional preset (see _DIRECTION_SUBTYPES), the number of spokes of a
+# wheel, and "in" (16) or "out" (32) for a zoom.
 _ENTRANCE_PRESETS = {
-    "appear":       (1,  0),   # (presetID, presetSubtype)
+    "appear":       (1,  0),
     "fade":         (10, 0),
-    "fly_in":       (2,  8),   # default: from bottom (subtype 8)
-    "float_in":     (22, 0),
-    "wipe":         (8,  2),   # default: left
-    "zoom":         (18, 0),
-    "wheel":        (20, 1),   # 1 spoke
-    "random_bars":  (12, 1),   # horizontal
+    "fly_in":       (2,  4),   # Fly In, from the bottom unless directed otherwise
+    "float_in":     (42, 0),   # fade in while rising into place ("Ascend")
+    "wipe":         (22, 8),   # Wipe, from the left
+    "zoom":         (23, 16),  # Zoom, in
+    "wheel":        (21, 1),   # Wheel, 1 spoke
+    "random_bars":  (14, 5),   # Random Bars, horizontal
 }
 
 _EXIT_PRESETS = {
     "disappear":    (1,  0),
     "fade":         (10, 0),
-    "fly_out":      (2,  8),
-    "float_out":    (22, 0),
-    "wipe":         (8,  2),
-    "zoom":         (18, 0),
-    "wheel":        (20, 1),
-    "random_bars":  (12, 1),
+    "fly_out":      (2,  4),   # Fly Out, to the bottom unless directed otherwise
+    "float_out":    (42, 0),   # fade out while sinking away ("Descend")
+    "wipe":         (22, 8),   # Wipe, from the left
+    "zoom":         (23, 32),  # Zoom, out
+    "wheel":        (21, 1),   # Wheel, 1 spoke
+    "random_bars":  (14, 5),   # Random Bars, horizontal
 }
 
 _EMPHASIS_PRESETS = {
-    "pulse":  (13, 0),
-    "spin":   (5,  0),
-    "teeter": (6,  0),
+    "pulse":  (26, 0),   # an auto-reversing scale ("Flash Bulb" to LibreOffice)
+    "spin":   (8,  0),
+    "teeter": (32, 0),
 }
+
+# presetSubtype of a direction: the edge an entrance comes in from, or the one
+# an exit leaves by.
+_DIRECTION_SUBTYPES = {"top": 1, "right": 2, "bottom": 4, "left": 8}
 
 # Reverse mappings from (presetID, presetSubtype) → preset name, keyed by
 # preset class.  Used by AnimationEntry.preset for read-side introspection.
@@ -240,15 +251,19 @@ _REVERSE_PRESET_BY_ID: dict[str, dict[int, str]] = {
     for cls, entries in _REVERSE_PRESETS.items()
 }
 
-# animEffect filter strings for each preset name (entrance direction)
+# animEffect filter for each preset drawn by one.  The value is a
+# "type(subtype)" name a consumer looks up in its table of reserved filters
+# (ISO/IEC 29500-1 §19.5.3); a name it does not know plays as no effect at
+# all.  LibreOffice spells random bars "randombar", not the "randomBars" of
+# the standard's table, and draws horizontal bars with the "vertical" bar
+# wipe.  A zoom is not a filter: it animates the width and height.
 _EFFECT_FILTER = {
     "fade":        "fade",
     "float_in":    "fade",
     "float_out":   "fade",
-    "wipe":        "wipe(dir=left)",
-    "zoom":        "zoom(dir=in)",
-    "wheel":       "wheel(spokes=1)",
-    "random_bars": "randomBar(dir=horz)",
+    "wipe":        "wipe(left)",
+    "wheel":       "wheel(1)",
+    "random_bars": "randombar(vertical)",
 }
 
 # FlyIn/FlyOut path templates (M start L end E)
@@ -404,6 +419,58 @@ def _anim_effect_xml_for_paragraph(
         "  </p:cBhvr>\n"
         "</p:animEffect>\n"
     )
+
+
+def _sp_tgt_xml(spid: int, paragraph_idx: int | None = None) -> str:
+    """Return a `<p:spTgt>` naming shape *spid*, or one paragraph of its text."""
+    if paragraph_idx is None:
+        return f'<p:spTgt spid="{spid}"/>'
+    return (
+        f'<p:spTgt spid="{spid}">'
+        f'<p:txEl><p:pRg st="{paragraph_idx}" end="{paragraph_idx}"/></p:txEl>'
+        "</p:spTgt>"
+    )
+
+
+def _anim_size_xml(
+    ctn_id: int,
+    spid: int,
+    duration: int,
+    attr: str,
+    start: str,
+    end: str,
+    paragraph_idx: int | None = None,
+) -> str:
+    """Return XML for a `<p:anim>` taking the width or height of a shape from *start* to *end*.
+
+    *attr* is ``"ppt_w"`` or ``"ppt_h"``, and *start* and *end* are values such
+    as ``"0"`` or ``"#ppt_w"`` (the size the shape has on the slide).  A Zoom
+    is two of these, one per dimension.
+    """
+    return (
+        '<p:anim calcmode="lin" valueType="num">\n'
+        '  <p:cBhvr additive="repl">\n'
+        f'    <p:cTn id="{ctn_id}" dur="{duration}" fill="hold"/>\n'
+        f"    <p:tgtEl>{_sp_tgt_xml(spid, paragraph_idx)}</p:tgtEl>\n"
+        f"    <p:attrNameLst><p:attrName>{attr}</p:attrName></p:attrNameLst>\n"
+        "  </p:cBhvr>\n"
+        "  <p:tavLst>\n"
+        f'    <p:tav tm="0"><p:val><p:strVal val="{start}"/></p:val></p:tav>\n'
+        f'    <p:tav tm="100000"><p:val><p:strVal val="{end}"/></p:val></p:tav>\n'
+        "  </p:tavLst>\n"
+        "</p:anim>\n"
+    )
+
+
+def _zoom_xml(
+    ids: list[int], spid: int, duration: int, entering: bool, paragraph_idx: int | None = None
+) -> str:
+    """Return the two `<p:anim>` of a Zoom: grow from nothing, or shrink to nothing."""
+    out = ""
+    for ctn_id, attr in zip(ids, ("ppt_w", "ppt_h")):
+        start, end = ("0", "#" + attr) if entering else ("#" + attr, "0")
+        out += _anim_size_xml(ctn_id, spid, duration, attr, start, end, paragraph_idx)
+    return out
 
 
 def _anim_scale_xml(ctn_id: int, spid: int, duration: int, x: int = 133333, y: int = 133333) -> str:
@@ -952,6 +1019,8 @@ class SlideAnimations:
             )
         bshape = cast("BaseShape", shape)
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
+        if preset == "fly_in":
+            preset_subtype = _DIRECTION_SUBTYPES.get(direction, preset_subtype)
         behaviors = self._entrance_behaviors(preset, bshape.shape_id, duration, direction)
         self._append_effect(
             bshape.shape_id, preset_id, "entr", preset_subtype, trigger, delay,
@@ -985,6 +1054,8 @@ class SlideAnimations:
         delay = _milliseconds(delay, "delay")
         duration = _milliseconds(duration, "duration")
         preset_id, preset_subtype = _EXIT_PRESETS[preset]
+        if preset == "fly_out":
+            preset_subtype = _DIRECTION_SUBTYPES.get(direction, preset_subtype)
         behaviors = self._exit_behaviors(preset, shape.shape_id, duration, direction)
         self._append_effect(
             shape.shape_id, preset_id, "exit", preset_subtype, trigger, delay, behaviors
@@ -1181,6 +1252,9 @@ class SlideAnimations:
                 + _anim_motion_xml(ids[2], spid, duration, "M 0 0.25 L 0 0 E")
             )
 
+        if preset == "zoom":
+            return vis_xml + _zoom_xml(ids[1:], spid, duration, entering=True)
+
         filter_str = _EFFECT_FILTER.get(preset, "fade")
         return vis_xml + _anim_effect_xml(ids[1], spid, duration, filter_str, "in")
 
@@ -1204,6 +1278,10 @@ class SlideAnimations:
                 + _anim_motion_xml(ids[1], spid, duration, "M 0 0 L 0 0.25 E")
                 + vis_xml
             )
+
+        if preset == "zoom":
+            vis_xml = _visibility_set_xml(ids[2], spid, visible=False)
+            return _zoom_xml(ids[:2], spid, duration, entering=False) + vis_xml
 
         filter_str = _EFFECT_FILTER.get(preset, "fade")
         vis_xml = _visibility_set_xml(ids[1], spid, visible=False)
@@ -1322,12 +1400,14 @@ class SlideAnimations:
         self, preset: str, spid: int, paragraph_idx: int, duration: int
     ) -> str:
         """Return the behaviors XML for a paragraph-targeted entrance preset."""
-        ids = self._reserve_ids(2)
+        ids = self._reserve_ids(3)
         vis_xml = _visibility_set_xml_for_paragraph(
             ids[0], spid, paragraph_idx, visible=True
         )
         if preset == "appear":
             return vis_xml
+        if preset == "zoom":
+            return vis_xml + _zoom_xml(ids[1:], spid, duration, True, paragraph_idx)
         filter_str = _EFFECT_FILTER.get(preset, "fade")
         return vis_xml + _anim_effect_xml_for_paragraph(
             ids[1], spid, paragraph_idx, duration, filter_str, "in"
@@ -2057,7 +2137,7 @@ class Exit:
         delay: int = 0,
         duration: int = 500,
     ) -> None:
-        """Shape fades and drifts upward out of view."""
+        """Shape fades out while sinking a little below its position."""
         slide.animations.add_exit(
             "float_out", shape, trigger=trigger, delay=delay, duration=duration
         )

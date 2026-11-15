@@ -1502,3 +1502,162 @@ class DescribeTimingValueChecks:
 
         with pytest.raises(TypeError, match="degrees"):
             Emphasis.spin(slide, shape, degrees="360")
+
+
+# ---------------------------------------------------------------------------
+# Preset identity
+# ---------------------------------------------------------------------------
+#
+# The (presetID, presetSubtype) pairs below are the ones LibreOffice's PPTX
+# import and export give for each effect: a deck of every preset was converted
+# with LibreOffice, and LibreOffice's own effect definitions were exported to
+# PPTX by it, to read the numbers both ways.
+
+_PRESET_IDENTITIES = [
+    ("entrance", "appear", {}, ("entr", "1", "0")),
+    ("entrance", "fade", {}, ("entr", "10", "0")),
+    ("entrance", "fly_in", {}, ("entr", "2", "4")),
+    ("entrance", "fly_in", {"direction": "bottom"}, ("entr", "2", "4")),
+    ("entrance", "fly_in", {"direction": "top"}, ("entr", "2", "1")),
+    ("entrance", "fly_in", {"direction": "left"}, ("entr", "2", "8")),
+    ("entrance", "fly_in", {"direction": "right"}, ("entr", "2", "2")),
+    ("entrance", "float_in", {}, ("entr", "42", "0")),
+    ("entrance", "wipe", {}, ("entr", "22", "8")),
+    ("entrance", "zoom", {}, ("entr", "23", "16")),
+    ("entrance", "wheel", {}, ("entr", "21", "1")),
+    ("entrance", "random_bars", {}, ("entr", "14", "5")),
+    ("exit", "disappear", {}, ("exit", "1", "0")),
+    ("exit", "fade", {}, ("exit", "10", "0")),
+    ("exit", "fly_out", {}, ("exit", "2", "4")),
+    ("exit", "fly_out", {"direction": "top"}, ("exit", "2", "1")),
+    ("exit", "fly_out", {"direction": "left"}, ("exit", "2", "8")),
+    ("exit", "fly_out", {"direction": "right"}, ("exit", "2", "2")),
+    ("exit", "float_out", {}, ("exit", "42", "0")),
+    ("exit", "wipe", {}, ("exit", "22", "8")),
+    ("exit", "zoom", {}, ("exit", "23", "32")),
+    ("exit", "wheel", {}, ("exit", "21", "1")),
+    ("exit", "random_bars", {}, ("exit", "14", "5")),
+    ("emphasis", "pulse", {}, ("emph", "26", "0")),
+    ("emphasis", "spin", {}, ("emph", "8", "0")),
+    ("emphasis", "teeter", {}, ("emph", "32", "0")),
+]
+
+_PRESET_IDS = [
+    "%s-%s-%s" % (kind, preset, kwargs.get("direction", "default"))
+    for kind, preset, kwargs, _ in _PRESET_IDENTITIES
+]
+
+# -- the filters LibreOffice recognises; any other name plays as no effect --
+_RECOGNISED_FILTERS = {"fade", "wipe(left)", "wheel(1)", "randombar(vertical)"}
+
+
+def _effect_ctn(slide):
+    (ctn,) = [c for c in slide._element.iter(qn("p:cTn")) if c.get("presetClass")]
+    return ctn
+
+
+class DescribePresetIdentity:
+    @pytest.mark.parametrize(
+        ("kind", "preset", "kwargs", "identity"),
+        _PRESET_IDENTITIES,
+        ids=_PRESET_IDS,
+    )
+    def it_names_each_preset_by_the_number_consumers_know_it_by(
+        self, slide_with_shape, kind, preset, kwargs, identity
+    ):
+        slide, shape = slide_with_shape
+
+        slide.animations.add(kind, preset, shape, **kwargs)
+
+        ctn = _effect_ctn(slide)
+        assert (ctn.get("presetClass"), ctn.get("presetID"), ctn.get("presetSubtype")) == identity
+
+    @pytest.mark.parametrize(
+        ("kind", "preset", "kwargs", "identity"),
+        _PRESET_IDENTITIES,
+        ids=_PRESET_IDS,
+    )
+    def it_reads_each_preset_back_by_its_name(
+        self, slide_with_shape, kind, preset, kwargs, identity
+    ):
+        slide, shape = slide_with_shape
+
+        slide.animations.add(kind, preset, shape, **kwargs)
+
+        (entry,) = slide.animations
+        assert (entry.kind, entry.preset) == (kind, preset)
+
+    @pytest.mark.parametrize(
+        ("preset_class", "preset_id", "subtype", "expected"),
+        [
+            # -- as PowerPoint numbers them, whoever wrote the effect --
+            ("entr", "22", "1", "wipe"),
+            ("entr", "2", "9", "fly_in"),
+            ("exit", "23", "16", "zoom"),
+            ("emph", "8", "0", "spin"),
+            # -- the numbers earlier releases wrote stand for other effects --
+            ("entr", "8", "2", None),  # Diamond
+            ("entr", "12", "1", None),  # Peek In
+            ("emph", "13", "0", None),
+        ],
+    )
+    def it_reads_a_preset_by_its_number_whatever_wrote_it(
+        self, slide_with_shape, preset_class, preset_id, subtype, expected
+    ):
+        slide, shape = slide_with_shape
+        Entrance.fade(slide, shape)
+        ctn = _effect_ctn(slide)
+        ctn.set("presetClass", preset_class)
+        ctn.set("presetID", preset_id)
+        ctn.set("presetSubtype", subtype)
+
+        assert slide.animations.list()[0].preset == expected
+
+    @pytest.mark.parametrize("kind", ["entrance", "exit"])
+    @pytest.mark.parametrize("preset", ["fade", "wipe", "wheel", "random_bars"])
+    def it_only_writes_filters_that_are_recognised(self, slide_with_shape, kind, preset):
+        slide, shape = slide_with_shape
+
+        slide.animations.add(kind, preset, shape)
+
+        filters = {e.get("filter") for e in slide._element.iter(qn("p:animEffect"))}
+        assert filters
+        assert filters <= _RECOGNISED_FILTERS
+
+    @pytest.mark.parametrize(
+        ("kind", "values"),
+        [
+            ("entrance", [("0", "#ppt_w"), ("0", "#ppt_h")]),
+            ("exit", [("#ppt_w", "0"), ("#ppt_h", "0")]),
+        ],
+    )
+    def it_zooms_by_animating_the_width_and_height(self, slide_with_shape, kind, values):
+        # There is no zoom filter: "zoom(dir=in)" played as no effect at all.
+        slide, shape = slide_with_shape
+
+        slide.animations.add(kind, "zoom", shape)
+
+        assert list(slide._element.iter(qn("p:animEffect"))) == []
+        anims = list(slide._element.iter(qn("p:anim")))
+        assert [a.find("p:cBhvr/p:attrNameLst/p:attrName", {"p": P_NS}).text for a in anims] == [
+            "ppt_w",
+            "ppt_h",
+        ]
+        assert [
+            tuple(v.get("val") for v in a.iter(qn("p:strVal"))) for a in anims
+        ] == values
+        assert {a.find("p:cBhvr/p:cTn", {"p": P_NS}).get("dur") for a in anims} == {"500"}
+
+    def it_zooms_a_paragraph_at_a_time(self, slide_with_shape):
+        slide, _ = slide_with_shape
+        box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(4), Inches(1))
+        box.text_frame.text = "one"
+        box.text_frame.add_paragraph().text = "two"
+
+        slide.animations.add_entrance("zoom", box, by_paragraph=True)
+
+        targets = [
+            a.find("p:cBhvr/p:tgtEl/p:spTgt/p:txEl/p:pRg", {"p": P_NS}).get("st")
+            for a in slide._element.iter(qn("p:anim"))
+        ]
+        assert targets == ["0", "0", "1", "1"]

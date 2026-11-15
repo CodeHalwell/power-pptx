@@ -168,6 +168,31 @@ class DescribeTimingTreeSchemaValidity:
 
         assert_schema_valid(_saved(prs))
 
+    def it_stays_valid_with_every_preset_in_every_direction(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(1), Inches(1))
+        box = slide.shapes.add_textbox(Inches(3), Inches(1), Inches(3), Inches(1))
+        box.text_frame.text = "one"
+        box.text_frame.add_paragraph().text = "two"
+        anims = slide.animations
+        for preset in ("appear", "fade", "float_in", "wipe", "zoom", "wheel", "random_bars"):
+            anims.add_entrance(preset, shape)
+        for preset in ("disappear", "fade", "float_out", "wipe", "zoom", "wheel", "random_bars"):
+            anims.add_exit(preset, shape)
+        for direction in ("bottom", "top", "left", "right"):
+            anims.add_entrance("fly_in", shape, direction=direction)
+            anims.add_exit("fly_out", shape, direction=direction)
+        for preset in ("pulse", "spin", "teeter"):
+            anims.add_emphasis(preset, shape)
+        for preset in ("appear", "fade", "wipe", "zoom", "wheel", "random_bars"):
+            anims.add_entrance(preset, box, by_paragraph=True, easing="ease_out")
+
+        pptx = _saved(prs)
+
+        assert_schema_valid(pptx)
+        assert_schema_valid(_saved(Presentation(io.BytesIO(pptx))))
+
     def it_stays_valid_when_times_and_angles_come_from_float_arithmetic(self):
         # `dur` and `delay` are unsigned integers and a rotation is a whole
         # number of 60000ths of a degree; "500.0" in any of them is invalid.
