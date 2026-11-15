@@ -1348,6 +1348,36 @@ class DescribeAppendingToAMainSequence:
         (ctn,) = [c for c in slide._element.iter(qn("p:cTn")) if c.get("accel") is not None]
         assert (ctn.get("accel"), ctn.get("decel")) == ("30000", "30000")
 
+    def it_files_the_first_click_step_ahead_of_the_sequence_sub_list(self):
+        from power_pptx.oxml import parse_xml
+
+        slide, (a,) = _animated_slide(1, animated=0)
+        (main_seq,) = slide._element.xpath("//p:cTn[@nodeType='mainSeq']")
+        main_seq.append(
+            parse_xml('<p:subTnLst xmlns:p="%s"><p:par><p:cTn id="9"/></p:par></p:subTnLst>' % P_NS)
+        )
+
+        Entrance.fade(slide, a)
+
+        assert [child.tag for child in main_seq] == [qn("p:childTnLst"), qn("p:subTnLst")]
+        (step,) = _main_sequence_steps(slide)
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert _start_delays(step) == ["indefinite"]
+
+    @pytest.mark.parametrize("trigger", [Trigger.WITH_PREVIOUS, Trigger.AFTER_PREVIOUS])
+    def it_opens_a_batch_in_a_click_step_that_has_none(self, trigger):
+        slide, (a, b) = _animated_slide(2, animated=1)
+        (step,) = _main_sequence_steps(slide)
+        step_ctn = step.find(qn("p:cTn"))
+        step_ctn.remove(step_ctn.find(qn("p:childTnLst")))
+
+        Entrance.fade(slide, b, trigger=trigger)
+
+        assert [child.tag for child in step_ctn] == [qn("p:stCondLst"), qn("p:childTnLst")]
+        batches = step.findall("p:cTn/p:childTnLst/p:par", {"p": P_NS})
+        assert [_start_delays(batch) for batch in batches] == [["0"]]
+        assert [(e.shape_id, e.trigger) for e in slide.animations] == [(b.shape_id, trigger)]
+
     def but_a_slide_without_a_main_sequence_keeps_its_effects_under_the_root(self):
         slide, (a,) = _slide_with_shapes(1)
 
