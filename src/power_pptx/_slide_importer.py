@@ -168,9 +168,6 @@ def _resolve_import_arguments(
     either order, plus the two legacy keywords.
     """
     from power_pptx.parts.presentation import PresentationPart
-    from power_pptx.parts.slide import SlidePart
-    from power_pptx.presentation import Presentation
-    from power_pptx.slide import Slide
 
     slide_part: SlidePart | None = None
     prs_part: PresentationPart | None = None
@@ -178,25 +175,38 @@ def _resolve_import_arguments(
     for arg in (first, second, src_slide_part, dst_prs_part):
         if arg is None:
             continue
-        part = arg.part if isinstance(arg, (Presentation, Slide)) else arg
+        part = _import_argument_part(arg)
         if isinstance(part, PresentationPart):
             if prs_part is not None:
                 raise TypeError("import_slide() got more than one destination presentation")
             prs_part = part
-        elif isinstance(part, SlidePart):
+        else:
             if slide_part is not None:
                 raise TypeError("import_slide() got more than one slide to import")
             slide_part = part
-        else:
-            raise TypeError(
-                "import_slide() takes a Presentation and a Slide, got %s" % type(arg).__name__
-            )
 
     if prs_part is None:
         raise TypeError("import_slide() needs the destination Presentation")
     if slide_part is None:
         raise TypeError("import_slide() needs the Slide to import")
     return slide_part, prs_part
+
+
+def _import_argument_part(arg: object) -> SlidePart | PresentationPart:
+    """Return the slide or presentation part behind one argument of `import_slide()`.
+
+    *arg* is a |Presentation| or |Slide| proxy, or one of their parts; anything
+    else raises |TypeError|.
+    """
+    from power_pptx.parts.presentation import PresentationPart
+    from power_pptx.parts.slide import SlidePart
+    from power_pptx.presentation import Presentation
+    from power_pptx.slide import Slide
+
+    part = arg.part if isinstance(arg, (Presentation, Slide)) else arg
+    if isinstance(part, (PresentationPart, SlidePart)):
+        return part
+    raise TypeError("import_slide() takes a Presentation and a Slide, got %s" % type(arg).__name__)
 
 
 # ---------------------------------------------------------------------------
