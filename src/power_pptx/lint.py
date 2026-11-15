@@ -1138,50 +1138,130 @@ def _effective_bbox(shape: BaseShape) -> tuple[int, int, int, int]:
     same pattern and should be folded in.
     """
     left, top, right, bottom = _shape_bbox(shape)
-    try:
-        shadow = shape.shadow
-    except Exception:
-        return left, top, right, bottom
-    if shadow is None:
-        return left, top, right, bottom
-    try:
-        blur = shadow.blur_radius
-    except Exception:
-        return left, top, right, bottom
-    if blur is None:
-        return left, top, right, bottom
-    inflate = int(int(blur) / 2)
+    inflate = _shadow_inflation(shape)
     if inflate <= 0:
         return left, top, right, bottom
     return left - inflate, top - inflate, right + inflate, bottom + inflate
 
 
+def _shadow_inflation(shape: BaseShape) -> int:
+    """Return the EMU a shape's shadow adds on each side (half its blur radius)."""
+    try:
+        shadow = shape.shadow
+        blur = None if shadow is None else shadow.blur_radius
+    except Exception:
+        return 0
+    if blur is None:
+        return 0
+    return max(0, int(int(blur) / 2))
+
+
+class _ShapeInfo:
+    """What the checks need to know about one top-level shape, read once.
+
+    Every cross-shape check used to go back to the XML for each *pair* of
+    shapes — the id lookup behind ``allow_overlap_with`` alone is an XPath
+    query — which made linting a busy slide quadratic.  Reading each shape's
+    box and lint metadata up front keeps the pairwise work to integer
+    comparisons.
+    """
+
+    __slots__ = (
+        "shape",
+        "box",
+        "bleed_box",
+        "group",
+        "allow",
+        "layer",
+        "skip",
+        "shape_id",
+        "_backdrop",
+    )
+
+    def __init__(self, shape: BaseShape, include_effect_bleed: bool = False):
+        self.shape = shape
+        #: ``(left, top, right, bottom)`` the shape occupies.
+        self.box = _shape_bbox(shape)
+        #: `box` widened by the shadow, when effect bleed is being checked.
+        self.bleed_box = self.box
+        if include_effect_bleed:
+            inflate = _shadow_inflation(shape)
+            if inflate > 0:
+                left, top, right, bottom = self.box
+                self.bleed_box = (left - inflate, top - inflate, right + inflate, bottom + inflate)
+        cNvPr = _shape_cNvPr(shape)
+        self.group = _lint_group_of(shape, cNvPr)
+        self.shape_id: int | None = None
+        if cNvPr is None:
+            self.allow: frozenset[int] = frozenset()
+            self.layer: tuple[str | None, str | None] = (None, None)
+            self.skip: frozenset[str] = frozenset()
+        else:
+            self.allow = _read_lint_allow(cNvPr)
+            self.layer = _read_lint_layer(cNvPr)
+            self.skip = _read_lint_skip(cNvPr)
+            self.shape_id = _int_attr(cNvPr, "id")
+        self._backdrop: Any = _UNSET
+
+    @property
+    def backdrop(self) -> tuple[str, Any]:
+        """How this shape paints over what is beneath it: ``(kind, rgb)``.
+
+        `kind` is ``"clear"`` (nothing painted), ``"opaque"`` (a solid,
+        fully opaque fill of colour `rgb`, which is ``None`` when the colour
+        cannot be resolved) or ``"unknown"`` (gradient, picture, translucent
+        fill, or a shape with no fill to ask about).
+        """
+        if self._backdrop is _UNSET:
+            self._backdrop = _fill_backdrop(self.shape)
+        return self._backdrop
+
+
+def _overlapping_pairs(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, int]]:
+    """Return the index pairs ``(i, j)``, ``i < j``, of boxes that share area.
+
+    A sweep along the x-axis: only shapes whose horizontal spans overlap are
+    ever compared, so a slide of many shapes that mostly do not touch costs
+    little more than the sort.  Pairs come back in ``(i, j)`` order, which is
+    shape-tree order — the order the pairwise checks report in.
+    """
+    order = sorted(
+        (k for k, box in enumerate(boxes) if box[2] > box[0] and box[3] > box[1]),
+        key=lambda k: boxes[k][0],
+    )
+    pairs: list[tuple[int, int]] = []
+    active: list[int] = []
+    for k in order:
+        left, top, _right, bottom = boxes[k]
+        active = [a for a in active if boxes[a][2] > left]
+        for a in active:
+            if boxes[a][1] < bottom and top < boxes[a][3]:
+                pairs.append((a, k) if a < k else (k, a))
+        active.append(k)
+    pairs.sort()
+    return pairs
+
+
 def _check_off_slide(
-    shape: BaseShape,
+    info: _ShapeInfo,
     slide_w: Length,
     slide_h: Length,
-    *,
-    bbox_fn=None,
+    use_bleed: bool = False,
 ) -> list[LintIssue]:
-    """Return OffSlide issues for *shape* if it exceeds the slide boundary.
+    """Return OffSlide issues for the shape in *info* if it exceeds the slide.
 
-    *bbox_fn* picks the bbox provider; defaults to :func:`_shape_bbox`.
-    Pass :func:`_effective_bbox` to inflate by shadow blur radius.  When
-    a non-default *bbox_fn* is used, edges that exceed the slide *only*
-    because of effect bleed are emitted as :class:`OffSlideShadow`.
+    With *use_bleed* the box widened by the shadow blur is tested; edges
+    that exceed the slide *only* because of that bleed are emitted as
+    :class:`OffSlideShadow`.
     """
     issues: list[LintIssue] = []
-    bbox_fn = bbox_fn or _shape_bbox
-    left, top, right, bottom = bbox_fn(shape)
-    raw = (
-        (left, top, right, bottom)
-        if bbox_fn is _shape_bbox
-        else _shape_bbox(shape)
-    )
+    shape = info.shape
+    raw = info.box
+    left, top, right, bottom = info.bleed_box if use_bleed else raw
     sw, sh = int(slide_w), int(slide_h)
 
     def _cls(side: str, raw_off: bool) -> LintIssue:
-        if bbox_fn is _shape_bbox or raw_off:
+        if not use_bleed or raw_off:
             return OffSlide(shape, side)
         return OffSlideShadow(shape, side)
 
@@ -2369,21 +2449,24 @@ def _shape_lint_group(shape: BaseShape) -> str | None:
     ``shape.lint_group = ""`` (empty string is treated as a no-group
     sentinel).
     """
-    try:
-        cNvPr = shape._element._nvXxPr.cNvPr  # pyright: ignore[reportPrivateUsage]
-    except AttributeError:
-        cNvPr = None
+    return _lint_group_of(shape, _shape_cNvPr(shape))
+
+
+def _lint_group_of(shape: BaseShape, cNvPr) -> str | None:
+    """:func:`_shape_lint_group` for a caller that already holds *cNvPr*."""
     if cNvPr is not None:
         explicit = _read_lint_group(cNvPr)
         if explicit is not None:
             # Empty-string explicit tag opts the shape *out* of any
             # implicit name-prefix group.
             return explicit or None
-    # Name-prefix fallback.
-    try:
-        name = shape.name
-    except Exception:
-        return None
+        name = cNvPr.get("name")
+    else:
+        # Name-prefix fallback.
+        try:
+            name = shape.name
+        except Exception:
+            return None
     if name and "." in name:
         prefix = name.split(".", 1)[0].strip()
         if prefix:
@@ -2601,12 +2684,7 @@ def _shape_lint_layer(shape: BaseShape) -> tuple[str | None, str | None]:
     return _read_lint_layer(cNvPr)
 
 
-def _overlap_allowed(
-    shape_a: BaseShape,
-    shape_b: BaseShape,
-    allow_a: frozenset[int],
-    allow_b: frozenset[int],
-) -> bool:
+def _overlap_allowed(a: _ShapeInfo, b: _ShapeInfo) -> bool:
     """Return True if either shape has cleared the other to overlap it.
 
     The relationship is declared one-sided but read symmetrically: it
@@ -2615,10 +2693,9 @@ def _overlap_allowed(
     about it ("the badge is allowed to sit on the card") without
     forcing them to tag both ends.
     """
-    id_a, id_b = _shape_id(shape_a), _shape_id(shape_b)
-    if id_b is not None and id_b in allow_a:
+    if a.allow and b.shape_id is not None and b.shape_id in a.allow:
         return True
-    return id_a is not None and id_a in allow_b
+    return bool(b.allow) and a.shape_id is not None and a.shape_id in b.allow
 
 
 def _bbox_overlap(
@@ -2728,9 +2805,9 @@ def _layers_consistent(
 
 
 def _check_layer_order(
-    shapes: Sequence[BaseShape],
-    *,
-    bbox_fn=None,
+    infos: Sequence[_ShapeInfo],
+    pairs: Sequence[tuple[int, int]],
+    use_bleed: bool = False,
 ) -> list[LintIssue]:
     """Return LayerOrderViolation issues for contradicted layer hints.
 
@@ -2743,39 +2820,40 @@ def _check_layer_order(
     reported as the bug.
 
     Only overlapping pairs are considered: a layer declaration between
-    shapes that never touch is inert, not wrong.
+    shapes that never touch is inert, not wrong.  *pairs* are the
+    overlapping index pairs from :func:`_overlapping_pairs`.
     """
-    bbox_fn = bbox_fn or _shape_bbox
-    layers = [_shape_lint_layer(s) for s in shapes]
-    # Nothing declared anywhere — skip the O(n^2) walk entirely.
-    if not any(name or above for name, above in layers):
+    # Nothing declared anywhere — nothing to contradict.
+    if not any(name or above for name, above in (info.layer for info in infos)):
         return []
 
-    bboxes = [bbox_fn(s) for s in shapes]
     issues: list[LintIssue] = []
-    for i in range(len(shapes)):
-        _name_i, above_i = layers[i]
-        if not above_i:
+    for i, j in pairs:
+        lower, upper = infos[i], infos[j]
+        above_i = lower.layer[1]
+        if not above_i or upper.layer[0] != above_i:
             continue
-        for j in range(i + 1, len(shapes)):
-            name_j, _above_j = layers[j]
-            if not name_j or name_j != above_i:
-                continue
-            # ``i`` claims to sit above layer ``name_j``, but ``j`` is
-            # painted later and therefore covers it.
-            _area, pct = _bbox_overlap(bboxes[i], bboxes[j])
-            if pct < _COLLISION_THRESHOLD:
-                continue
-            issues.append(LayerOrderViolation(shapes[i], shapes[j], above_i))
+        # ``i`` claims to sit above layer ``name_j``, but ``j`` is
+        # painted later and therefore covers it.
+        _area, pct = _bbox_overlap(
+            lower.bleed_box if use_bleed else lower.box,
+            upper.bleed_box if use_bleed else upper.box,
+        )
+        if pct < _COLLISION_THRESHOLD:
+            continue
+        issues.append(LayerOrderViolation(lower.shape, upper.shape, above_i))
     return issues
 
 
 def _check_collisions(
-    shapes: Sequence[BaseShape],
-    *,
-    bbox_fn=None,
+    infos: Sequence[_ShapeInfo],
+    pairs: Sequence[tuple[int, int]],
+    use_bleed: bool = False,
 ) -> list[LintIssue]:
     """Return ShapeCollision issues for pairs of overlapping shapes.
+
+    *pairs* are the overlapping index pairs from :func:`_overlapping_pairs`,
+    so shapes that do not touch are never looked at.
 
     Shapes sharing a non-empty ``lint_group`` are treated as intentionally
     layered and never produce a collision warning — group suppression
@@ -2795,93 +2873,83 @@ def _check_collisions(
       :func:`_check_layer_order`, which reports the *inconsistent* case
       as a :class:`LayerOrderViolation` error).
 
-    *bbox_fn* picks the bbox provider; defaults to :func:`_shape_bbox`.
-    Pass :func:`_effective_bbox` to inflate by shadow blur radius.  When
-    a non-default *bbox_fn* is supplied, collisions that would *not*
-    fire on the raw bbox are emitted as the ``ShapeCollisionShadow``
-    subclass so callers can opt them out separately via ``lint_skip``.
+    With *use_bleed* each box is widened by its shadow blur radius, and
+    collisions that would *not* fire on the raw boxes are emitted as the
+    ``ShapeCollisionShadow`` subclass so callers can opt them out
+    separately via ``lint_skip``.
     """
     issues: list[LintIssue] = []
-    bbox_fn = bbox_fn or _shape_bbox
-    bboxes = [bbox_fn(s) for s in shapes]
-    # Only compute raw bboxes when bleed is enabled — otherwise the
-    # raw and effective bboxes are the same and there's nothing to
-    # compare against.
-    using_bleed = bbox_fn is not _shape_bbox
-    raw_bboxes = [_shape_bbox(s) for s in shapes] if using_bleed else None
-    groups = [_shape_lint_group(s) for s in shapes]
-    allows = [_shape_lint_allow(s) for s in shapes]
-    layers = [_shape_lint_layer(s) for s in shapes]
 
-    for i in range(len(shapes)):
-        for j in range(i + 1, len(shapes)):
-            # Suppress collisions inside a designer-tagged group *before*
-            # scoring — a tagged group is "intentional" by definition.
-            gi, gj = groups[i], groups[j]
-            if gi is not None and gi == gj:
-                continue
+    for i, j in pairs:
+        a, b = infos[i], infos[j]
+        # Suppress collisions inside a designer-tagged group *before*
+        # scoring — a tagged group is "intentional" by definition.
+        gi, gj = a.group, b.group
+        if gi is not None and gi == gj:
+            continue
 
-            # Explicit pairwise allowance — one side naming the other is
-            # enough. Also intent, so it too runs before scoring.
-            if _overlap_allowed(shapes[i], shapes[j], allows[i], allows[j]):
-                continue
+        # Explicit pairwise allowance — one side naming the other is
+        # enough. Also intent, so it too runs before scoring.
+        if _overlap_allowed(a, b):
+            continue
 
-            # Layer hints: an overlap that agrees with a declared
-            # layer relationship is intentional. Disagreement is *not*
-            # silently allowed — it surfaces as a LayerOrderViolation
-            # from _check_layer_order, so staying quiet here would drop
-            # the pair entirely.
-            if _layers_consistent(layers[i], layers[j]):
-                continue
+        # Layer hints: an overlap that agrees with a declared
+        # layer relationship is intentional. Disagreement is *not*
+        # silently allowed — it surfaces as a LayerOrderViolation
+        # from _check_layer_order, so staying quiet here would drop
+        # the pair entirely.
+        if _layers_consistent(a.layer, b.layer):
+            continue
 
-            area, pct = _bbox_overlap(bboxes[i], bboxes[j])
-            if pct < _COLLISION_THRESHOLD:
-                continue
+        box_i = a.bleed_box if use_bleed else a.box
+        box_j = b.bleed_box if use_bleed else b.box
+        area, pct = _bbox_overlap(box_i, box_j)
+        if pct < _COLLISION_THRESHOLD:
+            continue
 
-            # Auto-suppress the "small shape stacked on top of a larger
-            # backing card" pattern (badge-on-card, eyebrow-on-rectangle,
-            # accent-bar-on-card).  The combination of (a) the smaller
-            # shape is *strictly* contained inside the larger (size
-            # ratio < 0.9 — equal-bbox pairs are still classified as
-            # ``matched`` so callers can audit them), and (b) the
-            # smaller shape has a higher z-order — i.e. it's drawn
-            # later in spTree (higher index in this iteration) — is the
-            # canonical layered-design layout.  See IMPROVEMENT_PLAN.md
-            # item 12.
-            ai_l, ai_t, ai_r, ai_b = bboxes[i]
-            aj_l, aj_t, aj_r, aj_b = bboxes[j]
-            area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
-            area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
-            size_ratio = min(area_i, area_j) / max(area_i, area_j)
-            if size_ratio < 0.9 and _bbox_contains(bboxes[i], bboxes[j]) and area_j < area_i:
-                # j is the smaller shape and it's drawn on top of i
-                # (j > i in spTree order); skip. A smaller i would be
-                # underneath j, so that case remains a collision.
-                continue
+        # Auto-suppress the "small shape stacked on top of a larger
+        # backing card" pattern (badge-on-card, eyebrow-on-rectangle,
+        # accent-bar-on-card).  The combination of (a) the smaller
+        # shape is *strictly* contained inside the larger (size
+        # ratio < 0.9 — equal-bbox pairs are still classified as
+        # ``matched`` so callers can audit them), and (b) the
+        # smaller shape has a higher z-order — i.e. it's drawn
+        # later in spTree (higher index in this iteration) — is the
+        # canonical layered-design layout.  See IMPROVEMENT_PLAN.md
+        # item 12.
+        ai_l, ai_t, ai_r, ai_b = box_i
+        aj_l, aj_t, aj_r, aj_b = box_j
+        area_i = max(1, (ai_r - ai_l) * (ai_b - ai_t))
+        area_j = max(1, (aj_r - aj_l) * (aj_b - aj_t))
+        size_ratio = min(area_i, area_j) / max(area_i, area_j)
+        if size_ratio < 0.9 and _bbox_contains(box_i, box_j) and area_j < area_i:
+            # j is the smaller shape and it's drawn on top of i
+            # (j > i in spTree order); skip. A smaller i would be
+            # underneath j, so that case remains a collision.
+            continue
 
-            kind, score = _classify_collision(bboxes[i], bboxes[j], pct)
+        kind, score = _classify_collision(box_i, box_j, pct)
 
-            # Decide whether the inflated bbox is what triggered the
-            # collision: if the raw bboxes don't intersect by at least
-            # the threshold, this is bleed-only.
-            cls: type[ShapeCollision] = ShapeCollision
-            if using_bleed:
-                assert raw_bboxes is not None  # narrows type for mypy
-                _, raw_pct = _bbox_overlap(raw_bboxes[i], raw_bboxes[j])
-                if raw_pct < _COLLISION_THRESHOLD:
-                    cls = ShapeCollisionShadow
+        # Decide whether the inflated bbox is what triggered the
+        # collision: if the raw bboxes don't intersect by at least
+        # the threshold, this is bleed-only.
+        cls: type[ShapeCollision] = ShapeCollision
+        if use_bleed:
+            _, raw_pct = _bbox_overlap(a.box, b.box)
+            if raw_pct < _COLLISION_THRESHOLD:
+                cls = ShapeCollisionShadow
 
-            issues.append(
-                cls(
-                    shapes[i],
-                    shapes[j],
-                    intersection_area=area,
-                    intersection_pct=pct,
-                    groups=(gi, gj),
-                    score=score,
-                    kind=kind,
-                )
+        issues.append(
+            cls(
+                a.shape,
+                b.shape,
+                intersection_area=area,
+                intersection_pct=pct,
+                groups=(gi, gj),
+                score=score,
+                kind=kind,
             )
+        )
 
     return issues
 
@@ -2897,27 +2965,33 @@ _PT_TO_EMU = 12700
 def _check_min_font_size(
     shape: BaseShape, threshold_pt: float = _DEFAULT_MIN_FONT_PT
 ) -> list[LintIssue]:
-    """Return a single MinFontSize issue if any run is below *threshold_pt*."""
+    """Return a single MinFontSize issue if any run is below *threshold_pt*.
+
+    Only sizes set on a run are considered.  The runs are read from the XML:
+    ``shape.text_frame`` would add a ``<p:txBody>`` to a shape without one.
+    """
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
+    try:
+        if not shape.has_text_frame:
+            return issues
+        tx_body = shape._element.txBody  # pyright: ignore[reportPrivateUsage]
+    except Exception:
         return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
+    if tx_body is None:
+        return issues
     smallest: float | None = None
-    for paragraph in tf.paragraphs:
-        for run in paragraph.runs:
-            if run._r.rPr is None:
-                continue
-            try:
-                size = run.font.size
-            except (AttributeError, ValueError):
-                continue
-            if size is None:
-                continue
-            pt = float(size) / _PT_TO_EMU
-            if pt > 0 and (smallest is None or pt < smallest):
-                smallest = pt
-    if smallest is not None and smallest < threshold_pt:
-        issues.append(MinFontSize(shape, smallest, threshold_pt))
+    for run in tx_body.iter(_T_R):
+        rpr = run.find(_T_RPR)
+        size = None if rpr is None else _int_attr(rpr, "sz")
+        if size is None or size <= 0:
+            continue
+        if smallest is None or size < smallest:
+            smallest = size
+    if smallest is None:
+        return issues
+    pt = smallest / 100.0
+    if pt < threshold_pt:
+        issues.append(MinFontSize(shape, pt, threshold_pt))
     return issues
 
 
@@ -2958,13 +3032,14 @@ def _cluster_edges(values: list[int], tol: int) -> list[tuple[int, int]]:
     return [(int(sum(c) / len(c) + 0.5), len(c)) for c in clusters]
 
 
-def _check_off_grid_drift(shapes: Sequence[BaseShape]) -> list[LintIssue]:
+def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
     """Return OffGridDrift issues for shapes whose edges are slightly off a grid."""
     issues: list[LintIssue] = []
-    if len(shapes) < _GRID_MIN_CLUSTER + 1:
+    if len(infos) < _GRID_MIN_CLUSTER + 1:
         return issues
 
-    bboxes = [_shape_bbox(s) for s in shapes]
+    shapes = [info.shape for info in infos]
+    bboxes = [info.box for info in infos]
 
     for axis_name, edge_idx in (("left", 0), ("top", 1)):
         edges = [b[edge_idx] for b in bboxes]
@@ -3061,88 +3136,151 @@ def _slide_background_rgb(slide: Slide):
         return None
 
 
-def _text_background_rgb(shape: BaseShape, slide: Slide):
-    """Resolve an opaque RGB backdrop without treating a card as transparent.
+def _fill_backdrop(shape: BaseShape) -> tuple[str, Any]:
+    """Classify how *shape*'s fill paints over what lies beneath it.
+
+    Returns ``(kind, rgb)``; see :attr:`_ShapeInfo.backdrop` for the kinds.
+    """
+    from power_pptx.enum.dml import MSO_FILL_TYPE
+
+    try:
+        fill = shape.fill  # type: ignore[attr-defined]
+        fill_type = fill.type
+        if fill_type in (None, MSO_FILL_TYPE.BACKGROUND):
+            return ("clear", None)
+        if fill_type == MSO_FILL_TYPE.SOLID:
+            alpha = fill.fore_color.alpha
+            if alpha == 0.0:
+                return ("clear", None)
+            if alpha == 1.0:
+                return ("opaque", _resolve_solid_rgb(fill))
+    except (AttributeError, NotImplementedError):
+        pass
+    return ("unknown", None)
+
+
+class _Backdrops:
+    """Resolves the opaque colour painted behind each shape's text.
 
     Text boxes commonly have no fill of their own. Looking straight through
     their containing card to the slide background produces false contrast
     warnings (and misses dark text on dark cards). Respect painting order.
     Skip ambiguous gradients, translucent fills, pictures, and partial covers
     rather than claiming a contrast ratio for a background we cannot resolve.
+
+    Built once per slide: each shape's fill is classified at most once and
+    only shapes that actually overlap the text are consulted, so resolving
+    every text shape on a busy slide stays cheap.  The accessibility audit
+    uses the same resolver, so the two never disagree about a backdrop.
     """
-    from power_pptx.enum.dml import MSO_FILL_TYPE
 
-    try:
-        fill = shape.fill  # type: ignore[attr-defined]
-        if fill.type not in (None, MSO_FILL_TYPE.BACKGROUND):
-            if fill.type == MSO_FILL_TYPE.SOLID and fill.fore_color.alpha == 1.0:
-                return _resolve_solid_rgb(fill)
+    def __init__(
+        self,
+        slide: Slide,
+        infos: Sequence[_ShapeInfo] | None = None,
+        pairs: Sequence[tuple[int, int]] | None = None,
+    ):
+        if infos is None:
+            infos = [_ShapeInfo(shape) for shape in slide.shapes]
+        if pairs is None:
+            pairs = _overlapping_pairs([info.box for info in infos])
+        self._slide = slide
+        self._infos = infos
+        self._slide_rgb: Any = _UNSET
+        # index of each shape, and the indexes of the shapes painted beneath it
+        self._index = {
+            id(info.shape._element): n  # pyright: ignore[reportPrivateUsage]
+            for n, info in enumerate(infos)
+        }
+        self._beneath: dict[int, list[int]] = {}
+        for i, j in pairs:
+            self._beneath.setdefault(j, []).append(i)
+
+    def slide_rgb(self):
+        """RGB of the slide's own solid background, or ``None``."""
+        if self._slide_rgb is _UNSET:
+            self._slide_rgb = _slide_background_rgb(self._slide)
+        return self._slide_rgb
+
+    def rgb_behind(self, shape: BaseShape):
+        """Return the RGB behind *shape*'s text, or ``None`` if unresolvable."""
+        index = self._index.get(id(shape._element))  # pyright: ignore[reportPrivateUsage]
+        kind, rgb = _fill_backdrop(shape) if index is None else self._infos[index].backdrop
+        if kind == "opaque":
+            return rgb
+        if kind != "clear":
             return None
-    except (AttributeError, NotImplementedError):
-        return None
+        if index is None:
+            # A shape inside a group: what the group is painted over is not
+            # modelled, so only the slide background can be offered.
+            return self.slide_rgb()
+        bounds = self._infos[index].box
+        for k in reversed(self._beneath.get(index, ())):  # nearest beneath first
+            other = self._infos[k]
+            box = other.box
+            if bounds[0] >= box[2] or box[0] >= bounds[2]:
+                continue
+            if bounds[1] >= box[3] or box[1] >= bounds[3]:
+                continue
+            kind, rgb = other.backdrop
+            if kind == "clear":
+                continue
+            if kind == "opaque" and _bbox_contains(box, bounds) and not _is_rotated(other.shape):
+                return rgb
+            return None
+        return self.slide_rgb()
 
-    preceding = []
-    for candidate in slide.shapes:
-        if candidate._element is shape._element:  # pyright: ignore[reportPrivateUsage]
-            break
-        preceding.append(candidate)
-    bounds = _shape_bbox(shape)
-    for candidate in reversed(preceding):
-        other = _shape_bbox(candidate)
-        if bounds[0] >= other[2] or other[0] >= bounds[2]:
-            continue
-        if bounds[1] >= other[3] or other[1] >= bounds[3]:
+
+def _is_rotated(shape: BaseShape) -> bool:
+    try:
+        return bool(shape.rotation)
+    except Exception:
+        return False
+
+
+def _first_run_rgb(tx_body):
+    """Return the first explicit RGB font colour in *tx_body*, or ``None``.
+
+    Reads ``<a:rPr>`` where it exists: ``run.font`` would add an empty one to
+    every run that has none.
+    """
+    from power_pptx.text.text import Font
+
+    for run in tx_body.iter(_T_R):
+        rpr = run.find(_T_RPR)
+        if rpr is None:
             continue
         try:
-            fill = candidate.fill
-            if fill.type in (None, MSO_FILL_TYPE.BACKGROUND):
-                continue
-            if fill.type == MSO_FILL_TYPE.SOLID and fill.fore_color.alpha == 0.0:
-                continue
-            if (
-                _bbox_contains(other, bounds)
-                and not candidate.rotation
-                and fill.type == MSO_FILL_TYPE.SOLID
-                and fill.fore_color.alpha == 1.0
-            ):
-                return _resolve_solid_rgb(fill)
-        except (AttributeError, NotImplementedError):
-            pass
-        return None
-    return _slide_background_rgb(slide)
+            rgb = Font(rpr).color.rgb
+        except (AttributeError, ValueError):
+            rgb = None
+        if rgb is not None:
+            return rgb
+    return None
 
 
-def _check_low_contrast(shape: BaseShape, slide: Slide) -> list[LintIssue]:
+def _text_background_rgb(shape: BaseShape, slide: Slide):
+    """Resolve the opaque RGB behind *shape*'s text; see :class:`_Backdrops`."""
+    return _Backdrops(slide).rgb_behind(shape)
+
+
+def _check_low_contrast(shape: BaseShape, backdrops: _Backdrops) -> list[LintIssue]:
     """Return a LowContrast issue if shape's text has poor contrast against its fill."""
     issues: list[LintIssue] = []
-    if not shape.has_text_frame:
-        return issues
-    tf = shape.text_frame  # type: ignore[attr-defined]
-    if not tf.text.strip():
-        return issues
-
-    # Pick the first run's font color (best-effort).
-    text_rgb = None
     try:
-        for paragraph in tf.paragraphs:
-            for run in paragraph.runs:
-                if run._r.rPr is None:
-                    continue
-                try:
-                    rgb = run.font.color.rgb
-                except (AttributeError, ValueError):
-                    rgb = None
-                if rgb is not None:
-                    text_rgb = rgb
-                    break
-            if text_rgb is not None:
-                break
+        if not shape.has_text_frame:
+            return issues
+        tx_body = shape._element.txBody  # pyright: ignore[reportPrivateUsage]
+        if tx_body is None or not _has_visible_text(tx_body):
+            return issues
+        # Pick the first run's font color (best-effort).
+        text_rgb = _first_run_rgb(tx_body)
     except Exception:
         return issues
     if text_rgb is None:
         return issues
 
-    bg_rgb = _text_background_rgb(shape, slide)
+    bg_rgb = backdrops.rgb_behind(shape)
     if bg_rgb is None:
         return issues
 
@@ -3181,23 +3319,31 @@ def _shape_has_opaque_fill(shape: BaseShape) -> bool:
         return False
 
 
-def _check_z_order_anomalies(shapes: Sequence[BaseShape]) -> list[LintIssue]:
-    """Find filled shapes drawn above shapes they visually contain."""
+def _check_z_order_anomalies(
+    infos: Sequence[_ShapeInfo], pairs: Sequence[tuple[int, int]]
+) -> list[LintIssue]:
+    """Find filled shapes drawn above shapes they visually contain.
+
+    *pairs* are the overlapping index pairs from :func:`_overlapping_pairs`;
+    a shape can only contain one it overlaps.
+    """
     issues: list[LintIssue] = []
-    bboxes = [_shape_bbox(s) for s in shapes]
-    # Document order = draw order; later shapes are drawn on top.
-    for j in range(len(shapes)):
-        # j is the candidate "container" drawn above earlier shapes
-        if not _shape_has_opaque_fill(shapes[j]):
+    opaque: dict[int, bool] = {}
+    # Document order = draw order; later shapes are drawn on top, so in each
+    # pair ``j`` is the candidate "container" drawn above the earlier ``i``.
+    for i, j in sorted(pairs, key=lambda pair: (pair[1], pair[0])):
+        box_i, box_j = infos[i].box, infos[j].box
+        if not _bbox_contains(box_j, box_i):
             continue
-        for i in range(j):
-            if not _bbox_contains(bboxes[j], bboxes[i]):
-                continue
-            # Tolerate identical bboxes — those are layered groups, not
-            # anomalies; the drift case is when j strictly contains i.
-            if bboxes[j] == bboxes[i]:
-                continue
-            issues.append(ZOrderAnomaly(container=shapes[j], contained=shapes[i]))
+        # Tolerate identical bboxes — those are layered groups, not
+        # anomalies; the drift case is when j strictly contains i.
+        if box_j == box_i:
+            continue
+        if j not in opaque:
+            opaque[j] = _shape_has_opaque_fill(infos[j].shape)
+        if not opaque[j]:
+            continue
+        issues.append(ZOrderAnomaly(container=infos[j].shape, contained=infos[i].shape))
     return issues
 
 
@@ -3246,17 +3392,18 @@ def _placeholder_bboxes(slide: Slide) -> list[tuple[int, int, int, int, int]]:
 
 
 def _check_master_placeholder_collision(
-    slide: Slide, shapes: Sequence[BaseShape]
+    slide: Slide, infos: Sequence[_ShapeInfo]
 ) -> list[LintIssue]:
     """Find shapes whose bbox lines up with an unused layout placeholder."""
     issues: list[LintIssue] = []
     ph_bboxes = _placeholder_bboxes(slide)
     if not ph_bboxes:
         return issues
-    for shape in shapes:
+    for info in infos:
+        shape = info.shape
         if shape.is_placeholder:
             continue
-        sl, st, sr, sb = _shape_bbox(shape)
+        sl, st, sr, sb = info.box
         if sr - sl <= 0 or sb - st <= 0:
             continue
         for pl, pt, pr, pb, idx in ph_bboxes:
@@ -3303,7 +3450,7 @@ def _is_filled_panel(shape: BaseShape) -> bool:
     return _shape_has_opaque_fill(shape)
 
 
-def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
+def _check_ragged_edges(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
     """Find panels whose bottom sits above the bottom edge of their own row.
 
     Only top-level panels (not nested inside another panel) at least 0.5" tall
@@ -3315,11 +3462,11 @@ def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
     own, so another row above or below does not hide a ragged one.
     """
     tol = _RAGGED_TOLERANCE_EMU
-    boxes = [(s, _shape_bbox(s)) for s in shapes]
+    boxes = [(info.shape, info.box) for info in infos]
     panels = [
         (s, b)
         for s, b in boxes
-        if _is_filled_panel(s) and b[3] - b[1] >= _RAGGED_MIN_PANEL_HEIGHT_EMU
+        if b[3] - b[1] >= _RAGGED_MIN_PANEL_HEIGHT_EMU and _is_filled_panel(s)
     ]
     top_level = [
         (s, b)
@@ -3360,6 +3507,27 @@ def _check_ragged_edges(shapes: Sequence[BaseShape]) -> list[LintIssue]:
     return issues
 
 
+_SEVERITY_ORDER = {LintSeverity.ERROR: 0, LintSeverity.WARNING: 1, LintSeverity.INFO: 2}
+
+#: The most severe level each issue code can be reported at.  A rule none of
+#: whose codes can reach the report — because they are disabled or fall below
+#: ``min_severity`` — is not run at all.
+_RULE_SEVERITY: dict[str, LintSeverity] = {
+    "TextOverflow": LintSeverity.ERROR,
+    "OffSlide": LintSeverity.ERROR,
+    "OffSlideShadow": LintSeverity.ERROR,
+    "ShapeCollision": LintSeverity.WARNING,
+    "ShapeCollisionShadow": LintSeverity.WARNING,
+    "MinFontSize": LintSeverity.WARNING,
+    "OffGridDrift": LintSeverity.WARNING,
+    "LowContrast": LintSeverity.WARNING,
+    "ZOrderAnomaly": LintSeverity.WARNING,
+    "MasterPlaceholderCollision": LintSeverity.WARNING,
+    "LayerOrderViolation": LintSeverity.ERROR,
+    "RaggedEdge": LintSeverity.WARNING,
+}
+
+
 def lint_slide(
     slide: Slide,
     *,
@@ -3380,7 +3548,8 @@ def lint_slide(
     — e.g. ``disable=["ShapeCollision", "OffGridDrift"]`` silences both
     rules deck-wide.  ``ShapeCollisionShadow`` and ``OffSlideShadow``
     are *not* implied by their non-shadow base codes; pass them
-    explicitly.
+    explicitly.  A disabled rule is not evaluated, so disabling the rules
+    you do not need also makes linting faster.
 
     *min_severity* drops issues below the named threshold from the
     report.  Accepts a :class:`LintSeverity` member or a case-insensitive
@@ -3400,35 +3569,71 @@ def lint_slide(
     else:
         min_severity_enum = min_severity
     disabled = frozenset(disable)
+    threshold = _SEVERITY_ORDER[min_severity_enum]
+
+    def wanted(*codes: str) -> bool:
+        """True when a rule emitting any of *codes* can contribute to the report."""
+        return any(
+            code not in disabled and _SEVERITY_ORDER[_RULE_SEVERITY[code]] <= threshold
+            for code in codes
+        )
 
     slide_w, slide_h = _slide_dimensions(slide)
     issues: list[LintIssue] = []
-    shapes = list(slide.shapes)
-    bbox_fn = _effective_bbox if include_effect_bleed else _shape_bbox
+    # Read every shape's box and lint metadata once; the checks below work
+    # from these records instead of going back to the XML per shape or pair.
+    infos = [_ShapeInfo(shape, include_effect_bleed) for shape in slide.shapes]
     text_env = _TextEnv(slide)
 
-    for shape in shapes:
-        if slide_w is not None and slide_h is not None:
-            issues.extend(
-                _check_off_slide(shape, slide_w, slide_h, bbox_fn=bbox_fn)
-            )
-        issues.extend(_check_text_overflow(shape, text_env))
-        issues.extend(_check_min_font_size(shape))
-        issues.extend(_check_low_contrast(shape, slide))
+    off_slide = wanted("OffSlide", "OffSlideShadow")
+    text_overflow = wanted("TextOverflow")
+    min_font = wanted("MinFontSize")
+    low_contrast = wanted("LowContrast")
+    collisions = wanted("ShapeCollision", "ShapeCollisionShadow")
+    z_order = wanted("ZOrderAnomaly")
+    layer_order = wanted("LayerOrderViolation")
 
-    issues.extend(_check_collisions(shapes, bbox_fn=bbox_fn))
-    issues.extend(_check_off_grid_drift(shapes))
-    issues.extend(_check_z_order_anomalies(shapes))
-    issues.extend(_check_layer_order(shapes, bbox_fn=bbox_fn))
-    issues.extend(_check_master_placeholder_collision(slide, shapes))
-    issues.extend(_check_ragged_edges(shapes))
+    # Shapes that actually overlap, found by a sweep rather than by trying
+    # every pair; shared by all the cross-shape checks.
+    pairs: list[tuple[int, int]] = []
+    if low_contrast or collisions or z_order or layer_order:
+        pairs = _overlapping_pairs([info.bleed_box for info in infos])
+    backdrops = _Backdrops(slide, infos, pairs) if low_contrast else None
+
+    for info in infos:
+        shape = info.shape
+        if off_slide and slide_w is not None and slide_h is not None:
+            issues.extend(_check_off_slide(info, slide_w, slide_h, include_effect_bleed))
+        if text_overflow:
+            issues.extend(_check_text_overflow(shape, text_env))
+        if min_font:
+            issues.extend(_check_min_font_size(shape))
+        if backdrops is not None:
+            issues.extend(_check_low_contrast(shape, backdrops))
+
+    if collisions:
+        issues.extend(_check_collisions(infos, pairs, include_effect_bleed))
+    if wanted("OffGridDrift"):
+        issues.extend(_check_off_grid_drift(infos))
+    if z_order:
+        issues.extend(_check_z_order_anomalies(infos, pairs))
+    if layer_order:
+        issues.extend(_check_layer_order(infos, pairs, include_effect_bleed))
+    if wanted("MasterPlaceholderCollision"):
+        issues.extend(_check_master_placeholder_collision(slide, infos))
+    if wanted("RaggedEdge"):
+        issues.extend(_check_ragged_edges(infos))
 
     # Per-shape opt-out: drop issues whose code is silenced on *every*
     # target shape via ``shape.lint_skip``.  Cross-shape issues
     # (ShapeCollision, ZOrderAnomaly) are only suppressed when *both*
     # shapes opt out — a one-sided opt-out keeps the warning, since the
     # other shape might still want to know.
-    skip_cache: dict[int, frozenset[str]] = {}
+    skip_cache: dict[int, frozenset[str]] = {
+        id(info.shape._element): info.skip  # pyright: ignore[reportPrivateUsage]
+        for info in infos
+        if hasattr(info.shape, "_element")
+    }
 
     def _skipped(issue: LintIssue) -> bool:
         if not issue.shapes:
@@ -3441,18 +3646,15 @@ def lint_slide(
                 return False
         return True
 
-    _order = {LintSeverity.ERROR: 0, LintSeverity.WARNING: 1, LintSeverity.INFO: 2}
-    threshold = _order[min_severity_enum]
-
     issues = [
         i for i in issues
         if not _skipped(i)
         and i.code not in disabled
-        and _order[i.severity] <= threshold
+        and _SEVERITY_ORDER[i.severity] <= threshold
     ]
 
     # Sort: errors → warnings → info
-    issues.sort(key=lambda x: _order[x.severity])
+    issues.sort(key=lambda x: _SEVERITY_ORDER[x.severity])
 
     return SlideLintReport(
         slide,

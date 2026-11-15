@@ -2406,6 +2406,130 @@ class DescribeRaggedEdgePerRow:
         assert issues[0].gap_emu == Inches(1)
 
 
+class DescribeLintScaling:
+    """Linting a busy slide must not do per-pair work for shapes that never touch.
+
+    These count calls rather than time anything, so a loaded machine cannot
+    make them flaky: the number of shapes is doubled and the work must double
+    with it, not quadruple.
+    """
+
+    @staticmethod
+    def _grid(count, coloured=False):
+        """`count` small text boxes laid out in rows of 20, none overlapping."""
+        _, slide = _new_blank_slide()
+        for n in range(count):
+            left, top = Inches(0.2 + (n % 20) * 0.45), Inches(0.2 + (n // 20) * 0.3)
+            box = slide.shapes.add_textbox(left, top, Inches(0.4), Inches(0.25))
+            box.text_frame.text = "ab"
+            run = box.text_frame.paragraphs[0].runs[0]
+            run.font.size = Pt(6)
+            if coloured:
+                run.font.color.rgb = RGBColor(0x22, 0x22, 0x22)
+        return slide
+
+    @staticmethod
+    def _count_calls(monkeypatch, name):
+        import power_pptx.lint as lint_module
+
+        calls = []
+        original = getattr(lint_module, name)
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(lint_module, name, counting)
+        return calls
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_reads_each_shapes_lint_metadata_once(self, monkeypatch, count):
+        slide = self._grid(count)
+        calls = self._count_calls(monkeypatch, "_shape_cNvPr")
+
+        slide.lint()
+
+        assert len(calls) == count
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_measures_each_shapes_box_once(self, monkeypatch, count):
+        slide = self._grid(count, coloured=True)
+        calls = self._count_calls(monkeypatch, "_shape_bbox")
+
+        slide.lint()
+
+        # One per shape, plus the layout's three footer placeholders.
+        assert len(calls) == count + 3
+
+    @pytest.mark.parametrize("count", [40, 80])
+    def it_only_scores_pairs_of_shapes_that_overlap(self, monkeypatch, count):
+        slide = self._grid(count)
+        overlapping = slide.shapes.add_shape(1, Inches(0.2), Inches(0.2), Inches(0.5), Inches(0.5))
+        calls = self._count_calls(monkeypatch, "_bbox_overlap")
+
+        collisions = _collisions(slide)
+
+        # The rectangle covers four boxes of the grid; nothing else touches.
+        assert len(calls) == 4
+        assert [c.shapes[1] for c in collisions] == [overlapping] * 4
+
+    def it_finds_the_same_pairs_as_comparing_every_pair(self):
+        from power_pptx.lint import _bbox_overlap, _overlapping_pairs
+
+        rng = random.Random(7)
+        boxes = []
+        for _ in range(120):
+            left, top = rng.randrange(0, 900), rng.randrange(0, 700)
+            boxes.append((left, top, left + rng.randrange(0, 200), top + rng.randrange(0, 150)))
+
+        brute_force = [
+            (i, j)
+            for i in range(len(boxes))
+            for j in range(i + 1, len(boxes))
+            if _bbox_overlap(boxes[i], boxes[j])[0] > 0
+        ]
+
+        assert _overlapping_pairs(boxes) == brute_force
+
+    def it_does_not_evaluate_a_disabled_rule(self, monkeypatch):
+        import power_pptx.lint as lint_module
+
+        slide = self._grid(8, coloured=True)
+
+        def must_not_run(*args, **kwargs):
+            raise AssertionError("a disabled rule was evaluated")
+
+        monkeypatch.setattr(lint_module, "_check_low_contrast", must_not_run)
+        monkeypatch.setattr(lint_module, "_check_collisions", must_not_run)
+        monkeypatch.setattr(lint_module, "_check_text_overflow", must_not_run)
+
+        report = slide.lint(
+            disable=["LowContrast", "ShapeCollision", "ShapeCollisionShadow", "TextOverflow"]
+        )
+
+        assert {i.code for i in report.issues} == {"MinFontSize"}
+
+    def it_does_not_evaluate_rules_below_min_severity(self, monkeypatch):
+        import power_pptx.lint as lint_module
+
+        slide = self._grid(8, coloured=True)
+
+        def must_not_run(*args, **kwargs):
+            raise AssertionError("a rule that cannot reach min_severity was evaluated")
+
+        for name in (
+            "_check_min_font_size",
+            "_check_low_contrast",
+            "_check_collisions",
+            "_check_off_grid_drift",
+            "_check_z_order_anomalies",
+            "_check_ragged_edges",
+        ):
+            monkeypatch.setattr(lint_module, name, must_not_run)
+
+        assert slide.lint(min_severity="error").issues == []
+
+
 # ---------------------------------------------------------------------------
 # TextOverflow measurement
 # ---------------------------------------------------------------------------
