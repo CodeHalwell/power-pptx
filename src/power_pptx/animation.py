@@ -69,6 +69,7 @@ Typical usage::
 from __future__ import annotations
 
 import math
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
@@ -2167,8 +2168,13 @@ class MotionPath:
         * ``H / h`` — horizontal lineto
         * ``V / v`` — vertical lineto
         * ``C / c`` — cubic bezier curveto
-        * ``Q / q`` — quadratic bezier curveto
+        * ``Q / q`` — quadratic bezier curveto (written as the equivalent
+          cubic: a motion path has no quadratic command)
         * ``Z / z`` — closepath (returns to the most-recent moveto)
+
+        Anything else — an arc (``A``), a smooth curve (``S``, ``T``), a
+        stray character, a command short of coordinates — raises
+        :class:`ValueError`.
 
         Coordinates are interpreted against *viewbox* (a 4-tuple
         ``(min_x, min_y, width, height)``).  When *viewbox* is ``None``
@@ -2289,7 +2295,14 @@ class MotionPath:
         # vertical (where the previous `abs(nx) * height` collapsed to 0).
         cx = nx / 2 + height * ny
         cy = ny / 2 - height * nx
-        path = f"M 0 0 Q {_fmt(cx)} {_fmt(cy)} {_fmt(nx)} {_fmt(ny)} E"
+        # A parabola is a quadratic bezier, which the motion-path grammar
+        # does not have (only M, L, C, Z, E), so it is written as the cubic
+        # tracing the same curve.
+        c1x, c1y, c2x, c2y = _cubic_from_quadratic((0.0, 0.0), (cx, cy), (nx, ny))
+        path = (
+            f"M 0 0 C {_fmt(c1x)} {_fmt(c1y)} {_fmt(c2x)} {_fmt(c2y)} "
+            f"{_fmt(nx)} {_fmt(ny)} E"
+        )
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
         )
@@ -2384,11 +2397,54 @@ class MotionPath:
         )
 
 
-# Match SVG path command letters (any letter, so unsupported ones can be
-# diagnosed) and signed/exponent-form numbers.
-_SVG_TOKEN_RE = __import__("re").compile(
-    r"[A-Za-z]|-?\d*\.?\d+(?:[eE][+-]?\d+)?"
+# One token of an SVG path: a command letter (any letter, so unsupported ones
+# can be diagnosed) or a number in SVG's grammar — optional sign, digits with
+# an optional fraction or a bare fraction, optional exponent.  Tokens may be
+# separated by whitespace and commas, or by nothing at all ("M10-5L.5.5").
+_SVG_TOKEN_RE = re.compile(
+    r"[\s,]*(?:([A-Za-z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?))"
 )
+
+# Number of coordinates each supported SVG command takes per repetition.
+_SVG_ARG_COUNTS = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Q": 4, "Z": 0}
+
+
+def _svg_tokens(svg: str) -> list[str | float]:
+    """Split *svg* into command letters (`str`) and numbers (`float`).
+
+    Raises |ValueError| on anything else in the string, rather than skip it:
+    a character dropped in silence (a typographic minus sign, say) would
+    change where the path goes.
+    """
+    tokens: list[str | float] = []
+    pos = 0
+    end = len(svg.rstrip(" \t\r\n,"))
+    while pos < end:
+        match = _SVG_TOKEN_RE.match(svg, pos)
+        if match is None:
+            bad = svg[pos:].lstrip(" \t\r\n,")[:1]
+            raise ValueError(f"unexpected character {bad!r} in svg path {svg!r}")
+        command, number = match.groups()
+        tokens.append(command if command is not None else float(number))
+        pos = match.end()
+    return tokens
+
+
+def _cubic_from_quadratic(
+    start: tuple[float, float], control: tuple[float, float], end: tuple[float, float]
+) -> tuple[float, float, float, float]:
+    """Control points of the cubic bezier tracing the same curve as a quadratic one.
+
+    The quadratic from *start* to *end* with the single control point
+    *control* is exactly the cubic whose control points lie two thirds of the
+    way from each end towards *control*.
+    """
+    return (
+        start[0] + 2.0 / 3.0 * (control[0] - start[0]),
+        start[1] + 2.0 / 3.0 * (control[1] - start[1]),
+        end[0] + 2.0 / 3.0 * (control[0] - end[0]),
+        end[1] + 2.0 / 3.0 * (control[1] - end[1]),
+    )
 
 
 def _svg_to_ooxml_motion_path(
@@ -2403,167 +2459,122 @@ def _svg_to_ooxml_motion_path(
     motion-paths are relative to the shape's starting position) and
     coordinates are mapped from *viewbox* into the unit square.
 
+    A motion path knows only moves, lines and cubic curves (ISO/IEC 29500-1
+    §19.5.4 allows ``M L C Z E``), so a quadratic curve is written as the
+    cubic that traces the same curve.
+
     When *viewbox* is ``None`` the path is assumed to already live in
     the unit square ``(0, 0, 1, 1)`` — the OOXML coordinate system —
     which is convenient for hand-authored paths.
+
+    Raises |ValueError| for anything that is not a well-formed path in the
+    supported commands.
     """
     if not svg or not svg.strip():
         raise ValueError("svg path must be a non-empty string")
 
     if viewbox is None:
-        vb_x, vb_y, vb_w, vb_h = 0.0, 0.0, 1.0, 1.0
+        vb_w, vb_h = 1.0, 1.0
     else:
-        vb_x, vb_y, vb_w, vb_h = (float(v) for v in viewbox)
+        _, _, vb_w, vb_h = (float(v) for v in viewbox)
     if vb_w <= 0 or vb_h <= 0:
         raise ValueError(
             "viewbox width and height must be positive; got "
             f"{viewbox!r}"
         )
 
-    tokens = _SVG_TOKEN_RE.findall(svg)
+    tokens = _svg_tokens(svg)
     if not tokens:
         raise ValueError(f"no recognisable commands in svg path {svg!r}")
 
     out_parts: list[str] = []
-    # Track the SVG-coord cursor (cx, cy), the rebase origin (origin_x,
-    # origin_y) — i.e. where the first moveto landed in SVG coords —
-    # and the most-recent subpath start for ``Z`` closure.
+    # Track the SVG-coord cursor (cx, cy), the rebase origin — where the
+    # first moveto landed in SVG coords — and the most-recent subpath start
+    # for ``Z`` closure.
     cx = cy = 0.0
-    origin_x: float | None = None
-    origin_y: float | None = None
+    origin_x = origin_y = 0.0
     subpath_x = subpath_y = 0.0
     started = False
 
-    def _emit(letter: str, *coords: float) -> None:
-        # Translate (cx, cy) in SVG coords to OOXML unit-square coords
-        # relative to the rebase origin.
+    def emit(letter: str, *points: tuple[float, float]) -> None:
+        # Rebase each SVG point to the origin and map viewbox → unit square.
         out_parts.append(letter)
-        for c in coords:
-            out_parts.append(_fmt(c))
-
-    def _to_ooxml(x: float, y: float) -> tuple[float, float]:
-        # Rebase to origin then map viewbox → unit square.
-        assert origin_x is not None and origin_y is not None
-        return (x - origin_x) / vb_w, (y - origin_y) / vb_h
+        for x, y in points:
+            out_parts.append(_fmt((x - origin_x) / vb_w))
+            out_parts.append(_fmt((y - origin_y) / vb_h))
 
     i = 0
-    cmd: str = ""
+    cmd = ""
     while i < len(tokens):
-        tok = tokens[i]
-        if tok.isalpha():
-            cmd = tok
+        token = tokens[i]
+        if isinstance(token, str):
+            cmd = token
             i += 1
-        # H / V take a single number; Z takes none.
-        if cmd in ("Z", "z"):
-            # Close current subpath: SVG draws a line back to the
-            # subpath origin.
-            cx, cy = subpath_x, subpath_y
-            ox, oy = _to_ooxml(cx, cy)
-            _emit("L", ox, oy)
-            continue
-        try:
-            n = float(tokens[i])
-        except (IndexError, ValueError):
-            raise ValueError(
-                f"expected coordinate after {cmd!r} in svg path {svg!r}"
-            )
-        i += 1
-
-        if cmd in ("M", "m"):
-            # First number is the new cursor; subsequent number-pairs
-            # under the same M command are implicit linetos.
-            try:
-                m = float(tokens[i])
-            except (IndexError, ValueError):
+            if cmd.upper() not in _SVG_ARG_COUNTS:
                 raise ValueError(
-                    f"expected y after x in moveto in svg path {svg!r}"
+                    f"unsupported svg path command {cmd!r}; supported: "
+                    "M/m L/l H/h V/v C/c Q/q Z/z"
                 )
-            i += 1
-            new_x = n if cmd == "M" else cx + n
-            new_y = m if cmd == "M" else cy + m
-            if not started:
-                origin_x, origin_y = new_x, new_y
-                subpath_x, subpath_y = new_x, new_y
-                cx, cy = new_x, new_y
-                _emit("M", 0.0, 0.0)
-                started = True
-            else:
-                cx, cy = new_x, new_y
-                subpath_x, subpath_y = new_x, new_y
-                ox, oy = _to_ooxml(cx, cy)
-                _emit("M", ox, oy)
-            # Implicit lineto continuation: M behaves as L for
-            # subsequent coord pairs.
-            cmd = "L" if cmd == "M" else "l"
-            continue
+        elif not cmd:
+            raise ValueError(f"svg path must start with M/m; got a number in {svg!r}")
+        elif cmd in ("Z", "z"):
+            # Every other command repeats for as long as coordinates follow;
+            # closepath takes none, so a number here belongs to no command.
+            raise ValueError(
+                f"expected a command after {cmd!r}, got a number in svg path {svg!r}"
+            )
 
-        if not started:
+        relative = cmd.islower()
+        kind = cmd.upper()
+        if kind != "M" and not started:
             # Any non-M command must be preceded by a moveto in valid SVG.
-            raise ValueError(
-                f"svg path must start with M/m; got {cmd!r} in {svg!r}"
-            )
+            raise ValueError(f"svg path must start with M/m; got {cmd!r} in {svg!r}")
 
-        if cmd in ("L", "l"):
-            try:
-                m = float(tokens[i])
-            except (IndexError, ValueError):
-                raise ValueError(
-                    f"expected y after x in lineto in svg path {svg!r}"
-                )
-            i += 1
-            cx = n if cmd == "L" else cx + n
-            cy = m if cmd == "L" else cy + m
-            ox, oy = _to_ooxml(cx, cy)
-            _emit("L", ox, oy)
-        elif cmd in ("H", "h"):
-            cx = n if cmd == "H" else cx + n
-            ox, oy = _to_ooxml(cx, cy)
-            _emit("L", ox, oy)
-        elif cmd in ("V", "v"):
-            cy = n if cmd == "V" else cy + n
-            ox, oy = _to_ooxml(cx, cy)
-            _emit("L", ox, oy)
-        elif cmd in ("C", "c"):
-            # Cubic: x1 y1 x2 y2 x y
-            try:
-                pts = [n] + [float(tokens[i + k]) for k in range(5)]
-            except (IndexError, ValueError):
-                raise ValueError(
-                    f"cubic curve needs 6 coords in svg path {svg!r}"
-                )
-            i += 5
-            x1, y1, x2, y2, x, y = pts
-            if cmd == "c":
-                x1 += cx; y1 += cy
-                x2 += cx; y2 += cy
-                x += cx; y += cy
-            cx, cy = x, y
-            o1x, o1y = _to_ooxml(x1, y1)
-            o2x, o2y = _to_ooxml(x2, y2)
-            ox, oy = _to_ooxml(x, y)
-            _emit("C", o1x, o1y, o2x, o2y, ox, oy)
-        elif cmd in ("Q", "q"):
-            # Quadratic: x1 y1 x y
-            try:
-                pts = [n] + [float(tokens[i + k]) for k in range(3)]
-            except (IndexError, ValueError):
-                raise ValueError(
-                    f"quadratic curve needs 4 coords in svg path {svg!r}"
-                )
-            i += 3
-            x1, y1, x, y = pts
-            if cmd == "q":
-                x1 += cx; y1 += cy
-                x += cx; y += cy
-            cx, cy = x, y
-            o1x, o1y = _to_ooxml(x1, y1)
-            ox, oy = _to_ooxml(x, y)
-            _emit("Q", o1x, o1y, ox, oy)
-        else:
+        count = _SVG_ARG_COUNTS[kind]
+        args = tokens[i : i + count]
+        if len(args) < count or any(isinstance(arg, str) for arg in args):
             raise ValueError(
-                f"unsupported svg path command {cmd!r}; supported: "
-                "M/m L/l H/h V/v C/c Q/q Z/z"
+                f"{cmd!r} needs {count} coordinate(s) in svg path {svg!r}"
             )
+        i += count
+        nums = [float(arg) for arg in args]
+
+        if kind == "Z":
+            # Close current subpath: SVG draws a line back to its start.
+            cx, cy = subpath_x, subpath_y
+            emit("L", (cx, cy))
+            continue
+
+        # Resolve the coordinates to absolute SVG points.
+        if kind == "H":
+            points = [(nums[0] + cx if relative else nums[0], cy)]
+        elif kind == "V":
+            points = [(cx, nums[0] + cy if relative else nums[0])]
+        else:
+            points = [
+                (x + cx, y + cy) if relative else (x, y)
+                for x, y in zip(nums[0::2], nums[1::2])
+            ]
+        start = (cx, cy)
+        cx, cy = points[-1]
+
+        if kind == "M":
+            subpath_x, subpath_y = cx, cy
+            if not started:
+                origin_x, origin_y = cx, cy
+                started = True
+            emit("M", (cx, cy))
+            # Implicit lineto continuation: further coordinate pairs under
+            # the same moveto are linetos.
+            cmd = "l" if relative else "L"
+        elif kind == "C":
+            emit("C", *points)
+        elif kind == "Q":
+            control, end = points
+            c1x, c1y, c2x, c2y = _cubic_from_quadratic(start, control, end)
+            emit("C", (c1x, c1y), (c2x, c2y), end)
+        else:  # L, H, V
+            emit("L", points[0])
 
     out_parts.append("E")
     return " ".join(out_parts)

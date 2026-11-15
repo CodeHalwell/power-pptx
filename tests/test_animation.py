@@ -40,6 +40,11 @@ def _animMotion_paths(slide):
     ]
 
 
+def _path_commands(path):
+    """The command letters of a motion-path string, in order."""
+    return [token for token in path.split() if token.isalpha()]
+
+
 class DescribeSvgMotionPath:
     """`MotionPath.svg(...)` accepts SVG path syntax with a viewbox."""
 
@@ -103,6 +108,97 @@ class DescribeSvgMotionPath:
 
         with pytest.raises(ValueError, match="unsupported svg path command"):
             _svg_to_ooxml_motion_path("M 0 0 A 10 10 0 0 1 100 100")
+
+    @pytest.mark.parametrize(
+        ("svg", "message"),
+        [
+            # -- used to spin forever: the closepath branch never moved on --
+            ("M 0 0 L 1 1 Z 5", "expected a command after 'Z'"),
+            ("M 0 0 L 1 1 z 0.5 0.5", "expected a command after 'z'"),
+            # -- used to trip a bare `assert` --
+            ("Z M 0 0", "must start with M"),
+            ("1 2 M 0 0", "must start with M"),
+            ("M 0 0 L 1", "'L' needs 2 coordinate"),
+            ("M 0", "'M' needs 2 coordinate"),
+            ("M 0 0 C 1 1 2 2 3", "'C' needs 6 coordinate"),
+            ("M 0 0 Q 1 1 2", "'Q' needs 4 coordinate"),
+            ("M 0 0 L 5e 1", "'L' needs 2 coordinate"),
+            # -- a character the old tokenizer skipped, flipping the direction --
+            ("M 0 0 L −1 0", "unexpected character"),
+            ("M 0 0 L 1 0 #", "unexpected character"),
+        ],
+    )
+    def it_raises_ValueError_on_a_malformed_path(self, svg, message):
+        import signal
+
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        def give_up(*_):
+            raise AssertionError("converter did not return for %r" % svg)
+
+        signal.signal(signal.SIGALRM, give_up)
+        signal.alarm(5)
+        try:
+            with pytest.raises(ValueError, match=message):
+                _svg_to_ooxml_motion_path(svg)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
+    @pytest.mark.parametrize(
+        ("svg", "viewbox", "expected"),
+        [
+            # -- separators are optional wherever a number can only start anew --
+            ("M10-5L-3-4", (0, 0, 10, 10), "M 0 0 L -1.3 0.1 E"),
+            ("M.5.5L1.5.25", None, "M 0 0 L 1 -0.25 E"),
+            ("M,0,0,L,1,1", None, "M 0 0 L 1 1 E"),
+            ("M0 0 L+0.5 +0.25", None, "M 0 0 L 0.5 0.25 E"),
+            ("M0 0 L1e-1 2E-1", None, "M 0 0 L 0.1 0.2 E"),
+            # -- coordinates after the first pair of a moveto are linetos --
+            ("M 0 0 10 0 10 10", (0, 0, 100, 100), "M 0 0 L 0.1 0 L 0.1 0.1 E"),
+            ("m 0 0 10 0 10 10", (0, 0, 100, 100), "M 0 0 L 0.1 0 L 0.2 0.1 E"),
+            # -- and a command repeats for as long as coordinates follow --
+            ("M 0 0 H 1 2 3", None, "M 0 0 L 1 0 L 2 0 L 3 0 E"),
+            # -- a closed subpath, then a second one --
+            (
+                "M 1 1 l 1 0 z m 1 1 l 1 0",
+                (0, 0, 10, 10),
+                "M 0 0 L 0.1 0 L 0 0 M 0.1 0.1 L 0.2 0.1 E",
+            ),
+        ],
+    )
+    def it_follows_the_svg_path_grammar(self, svg, viewbox, expected):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        assert _svg_to_ooxml_motion_path(svg, viewbox=viewbox) == expected
+
+    def it_writes_a_quadratic_curve_as_the_cubic_tracing_it(self):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        out = _svg_to_ooxml_motion_path("M 0 0 Q 50 -60 100 0", viewbox=(0, 0, 100, 100))
+
+        # C1 = P0 + 2/3 (Q - P0), C2 = P + 2/3 (Q - P)
+        assert out == "M 0 0 C 0.333333 -0.4 0.666667 -0.4 1 0 E"
+
+    def it_resolves_relative_quadratic_curves_against_the_current_point(self):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        out = _svg_to_ooxml_motion_path("M 10 10 q 3 3 6 0 3 -3 6 0", viewbox=(0, 0, 10, 10))
+
+        assert out == "M 0 0 C 0.2 0.2 0.4 0.2 0.6 0 C 0.8 -0.2 1 -0.2 1.2 0 E"
+
+    @pytest.mark.parametrize(
+        "svg",
+        ["M 0 0 Q 50 -60 100 0", "M 0 0 q 5 5 10 0 t 10 0", "M 0 0 L 1 0 C 1 1 2 2 3 3 z"],
+    )
+    def it_only_ever_writes_commands_a_motion_path_allows(self, svg):
+        from power_pptx.animation import _svg_to_ooxml_motion_path
+
+        try:
+            out = _svg_to_ooxml_motion_path(svg)
+        except ValueError:
+            return  # -- an unsupported command is refused, not passed through --
+        assert set(_path_commands(out)) <= set("MLCZE")
 
 
 class DescribeAnimationsAdd:
@@ -244,12 +340,34 @@ class DescribeMotionPath:
         y0 = float(first_c[1])
         assert y0 > 0  # below origin → counterclockwise
 
-    def it_emits_a_quadratic_arc(self, slide_with_shape):
+    def it_emits_an_arc_as_a_single_cubic_curve(self, slide_with_shape):
+        # A motion path has no quadratic command (ISO/IEC 29500-1 §19.5.4
+        # allows M, L, C, Z, E), so the parabola is written as a cubic.
         slide, shape = slide_with_shape
         MotionPath.arc(slide, shape, Inches(3), 0, height=0.5)
         path = _animMotion_paths(slide)[0]
-        assert path.startswith("M 0 0 Q")
+        assert path.startswith("M 0 0 C ")
         assert path.endswith(" E")
+        assert _path_commands(path) == ["M", "C", "E"]
+
+    def it_keeps_the_arc_the_parabola_it_was_asked_for(self, slide_with_shape):
+        # The cubic has to trace the quadratic curve it stands in for: at its
+        # midpoint that curve sits half-way between the chord and the peak
+        # control point, which lies `height` chord lengths off the chord.
+        slide, shape = slide_with_shape
+        prs = slide.part.package.presentation_part.presentation
+        MotionPath.arc(slide, shape, Inches(3), 0, height=0.5)
+
+        nums = [float(n) for n in _animMotion_paths(slide)[0].split()[4:10]]
+        c1x, c1y, c2x, c2y, x, y = nums
+        mid_x = (3 * c1x + 3 * c2x + x) / 8
+        mid_y = (3 * c1y + 3 * c2y + y) / 8
+
+        chord = float(Inches(3)) / float(prs.slide_width)
+        assert x == pytest.approx(chord, abs=1e-6)
+        assert y == 0
+        assert mid_x == pytest.approx(chord / 2, abs=1e-6)
+        assert mid_y == pytest.approx(-0.5 * chord / 2, abs=1e-6)
 
     def it_emits_a_zigzag_with_segment_count(self, slide_with_shape):
         slide, shape = slide_with_shape
@@ -294,18 +412,22 @@ class DescribeMotionPath:
         slide, shape = slide_with_shape
         MotionPath.arc(slide, shape, 0, Inches(3), height=0.5)
         path = _animMotion_paths(slide)[0]
-        # Parse "M 0 0 Q cx cy nx ny E" for the control-point coordinates.
-        q_part = path.split("Q", 1)[1].rsplit("E", 1)[0].strip().split()
-        cx, cy = float(q_part[0]), float(q_part[1])
+        # Parse "M 0 0 C c1x c1y c2x c2y nx ny E" for the control points.
+        c_part = path.split("C", 1)[1].rsplit("E", 1)[0].strip().split()
+        c1x, c1y, c2x, c2y, nx, ny = (float(n) for n in c_part)
         # Pure-vertical chord must still bend the path off the chord —
         # otherwise the arc degenerates to a straight line, the bug Codex
         # / Copilot flagged.  With `height=0.5` and chord direction +y,
-        # the perpendicular control point sits at non-zero x.
-        assert cx != 0
-        # cy is the chord midpoint.
-        assert cy == pytest.approx(float(Inches(3)) / 2 / float(
+        # both control points sit at non-zero x, on the same side.
+        assert c1x != 0
+        assert c2x == pytest.approx(c1x)
+        # They are level with one third and two thirds of the chord.
+        chord = float(Inches(3)) / float(
             slide.part.package.presentation_part.presentation.slide_height
-        ))
+        )
+        assert (nx, ny) == (0, pytest.approx(chord, abs=1e-6))
+        assert c1y == pytest.approx(chord / 3, abs=1e-6)
+        assert c2y == pytest.approx(2 * chord / 3, abs=1e-6)
 
 
 class DescribeAnimationSequence:
