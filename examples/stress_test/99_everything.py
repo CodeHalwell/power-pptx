@@ -652,58 +652,97 @@ def _introspect(prs):
         sink.append(slide.transition.duration)
         sink.append(slide.has_notes_slide)
         for shape in slide.shapes:
-            sink.append((shape.shape_type, shape.name, shape.shape_id))
-            for attr in ("left", "top", "width", "height", "rotation"):
-                sink.append(getattr(shape, attr, None))
-            try:
-                sink.append(shape.bbox)
-            except Exception:
-                pass
-            if shape.has_text_frame:
-                tf = shape.text_frame
-                sink.append((tf.auto_size, tf.word_wrap, tf.text))
-                for p in tf.paragraphs:
-                    sink.append((p.level, p.alignment))
-                    for r in p.runs:
-                        sink.append((r.text, r.font.bold, r.font.italic, r.font.size))
-                        sink.append(r.font.color.type)
-            for eff in ("shadow", "glow", "soft_edges", "reflection", "blur"):
-                try:
-                    proxy = getattr(shape, eff, None)
-                except NotImplementedError:
-                    # Effect proxies aren't supported on GraphicFrame — explicit
-                    # NotImplementedError on read; skip rather than crash.
-                    continue
-                if proxy is not None:
-                    sink.append(getattr(proxy, "radius", None) if eff in ("glow", "soft_edges")
-                                else getattr(proxy, "blur_radius", None))
-            try:
-                sink.append(shape.fill.type)
-            except Exception:
-                pass
-            try:
-                sink.append(shape.line.width)
-                sink.append(shape.line.dash_style)
-            except Exception:
-                pass
-            try:
-                td = getattr(shape, "three_d", None)
-            except NotImplementedError:
-                td = None
-            if td is not None:
-                sink.append(td.extrusion_height)
-                sink.append(td.bevel_top.preset)
-            if shape.has_chart:
-                sink.append(shape.chart.chart_type)
-                for ser in shape.chart.series:
-                    sink.append(ser.name)
-            if shape.has_table:
-                tbl = shape.table
-                for row in tbl.rows:
-                    for cell in row.cells:
-                        sink.append(cell.text)
-                        sink.append(cell.borders.bottom.width)
+            sink.extend(_read_shape(shape))
     return len(sink)
+
+
+# Each effect proxy and the property that sizes it.
+_EFFECT_SIZE = {
+    "shadow": "blur_radius",
+    "glow": "radius",
+    "soft_edges": "radius",
+    "reflection": "blur_radius",
+    "blur": "blur_radius",
+}
+
+
+def _read_shape(shape):
+    """Every property _introspect reads off one shape, in reading order."""
+    reads = [(shape.shape_type, shape.name, shape.shape_id)]
+    for attr in ("left", "top", "width", "height", "rotation"):
+        reads.append(getattr(shape, attr, None))
+    try:
+        reads.append(shape.bbox)
+    except Exception:
+        pass
+    if shape.has_text_frame:
+        reads.extend(_read_text(shape.text_frame))
+    reads.extend(_read_effects(shape))
+    reads.extend(_read_fill_and_line(shape))
+    reads.extend(_read_three_d(shape))
+    if shape.has_chart:
+        reads.append(shape.chart.chart_type)
+        reads.extend(ser.name for ser in shape.chart.series)
+    if shape.has_table:
+        reads.extend(_read_table(shape.table))
+    return reads
+
+
+def _read_text(tf):
+    reads = [(tf.auto_size, tf.word_wrap, tf.text)]
+    for p in tf.paragraphs:
+        reads.append((p.level, p.alignment))
+        for r in p.runs:
+            reads.append((r.text, r.font.bold, r.font.italic, r.font.size))
+            reads.append(r.font.color.type)
+    return reads
+
+
+def _read_effects(shape):
+    reads = []
+    for eff, size_attr in _EFFECT_SIZE.items():
+        try:
+            proxy = getattr(shape, eff, None)
+        except NotImplementedError:
+            # Effect proxies aren't supported on GraphicFrame — explicit
+            # NotImplementedError on read; skip rather than crash.
+            continue
+        if proxy is not None:
+            reads.append(getattr(proxy, size_attr, None))
+    return reads
+
+
+def _read_fill_and_line(shape):
+    reads = []
+    try:
+        reads.append(shape.fill.type)
+    except Exception:
+        pass
+    try:
+        reads.append(shape.line.width)
+        reads.append(shape.line.dash_style)
+    except Exception:
+        pass
+    return reads
+
+
+def _read_three_d(shape):
+    try:
+        td = getattr(shape, "three_d", None)
+    except NotImplementedError:
+        td = None
+    if td is None:
+        return []
+    return [td.extrusion_height, td.bevel_top.preset]
+
+
+def _read_table(tbl):
+    reads = []
+    for row in tbl.rows:
+        for cell in row.cells:
+            reads.append(cell.text)
+            reads.append(cell.borders.bottom.width)
+    return reads
 
 
 def build():
