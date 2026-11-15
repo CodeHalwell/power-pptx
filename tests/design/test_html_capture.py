@@ -138,7 +138,10 @@ def _status(url):
         with opener.open(url, timeout=5) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
-        return error.code, error.read()
+        # -- an HTTPError holds the response open; Python 3.14 warns if it
+        # -- is left for the garbage collector to close --
+        with error:
+            return error.code, error.read()
 
 
 def test_document_server_serves_the_document_and_its_assets(document_tree):

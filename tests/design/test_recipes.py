@@ -2080,6 +2080,19 @@ class DescribeFigureSlideSources:
         assert "svgBlip" in picture.element.xml
         return picture
 
+    @pytest.fixture(autouse=True)
+    def _rasterizer(self, monkeypatch):
+        """Stand in for the optional cairosvg, as tests/test_svg_picture.py does.
+
+        Rasterising only produces the PNG fallback, which these tests do not
+        look at; the core suite runs without the optional dependency.
+        """
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 1), "white").save(buffer, format="PNG")
+        monkeypatch.setattr("power_pptx._svg.rasterize_svg", lambda *a, **k: buffer.getvalue())
+
     def it_embeds_an_svg_file_by_path(self, prs, tmp_path):
         path = tmp_path / "figure.svg"
         path.write_text(_SVG)
