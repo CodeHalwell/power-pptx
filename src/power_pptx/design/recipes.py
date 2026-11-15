@@ -1750,6 +1750,8 @@ def timeline_slide(
     Each milestone dict takes a ``label`` (required), an optional
     ``date`` shown in bold above it, and an optional ``done`` flag
     (default ``False``).  Any other key raises :class:`ValueError`.
+    A label or date of ``None`` (or empty text) is left out; any other
+    value is shown as text, so ``0`` reads ``0``.
     Completed milestones get the ``positive`` palette tint; pending
     ones use ``muted``.
 
@@ -1957,11 +1959,13 @@ class _LabelStyle:
 def _milestone_lines(milestone: Mapping[str, Any]) -> list[tuple[str, str]]:
     """The ``(key, text)`` lines *milestone* shows: its date, then its label.
 
-    A missing or empty date or label is left out.
+    A date or label that is missing, ``None`` or empty text is left out; any
+    other value is shown as text, so ``0`` and ``False`` show as written.
     """
     lines = []
     for key in ("date", "label"):
-        text = str(milestone.get(key, "") or "")
+        value = milestone.get(key)
+        text = "" if value is None else str(value)
         if text:
             lines.append((key, text))
     return lines

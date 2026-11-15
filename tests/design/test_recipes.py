@@ -1993,6 +1993,18 @@ class DescribeTimelineSlideLabels:
             ["a"], ["b"]
         ]
 
+    def it_shows_a_falsy_label_or_date_as_written(self, prs):
+        # ``{"label": 0}`` used to draw a marker with no label at all.
+        slide = timeline_slide(
+            prs, title="t",
+            milestones=[{"label": 0}, {"label": False, "date": 0}, {"label": None}],
+        )
+
+        assert len(_autoshapes(slide)) == 4  # rail + three markers
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["0"], ["0", "False"]
+        ]
+
 
 class DescribeFigureSlideSources:
     """`figure_slide` embeds SVG from a path or a text-returning reader."""
