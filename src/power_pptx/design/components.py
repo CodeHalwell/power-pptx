@@ -39,12 +39,15 @@ from power_pptx.util import Inches, Length, Pt
 # Re-use the private helpers from recipes rather than reimplement them.
 # Same package, same module-private convention.
 from power_pptx.design.recipes import (
+    _KPI_MIN_CARD_H,
+    _KPI_MIN_CARD_W,
     _apply_card_styling,
-    _delta_color,
+    _check_items,
     _fill_text_frame,
+    _kpi_card,
     _palette,
-    _resolve_delta,
     _typography,
+    _unify_sizes,
 )
 
 if TYPE_CHECKING:
@@ -113,80 +116,40 @@ def add_kpi_card(
     renders as ``+27%``, ``{"delta_text": "+14 pts"}`` renders verbatim.
     Tinted from the palette's ``positive`` / ``negative`` slot.
 
+    The value, label and delta are stacked for a card 1.9" tall (the
+    height :func:`~power_pptx.design.recipes.kpi_slide` uses).  A
+    shorter card scales the stack down so it still ends inside the
+    card; a taller one keeps the stack at the top.  Below 0.95" there
+    is no room for the three lines at a readable size and
+    :class:`ValueError` is raised.  Each text is measured and baked at
+    the largest size that fits its band, never below 9pt, and colours
+    that fall below 4.5:1 on the card fill are adjusted to meet it.
+
     Returns a :class:`KpiCard` bundle so callers can reach into the
     constituent shapes for per-deck tweaks without re-implementing
     the layout.
     """
-    fill_color = _palette(tokens, ("surface", "lt2"))
+    if height < _KPI_MIN_CARD_H:
+        raise ValueError(
+            f"add_kpi_card: height {Length(height).inches:.2f}in is too small for a value, "
+            f"label and delta at a readable size; use at least "
+            f"{_KPI_MIN_CARD_H.inches:.2f}in"
+        )
     # Border tracks the brand: fall through muted → lt1 → neutral → primary so
     # the outline never lands on an off-palette default (a clashing pale blue
     # on a non-blue scheme) or silently disappears when muted/lt1 are unset.
-    border_color = _palette(tokens, ("muted", "lt1", "neutral", "primary"))
-    value_color = _palette(tokens, ("primary", "neutral"))
-    label_color = _palette(tokens, ("muted",))
-
-    value_token = _typography(tokens, "heading", default_size=Pt(30), default_bold=True)
-    label_token = _typography(tokens, "body", default_size=Pt(12))
-    delta_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
-
-    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
-    if fill_color is not None:
-        card.fill.solid()
-        card.fill.fore_color.rgb = fill_color
-    else:
-        card.fill.background()
-    if border_color is not None:
-        card.line.color.rgb = border_color
-        card.line.width = Pt(0.75)
-    _apply_card_styling(card, tokens)
-    card.text_frame.text = ""
-
-    # Vertical layout inside the card. Heights chosen to mirror
-    # kpi_slide's existing recipe so the visual matches when used in
-    # the same deck.
-    value_h = Inches(0.85)
-    label_h = Inches(0.4)
-    delta_h = Inches(0.35)
-    inner_top = Length(top + Inches(0.25))
-    label_top = Length(top + Inches(1.10))
-    delta_top = Length(top + Inches(1.50))
-
-    value_box = slide.shapes.add_textbox(left, inner_top, width, value_h)
-    _fill_text_frame(
-        value_box.text_frame,
-        str(value),
-        token=value_token,
-        color=value_color,
-        align=PP_ALIGN.CENTER,
-        anchor=MSO_ANCHOR.MIDDLE,
-        shrink_to_fit=True,
+    card, value_box, label_box, delta_box = _kpi_card(
+        slide,
+        left,
+        top,
+        width,
+        height,
+        label=str(label),
+        value=str(value),
+        delta=delta,
+        tokens=tokens,
+        border_roles=("muted", "lt1", "neutral", "primary"),
     )
-
-    label_box = slide.shapes.add_textbox(left, label_top, width, label_h)
-    _fill_text_frame(
-        label_box.text_frame,
-        str(label),
-        token=label_token,
-        color=label_color,
-        align=PP_ALIGN.CENTER,
-        anchor=MSO_ANCHOR.TOP,
-        shrink_to_fit=True,
-    )
-
-    delta_box = None
-    if delta is not None:
-        d_text, d_sign = _resolve_delta(delta)
-        if d_text is not None:
-            delta_box = slide.shapes.add_textbox(left, delta_top, width, delta_h)
-            _fill_text_frame(
-                delta_box.text_frame,
-                d_text,
-                token=delta_token,
-                color=_delta_color(tokens, d_sign),
-                align=PP_ALIGN.CENTER,
-                anchor=MSO_ANCHOR.TOP,
-                shrink_to_fit=True,
-            )
 
     # Tag the stack so the lint pass treats them as one intentional
     # group, not three overlapping shapes.
@@ -467,19 +430,30 @@ def add_stat_strip(
 ) -> StatStrip:
     """Add ``len(items)`` KPI tiles across a strip with the given gutter.
 
-    Each item dict accepts the same fields as ``add_kpi_card``'s
-    ``label`` / ``value`` / ``delta``. Cards are sized to the strip's
-    width minus the gutters and stacked left-to-right.
+    Each item dict takes ``label`` and ``value`` (both required) and an
+    optional ``delta`` or ``delta_text``, as for ``add_kpi_card``; any
+    other key raises :class:`ValueError`. Cards are sized to the strip's
+    width minus the gutters and stacked left-to-right, and their values,
+    labels and deltas are each set to one size across the strip.
+
+    A card needs at least 0.75" of width; more items than the strip can
+    hold at that width raise :class:`ValueError` saying how many fit.
 
     Returns a :class:`StatStrip` whose ``.cards`` is a list of
     :class:`KpiCard` bundles, in the same order as `items`.
     """
     if not items:
         return StatStrip(cards=[])
+    _check_items("add_stat_strip", "items", items, ("label", "value"), ("delta", "delta_text"))
 
     n = len(items)
     available = int(width) - (n - 1) * int(gutter)
     card_w = Length(available // n)
+    if card_w < _KPI_MIN_CARD_W:
+        fits = max(0, (int(width) + int(gutter)) // (int(_KPI_MIN_CARD_W) + int(gutter)))
+        raise ValueError(
+            f"add_stat_strip: {n} items do not fit in a strip this wide; at most {fits} fit"
+        )
     cards = []
     for i, kpi in enumerate(items):
         l = Length(int(left) + i * (int(card_w) + int(gutter)))
@@ -495,12 +469,17 @@ def add_stat_strip(
                 top=top,
                 width=card_w,
                 height=height,
-                label=str(kpi.get("label", "")),
-                value=str(kpi.get("value", "")),
+                label=str(kpi["label"]),
+                value=str(kpi["value"]),
                 delta=delta,
                 tokens=tokens,
             )
         )
+    # One size per role across the strip, so one long value does not leave
+    # the cards with mismatched text.
+    _unify_sizes([card.value_box for card in cards])
+    _unify_sizes([card.label_box for card in cards])
+    _unify_sizes([card.delta_box for card in cards])
     return StatStrip(cards=cards)
 
 
