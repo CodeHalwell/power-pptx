@@ -1304,6 +1304,13 @@ class DescribeTableSlideWidths:
         assert cols[0] == pytest.approx(2 * cols[1], abs=2)
         assert min(cols) > Inches(1)
 
+    def it_centres_cell_text_vertically_in_rows_taller_than_their_text(self, prs):
+        slide = table_slide(prs, title="t", columns=["a", "b"], rows=[[1, 2]])
+
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+        anchors = {cell.vertical_anchor for row in table.rows for cell in row.cells}
+        assert anchors == {MSO_ANCHOR.MIDDLE}
+
     def it_rejects_a_row_with_more_values_than_columns(self, prs):
         with pytest.raises(ValueError, match="rows\\[1\\] has 3 values for 2 columns"):
             table_slide(prs, title="t", columns=["a", "b"], rows=[[1, 2], [1, 2, 3]])

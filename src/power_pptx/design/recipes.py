@@ -1081,6 +1081,11 @@ def table_slide(
             table.columns[i].width = Emu(col_w)
     for i, row_h in enumerate(row_heights):
         table.rows[i].height = Emu(row_h)
+        # A cell's anchor lives on the cell, not its text body, so the
+        # text frame's anchor alone leaves the text at the top of a row
+        # taller than its text.
+        for cell in table.rows[i].cells:
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
 
     align_map = _coerce_aligns(aligns, n_cols)
 
