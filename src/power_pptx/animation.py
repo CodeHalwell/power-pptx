@@ -798,28 +798,36 @@ def _prune_empty_timing(sld: Any) -> None:
     effects use a newer feature; a wrapper left with nothing in any branch is
     removed along with them.
     """
-    ext_lst_tag = qn("p:extLst")
     for timing in list(sld.iter(_TIMING)):
         if timing.xpath("p:tnLst/p:par/p:cTn/p:childTnLst/*"):
-            continue
-        for child in list(timing):
-            if child.tag != ext_lst_tag:
-                timing.remove(child)
-        if len(timing):
-            continue
-        branch = timing.getparent()
-        if branch is None:
-            continue
-        branch.remove(timing)
-        wrapper = branch.getparent()
-        if (
-            wrapper is not None
-            and wrapper.tag == "{%s}AlternateContent" % _MC_NS
-            and not any(len(alternative) for alternative in wrapper)
-        ):
-            holder = wrapper.getparent()
-            if holder is not None:
-                holder.remove(wrapper)
+            continue  # -- it still has time nodes --
+        _keep_only_extensions(timing)
+        if len(timing) == 0:
+            _remove_empty_timing(timing)
+
+
+def _keep_only_extensions(timing: Any) -> None:
+    """Remove every child of *timing* but its extension list."""
+    ext_lst_tag = qn("p:extLst")
+    for child in list(timing):
+        if child.tag != ext_lst_tag:
+            timing.remove(child)
+
+
+def _remove_empty_timing(timing: Any) -> None:
+    """Remove *timing*, and the ``mc:AlternateContent`` it was in if no branch has content."""
+    branch = timing.getparent()
+    if branch is None:
+        return
+    branch.remove(timing)
+    wrapper = branch.getparent()
+    if wrapper is None or wrapper.tag != "{%s}AlternateContent" % _MC_NS:
+        return
+    if any(len(alternative) for alternative in wrapper):
+        return  # -- another branch still has its copy --
+    holder = wrapper.getparent()
+    if holder is not None:
+        holder.remove(wrapper)
 
 
 def _first_delay(ctn: Any) -> int:
