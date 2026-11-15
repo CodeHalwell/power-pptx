@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
@@ -1113,17 +1113,9 @@ def comparison_columns(
     header_h = int(int(bbox.height) * 0.18)
     built_columns: list[Any] = []
     built_headers: list[Any] = []
-    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
-    from power_pptx._color import coerce_color
 
     for spec, col in zip(columns, col_boxes):
-        if isinstance(spec, str):
-            spec = {"title": spec, "body": ""}
-        title = spec.get("title", "")
-        body = spec.get("body", "")
-        if isinstance(body, list):
-            body = "\n".join(str(item) for item in body)
-
+        title, body = _column_texts(spec)
         header_box = BBox(col.left, col.top, col.width, Emu(header_h))
         body_box = BBox(
             col.left,
@@ -1137,27 +1129,55 @@ def comparison_columns(
             text=title, text_color=header_text_color,
             font=font, size_pt=header_size_pt, bold=True, radius=0.05,
         )
-        body_card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *body_box)
-        body_card.fill_hex(body_fill)
-        body_card.line_hex(header_fill, weight_pt=1.0)
-        tf = body_card.text_frame
-        tf.word_wrap = True
-        tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
-        margin = Pt(8)
-        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
-        tf.text = body
-        for para in tf.paragraphs:
-            for run in para.runs:
-                if font is not None:
-                    run.font.name = font
-                run.font.size = Pt(float(body_size_pt))
-                run.font.color.rgb = coerce_color(text_color)
-        # Shrink a long body so it doesn't overflow the column card / slide.
-        try:
-            tf.fit_text(font_family=font, max_size=max(1, int(round(body_size_pt))))
-        except (ValueError, OSError):
-            pass
+        body_card = _add_column_body(
+            slide, body_box, body, fill=body_fill, line=header_fill, text_color=text_color,
+            font=font, size_pt=body_size_pt,
+        )
         built_headers.append(header)
         built_columns.append(body_card)
     _tag_group(slide, "columns", built_headers + built_columns)
     return ColumnsResult(columns=built_columns, headers=built_headers)
+
+
+def _column_texts(spec: Any) -> tuple[Any, Any]:
+    """Return ``(title, body)`` of a column spec; a bare string is a title alone.
+
+    A list body is one line per item.
+    """
+    if isinstance(spec, str):
+        spec = {"title": spec, "body": ""}
+    title = spec.get("title", "")
+    body = spec.get("body", "")
+    if isinstance(body, list):
+        body = "\n".join(str(item) for item in body)
+    return title, body
+
+
+def _add_column_body(
+    slide,
+    box: BBox,
+    text: str,
+    *,
+    fill: str,
+    line: str,
+    text_color: str,
+    font: str | None,
+    size_pt: float,
+) -> Any:
+    """Add a column's body card: top-anchored text, shrunk to fit where it can be."""
+    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR
+
+    body_card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *box)
+    body_card.fill_hex(fill)
+    body_card.line_hex(line, weight_pt=1.0)
+    tf = body_card.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
+    margin = Pt(8)
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
+    tf.text = text
+    _style_runs(tf, font=font, size=Pt(float(size_pt)), color=text_color)
+    # Shrink a long body so it doesn't overflow the column card / slide.
+    with suppress(ValueError, OSError):
+        tf.fit_text(font_family=font, max_size=max(1, int(round(size_pt))))
+    return body_card
