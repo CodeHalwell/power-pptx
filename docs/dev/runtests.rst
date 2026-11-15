@@ -61,7 +61,24 @@ Linting and type checking
     ruff check src tests
     ruff format --check src tests
     pyright --project pyright-ci.json
-    complexipy src/power_pptx
+    complexipy
+
+``complexipy`` reads its paths (``src``, ``tests`` and ``examples``) and its
+limit of 15 from ``pyproject.toml``. The tool versions are pinned in
+``requirements-quality.txt``, which ``requirements-dev.txt`` includes.
+
+Documentation
+-------------
+
+::
+
+    pip install -r requirements-docs.txt
+    python -m sphinx -b html -W --keep-going docs docs/.build/html
+
+Read the Docs and continuous integration build with warnings treated as
+errors, so the build has to finish without any. A cross-reference that does
+not resolve is not a warning, so check that new API entries actually appear
+in the generated pages.
 
 Several interpreters
 --------------------

@@ -119,6 +119,14 @@ complexipy
 To have ``git blame`` skip the bulk reformatting commit, run
 ``git config blame.ignoreRevsFile .git-blame-ignore-revs`` once.
 
+The Sphinx documentation is built in CI, as on Read the Docs, with warnings
+treated as errors:
+
+```bash
+pip install -r requirements-docs.txt
+python -m sphinx -b html -W --keep-going docs docs/.build/html
+```
+
 ## Preparing a release
 
 Merging a feature PR does not itself publish a release. The release workflow
