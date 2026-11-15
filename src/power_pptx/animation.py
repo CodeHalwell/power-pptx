@@ -372,6 +372,49 @@ def _angle_units(degrees: Any, name: str = "degrees") -> int:
     return units
 
 
+def _paragraph_target(target: BaseShape | TextFrame) -> tuple[BaseShape, TextFrame]:
+    """The shape to animate, and the text frame whose paragraphs to reveal, for *target*.
+
+    *target* is a text frame, or a shape that has one.  Raises |TypeError|
+    for anything else.
+    """
+    from power_pptx.text.text import TextFrame as _TextFrame
+
+    if isinstance(target, _TextFrame):
+        return _shape_of_text_frame(target), target
+    text_frame = getattr(target, "text_frame", None)
+    if text_frame is None or not hasattr(target, "shape_id"):
+        raise TypeError(
+            "by_paragraph=True requires a TextFrame or a shape with "
+            f"a text_frame and shape_id; got {type(target).__name__!r}"
+        )
+    return cast("BaseShape", target), text_frame
+
+
+def _shape_of_text_frame(text_frame: TextFrame) -> BaseShape:
+    """The slide-level shape *text_frame* belongs to.
+
+    That is the first thing with a `shape_id` (a |BaseShape|) up its parent
+    chain, which may pass through parents that have none (a table cell's
+    text frame has a `_Cell` parent).  Raises |TypeError| when nothing in the
+    chain has one, so the text frame is not attached to a slide-level shape
+    (table-cell text frames are not yet supported), or the chain loops.
+    """
+    parent = text_frame._parent  # type: ignore[attr-defined]
+    seen: set[int] = set()
+    while parent is not None and id(parent) not in seen:
+        if hasattr(parent, "shape_id"):
+            return cast("BaseShape", parent)
+        seen.add(id(parent))
+        parent = getattr(parent, "_parent", None)
+    raise TypeError(
+        "by_paragraph=True requires a TextFrame whose parent "
+        "chain reaches a shape; "
+        f"{type(text_frame._parent).__name__!r} has no shape_id "  # type: ignore[attr-defined]
+        "ancestor (table-cell text frames are not yet supported)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internal XML builders
 # ---------------------------------------------------------------------------
@@ -1410,41 +1453,7 @@ class SlideAnimations:
                 f"by_paragraph=True is not supported for preset {preset!r}. "
                 f"Choose from: {sorted(self._PARAGRAPH_PRESETS)}"
             )
-
-        from power_pptx.text.text import TextFrame as _TextFrame
-
-        if isinstance(target, _TextFrame):
-            text_frame = target
-            # Walk up the parent chain until we hit something with a
-            # `shape_id` (a |BaseShape|).  TextFrames inside table cells
-            # have an intermediate `_Cell` parent that has no shape_id;
-            # those cells live inside a `GraphicFrame` further up.  If
-            # nothing in the chain has a shape_id, the TextFrame isn't
-            # attached to a slide-level shape and we can't target it.
-            parent = target._parent  # type: ignore[attr-defined]
-            seen: set[int] = set()
-            while parent is not None and not hasattr(parent, "shape_id"):
-                if id(parent) in seen:
-                    parent = None  # cycle guard
-                    break
-                seen.add(id(parent))
-                parent = getattr(parent, "_parent", None)
-            if parent is None or not hasattr(parent, "shape_id"):
-                raise TypeError(
-                    "by_paragraph=True requires a TextFrame whose parent "
-                    "chain reaches a shape; "
-                    f"{type(target._parent).__name__!r} has no shape_id "  # type: ignore[attr-defined]
-                    "ancestor (table-cell text frames are not yet supported)."
-                )
-            shape = cast("BaseShape", parent)
-        else:
-            text_frame = getattr(target, "text_frame", None)
-            if text_frame is None or not hasattr(target, "shape_id"):
-                raise TypeError(
-                    "by_paragraph=True requires a TextFrame or a shape with "
-                    f"a text_frame and shape_id; got {type(target).__name__!r}"
-                )
-            shape = cast("BaseShape", target)
+        shape, text_frame = _paragraph_target(target)
 
         spid: int = shape.shape_id
         preset_id, preset_subtype = _ENTRANCE_PRESETS[preset]
