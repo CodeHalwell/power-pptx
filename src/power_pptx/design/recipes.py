@@ -56,7 +56,7 @@ import contextlib
 import math
 import os
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union, overload
+from typing import IO, TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sequence, Union, overload
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
 from power_pptx.dml.color import RGBColor
@@ -273,12 +273,7 @@ def _fit_bullets(
             if sum(heights(size)) <= height_pt:
                 return (None if size == top else size), round(gap(size), 1)
 
-    fits, used = 0, 0.0
-    for needed in heights(floor):
-        if used + needed > height_pt:
-            break
-        used += needed
-        fits += 1
+    fits = _count_fitting(heights(floor), height_pt)
     raise ValueError(
         f"bullet_slide: {len(texts)} bullets do not fit under the title at the "
         f"{floor}pt minimum; {fits} fit. Shorten the list or split it across slides."
@@ -1287,7 +1282,6 @@ def _fit_table(
     table overflows with every row at the minimum size.
     """
     height_pt = table_h / 12700.0
-    n_rows = len(layout)
     files = [_font_file(token) for token, _ in layout]
     max_shrink = max(
         0,
@@ -1299,60 +1293,73 @@ def _fit_table(
         ),
     )
 
-    def needs(shrink: int) -> list[float]:
-        out = []
-        for (token, cells), font_file in zip(layout, files):
-            size = _shrunk_pt(token, shrink)
-            whole = max(1, int(math.ceil(size)))
-            lines = max(
-                _line_count(text, width - int(_CELL_INSET_X), whole, font_file)
-                for text, width in zip(cells, col_widths)
-            )
-            out.append(lines * _line_height_pt(size, font_file) + _CELL_INSET_Y_PT)
-        return out
-
     # One line per row at the smallest sizes is the least a table can
     # need; when even that overflows there is nothing to measure.
-    least = sum(
+    needs = [
         _line_height_pt(_shrunk_pt(token, max_shrink), font_file) + _CELL_INSET_Y_PT
         for (token, _), font_file in zip(layout, files)
-    )
-    row_needs: list[float] = []
-    chosen = None
-    if least <= height_pt:
+    ]
+    if sum(needs) <= height_pt:
         for shrink in range(0, max_shrink + 1):
-            row_needs = needs(shrink)
-            if sum(row_needs) <= height_pt:
-                chosen = shrink
-                break
-    if chosen is None:
-        if least <= height_pt:
-            floor_needs = row_needs
-        else:
-            floor_needs = [
-                _line_height_pt(_shrunk_pt(token, max_shrink), font_file) + _CELL_INSET_Y_PT
-                for (token, _), font_file in zip(layout, files)
-            ]
-        has_totals = n_rows - 1 - n_body_rows
-        used = floor_needs[0] + (floor_needs[-1] if has_totals else 0.0)
-        fits = 0
-        for needed in floor_needs[1 : 1 + n_body_rows]:
-            if used + needed > height_pt:
-                break
-            used += needed
-            fits += 1
-        raise ValueError(
-            f"table_slide: {n_body_rows} rows do not fit on the slide at the "
-            f"{_MIN_FONT_PT}pt minimum; {fits} fit. Split the table across slides."
-        )
+            needs = _table_row_needs(layout, files, col_widths, shrink)
+            if sum(needs) <= height_pt:
+                return shrink, _table_row_heights(needs, height_pt)
 
+    # Overflowing with every row at the minimum, where *needs* now is:
+    # count the data rows that fit beside the header and any totals row.
+    has_totals = len(layout) - 1 - n_body_rows
+    used = needs[0] + (needs[-1] if has_totals else 0.0)
+    fits = _count_fitting(needs[1 : 1 + n_body_rows], height_pt, used=used)
+    raise ValueError(
+        f"table_slide: {n_body_rows} rows do not fit on the slide at the "
+        f"{_MIN_FONT_PT}pt minimum; {fits} fit. Split the table across slides."
+    )
+
+
+def _table_row_needs(
+    layout: Sequence[tuple[TypographyToken, Sequence[str]]],
+    files: Sequence[Optional[str]],
+    col_widths: Sequence[int],
+    shrink: int,
+) -> list[float]:
+    """Points each table row needs at *shrink*: its most-wrapped cell plus the insets."""
+    out = []
+    for (token, cells), font_file in zip(layout, files):
+        size = _shrunk_pt(token, shrink)
+        whole = max(1, int(math.ceil(size)))
+        lines = max(
+            _line_count(text, width - int(_CELL_INSET_X), whole, font_file)
+            for text, width in zip(cells, col_widths)
+        )
+        out.append(lines * _line_height_pt(size, font_file) + _CELL_INSET_Y_PT)
+    return out
+
+
+def _table_row_heights(row_needs: Sequence[float], height_pt: float) -> list[int]:
+    """Row heights in EMU sharing *height_pt* between rows needing *row_needs* points.
+
+    Rows keep an equal share when that is enough for all of them, and
+    otherwise each gets what it needs plus an equal share of the slack.
+    """
+    n_rows = len(row_needs)
     equal = height_pt / n_rows
     if max(row_needs) <= equal:
         heights_pt = [equal] * n_rows
     else:
         slack = (height_pt - sum(row_needs)) / n_rows
         heights_pt = [needed + slack for needed in row_needs]
-    return chosen, [int(h * 12700) for h in heights_pt]
+    return [int(h * 12700) for h in heights_pt]
+
+
+def _count_fitting(needs: Iterable[float], room: float, *, used: float = 0.0) -> int:
+    """How many of *needs*, taken in order, fit in *room* on top of *used*."""
+    fits = 0
+    for needed in needs:
+        if used + needed > room:
+            break
+        used += needed
+        fits += 1
+    return fits
 
 
 # ---------------------------------------------------------------------------
