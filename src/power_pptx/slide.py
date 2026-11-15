@@ -534,14 +534,19 @@ class Slide(_BaseSlide):
             raise ValueError("design_group name must be a non-empty string")
 
         sp_tree = self._element.spTree
-        before = {id(elm) for elm in sp_tree.iter_shape_elms()}
+        # Hold the elements themselves, not their ``id()``: lxml hands out a
+        # fresh proxy object for a node nobody references, so the address of
+        # a discarded proxy is soon reused by an unrelated shape.  While this
+        # set keeps them alive each node keeps its one proxy, and membership
+        # is a true "was this shape here before?".
+        before = set(sp_tree.iter_shape_elms())
         try:
             yield
         finally:
             from power_pptx.lint import _read_lint_group, _write_lint_group
 
             for elm in sp_tree.iter_shape_elms():
-                if id(elm) in before:
+                if elm in before:
                     continue
                 try:
                     cNvPr = elm._nvXxPr.cNvPr

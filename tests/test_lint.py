@@ -208,6 +208,27 @@ class DescribeSlideDesignGroup:
             a.lint_group = "manual"
         assert a.lint_group == "manual"
 
+    def it_tags_exactly_the_shapes_added_when_no_references_are_kept(self):
+        # Shapes created and dropped without being held in a variable, on a
+        # layout whose placeholders already sit in the tree: the identity of
+        # each shape must not depend on Python object addresses.
+        import gc
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])  # Title and Content
+        slide.shapes.title.text = "Q4 Review"
+        gc.collect()
+        for n in (1, 2):
+            with slide.design_group(f"kpi-card-{n}"):
+                slide.shapes.add_shape(5, Inches(n * 3), Inches(2), Inches(2), Inches(2))
+                slide.shapes.add_shape(1, Inches(n * 3), Inches(2), Inches(2), Inches(0.1))
+                slide.shapes.add_textbox(Inches(n * 3), Inches(2.5), Inches(2), Inches(1))
+            gc.collect()
+
+        tags = [shape.lint_group for shape in slide.shapes]
+
+        assert tags == [None, None] + ["kpi-card-1"] * 3 + ["kpi-card-2"] * 3
+
     def it_rejects_an_empty_or_None_name(self):
         _, slide = _new_blank_slide()
         with pytest.raises(ValueError):
