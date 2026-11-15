@@ -505,27 +505,23 @@ def _validate_spec_keys(spec: dict[str, Any]) -> None:
     spec_vars = spec.get("vars")
     if spec_vars is not None and not isinstance(spec_vars, Mapping):
         raise SpecError("spec 'vars' must be a mapping", path="vars")
-    if "interpolate" in spec and not isinstance(spec["interpolate"], bool):
-        raise _spec_error(
-            "interpolate", f"expected true or false; got {_describe(spec['interpolate'])}"
-        )
+    if "interpolate" in spec:
+        _flag(spec["interpolate"], "interpolate")
     if not isinstance(spec.get("slides", []), list):
         raise SpecError("'slides' must be a list", path="slides")
     for index, slide in enumerate(spec.get("slides", [])):
-        if not isinstance(slide, Mapping):
-            raise SpecError(
-                f"slides[{index}]: each slide must be a mapping", path=f"slides[{index}]"
-            )
-        layout = slide.get("layout")
-        if layout is not None and not isinstance(layout, str):
-            raise SpecError(
-                f"slides[{index}].layout must be a string", path=f"slides[{index}].layout"
-            )
-        if "interpolate" in slide and not isinstance(slide["interpolate"], bool):
-            raise _spec_error(
-                f"slides[{index}].interpolate",
-                f"expected true or false; got {_describe(slide['interpolate'])}",
-            )
+        _validate_slide_keys(slide, f"slides[{index}]")
+
+
+def _validate_slide_keys(slide: Any, where: str) -> None:
+    """Check the slide-spec keys the dispatcher reads before building anything."""
+    if not isinstance(slide, Mapping):
+        raise SpecError(f"{where}: each slide must be a mapping", path=where)
+    layout = slide.get("layout")
+    if layout is not None and not isinstance(layout, str):
+        raise SpecError(f"{where}.layout must be a string", path=f"{where}.layout")
+    if "interpolate" in slide:
+        _flag(slide["interpolate"], f"{where}.interpolate")
 
 
 def _open_template(template: Any, ctx: _Context) -> Any:
