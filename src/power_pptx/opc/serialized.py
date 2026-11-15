@@ -323,7 +323,8 @@ def _leading_bytes(pkg_file: str | IO[bytes], count: int) -> bytes:
                 return f.read(count)
         pkg_file.seek(0)
         head = pkg_file.read(count)
-        return head if isinstance(head, bytes) else b""
+        # -- a stream opened in text mode hands back str, whatever its annotation says --
+        return head if isinstance(head, bytes) else b""  # pyright: ignore[reportUnnecessaryIsInstance]
     except Exception:
         return b""
 

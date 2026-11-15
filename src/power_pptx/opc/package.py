@@ -8,7 +8,17 @@ from __future__ import annotations
 
 import collections
 import os
-from typing import IO, TYPE_CHECKING, DefaultDict, Iterator, Mapping, Sequence, Set, cast
+from typing import (
+    IO,
+    TYPE_CHECKING,
+    Any,
+    DefaultDict,
+    Iterator,
+    Mapping,
+    Sequence,
+    Set,
+    cast,
+)
 
 from power_pptx.exc import InvalidPackageError
 from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
@@ -232,7 +242,7 @@ def _is_external(rel: CT_Relationship) -> bool:
     return rel.targetMode.strip().lower() == RTM.EXTERNAL.lower()
 
 
-def _raise_on_dtd(element: BaseOxmlElement, item_name: str) -> None:
+def _raise_on_dtd(element: Any, item_name: str) -> None:
     """Raise |InvalidPackageError| if the XML `element` was parsed from declares a DTD.
 
     OPC forbids DTD declarations in package XML and PowerPoint refuses such a file. Entity
@@ -257,7 +267,7 @@ class _PackageLoader:
 
     @classmethod
     def load(
-        cls, pkg_file: str | IO[bytes], package: Package
+        cls, pkg_file: str | os.PathLike[str] | IO[bytes], package: Package
     ) -> tuple[CT_Relationships, dict[PackURI, Part]]:
         """Return (pkg_xml_rels, parts) pair resulting from loading `pkg_file`.
 
@@ -330,7 +340,10 @@ class _PackageLoader:
                 ) from None
             part = PartFactory(partname, content_type, package, blob=package_reader[partname])
             if isinstance(part, XmlPart):
-                _raise_on_dtd(part._element, partname.membername)
+                _raise_on_dtd(
+                    part._element,  # pyright: ignore[reportPrivateUsage]
+                    partname.membername,
+                )
             parts[partname] = part
         return parts
 

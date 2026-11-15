@@ -174,7 +174,7 @@ class PresentationPart(XmlPart):
             # -- e.g. a VBA project, which renaming the file does not change --
             return current
         if isinstance(path_or_stream, (str, os.PathLike)):
-            ext = os.path.splitext(os.fspath(path_or_stream))[1].lower()
+            ext = os.path.splitext(os.fsdecode(path_or_stream))[1].lower()
             return _MAIN_CONTENT_TYPE_FOR_EXT.get(ext, CT.PML_PRESENTATION_MAIN)
         return CT.PML_PRESENTATION_MAIN
 
