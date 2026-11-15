@@ -215,6 +215,72 @@ def gallery(out, records):
     (out / "index.html").write_text(html, encoding="utf-8")
 
 
+def copy_sources(out):
+    """Ship the scripts, gallery template and HTML documents beside the output."""
+    (out / "source").mkdir(exist_ok=True)
+    for path in HERE.glob("*.py"):
+        shutil.copy2(path, out / "source" / path.name)
+    shutil.copy2(HERE / "gallery.html", out / "source" / "gallery.html")
+    shutil.copytree(HERE / "html", out / "source" / "html", dirs_exist_ok=True)
+    if (HERE / "README.md").exists():
+        shutil.copy2(HERE / "README.md", out / "source" / "README.md")
+
+
+def build_deck(name, out, browser_path):
+    """Capture an HTML direction in the browser, or run a native builder."""
+    if name in DOCUMENTS:
+        source = out / "html" / f"{name}.html"
+        shutil.copy2(DOCUMENTS[name], source)
+        return from_html(
+            source,
+            browser_path=browser_path,
+            wait_for_function="window.deckReady === true",
+        )
+    builder = BUILDERS[name]
+    prs = builder(browser_path=browser_path) if name in {"04-lumen", "05-current"} else builder()
+    add_speaker_notes(prs)
+    return prs
+
+
+def add_speaker_notes(prs):
+    """Give each slide without notes its visible text as speaker notes."""
+    for s in prs.slides:
+        if not s.has_notes_slide:
+            s.notes_slide.notes_text_frame.text = "\n".join(
+                sh.text for sh in s.shapes if sh.has_text_frame and sh.text.strip()
+            )
+
+
+def build_and_check(name, out, args):
+    """Build, validate, audit and (with --render) render one deck; return its record."""
+    prs = build_deck(name, out, args.browser_path)
+    record, audit_md = validate(prs, out / f"{name}.pptx")
+    record["rendered"] = False
+    (out / f"{name}-audit.md").write_text(audit_md, encoding="utf-8")
+    if args.render:
+        render_deck(name, prs, out, record)
+    return record
+
+
+def render_deck(name, prs, out, record):
+    """Render every slide and a contact sheet; HTML captures must match the browser."""
+    paths = render_slides(
+        prs,
+        out_dir=out / name,
+        name_template="slide-{:02d}.png",
+        strategy="pdf",
+        dpi=96,
+    )
+    if len(paths) != len(prs.slides):
+        raise RuntimeError("Every slide must render")
+    record["rendered"] = True
+    contact_sheet(paths, out / f"{name}-contact.png", DESCRIPTIONS[name][0])
+    if name in DOCUMENTS:
+        record["browser_render_mean_error"] = browser_render_error(prs, paths)
+        if any(error > 0.015 for error in record["browser_render_mean_error"]):
+            raise RuntimeError("HTML render differs materially from its browser reference")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path, default=HERE / "_out")
@@ -225,13 +291,7 @@ def main():
     out = args.out_dir.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "html").mkdir(exist_ok=True)
-    (out / "source").mkdir(exist_ok=True)
-    for path in HERE.glob("*.py"):
-        shutil.copy2(path, out / "source" / path.name)
-    shutil.copy2(HERE / "gallery.html", out / "source" / "gallery.html")
-    shutil.copytree(HERE / "html", out / "source" / "html", dirs_exist_ok=True)
-    if (HERE / "README.md").exists():
-        shutil.copy2(HERE / "README.md", out / "source" / "README.md")
+    copy_sources(out)
     # Keep existing entries when refining one deck; stale files never count as a render pass.
     records = (
         json.loads((out / "manifest.json").read_text()) if (out / "manifest.json").exists() else {}
@@ -239,64 +299,24 @@ def main():
     failures = []
     for name in args.deck or list(DESCRIPTIONS):
         try:
-            if name in DOCUMENTS:
-                source = out / "html" / f"{name}.html"
-                shutil.copy2(DOCUMENTS[name], source)
-                prs = from_html(
-                    source,
-                    browser_path=args.browser_path,
-                    wait_for_function="window.deckReady === true",
-                )
-            else:
-                builder = BUILDERS[name]
-                prs = (
-                    builder(browser_path=args.browser_path)
-                    if name in {"04-lumen", "05-current"}
-                    else builder()
-                )
-                for s in prs.slides:
-                    if not s.has_notes_slide:
-                        s.notes_slide.notes_text_frame.text = "\n".join(
-                            sh.text for sh in s.shapes if sh.has_text_frame and sh.text.strip()
-                        )
-            record, audit_md = validate(prs, out / f"{name}.pptx")
-            record["rendered"] = False
-            (out / f"{name}-audit.md").write_text(audit_md, encoding="utf-8")
-            records[name] = record
-            if args.render:
-                paths = render_slides(
-                    prs,
-                    out_dir=out / name,
-                    name_template="slide-{:02d}.png",
-                    strategy="pdf",
-                    dpi=96,
-                )
-                if len(paths) != len(prs.slides):
-                    raise RuntimeError("Every slide must render")
-                record["rendered"] = True
-                contact_sheet(paths, out / f"{name}-contact.png", DESCRIPTIONS[name][0])
-                if name in DOCUMENTS:
-                    record["browser_render_mean_error"] = browser_render_error(prs, paths)
-                    if any(error > 0.015 for error in record["browser_render_mean_error"]):
-                        raise RuntimeError(
-                            "HTML render differs materially from its browser reference"
-                        )
+            record = build_and_check(name, out, args)
+        except Exception:
+            record = {
+                "error": traceback.format_exc(),
+                "structural_pass": False,
+                "rendered": False,
+            }
+            print(f"{name}: FAILED\n{record['error']}", flush=True)
+        else:
             print(
                 f"{name}: {record['slides']} slides; "
                 f"structure={'PASS' if record['structural_pass'] else 'FAIL'}; "
                 f"rendered={record['rendered']}",
                 flush=True,
             )
-            if not record["structural_pass"]:
-                failures.append(name)
-        except Exception:
+        records[name] = record
+        if not record["structural_pass"]:
             failures.append(name)
-            records[name] = {
-                "error": traceback.format_exc(),
-                "structural_pass": False,
-                "rendered": False,
-            }
-            print(f"{name}: FAILED\n{records[name]['error']}", flush=True)
         (out / "manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
     gallery(out, records)
     (out / "REVIEW.md").write_text(
