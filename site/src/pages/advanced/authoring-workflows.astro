@@ -51,7 +51,9 @@ power-pptx review deck.pptx --font-dir assets/fonts --out-dir review`;
   <Code code={fonts} lang="python" />
   <p>register_font_dir makes fonts shipped with your project measurable without installing them,
     so strict_fonts=True behaves the same on a laptop, in Docker, and in CI. Each style is looked
-    up separately; register_font_family pins explicit files per style and weight. TextBlock
+    up separately, faces in .ttc/.otc collections are found, and family names match
+    case-insensitively; register_font_family pins explicit files per style and weight without
+    adding their folders to the search, and registered_font_files() lists them. TextBlock
     measures letter_spacing, weight, and case, so a tracked label that no longer fits raises
     LayoutOverflowError. Medium and SemiBold faces are written by their legacy family name, which is
     how PowerPoint selects them.</p>
@@ -60,10 +62,13 @@ power-pptx review deck.pptx --font-dir assets/fonts --out-dir review`;
     reports the same problem as RaggedEdge. DataTable measures row heights from cell text and can
     truncate cells with an ellipsis. Set SOURCE_DATE_EPOCH for byte-identical builds.</p>
   <h2 id="typography">Typography constraints</h2>
-  <p>TextFrame.fit_text accepts min_size, max_lines, preserve_breaks, and line_spacing.
-    preserve_breaks forbids additional wrapping; an impossible fit leaves formatting unchanged.
-    power_pptx.text.measure_text provides read-only line and size measurements. Use installed
-    fonts and strict metrics for final output; metric files do not embed fonts.</p>
+  <p>TextFrame.fit_text accepts min_size, max_lines, preserve_breaks, and line_spacing — a
+    multiple such as 1.2 or a length such as Pt(28). preserve_breaks forbids additional wrapping;
+    an impossible fit leaves formatting unchanged. Lines break where PowerPoint and LibreOffice
+    break them, after hyphens and URL slashes and between East Asian characters included.
+    power_pptx.text.measure_text provides read-only line and size measurements (in_table=True for
+    table cells, break_long_words=True to split an over-long word). Use installed fonts and
+    strict metrics for final output; metric files do not embed fonts.</p>
   <h2 id="hybrid">Annotated HTML to editable slides</h2>
   <Code code={hybrid} lang="python" />
   <table><thead><tr><th>Annotation</th><th>Result</th></tr></thead><tbody>
@@ -94,7 +99,10 @@ power-pptx review deck.pptx --font-dir assets/fonts --out-dir review`;
     --reference-dir enables comparisons; --max-error makes pixel differences a gate.
     --font-policy error gates missing explicit native fonts. Theme fonts are outside that inventory.
     --font-dir registers a font folder and hands it to LibreOffice, so previews use the real face
-    instead of a fallback.</p>
+    instead of a fallback. Hidden slides are rendered and reviewed with the rest. The round-trip
+    check compares relationships and content types by meaning rather than order, so a deck
+    written by another tool is not reported as changed; reusing an output directory clears the
+    previous review's output first.</p>
   <p>Inspect every rendered page for wrapping, clipping, contrast, and composition, then record
     findings in REVIEW.md. Automated reports mark visual review pending. Structural checks and
     pixel differences do not certify appearance or Microsoft PowerPoint playback.</p>

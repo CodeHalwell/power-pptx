@@ -116,6 +116,11 @@ const s6 = `TextFrame.fit_text(
     italic: bool = False,
     font_file: str | None = None,     # pin the metrics to a .ttf
     strict: bool = False,             # raise instead of estimating
+    *,
+    min_size: int = 1,                # refuse a fit smaller than this
+    max_lines: int | None = None,     # cap the rendered line count
+    preserve_breaks: bool = False,    # no wrapping beyond your own breaks
+    line_spacing: float | Length | None = None,   # 1.2, or Pt(28); applied
 ) -> int | None                       # applied point size, None if empty`;
 
 const s7 = `from power_pptx.text.layout import TextFitter
@@ -127,10 +132,23 @@ best_pt = TextFitter.best_fit_font_size(
     extents=(Inches(8), Inches(1.5)),   # available (width, height)
     max_size=44,
     font_file=None,        # a .ttf path pins the metrics; None = Pillow default
-)                          # -> int, or None when even 1pt overflows
+    line_spacing=Pt(40),   # optional: a multiple, a Length, or None (single)
+)                          # -> int, or None when nothing from min_size up fits
 
 if best_pt is not None:
     tf.paragraphs[0].runs[0].font.size = Pt(best_pt)`;
+
+const s7b = `from power_pptx.text import measure_text, truncate_text
+from power_pptx.util import Inches
+
+m = measure_text("Make the next move clear.", Inches(3),
+                 size_pt=24, font_family="DejaVu Sans")
+m.lines             # ('Make the next', 'move clear.')
+m.height            # EMU the lines take: 1.2 x size x line_spacing each
+m.used_fallback     # False - DejaVu Sans is installed; True means estimated
+
+truncate_text("Make the next move clear.", Inches(3), max_lines=1,
+              size_pt=24, font_family="DejaVu Sans")    # 'Make the next…'`;
 
 const s8 = `from power_pptx.text.fonts import (
     find_font_file, font_is_installed, installed_font_families,
@@ -140,6 +158,20 @@ font_is_installed("Inter")                    # -> bool
 font_is_installed("Inter", bold=True)         # per style, not per family
 find_font_file("Inter", bold=True)            # -> str path, or None
 installed_font_families()                     # -> tuple[str, ...], sorted`;
+
+const s8b = `from power_pptx.text import (
+    register_font_dir, register_font_family,
+    registered_font_dirs, registered_font_files, clear_registered_fonts,
+)
+
+register_font_dir("assets/fonts")       # searched before the system folders
+register_font_family("Inter",           # pin files per style and weight
+                     regular="assets/fonts/Inter-Regular.ttf",
+                     bold="assets/fonts/Inter-Bold.ttf",
+                     weights={"semibold": "assets/fonts/Inter-SemiBold.ttf"})
+registered_font_dirs()                  # POWER_PPTX_FONT_DIRS first, then registered
+registered_font_files()                 # the files register_font_family pinned
+clear_registered_fonts()                # forget both (tests)`;
 
 const s9 = `import warnings
 from power_pptx.exc import FontMetricsWarning
@@ -277,10 +309,16 @@ warnings.simplefilter("error", FontMetricsWarning)`;
   <Code code={s6} />
   <p>
     Measures the frame's actual string with Pillow font metrics and writes the largest integer
-    point size that fits into the XML before save. Also sets <code>word_wrap = True</code> and
-    <code>auto_size = MSO_AUTO_SIZE.NONE</code>, and applies the family, size, bold and italic to
-    every run in the frame. Returns the applied size, or <code>None</code> when the frame is
-    empty. Raises <code>ValueError</code> when the text does not fit at any size down to 1pt.
+    point size that fits into the XML before save. Measurement includes the formatting left in
+    place — line spacing, space between paragraphs, capitals and letter spacing, whether set on
+    the text or inherited by a placeholder — and wraps where PowerPoint does: at spaces, after
+    hyphens, dashes and URL slashes, and between East Asian characters. Also sets
+    <code>word_wrap = True</code> and <code>auto_size = MSO_AUTO_SIZE.NONE</code>, and applies the
+    family, size, bold and italic to every run in the frame, writing an East Asian typeface
+    (<code>a:ea</code>) alongside the Latin one for East Asian text. Returns the applied size, or
+    <code>None</code> when the frame is empty. Raises <code>ValueError</code> when the text does
+    not fit at any size down to <code>min_size</code>, or a constraint cannot be met, before
+    anything is changed.
   </p>
   <p>
     When <code>font_file</code> is <code>None</code> the installed file for <code>font_family</code>
@@ -290,6 +328,30 @@ warnings.simplefilter("error", FontMetricsWarning)`;
     <code>ValueError</code> instead. Omitting <code>font_family</code> entirely does not warn.
   </p>
   <Code code={s7} />
+  <p>
+    <code>best_fit_font_size(text, extents, max_size, font_file, *, min_size=1, max_lines=None,
+    preserve_breaks=False, line_spacing=None, letter_spacing=0, paragraph_formats=None,
+    in_table=False, break_long_words=None)</code>. <code>paragraph_formats</code> gives the
+    spacing of each newline-separated paragraph separately; <code>in_table=True</code> makes a line
+    as tall as the font's own ascent and descent when that exceeds 1.2 em, as LibreOffice draws
+    table cells; <code>break_long_words</code> left at <code>None</code> keeps words whole when
+    some size allows it and otherwise splits one at the edge, as a renderer does.
+  </p>
+
+  <h2 id="measure"><code>measure_text</code> and <code>truncate_text</code> <strong class="text-primary">fork</strong></h2>
+  <Code code={s7b} />
+  <p>
+    <code>measure_text(text, width, *, size_pt=18, font_family=None, font_file=None, bold=False,
+    italic=False, line_spacing=1.2, strict=False, letter_spacing=0, weight=None, in_table=False,
+    break_long_words=False) -&gt; TextMeasurement</code> is read-only: no slide or frame is
+    touched. <code>line_spacing</code> takes a multiple, a length such as <code>Pt(20)</code> for
+    an exact line height, or <code>None</code> for single-spaced text; each line reserves
+    1.2 × size × line spacing, as a renderer draws a shape, and <code>in_table=True</code>
+    reserves the font's own line height when that is taller. A word wider than
+    <code>width</code> raises unless <code>break_long_words=True</code>.
+    <code>truncate_text(text, width, *, max_lines=1, ...)</code> shortens text with an ellipsis so
+    it wraps to at most <code>max_lines</code>, with the same metrics.
+  </p>
 
   <h2 id="fonts"><code>power_pptx.text.fonts</code></h2>
   <Code code={s8} />
@@ -300,12 +362,26 @@ warnings.simplefilter("error", FontMetricsWarning)`;
     <li><code>FontFiles.find(family_name, is_bold, is_italic) -&gt; str</code> — raises <code>KeyError</code> when not installed</li>
   </ul>
   <p>
-    The scan walks the conventional font directories for the platform and is cached on the class
-    after the first call. Style matters: <code>font_is_installed("Inter")</code> can be
-    <code>True</code> while <code>font_is_installed("Inter", bold=True)</code> is
-    <code>False</code>.
+    The scan covers registered folders and <code>POWER_PPTX_FONT_DIRS</code> first, then the
+    conventional font directories for the platform, including faces inside <code>.ttc</code> /
+    <code>.otc</code> collections. Family lookups are case-insensitive and match a font's
+    other-language names too. The index is cached, and rebuilt when
+    <code>POWER_PPTX_FONT_DIRS</code> changes or a font is registered. Style matters:
+    <code>font_is_installed("Inter")</code> can be <code>True</code> while
+    <code>font_is_installed("Inter", bold=True)</code> is <code>False</code>.
   </p>
   <Code code={s9} />
+
+  <h3 id="font-registration">Registering fonts you ship <strong class="text-primary">fork</strong></h3>
+  <Code code={s8b} />
+  <p>
+    <code>register_font_dir</code> makes a project's own fonts measurable without installing them,
+    so <code>fit_text</code>, the linter and <code>strict=True</code> behave the same on a laptop,
+    in Docker and in CI; the folders are also handed to LibreOffice when rendering.
+    <code>register_font_family</code> maps a family's styles and weights to explicit files, which
+    take precedence over scanned folders; only those files are indexed, not the folders they sit
+    in. All of these are importable from <code>power_pptx.text</code>.
+  </p>
 
   <h2 id="enums">Text enumerations</h2>
   <table>

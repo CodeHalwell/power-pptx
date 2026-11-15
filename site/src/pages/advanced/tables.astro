@@ -224,7 +224,8 @@ size_pt      # 10 — the smallest per-cell fit, applied uniformly to every cell
     covering 74 distinct styles,
     since <code>"Table Grid"</code> and <code>"No Style, Table Grid"</code> are two names for the
     same GUID. A name that isn't in the gallery raises rather than silently writing a GUID
-    PowerPoint will ignore:
+    PowerPoint will ignore, and so does a brace-wrapped string that is not a GUID; lower-case hex
+    digits are upper-cased, as the schema requires:
   </p>
   <Code code={snippet5} />
 
@@ -357,9 +358,10 @@ size_pt      # 10 — the smallest per-cell fit, applied uniformly to every cell
     lengths up front, and the first long commentary field pushes text out of its
     cell. <code>table.fit_to_box()</code> is the table-shaped member of
     the <a href={withBase("/advanced/space-aware-authoring")}>space-aware</a> family — it measures
-    every populated cell against that cell's <em>own</em> column width and row height (margins
-    respected) with Pillow font metrics, then applies the <strong>smallest</strong> per-cell fit
-    uniformly across the table.
+    every populated cell against that cell's <em>own</em> column width and row height, inside the
+    cell's margins, the way <code>fit_text</code> measures (line spacing, capitals and letter
+    spacing included); a merged cell is measured across every column and row it spans. It then
+    applies the <strong>smallest</strong> per-cell fit uniformly across the table.
   </p>
   <Code code={snippet14} />
   <p>
@@ -368,6 +370,17 @@ size_pt      # 10 — the smallest per-cell fit, applied uniformly to every cell
     whose text cannot fit at any size still lands on a predictable floor rather than vanishing to
     2pt. Cells that fail to measure are treated as worst-case, which keeps the chosen size safe
     for every other cell.
+  </p>
+  <p>
+    Fonts are reported the way <code>fit_text</code> reports them. Naming a
+    <code>font_family</code> that is not installed emits <code>FontMetricsWarning</code> and
+    measures with fallback metrics; <code>strict=True</code> raises <code>ValueError</code>
+    instead, and <code>font_file=</code> measures with a file you ship. Leaving
+    <code>font_family</code> out measures Calibri metrics where Calibri is installed, without a
+    warning where it is not. For a single cell, <code>cell.text_frame.fit_text(...)</code> also
+    measures inside the cell's margins. Row heights still grow at render time to fit their text,
+    so the linter reports a row too short for its text as a <code>TextOverflow</code> warning
+    naming the cell.
   </p>
   <p>
     Call it <em>after</em> the text, the column widths and the row heights are final — it reads
