@@ -677,6 +677,7 @@ class DescribeEffectSettersAreAtomic(object):
             # -- a bare <a:reflection/> is a full default reflection
             ("ReflectionFormat", "start_alpha", 1.2, ValueError),
             ("ReflectionFormat", "end_alpha", -0.1, ValueError),
+            ("ReflectionFormat", "start_alpha", float("nan"), ValueError),
             ("ReflectionFormat", "blur_radius", -1, ValueError),
             ("ReflectionFormat", "distance", "far", TypeError),
             ("ReflectionFormat", "direction", "down", TypeError),
@@ -700,6 +701,7 @@ class DescribeEffectSettersAreAtomic(object):
             ("InnerShadowFormat", "rgb", (1, 2)),
             ("PresetShadowFormat", "rgb", "red"),
             ("GlowFormat", "alpha", -0.1),
+            ("InnerShadowFormat", "alpha", float("nan")),
         ],
     )
     def it_leaves_the_shape_untouched_when_a_colour_value_is_rejected(

@@ -146,7 +146,10 @@ class ColorFormat(object):
 
     @staticmethod
     def _validate_alpha_value(value):
-        if value < 0.0 or value > 1.0:
+        # -- written as a chained comparison so NaN, which compares false to
+        # -- everything, is rejected here rather than when it is serialised,
+        # -- by which time the existing alpha has been cleared
+        if not 0.0 <= value <= 1.0:
             raise ValueError("alpha must be number in range 0.0 to 1.0")
 
 

@@ -119,6 +119,14 @@ class DescribeColorFormat(object):
     def it_raises_on_attempt_to_set_alpha_out_of_range(self, rgb_color_format):
         with pytest.raises(ValueError, match="alpha must be number in range 0.0 to 1.0"):
             rgb_color_format.alpha = 1.1
+
+    def it_rejects_a_NaN_alpha_without_losing_the_alpha_it_had(self, rgb_color_format):
+        # NaN passed the `< 0 or > 1` range check and failed only on
+        # serialisation, after the existing <a:alpha> had been removed.
+        rgb_color_format.alpha = 0.5
+        with pytest.raises(ValueError, match="alpha must be number in range 0.0 to 1.0"):
+            rgb_color_format.alpha = float("nan")
+        assert rgb_color_format.alpha == 0.5
         with pytest.raises(ValueError, match="alpha must be number in range 0.0 to 1.0"):
             rgb_color_format.alpha = -0.1
 

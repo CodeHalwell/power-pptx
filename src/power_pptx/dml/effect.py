@@ -73,6 +73,9 @@ def _validated_angle(value: float) -> float:
 def _validated_fraction(value: float) -> float:
     """Return `value` if it is a number in `[0.0, 1.0]`, else raise."""
     ST_PositiveFixedPercentage.validate(value)
+    # -- NaN compares false to both bounds, so the range check lets it through
+    if value != value:
+        raise ValueError("value must be in range 0.0 to 1.0 inclusive, got %s" % value)
     return value
 
 
