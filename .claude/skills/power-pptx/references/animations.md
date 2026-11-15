@@ -140,13 +140,26 @@ MotionPath.zigzag(slide, shape, dx=Inches(4), dy=Inches(0),
 MotionPath.spiral(slide, shape, radius=Inches(2),
                   turns=2.5, clockwise=True)
 
-# Pass a raw OOXML motion-path expression
-MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0")
+# Pass a raw OOXML motion-path expression; `E` ends the path
+MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0 E")
+
+# Or an SVG path, mapped from its viewbox onto the slide
+MotionPath.svg(slide, shape, "M 0 0 H 100 V 50", viewbox=(0, 0, 200, 100))
 ```
 
 All preset constructors normalise EMU inputs against the slide
 dimensions before emitting the path attribute, so the *absolute* travel
 distance is preserved across slide sizes.
+
+A raw motion path knows five commands: `M` (move to), `L` (line to),
+`C` (cubic curve to), `Z` (close the loop) and `E` (end), in lower case
+for coordinates relative to the current point. Coordinates are
+fractions of the slide: `(0, 0)` is where the shape starts, `(1, 0)`
+one slide width to its right. `custom` adds the closing `E` if you
+leave it out and raises `ValueError` for anything that is not such a
+path. `svg` accepts the wider SVG set (`M L H V C Q Z`, either case)
+and converts it; arcs (`A`) and smooth curves (`S`, `T`) are not
+supported and raise `ValueError`.
 
 ## Round-trip safety
 

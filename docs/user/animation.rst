@@ -97,4 +97,16 @@ Motion paths
     MotionPath.zigzag(slide, shape, Inches(4), Inches(0),
                       segments=6, amplitude=0.2)
     MotionPath.spiral(slide, shape, Inches(2), turns=2.5)
-    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5")  # OOXML expr
+    MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 E")  # OOXML expr
+    MotionPath.svg(slide, shape, "M 0 0 H 100 V 50",
+                   viewbox=(0, 0, 200, 100))            # SVG path
+
+A raw motion path knows five commands: ``M`` (move to), ``L`` (line to),
+``C`` (cubic curve to), ``Z`` (close the loop) and ``E`` (end), in lower
+case for coordinates relative to the current point.  Coordinates are
+fractions of the slide: ``(0, 0)`` is where the shape starts, ``(1, 0)``
+one slide width to its right.  ``custom`` adds the closing ``E`` if it is
+left out and raises :class:`ValueError` for anything that is not such a
+path.  ``svg`` accepts the wider SVG set (``M L H V C Q Z``, either case)
+and converts it; arcs (``A``) and smooth curves (``S``, ``T``) are not
+supported and raise :class:`ValueError`.

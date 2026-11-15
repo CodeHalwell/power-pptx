@@ -74,6 +74,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
+from xml.sax.saxutils import quoteattr
 
 from power_pptx.enum.animation import PP_ANIM_TRIGGER
 from power_pptx.oxml.ns import nsdecls, qn
@@ -351,8 +352,12 @@ def _anim_effect_xml(ctn_id: int, spid: int, duration: int, filter_str: str, tra
 
 
 def _anim_motion_xml(ctn_id: int, spid: int, duration: int, path: str) -> str:
+    # `ptsTypes` is left out: it is optional, and its letters (one point type
+    # per path point, from {A, F, T, S}) are an editing hint this module has no
+    # use for.  The "AE" formerly written here was not even in that set.
+    path_attr = quoteattr(path)
     return (
-        f'<p:animMotion origin="parent" path="{path}" pathEditMode="relative" rAng="0" ptsTypes="AE">\n'
+        f'<p:animMotion origin="parent" path={path_attr} pathEditMode="relative" rAng="0">\n'
         "  <p:cBhvr>\n"
         f'    <p:cTn id="{ctn_id}" dur="{duration}" fill="hold"/>\n'
         f'    <p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>\n'
@@ -878,15 +883,8 @@ class SlideAnimations:
                     f"add(kind='motion') requires a BaseShape; got "
                     f"{type(shape).__name__!r}."
                 )
-            # For motion, *preset* carries the raw OOXML path string;
-            # validating ``E``-termination here keeps the error site
-            # close to the call site rather than deep in the XML
-            # builder.
-            if not preset or "E" not in preset:
-                raise ValueError(
-                    "motion path must be a non-empty OOXML path string "
-                    "ending in 'E' (e.g. 'M 0 0 L 0.5 0 E')"
-                )
+            # For motion, *preset* carries the raw OOXML path string, which
+            # `add_motion` checks.
             self.add_motion(cast("BaseShape", shape), preset, **kwargs)
             return
         raise ValueError(
@@ -1044,11 +1042,18 @@ class SlideAnimations:
         segment, ``"M x y C x1 y1 x2 y2 x y E"`` for a cubic bezier, etc.
         Coordinates are normalized to the slide's width and height
         (``0,0`` is the shape's starting position; ``1,0`` is one slide
-        width to the right).  The terminating ``E`` is required.
+        width to the right).  The path ends with ``E``; one is added if
+        *path* has none.
+
+        Only the commands ``M``, ``L``, ``C``, ``Z`` and ``E`` (and their
+        lower-case, relative forms) exist in a motion path.  Anything else
+        in *path* raises :class:`ValueError`; for SVG path syntax, with its
+        wider set of commands, use :meth:`MotionPath.svg`.
 
         Use :meth:`MotionPath.line` for a coordinate-aware convenience
         wrapper, or :meth:`MotionPath.custom` to pass an arbitrary path.
         """
+        path = _normalise_motion_path(path)
         delay = _milliseconds(delay, "delay")
         duration = _milliseconds(duration, "duration")
         ids = self._reserve_ids(1)
@@ -2215,17 +2220,19 @@ class MotionPath:
         the ``<p:animMotion>`` element uses internally.  Coordinates are
         slide-normalized: ``(0, 0)`` is the shape's starting position,
         ``(1, 0)`` is one slide-width to the right, ``(0, 1)`` is one
-        slide-height down.  The terminating ``E`` (path end) is required,
-        e.g. ``"M 0 0 L 0.5 0 E"`` for a horizontal half-slide hop.
+        slide-height down.  A path ends with ``E``, e.g.
+        ``"M 0 0 L 0.5 0 E"`` for a horizontal half-slide hop; the ``E``
+        is added if *path* leaves it out.
 
-        For the more common SVG path syntax — absolute / relative
-        commands, no terminator, pixel-style coordinates — use
+        The commands are ``M`` (move to), ``L`` (line to), ``C`` (cubic
+        curve to), ``Z`` (close the loop) and ``E`` (end), lower case for
+        coordinates relative to the current point.  Anything else raises
+        :class:`ValueError`.
+
+        For the more common SVG path syntax — horizontal / vertical /
+        quadratic commands, a viewbox, pixel-style coordinates — use
         :meth:`svg` instead.
         """
-        if not path or "E" not in path:
-            raise ValueError(
-                "motion path must be a non-empty OOXML path string ending in 'E'"
-            )
         slide.animations.add_motion(
             shape, path, trigger=trigger, delay=delay, duration=duration
         )
@@ -2481,37 +2488,103 @@ class MotionPath:
         )
 
 
-# One token of an SVG path: a command letter (any letter, so unsupported ones
-# can be diagnosed) or a number in SVG's grammar — optional sign, digits with
-# an optional fraction or a bare fraction, optional exponent.  Tokens may be
+# One token of a path: a command letter (any letter, so unsupported ones can
+# be diagnosed) or a number in SVG's grammar — optional sign, digits with an
+# optional fraction or a bare fraction, optional exponent.  Tokens may be
 # separated by whitespace and commas, or by nothing at all ("M10-5L.5.5").
-_SVG_TOKEN_RE = re.compile(
+_PATH_TOKEN_RE = re.compile(
     r"[\s,]*(?:([A-Za-z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?))"
 )
 
 # Number of coordinates each supported SVG command takes per repetition.
 _SVG_ARG_COUNTS = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Q": 4, "Z": 0}
 
+# The same for the commands of an OOXML motion path, which are all there are:
+# ISO/IEC 29500-1 §19.5.4 gives the allowed set as {M, L, C, Z, E} and their
+# lower-case (relative) forms.
+_MOTION_ARG_COUNTS = {"M": 2, "L": 2, "C": 6, "Z": 0, "E": 0}
 
-def _svg_tokens(svg: str) -> list[str | float]:
-    """Split *svg* into command letters (`str`) and numbers (`float`).
+
+def _path_tokens(path: str, what: str) -> list[str | float]:
+    """Split *path* into command letters (`str`) and numbers (`float`).
 
     Raises |ValueError| on anything else in the string, rather than skip it:
     a character dropped in silence (a typographic minus sign, say) would
-    change where the path goes.
+    change where the path goes.  *what* names the kind of path in the message.
     """
     tokens: list[str | float] = []
     pos = 0
-    end = len(svg.rstrip(" \t\r\n,"))
+    end = len(path.rstrip(" \t\r\n,"))
     while pos < end:
-        match = _SVG_TOKEN_RE.match(svg, pos)
+        match = _PATH_TOKEN_RE.match(path, pos)
         if match is None:
-            bad = svg[pos:].lstrip(" \t\r\n,")[:1]
-            raise ValueError(f"unexpected character {bad!r} in svg path {svg!r}")
+            bad = path[pos:].lstrip(" \t\r\n,")[:1]
+            raise ValueError(f"unexpected character {bad!r} in {what} {path!r}")
         command, number = match.groups()
         tokens.append(command if command is not None else float(number))
         pos = match.end()
     return tokens
+
+
+def _normalise_motion_path(path: Any) -> str:
+    """Return the OOXML motion path *path* checked, tidied and terminated.
+
+    A motion path is a sequence of ``M``/``L``/``C`` commands with their
+    coordinates, optionally closed by ``Z``, and ended by ``E``.  The result
+    holds exactly that: each command followed by its coordinates as plain
+    decimals, one space apart, with the ending ``E`` added if *path* stops
+    short of one (a path closed with ``Z`` is complete as it stands).  Being
+    made of nothing but those letters, digits, signs and points, it can go
+    into an XML attribute as it is.
+
+    Raises |ValueError| for anything else, so that a malformed path is
+    reported here rather than written into the slide.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(
+            "motion path must be a non-empty OOXML path string, e.g. 'M 0 0 L 0.5 0 E'"
+        )
+    tokens = _path_tokens(path, "motion path")
+
+    out: list[str] = []
+    cmd = ""
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if cmd in ("E", "e"):
+            raise ValueError(f"nothing can follow the end command {cmd!r} in motion path {path!r}")
+        if isinstance(token, str):
+            cmd = token
+            i += 1
+            if cmd.upper() not in _MOTION_ARG_COUNTS:
+                raise ValueError(
+                    f"unsupported motion path command {cmd!r} in {path!r}: a motion path "
+                    "knows only M, L, C, Z and E (lower case for relative coordinates). "
+                    "For SVG path syntax use MotionPath.svg()."
+                )
+            if not out and cmd.upper() != "M":
+                raise ValueError(f"motion path must start with M/m; got {cmd!r} in {path!r}")
+        elif not cmd:
+            raise ValueError(f"motion path must start with M/m; got a number in {path!r}")
+        elif cmd in ("Z", "z"):
+            raise ValueError(
+                f"expected a command after {cmd!r}, got a number in motion path {path!r}"
+            )
+        out.append(cmd)
+
+        count = _MOTION_ARG_COUNTS[cmd.upper()]
+        args = tokens[i : i + count]
+        if len(args) < count or any(isinstance(arg, str) for arg in args):
+            raise ValueError(f"{cmd!r} needs {count} coordinate(s) in motion path {path!r}")
+        i += count
+        out.extend(_fmt(float(arg)) for arg in args)
+        if cmd in ("M", "m"):
+            # -- as in SVG, further coordinate pairs after a moveto are linetos --
+            cmd = "L" if cmd == "M" else "l"
+
+    if out[-1] not in ("E", "e") and cmd not in ("Z", "z"):
+        out.append("E")
+    return " ".join(out)
 
 
 def _cubic_from_quadratic(
@@ -2567,7 +2640,7 @@ def _svg_to_ooxml_motion_path(
             f"{viewbox!r}"
         )
 
-    tokens = _svg_tokens(svg)
+    tokens = _path_tokens(svg, "svg path")
     if not tokens:
         raise ValueError(f"no recognisable commands in svg path {svg!r}")
 
@@ -2685,7 +2758,12 @@ def _fmt(value: float) -> str:
     is not part of the number grammar and ``E`` is the End command — so the
     whole animation is dropped.  Fixed-point with six decimals, trailing
     zeros stripped, and float-noise clamped to ``0``.
+
+    Raises |ValueError| for a coordinate that is not finite, which has no
+    such form.
     """
+    if not math.isfinite(value):
+        raise ValueError(f"motion-path coordinate must be a finite number, got {value!r}")
     if abs(value) < 5e-7:
         return "0"
     text = f"{value:.6f}".rstrip("0").rstrip(".")

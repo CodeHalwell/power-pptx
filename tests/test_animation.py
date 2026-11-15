@@ -267,10 +267,17 @@ class DescribeAnimationsAdd:
         with pytest.raises(ValueError, match="Unknown animation kind"):
             slide.animations.add("teleport", "fade", shape)
 
-    def it_rejects_motion_path_without_E_terminator(self, slide_with_shape):
+    def it_ends_a_motion_path_that_was_left_without_its_E(self, slide_with_shape):
         slide, shape = slide_with_shape
-        with pytest.raises(ValueError, match="ending in 'E'"):
-            slide.animations.add("motion", "M 0 0 L 0.5 0", shape)
+        slide.animations.add("motion", "M 0 0 L 0.5 0", shape)
+        assert _animMotion_paths(slide) == ["M 0 0 L 0.5 0 E"]
+
+    def it_rejects_a_motion_path_that_is_not_one(self, slide_with_shape):
+        slide, shape = slide_with_shape
+        with pytest.raises(ValueError, match="non-empty OOXML path"):
+            slide.animations.add("motion", "", shape)
+        with pytest.raises(ValueError, match="unsupported motion path command"):
+            slide.animations.add("motion", "fade", shape)
 
 
 class DescribeMotionPath:
@@ -309,6 +316,80 @@ class DescribeMotionPath:
             MotionPath.custom(slide, shape, "")
         with pytest.raises(ValueError):
             MotionPath.custom(slide, shape, "no end marker")
+
+    @pytest.mark.parametrize(
+        ("path", "written"),
+        [
+            # -- the example in the shipped skill, which used to raise --
+            ("M 0 0 L 0.5 0.5 L 1 0", "M 0 0 L 0.5 0.5 L 1 0 E"),
+            ("M 0 0 L 0.5 0.5 L 1 0 E", "M 0 0 L 0.5 0.5 L 1 0 E"),
+            ("  M 0 0 L 0.25 0  ", "M 0 0 L 0.25 0 E"),
+            # -- lower case is relative, and stays so --
+            ("m 0 0 l 0.1 0 c 0 0.1 0.1 0.1 0.1 0 e", "m 0 0 l 0.1 0 c 0 0.1 0.1 0.1 0.1 0 e"),
+            # -- a loop closed with Z is complete without an E --
+            ("M 0 0 L 0.1 0 L 0.1 0.1 Z", "M 0 0 L 0.1 0 L 0.1 0.1 Z"),
+            # -- separators and number forms are tidied; `E-2` here is an exponent --
+            ("M0,0L1E-2,-.5", "M 0 0 L 0.01 -0.5 E"),
+            ("M 0 0 L 0.1 0 0.2 0.1", "M 0 0 L 0.1 0 L 0.2 0.1 E"),
+        ],
+    )
+    def it_ends_and_tidies_a_custom_path(self, slide_with_shape, path, written):
+        slide, shape = slide_with_shape
+
+        MotionPath.custom(slide, shape, path)
+
+        assert _animMotion_paths(slide) == [written]
+
+    @pytest.mark.parametrize(
+        ("path", "message"),
+        [
+            # -- used to be pasted into the attribute as they were: the first
+            # -- smuggled a second attribute in, the second broke the parser --
+            ('M 0 0 L 1 0 E" bogus="1', "unexpected character"),
+            ("M 0 0 L 1 0 E <", "unexpected character"),
+            ("M 0 0 L 1 0 & E", "unexpected character"),
+            # -- SVG commands a motion path does not have --
+            ("M 0 0 Q 0.5 -0.5 1 0 E", "unsupported motion path command 'Q'"),
+            ("M 0 0 H 1 E", "unsupported motion path command 'H'"),
+            ("L 1 1 E", "must start with M"),
+            ("0 0 L 1 1 E", "must start with M"),
+            ("M 0 0 L 1 E", "'L' needs 2 coordinate"),
+            ("M 0 0 C 1 1 2 2 E", "'C' needs 6 coordinate"),
+            ("M 0 0 E L 1 1", "nothing can follow the end command"),
+            ("M 0 0 L 1 1 Z 5", "expected a command after 'Z'"),
+            ("   ", "non-empty OOXML path"),
+            (None, "non-empty OOXML path"),
+        ],
+    )
+    def it_rejects_a_custom_path_it_cannot_write_faithfully(self, slide_with_shape, path, message):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match=message):
+            MotionPath.custom(slide, shape, path)
+
+        assert slide._element.find(qn("p:timing")) is None
+
+    def it_puts_a_motion_path_in_the_attribute_and_nowhere_else(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        MotionPath.custom(slide, shape, "M 0 0 L 0.5 0")
+
+        (motion,) = slide._element.iter(qn("p:animMotion"))
+        assert dict(motion.attrib) == {
+            "origin": "parent",
+            "path": "M 0 0 L 0.5 0 E",
+            "pathEditMode": "relative",
+            "rAng": "0",
+        }
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def it_rejects_a_line_to_nowhere(self, slide_with_shape, bad):
+        slide, shape = slide_with_shape
+
+        with pytest.raises(ValueError, match="finite"):
+            MotionPath.line(slide, shape, bad, 0)
+
+        assert slide._element.find(qn("p:timing")) is None
 
     def it_emits_a_diagonal_path(self, slide_with_shape):
         slide, shape = slide_with_shape
