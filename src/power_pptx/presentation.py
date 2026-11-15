@@ -264,6 +264,63 @@ class Presentation(PartElementProxy):
 
         return SlideShowSettings(self.part)
 
+    def set_slide_size(self, width: float, height: float, *, fit: bool = False):
+        """Set the slide width and height together; return the size that was set.
+
+        `width` and `height` are lengths, as for :attr:`slide_width` and
+        :attr:`slide_height`, and may be the float result of arithmetic on
+        lengths. Both are checked before either is written, so a size that is
+        refused leaves the presentation as it was.
+
+        A slide can be no smaller than 1 inch and no larger than 56 inches in
+        either direction (:data:`power_pptx.util.MIN_SLIDE_SIZE` and
+        :data:`~power_pptx.util.MAX_SLIDE_SIZE`). A size outside those limits
+        raises |ValueError| unless `fit` is |True|, in which case it is scaled
+        to the nearest size in the same proportions that is inside them (see
+        :func:`power_pptx.util.fit_slide_size`).
+
+        The return value is a :class:`~power_pptx.util.SlideSize`, a
+        ``(width, height, scale)`` named tuple. ``scale`` is what the
+        requested size was multiplied by — ``1.0`` unless `fit` changed it —
+        and is the factor to apply to coordinates worked out for the size
+        asked for::
+
+            from power_pptx.util import Inches
+
+            # a 7680 x 1080 px video wall, at 96 px to the inch: 80" x 11.25"
+            size = prs.set_slide_size(Inches(7680 / 96), Inches(1080 / 96), fit=True)
+            size.width.inches, size.height.inches, size.scale    # (56.0, 7.875, 0.7)
+
+            px = size.scale * Inches(1) / 96          # one wall pixel, on the slide
+            slide.shapes.add_textbox(1920 * px, 120 * px, 3840 * px, 400 * px)
+
+        Shapes, layouts and masters already in the presentation are not moved
+        or resized.
+        """
+        from power_pptx.oxml.simpletypes import ST_SlideSizeCoordinate
+        from power_pptx.util import Emu, SlideSize, _coerce_emu, fit_slide_size
+
+        if fit:
+            size = fit_slide_size(width, height)
+        else:
+            dimensions: list[Emu] = []
+            for what, value in (("slide width", width), ("slide height", height)):
+                emu = _coerce_emu(value)
+                if emu is None:
+                    raise TypeError("%s is required, got None" % what)
+                try:
+                    ST_SlideSizeCoordinate.validate(emu, what)
+                except ValueError as exc:
+                    raise ValueError(
+                        "%s; pass fit=True to scale the size to fit, keeping its proportions" % exc
+                    ) from None
+                dimensions.append(Emu(emu))
+            size = SlideSize(dimensions[0], dimensions[1], 1.0)
+
+        sldSz = self._element.get_or_add_sldSz()
+        sldSz.cx, sldSz.cy = size.width, size.height
+        return size
+
     def import_slide(
         self,
         source_slide: Slide,

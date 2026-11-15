@@ -128,6 +128,94 @@ The setting lives on the in-memory presentation and is not stored in the
 ``.pptx`` file, so re-opening the saved deck starts you back at ``"off"``.
 
 
+.. _slide-size:
+
+Slide size
+----------
+
+The width and height of the slides belong to the presentation, not to each
+slide.  They can be set one at a time or together::
+
+    from power_pptx.util import Inches
+
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    prs.set_slide_size(Inches(13.333), Inches(7.5))    # the same, in one call
+
+Setting the size does not move or resize anything already in the deck,
+layouts and masters included, so do it before adding content.
+
+Limits
+~~~~~~
+
+A slide can be no smaller than 1 inch and no larger than 56 inches in either
+direction.  That is PowerPoint's own limit; the two bounds are available as
+lengths::
+
+    from power_pptx.util import MAX_SLIDE_SIZE, MIN_SLIDE_SIZE
+
+    MIN_SLIDE_SIZE.inches, MAX_SLIDE_SIZE.inches      # (1.0, 56.0)
+
+A size outside them is refused with a message that says what the limits are::
+
+    >>> prs.set_slide_size(Inches(80), Inches(11.25))
+    Traceback (most recent call last):
+      ...
+    ValueError: slide width must be between 1 and 56 inches (914400 to 51206400
+    EMU), got 80 inches (73152000 EMU); pass fit=True to scale the size to fit,
+    keeping its proportions
+
+Sizes that are too big: video walls and banners
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An LED wall is specified in pixels, and at any sensible pixels-per-inch its
+size is well past 56 inches.  What matters for such a deck is the *shape* of
+the slide, so the thing to do is use the largest slide with the same aspect
+ratio and scale the content by the same amount.  Passing ``fit=True`` does the
+first part and reports the factor for the second::
+
+    # a 7680 x 1080 px wall, at 96 px to the inch, is 80" x 11.25"
+    size = prs.set_slide_size(Inches(7680 / 96), Inches(1080 / 96), fit=True)
+
+    size.width.inches       # 56.0
+    size.height.inches      # 7.875
+    size.scale              # 0.7
+
+The return value is a :class:`~power_pptx.util.SlideSize`, a ``(width, height,
+scale)`` named tuple.  ``scale`` is what the requested size was multiplied by
+-- ``1.0`` when it already fit -- so a layout worked out in wall pixels lands
+where it should once every coordinate is multiplied by it::
+
+    from power_pptx.util import Pt
+
+    px = size.scale * Inches(1) / 96        # one wall pixel, on the slide
+
+    box = slide.shapes.add_textbox(1920 * px, 120 * px, 3840 * px, 400 * px)
+    box.text_frame.text = "Departures"
+    box.text_frame.paragraphs[0].font.size = Pt(160 * size.scale)
+
+Font sizes are lengths as well, and need the same factor.
+
+The rules ``fit=True`` follows:
+
+* A size that is already inside the limits is left alone.  It is not enlarged
+  because there is room.
+* A size that is too large is scaled down until its longer side is exactly 56
+  inches.
+* A size that is too small is scaled up until its shorter side is exactly
+  1 inch, and ``scale`` is then greater than 1.
+* A shape more elongated than 56:1 cannot be a slide at any size, and raises
+  |ValueError|.
+
+:func:`power_pptx.util.fit_slide_size` does the same arithmetic without
+a presentation, which is useful for planning a layout before the deck exists::
+
+    from power_pptx.util import fit_slide_size
+
+    width, height, scale = fit_slide_size(Inches(7680 / 96), Inches(1080 / 96))
+
+
 .. _slide-show-settings:
 
 Slide-show settings

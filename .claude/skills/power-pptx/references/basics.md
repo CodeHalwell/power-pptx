@@ -8,7 +8,7 @@ It's here so you don't have to leave the skill for boring boilerplate.
 ```python
 from power_pptx import Presentation
 
-prs = Presentation()                     # blank deck, default 16:9
+prs = Presentation()                     # blank deck, 4:3 (10" x 7.5") by default
 prs = Presentation("template.pptx")      # open existing
 prs.save("out.pptx")
 ```
@@ -31,7 +31,39 @@ from power_pptx.util import Inches
 
 prs.slide_width  = Inches(13.333)        # 16:9 widescreen
 prs.slide_height = Inches(7.5)
+
+prs.set_slide_size(Inches(13.333), Inches(7.5))   # both in one call
 ```
+
+### Limits, and sizes that exceed them (LED walls, banners)
+
+A slide is between 1 and 56 inches a side — PowerPoint's limit, exposed
+as `MIN_SLIDE_SIZE` / `MAX_SLIDE_SIZE` in `power_pptx.util`. A video
+wall specified in pixels is usually bigger than that. `fit=True` scales
+the size to the nearest one **in the same proportions** that is allowed,
+and returns the factor so the content can follow:
+
+```python
+# 7680 x 1080 px wall, at 96 px to the inch = 80" x 11.25" -- too wide
+size = prs.set_slide_size(Inches(7680 / 96), Inches(1080 / 96), fit=True)
+size.width.inches, size.height.inches, size.scale     # (56.0, 7.875, 0.7)
+
+px = size.scale * Inches(1) / 96           # one wall pixel, on the slide
+box = slide.shapes.add_textbox(1920 * px, 120 * px, 3840 * px, 400 * px)
+box.text_frame.paragraphs[0].font.size = Pt(160 * size.scale)   # fonts too
+```
+
+- The return value is a `(width, height, scale)` named tuple
+  (`SlideSize`). `scale` is `1.0` when nothing had to change; multiply
+  coordinates and font sizes worked out for the requested size by it.
+- A size that already fits is never enlarged; a too-small one is scaled
+  *up* to the minimum (`scale > 1`).
+- Without `fit=True` an out-of-range size raises `ValueError` naming the
+  dimension and the limits in inches, and changes nothing. Shapes more
+  elongated than 56:1 cannot be fitted at all and raise either way.
+- `fit_slide_size(width, height)` (also in `power_pptx.util`) does the
+  arithmetic without a presentation, e.g. to plan a layout first.
+- Existing shapes, layouts, and masters are not moved or resized.
 
 ## Adding slides
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, Generic, TypeVar, cast
+from typing import Any, Callable, Generic, NamedTuple, TypeVar, cast
 
 
 def _coerce_emu(value):
@@ -149,6 +149,123 @@ class Pt(Length):
     def __new__(cls, points: float):
         emu = int(points * Length._EMUS_PER_PT)
         return Length.__new__(cls, emu)
+
+
+#: The smallest width or height a slide can have: one inch. PowerPoint's own
+#: limit, and the lower bound of ``ST_SlideSizeCoordinate`` in the file format.
+MIN_SLIDE_SIZE = Inches(1)
+
+#: The largest width or height a slide can have: 56 inches (142.24 cm).
+#: PowerPoint's own limit, and the upper bound of ``ST_SlideSizeCoordinate``
+#: in the file format.
+MAX_SLIDE_SIZE = Inches(56)
+
+
+class SlideSize(NamedTuple):
+    """A slide width and height, and the factor that brought them inside the limits.
+
+    Returned by :func:`fit_slide_size` and
+    :meth:`Presentation.set_slide_size
+    <power_pptx.presentation.Presentation.set_slide_size>`. It unpacks like
+    the tuple it is::
+
+        width, height, scale = fit_slide_size(Inches(80), Inches(11.25))
+    """
+
+    #: Slide width, a |Length|.
+    width: Length
+    #: Slide height, a |Length|.
+    height: Length
+    #: What the requested size was multiplied by: ``1.0`` when it already fit,
+    #: less when it had to shrink, more when it had to grow. Multiply content
+    #: coordinates laid out for the requested size by this to match.
+    scale: float
+
+
+def _inches_str(emu: int) -> str:
+    """`emu` as a short number of inches for a message, like ``56`` or ``7.875``."""
+    return "%g" % Length(emu).inches
+
+
+def fit_slide_size(width: float, height: float) -> SlideSize:
+    """Return the size nearest `width` x `height`, in the same proportions, a slide can have.
+
+    A slide can be no smaller than :data:`MIN_SLIDE_SIZE` (1 inch) and no
+    larger than :data:`MAX_SLIDE_SIZE` (56 inches) in either direction, which
+    a video wall specified in pixels easily exceeds. This scales such a size
+    down to the largest one that fits, keeping its aspect ratio::
+
+        from power_pptx.util import Inches, fit_slide_size
+
+        # a 7680 x 1080 px wall, at 96 px to the inch, is 80" x 11.25"
+        width, height, scale = fit_slide_size(Inches(7680 / 96), Inches(1080 / 96))
+        # width == Inches(56), height == Inches(7.875), scale == 0.7
+
+    `width` and `height` are lengths (anything :class:`Inches`, :class:`Cm`,
+    :class:`Pt` and the rest produce, or the result of arithmetic on them).
+    The result is a :class:`SlideSize`:
+
+    * A size already inside the limits comes back unchanged with ``scale``
+      ``1.0``. It is never enlarged because there is room; to get the largest
+      slide of some shape, ask for one that is too big.
+    * A size that is too large is scaled down until its longer side is
+      exactly the maximum (``scale`` below 1).
+    * A size that is too small is scaled up until its shorter side is exactly
+      the minimum (``scale`` above 1).
+
+    ``scale`` is what the requested size was multiplied by, so content laid
+    out for that size lands in the same place when its coordinates are
+    multiplied by it too.
+
+    Raises |ValueError| if `width` or `height` is not positive, or if the
+    shape is more elongated than 56:1 — the longer side would have to exceed
+    the maximum for the shorter one to reach the minimum, so no slide has
+    those proportions.
+    """
+    w, h = _coerce_emu(width), _coerce_emu(height)
+    if w is None or h is None:
+        raise TypeError("width and height are both required, got %r and %r" % (width, height))
+    if w <= 0 or h <= 0:
+        raise ValueError("slide width and height must be positive, got %d and %d EMU" % (w, h))
+
+    lo, hi = int(MIN_SLIDE_SIZE), int(MAX_SLIDE_SIZE)
+    longer, shorter = max(w, h), min(w, h)
+
+    # -- compared as integers, so a shape of exactly 56:1 is not lost to rounding --
+    if longer * lo > shorter * hi:
+        raise ValueError(
+            "no slide can be %s x %s inches or any size in those proportions (%.4g:1): "
+            "the sides of a slide must be between %s and %s inches, so the most elongated "
+            "one is %d:1"
+            % (
+                _inches_str(w),
+                _inches_str(h),
+                longer / float(shorter),
+                _inches_str(lo),
+                _inches_str(hi),
+                hi // lo,
+            )
+        )
+
+    if longer > hi:
+        # -- too large: the longer side lands exactly on the maximum --
+        fitted_longer, fitted_shorter = hi, _nearest_int(shorter * hi, longer)
+        scale = hi / float(longer)
+    elif shorter < lo:
+        # -- too small: the shorter side lands exactly on the minimum --
+        fitted_longer, fitted_shorter = _nearest_int(longer * lo, shorter), lo
+        scale = lo / float(shorter)
+    else:
+        return SlideSize(Emu(w), Emu(h), 1.0)
+
+    if w >= h:
+        return SlideSize(Emu(fitted_longer), Emu(fitted_shorter), scale)
+    return SlideSize(Emu(fitted_shorter), Emu(fitted_longer), scale)
+
+
+def _nearest_int(numerator: int, denominator: int) -> int:
+    """The integer nearest `numerator` / `denominator`, both positive, without floats."""
+    return (2 * numerator + denominator) // (2 * denominator)
 
 
 _T = TypeVar("_T")

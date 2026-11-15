@@ -86,6 +86,11 @@ prs = Presentation()                       # new blank deck
 prs = Presentation("file.pptx")            # open existing
 prs.save("out.pptx")
 
+# --- slide size (1"-56" a side; fit=True scales an oversize wall to fit) ---
+prs.set_slide_size(Inches(13.333), Inches(7.5))
+size = prs.set_slide_size(Inches(80), Inches(11.25), fit=True)
+size.scale                                 # 0.7 -> multiply your coordinates by it
+
 # --- slides ---
 slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
 slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank

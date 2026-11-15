@@ -675,16 +675,41 @@ class ST_SlideId(XsdUnsignedInt):
 
 
 class ST_SlideSizeCoordinate(BaseIntType):
+    """A slide width or height, between `MIN_SLIDE_SIZE` and `MAX_SLIDE_SIZE`.
+
+    The limits (1 and 56 inches) are public as
+    :data:`power_pptx.util.MIN_SLIDE_SIZE` and
+    :data:`power_pptx.util.MAX_SLIDE_SIZE`;
+    :func:`power_pptx.util.fit_slide_size` scales a size that is outside them
+    to one that is not.
+    """
+
     @classmethod
     def convert_from_xml(cls, str_value):
         return Emu(str_value)
 
     @classmethod
-    def validate(cls, value):
+    def validate(cls, value, what="slide width and height"):
+        """Raise unless `value` is an integer number of EMU inside the limits.
+
+        `what` names the offending dimension in the message, for a caller
+        that knows which one it is checking.
+        """
+        from power_pptx.util import MAX_SLIDE_SIZE, MIN_SLIDE_SIZE
+
         cls.validate_int(value)
-        if value < 914400 or value > 51206400:
+        if value < MIN_SLIDE_SIZE or value > MAX_SLIDE_SIZE:
             raise ValueError(
-                "value must be in range(914400, 51206400) (1-56 inches), got %d" % value
+                "%s must be between %g and %g inches (%d to %d EMU), got %g inches (%d EMU)"
+                % (
+                    what,
+                    MIN_SLIDE_SIZE.inches,
+                    MAX_SLIDE_SIZE.inches,
+                    MIN_SLIDE_SIZE,
+                    MAX_SLIDE_SIZE,
+                    Emu(value).inches,
+                    value,
+                )
             )
 
 
