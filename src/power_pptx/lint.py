@@ -2828,10 +2828,7 @@ _MIN_BAKE_PCT = 25
 
 def _fits_scaled(env: _TextEnv, target: _TextTarget, scale: float, reduction: float) -> bool:
     """True when the text of `target` fits with its fonts scaled by `scale`."""
-    body = target.body._replace(font_scale=scale, ln_reduction=reduction)
-    trial = _measure_text_body(
-        env, target.tx_body, body, target.levels, target.width, target.height
-    )
+    trial = target.measure(env, target.body._replace(font_scale=scale, ln_reduction=reduction))
     return trial is None or (not trial.over_w and not trial.over_h)
 
 
@@ -2878,73 +2875,104 @@ def _fix_text_overflow(env: _TextEnv, issue: TextOverflow, dry_run: bool) -> str
     shape = issue.shapes[0]
     if issue.row is not None:
         return _fix_table_row(env, shape, issue.row, dry_run)
-    target = _shape_text_target(env, shape)
-    if target is None:
+    overflow = _frame_overflow_of(env, shape)
+    if overflow is None:
         return None
-    measure = _measure_text_body(
-        env, target.tx_body, target.body, target.levels, target.width, target.height
-    )
-    if measure is None:
-        return None
-    over_w, over_h = _frame_overflow(target, measure)
-    if not over_w and not over_h:
-        return None
-    autofit = measure.body.autofit
-    was = _describe_overflow(over_w, measure)
-
+    autofit = overflow.measure.body.autofit
     if autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
-        d_left, d_top, d_width, d_height = _auto_size_growth(measure, over_w, over_h)
-        if not d_width and not d_height:
-            return None
-        scale_x, scale_y = _group_scale(target.tx_body.getparent())
-        left, top = int(shape.left or 0), int(shape.top or 0)
-        width, height = int(shape.width or 0), int(shape.height or 0)
-        new_width = width + math.ceil(d_width / scale_x)
-        new_height = height + math.ceil(d_height / scale_y)
-        if not dry_run:
-            shape.left = Emu(left + math.floor(d_left / scale_x))
-            shape.top = Emu(top + math.floor(d_top / scale_y))
-            shape.width = Emu(new_width)
-            shape.height = Emu(new_height)
-        return (
-            f"Resized '{shape.name}' to fit its text: size ({width},{height}) → "
-            f"({new_width},{new_height})."
-        )
-
+        return _resize_to_text(shape, overflow, dry_run)
     if autofit == MSO_AUTO_SIZE.NONE:
-        low, high = _MIN_BAKE_PCT, 99
-        if not _fits_scaled(env, target, low / 100.0, 0.0):
-            return None
-        while low < high:  # largest percentage that fits
-            middle = (low + high + 1) // 2
-            if _fits_scaled(env, target, middle / 100.0, 0.0):
-                low = middle
-            else:
-                high = middle - 1
-        # Round each size down to a half point, never up: the text must fit.
-        planned = [
-            (element, is_end, size * low // 100 // 50 * 50)
-            for element, is_end, size in _iter_sized_elements(env, target)
-        ]
-        if any(size < 100 for _, _, size in planned):
-            return None
-        if not dry_run:
-            for element, is_end, size in planned:
-                rpr = element.get_or_add_endParaRPr() if is_end else element.get_or_add_rPr()
-                rpr.set("sz", str(size))
-        return (
-            f"Reduced the font sizes in '{shape.name}' to {low}% so the text fits its "
-            f"frame ({was})."
-        )
+        return _reduce_font_sizes(env, shape, overflow, dry_run)
+    return _store_font_scale(env, shape, overflow, dry_run)
 
+
+def _resize_to_text(shape: BaseShape, overflow: _FrameOverflow, dry_run: bool) -> str | None:
+    """Grow a ``SHAPE_TO_FIT_TEXT`` shape to its text, as a renderer would."""
+    d_left, d_top, d_width, d_height = _auto_size_growth(
+        overflow.measure, overflow.over_w, overflow.over_h
+    )
+    if not d_width and not d_height:
+        return None
+    scale_x, scale_y = _group_scale(overflow.target.tx_body.getparent())
+    left, top = int(shape.left or 0), int(shape.top or 0)
+    width, height = int(shape.width or 0), int(shape.height or 0)
+    new_width = width + math.ceil(d_width / scale_x)
+    new_height = height + math.ceil(d_height / scale_y)
+    if not dry_run:
+        shape.left = Emu(left + math.floor(d_left / scale_x))
+        shape.top = Emu(top + math.floor(d_top / scale_y))
+        shape.width = Emu(new_width)
+        shape.height = Emu(new_height)
+    return (
+        f"Resized '{shape.name}' to fit its text: size ({width},{height}) → "
+        f"({new_width},{new_height})."
+    )
+
+
+def _largest_fitting_pct(env: _TextEnv, target: _TextTarget) -> int | None:
+    """Largest whole percentage of its font sizes at which `target`'s text fits.
+
+    ``None`` when even ``_MIN_BAKE_PCT`` is too large.
+    """
+    low, high = _MIN_BAKE_PCT, 99
+    if not _fits_scaled(env, target, low / 100.0, 0.0):
+        return None
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _fits_scaled(env, target, middle / 100.0, 0.0):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def _reduce_font_sizes(
+    env: _TextEnv, shape: BaseShape, overflow: _FrameOverflow, dry_run: bool
+) -> str | None:
+    """Scale the font sizes of a frame set to no auto-fit down until its text fits."""
+    target = overflow.target
+    pct = _largest_fitting_pct(env, target)
+    if pct is None:
+        return None
+    # Round each size down to a half point, never up: the text must fit.
+    planned = [
+        (element, is_end, size * pct // 100 // 50 * 50)
+        for element, is_end, size in _iter_sized_elements(env, target)
+    ]
+    if any(size < 100 for _, _, size in planned):
+        return None
+    if not dry_run:
+        for element, is_end, size in planned:
+            rpr = element.get_or_add_endParaRPr() if is_end else element.get_or_add_rPr()
+            rpr.set("sz", str(size))
+    return (
+        f"Reduced the font sizes in '{shape.name}' to {pct}% so the text fits its "
+        f"frame ({_describe_overflow(overflow.over_w, overflow.measure)})."
+    )
+
+
+def _fitting_autofit_step(
+    env: _TextEnv, target: _TextTarget, font_scale: float
+) -> tuple[float, float] | None:
+    """The first of PowerPoint's shrink steps below `font_scale` at which the text fits."""
     for scale, reduction in _AUTOFIT_STEPS:
-        if scale < measure.body.font_scale and _fits_scaled(env, target, scale, reduction):
-            break
-    else:
+        if scale < font_scale and _fits_scaled(env, target, scale, reduction):
+            return scale, reduction
+    return None
+
+
+def _store_font_scale(
+    env: _TextEnv, shape: BaseShape, overflow: _FrameOverflow, dry_run: bool
+) -> str | None:
+    """Set the frame to shrink its text, storing the font scale that makes it fit."""
+    target, measure = overflow.target, overflow.measure
+    step = _fitting_autofit_step(env, target, measure.body.font_scale)
+    if step is None:
         return None
     body_pr = target.tx_body.find(_T_BODYPR)
     if body_pr is None:
         return None
+    scale, reduction = step
     if not dry_run:
         body_pr.autofit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         norm = body_pr.find(_T_NORMAUTOFIT)
@@ -2952,7 +2980,7 @@ def _fix_text_overflow(env: _TextEnv, issue: TextOverflow, dry_run: bool) -> str
         norm.set("lnSpcReduction", str(round(reduction * 100000)))
     return (
         f"Set '{shape.name}' text frame auto_size = TEXT_TO_FIT_SHAPE with a "
-        f"{scale * 100:g}% font scale ({was})."
+        f"{scale * 100:g}% font scale ({_describe_overflow(overflow.over_w, measure)})."
     )
 
 
