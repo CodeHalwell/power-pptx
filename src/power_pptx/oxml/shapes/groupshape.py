@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Iterator
 
+from lxml import etree
+
 from power_pptx.dml.fill import CT_GradientFillProperties
 from power_pptx.enum.shapes import MSO_CONNECTOR_TYPE
 from power_pptx.oxml import parse_xml
@@ -26,6 +28,35 @@ if TYPE_CHECKING:
     from power_pptx.enum.shapes import PP_PLACEHOLDER
     from power_pptx.oxml.shapes import ShapeElement
     from power_pptx.oxml.shapes.shared import CT_Transform2D
+
+# -- Shape-id cache ---------------------------------------------------------
+#
+# The largest id in use is cached on the document root so that adding a shape
+# does not scan the whole slide. A cache like that is only right while every
+# new id comes from it, and the long-standing idiom for copying a shape,
+# `spTree.append(copy.deepcopy(other_shape._element))`, brings one in from
+# outside. So before the cached value is trusted, the places where shapes get
+# added are checked: the two ends of the top-level shape tree and of the group
+# being added to. Each end remembers its few outermost children; any sibling
+# now lying beyond them has arrived since, and is looked at for ids above the
+# cached maximum. That is a few pointer hops per allocation however many
+# shapes the slide holds. Only when a new arrival does carry a higher id, or
+# more has changed than this can account for, is the slide scanned again.
+
+#: every `id` attribute at or below the context element, as plain strings
+_ids_in = etree.XPath(".//@id", smart_strings=False)
+
+#: how many of the outermost children are remembered at each end of a container
+_REMEMBERED_PER_END = 3
+
+#: how many new arrivals are examined at one end before scanning instead
+_MAX_NEW_PER_END = 8
+
+#: children of a shape container that are not shapes
+_NON_SHAPE_TAGS = frozenset((qn("p:nvGrpSpPr"), qn("p:grpSpPr"), qn("p:extLst")))
+
+_SP_TREE_TAG = qn("p:spTree")
+_GRP_SP_TAG = qn("p:grpSp")
 
 
 class CT_GroupShape(BaseShapeElement):
@@ -52,7 +83,7 @@ class CT_GroupShape(BaseShapeElement):
     ) -> CT_Shape:
         """Return new `p:sp` appended to the group/shapetree with specified attributes."""
         sp = CT_Shape.new_autoshape_sp(id_, name, prst, x, y, cx, cy)
-        self.insert_element_before(sp, "p:extLst")
+        self._insert_shape(sp)
         return sp
 
     def add_cxnSp(
@@ -70,7 +101,7 @@ class CT_GroupShape(BaseShapeElement):
         """Return new `p:cxnSp` appended to the group/shapetree with the specified attribues."""
         prst = MSO_CONNECTOR_TYPE.to_xml(type_member)
         cxnSp = CT_Connector.new_cxnSp(id_, name, prst, x, y, cx, cy, flipH, flipV)
-        self.insert_element_before(cxnSp, "p:extLst")
+        self._insert_shape(cxnSp)
         return cxnSp
 
     def add_freeform_sp(self, x: int, y: int, cx: int, cy: int) -> CT_Shape:
@@ -78,7 +109,7 @@ class CT_GroupShape(BaseShapeElement):
         shape_id = self._next_shape_id
         name = "Freeform %d" % (shape_id - 1,)
         sp = CT_Shape.new_freeform_sp(shape_id, name, x, y, cx, cy)
-        self.insert_element_before(sp, "p:extLst")
+        self._insert_shape(sp)
         return sp
 
     def add_grpSp(self) -> CT_GroupShape:
@@ -90,7 +121,7 @@ class CT_GroupShape(BaseShapeElement):
         shape_id = self._next_shape_id
         name = "Group %d" % (shape_id - 1,)
         grpSp = CT_GroupShape.new_grpSp(shape_id, name)
-        self.insert_element_before(grpSp, "p:extLst")
+        self._insert_shape(grpSp)
         return grpSp
 
     def add_pic(
@@ -98,7 +129,7 @@ class CT_GroupShape(BaseShapeElement):
     ) -> CT_Picture:
         """Append a `p:pic` shape to the group/shapetree having properties as specified in call."""
         pic = CT_Picture.new_pic(id_, name, desc, rId, x, y, cx, cy)
-        self.insert_element_before(pic, "p:extLst")
+        self._insert_shape(pic)
         return pic
 
     def add_placeholder(
@@ -106,7 +137,7 @@ class CT_GroupShape(BaseShapeElement):
     ) -> CT_Shape:
         """Append a newly-created placeholder `p:sp` shape having the specified properties."""
         sp = CT_Shape.new_placeholder_sp(id_, name, ph_type, orient, sz, idx)
-        self.insert_element_before(sp, "p:extLst")
+        self._insert_shape(sp)
         return sp
 
     def add_table(
@@ -116,14 +147,43 @@ class CT_GroupShape(BaseShapeElement):
         graphicFrame = CT_GraphicalObjectFrame.new_table_graphicFrame(
             id_, name, rows, cols, x, y, cx, cy
         )
-        self.insert_element_before(graphicFrame, "p:extLst")
+        self._insert_shape(graphicFrame)
         return graphicFrame
 
     def add_textbox(self, id_: int, name: str, x: int, y: int, cx: int, cy: int) -> CT_Shape:
         """Append a newly-created textbox `p:sp` shape having the specified position and size."""
         sp = CT_Shape.new_textbox_sp(id_, name, x, y, cx, cy)
-        self.insert_element_before(sp, "p:extLst")
+        self._insert_shape(sp)
         return sp
+
+    def _insert_shape(self, shape_elm: ShapeElement) -> None:
+        """Add `shape_elm`, a shape this class has just built, as the last shape child.
+
+        The shape carries ids that came from :meth:`allocate_shape_id`, so the
+        id cache is told it is no stranger. The next allocation then finds
+        nothing new at the end of this container and has nothing to examine.
+        """
+        self.insert_element_before(shape_elm, "p:extLst")
+        ends = getattr(self.getroottree().getroot(), "_pptx_shape_id_ends", None)
+        remembered = None if ends is None else ends.get(self)
+        if remembered is None:
+            return
+        head, (anchors, beyond) = remembered
+        previous = shape_elm.getprevious()
+        expected_previous = (
+            previous is anchors[0]
+            if anchors
+            else previous is None or previous.tag in _NON_SHAPE_TAGS
+        )
+        if not expected_previous:
+            # -- not where the cache believed the end to be; say nothing and
+            # -- let the next allocation examine it like any other arrival
+            return
+        tail = ((shape_elm,) + anchors[: _REMEMBERED_PER_END - 1], beyond)
+        if not anchors:
+            # -- first shape in the container: it is the start of it as well
+            head = _remember_end(self, False)
+        ends[self] = (head, tail)
 
     @property
     def chExt(self):
@@ -177,8 +237,18 @@ class CT_GroupShape(BaseShapeElement):
         Caches the running maximum on the document-root element so consecutive
         adds are O(1) instead of triggering a fresh ``//@id`` scan each call
         (which is what produced the historical O(N²) behavior over a slide).
-        Callers that mutate the document outside the shape-tree API can call
-        :meth:`invalidate_shape_id_cache` to force a re-scan.
+
+        The cache checks itself before it is used: shapes that reached the
+        start or end of the top-level shape tree, or of this group, by some
+        other route (``spTree.append(copy.deepcopy(elm))``, ``spTree.insert(2,
+        elm)``) are noticed and their ids taken into account, so the id
+        returned is unused even then. An id is never handed out twice, whether
+        or not the shape it was reserved for has been inserted yet.
+
+        The check is deliberately local, which is what keeps it cheap. A shape
+        spliced into the *middle* of a container, or into a group other than
+        the one being added to, is not noticed; call
+        :meth:`invalidate_shape_id_cache` after an edit like that.
         """
         cursor = self._ensure_id_cache() + 1
         self._set_id_cache(cursor)
@@ -187,21 +257,79 @@ class CT_GroupShape(BaseShapeElement):
     def invalidate_shape_id_cache(self) -> None:
         """Drop the cached max-shape-id; next access will re-scan ``//@id``."""
         root = self.getroottree().getroot()
-        if hasattr(root, "_pptx_shape_id_cursor"):
-            delattr(root, "_pptx_shape_id_cursor")
+        for name in ("_pptx_shape_id_cursor", "_pptx_shape_id_ends"):
+            if hasattr(root, name):
+                delattr(root, name)
 
     def _ensure_id_cache(self) -> int:
-        """Return the cached max shape id, populating it on first access."""
+        """Return the largest id in use, from the cache when that can be trusted."""
         root = self.getroottree().getroot()
         cursor = getattr(root, "_pptx_shape_id_cursor", None)
-        if cursor is None:
-            used_ids = (int(s) for s in self.xpath("//@id") if s.isdigit())
-            cursor = max(used_ids, default=0)
-            self._set_id_cache(cursor)
-        return cursor
+        if cursor is not None and self._id_cache_is_current(root, cursor):
+            return cursor
+        return self._rescan_ids(root, floor=cursor)
 
     def _set_id_cache(self, value: int) -> None:
         self.getroottree().getroot()._pptx_shape_id_cursor = value
+
+    def _rescan_ids(self, root, floor: int | None) -> int:
+        """Scan the document for its largest id, cache it, and return it.
+
+        `floor` is the value cached until now, if any. The result never drops
+        below it: an id that has been handed out may belong to a shape that is
+        still being built and is not in the document yet.
+        """
+        used_ids = (int(s) for s in self.xpath("//@id") if s.isdigit())
+        cursor = max(used_ids, default=0)
+        if floor is not None and floor > cursor:
+            cursor = floor
+        root._pptx_shape_id_cursor = cursor
+        root._pptx_shape_id_ends = {
+            container: (_remember_end(container, False), _remember_end(container, True))
+            for container in self._watched_containers()
+        }
+        return cursor
+
+    def _watched_containers(self) -> tuple[CT_GroupShape, ...]:
+        """The containers checked for new arrivals: the top-level tree and this one."""
+        if self.tag == _SP_TREE_TAG:
+            return (self,)
+        top = self
+        parent = top.getparent()
+        while parent is not None and parent.tag in (_GRP_SP_TAG, _SP_TREE_TAG):
+            top, parent = parent, parent.getparent()
+        return (top,) if top is self else (top, self)
+
+    def _id_cache_is_current(self, root, cursor: int) -> bool:
+        """True if no id above `cursor` has turned up where shapes get added."""
+        ends = getattr(root, "_pptx_shape_id_ends", None)
+        if ends is None:
+            return False
+        for container in self._watched_containers():
+            remembered = ends.get(container)
+            if remembered is None:
+                # -- first use of this group since the last scan; everything in
+                # -- it is unseen, which for a group just created is nothing
+                if _max_id_in(container) > cursor:
+                    return False
+                ends[container] = (
+                    _remember_end(container, False),
+                    _remember_end(container, True),
+                )
+                continue
+            head, tail = remembered
+            head_changed = _arrivals_fit(container, head, False, cursor)
+            if head_changed is None:
+                return False
+            tail_changed = _arrivals_fit(container, tail, True, cursor)
+            if tail_changed is None:
+                return False
+            if head_changed or tail_changed:
+                ends[container] = (
+                    _remember_end(container, False) if head_changed else head,
+                    _remember_end(container, True) if tail_changed else tail,
+                )
+        return True
 
     @classmethod
     def new_grpSp(cls, id_: int, name: str) -> CT_GroupShape:
@@ -282,6 +410,76 @@ class CT_GroupShape(BaseShapeElement):
         callers (`add_freeform_sp`, `add_grpSp`).
         """
         return self.allocate_shape_id()
+
+
+def _max_id_in(elm) -> int:
+    """The largest numeric `id` attribute on `elm` or anything inside it, else 0."""
+    return max((int(s) for s in _ids_in(elm) if s.isdigit()), default=0)
+
+
+def _remember_end(container, from_end: bool) -> tuple:
+    """What to remember about one end of `container`: `(anchors, beyond)`.
+
+    `anchors` are its few shape-level children nearest that end, outermost
+    first. `beyond` is the non-shape sibling just past the outermost one, if
+    any (`p:grpSpPr` at the start, `p:extLst` at the end). It is kept only so
+    that lxml need not build a new proxy for it on every check.
+    """
+    anchors = []
+    beyond = None
+    for child in container.iterchildren(reversed=from_end):
+        if child.tag in _NON_SHAPE_TAGS:
+            if anchors:
+                break
+            beyond = child
+            continue
+        anchors.append(child)
+        if len(anchors) == _REMEMBERED_PER_END:
+            break
+    return tuple(anchors), beyond
+
+
+def _arrivals_fit(container, remembered: tuple, from_end: bool, cursor: int) -> bool | None:
+    """Check what has arrived at one end of `container` since `remembered` was taken.
+
+    Returns |False| when that end is as it was, |True| when it has changed but
+    holds no id above `cursor` (so it should be remembered afresh), and |None|
+    when the cached `cursor` cannot be relied on: an arrival carries a higher
+    id, or the end has changed beyond what can be followed from here.
+    """
+    anchors = remembered[0]
+    changed = False
+    if anchors:
+        # -- the outermost remembered child still in place marks where the
+        # -- known part ends; one that is gone was deleted or moved away
+        for anchor in anchors:
+            if anchor.getparent() is container:
+                break
+            changed = True
+        else:
+            return None
+        sibling = anchor.getnext() if from_end else anchor.getprevious()
+        outward = True
+    else:
+        # -- no shapes were here last time, so any here now are new; look at
+        # -- them all, starting from this end
+        sibling = next(container.iterchildren(reversed=from_end), None)
+        outward = False
+    # -- "outward" is away from the remembered children: forward at the end of
+    # -- the container, backward at its start
+    forward = from_end if outward else not from_end
+
+    examined = 0
+    while sibling is not None:
+        if sibling.tag in _NON_SHAPE_TAGS:
+            if outward and not from_end:
+                break  # -- `p:grpSpPr`: nothing precedes it but `p:nvGrpSpPr`
+        elif examined == _MAX_NEW_PER_END or _max_id_in(sibling) > cursor:
+            return None
+        else:
+            examined += 1
+        sibling = sibling.getnext() if forward else sibling.getprevious()
+    return changed or examined > 0
 
 
 class CT_GroupShapeNonVisual(BaseShapeElement):
