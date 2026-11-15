@@ -156,11 +156,19 @@ Other useful commands::
     # Print the skill source path inside the installed package
     python -m power_pptx.skill path
 
-    # Install into a custom directory
+    # Install into a custom directory (``--target PATH`` and a bare PATH
+    # are equivalent)
     python -m power_pptx.skill install --target /path/to/skills/power-pptx
+    python -m power_pptx.skill install /path/to/skills/power-pptx
 
     # Refuse to overwrite an existing install
     python -m power_pptx.skill install --no-overwrite
+
+The target is the skill's own directory (the one that will hold
+``SKILL.md``), not the ``skills/`` directory around it.  Re-running the
+command replaces a previous install of the skill; a target that is a
+file, or a non-empty directory that is not a power-pptx skill install,
+is left untouched and the command exits with an error.
 
 The skill documents the headline space-aware-authoring workflow, the
 ``BBox`` value object, the one-call ``add_text`` / ``add_arrow``
