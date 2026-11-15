@@ -592,7 +592,9 @@ class DescribeSlideShowSettings_on_a_deck_it_cannot_edit(object):
     def it_reports_the_assumed_values(self, untyped_prs):
         assert _settings(untyped_prs) == DEFAULTS
 
-    def but_it_raises_rather_than_add_a_second_presProps_part(self, untyped_prs):
+    def but_it_raises_rather_than_add_a_second_presProps_part(self, untyped_prs, monkeypatch):
+        # -- pin the zip timestamps so two saves of an unchanged deck are equal --
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
         before = saved(untyped_prs)
 
         with pytest.raises(ValueError, match="already has a presentation-properties part"):

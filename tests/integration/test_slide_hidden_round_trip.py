@@ -4,9 +4,21 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from power_pptx import Presentation
 
 from .round_trip import assert_round_trip, round_trip_diff
+
+
+@pytest.fixture(autouse=True)
+def _pinned_zip_timestamps(monkeypatch):
+    """Two saves of an unchanged deck are compared byte for byte below.
+
+    Without a pinned build time the zip entries carry the clock, whose
+    two-second resolution makes saves that straddle a tick differ.
+    """
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
 
 
 def _deck(slides: int = 3):
