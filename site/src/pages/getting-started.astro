@@ -35,6 +35,10 @@ slide.tidy()                  # lint + safe auto-fixes
 print(audit(prs).markdown())  # optional whole-deck report
 prs.save("out.pptx")`;
 
+const snippet3 = `power-pptx lint out.pptx                  # report grouped by slide
+power-pptx lint out.pptx --format json    # one JSON document for a script
+power-pptx lint out.pptx --fix --output tidied.pptx   # slide.tidy(), then report`;
+
 ---
 
 <DocsLayout
@@ -49,10 +53,12 @@ prs.save("out.pptx")`;
 
   <h2 id="requirements">Requirements</h2>
   <ul>
-    <li>Python {SITE.python} (3.9 through 3.13 are tested in CI)</li>
+    <li>Python {SITE.python}, each version tested in CI</li>
     <li>
-      Runtime dependencies install automatically: <code>Pillow</code>, <code>XlsxWriter</code>,
-      <code>lxml</code>, <code>typing_extensions</code>
+      Runtime dependencies install automatically: <code>Pillow</code> 10.1 or later,
+      <code>XlsxWriter</code> 1.3.7, <code>lxml</code> 4.6.2 and <code>typing_extensions</code>
+      4.9. Those minimums are the oldest releases the test suite passes on, and a CI job tests
+      exactly them on Python 3.9.
     </li>
   </ul>
 
@@ -70,10 +76,11 @@ prs.save("out.pptx")`;
       <tr><th>Extra</th><th>Needed for</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>cairosvg</code></td><td>Auto-rasterising the PNG fallback in <code>add_svg_picture(...)</code></td></tr>
-      <tr><td><code>pyyaml</code></td><td><code>DesignTokens.from_yaml(...)</code></td></tr>
-      <tr><td><code>soffice</code> (LibreOffice) on <code>PATH</code></td><td><code>Presentation.render_thumbnails()</code></td></tr>
-      <tr><td><code>pdftoppm</code> / <code>pypdfium2</code></td><td>The PDF→PNG split path in the thumbnail renderer</td></tr>
+      <tr><td><code>power-pptx[svg]</code> (<code>cairosvg</code>)</td><td>Auto-rasterising the PNG fallback in <code>add_svg_picture(...)</code></td></tr>
+      <tr><td><code>power-pptx[html]</code> (Playwright), then <code>python -m playwright install chromium</code></td><td>HTML capture: <code>from_html</code>, <code>add_html_figure</code>, browser-exported Plotly. <code>[embedding]</code> installs both extras</td></tr>
+      <tr><td><code>pyyaml</code></td><td><code>DesignTokens.from_yaml(...)</code> and <code>compose.from_yaml(...)</code></td></tr>
+      <tr><td><code>soffice</code> (LibreOffice) on <code>PATH</code></td><td><code>Presentation.render_thumbnails()</code> and <code>power-pptx review</code>; a <code>libreoffice</code> binary is found too</td></tr>
+      <tr><td><code>pdftoppm</code> (Poppler) or <code>power-pptx[review]</code> (<code>pypdfium2</code>)</td><td>Splitting the rendered PDF into one PNG per slide; without either, only one-slide decks render</td></tr>
     </tbody>
   </table>
 
@@ -90,16 +97,34 @@ prs.save("out.pptx")`;
   </p>
   <Code code={snippet2} />
 
+  <h2 id="check">Check a saved deck from the shell</h2>
+  <p>
+    The same linter runs on files, which suits a CI step that checks decks another job built.
+    The exit status is <code>0</code> when nothing reaches the <code>--fail-on</code> level
+    (<code>error</code> by default), <code>1</code> when something does, and <code>2</code> for a
+    usage error or a file that is not a readable deck:
+  </p>
+  <Code code={snippet3} lang="bash" />
+  <p>
+    <code>--fix</code> never overwrites the input unless you also pass <code>--in-place</code>. See
+    <a href={`${withBase("/advanced/lint")}#cli`}>Lint &amp; Audit</a> for SARIF output and the other
+    options.
+  </p>
+
   <h2 id="concepts">Core concepts in sixty seconds</h2>
   <ul>
     <li>
       <strong>Presentation</strong> — the deck. <code>Presentation()</code> starts blank;
-      <code>Presentation("file.pptx")</code> opens an existing one. Call
-      <code>prs.save("out.pptx")</code> once at the end.
+      <code>Presentation("file.pptx")</code> opens an existing one, and templates
+      (<code>.potx</code>) and slide shows (<code>.ppsx</code>) open the same way. Call
+      <code>prs.save("out.pptx")</code> once at the end; the extension you save under decides what
+      kind of file is written.
     </li>
     <li>
       <strong>Slides &amp; layouts</strong> — <code>prs.slides.add_slide(prs.slide_layouts[i])</code>
       appends a slide from a layout (index 5 = Title Only, 6 = Blank in the default template).
+      <code>prs.slides.duplicate(slide)</code> and <code>prs.slides.remove(slide)</code> copy and
+      delete slides; see <a href={withBase("/advanced/slides")}>Slides &amp; Presentations</a>.
     </li>
     <li>
       <strong>BBox</strong> — an immutable rectangular region in EMU.

@@ -15,7 +15,7 @@ export const SITE = {
   pypi: "https://pypi.org/project/power-pptx/",
   upstreamDocs: "https://python-pptx.readthedocs.io/en/latest/",
   license: "MIT",
-  python: "3.9 – 3.13",
+  python: "3.9 – 3.14",
 } as const;
 
 export interface NavLink {

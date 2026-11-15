@@ -48,12 +48,12 @@ const features = [
   {
     icon: ScanSearch,
     title: "Lint & audit",
-    body: "slide.lint() reports overflow, off-slide shapes and collisions; slide.tidy() auto-fixes; audit(prs) gives a whole-deck Markdown report.",
+    body: "slide.lint() measures overflow with real font metrics and reports off-slide shapes and collisions; slide.tidy() auto-fixes; power-pptx lint checks saved decks from CI.",
   },
   {
     icon: FileJson,
     title: "JSON authoring",
-    body: "power_pptx.compose.from_spec() builds a complete deck from a JSON-shaped spec; import_slide and apply_template cover cross-presentation work.",
+    body: "power_pptx.compose.from_spec() builds a complete deck from a JSON-shaped spec, with located errors and a safe mode for model-written specs; import_slide and apply_template cover cross-presentation work.",
   },
   {
     icon: Palette,
@@ -194,7 +194,7 @@ prs.save("out.pptx")`;
       <Bot className="mx-auto h-10 w-10 text-primary" aria-hidden="true" />
       <h2 class="mt-4 text-3xl font-bold tracking-tight">Made for coding agents</h2>
       <p class="mx-auto mt-3 max-w-2xl text-muted-foreground">
-        The package ships its own Claude Code skill: cheat sheet, 16 focused reference docs, and an
+        The package ships its own Claude Code skill: cheat sheet, 20 focused reference docs, and an
         anti-patterns list of the mistakes LLMs commonly make. One command installs it.
       </p>
       <div
