@@ -937,3 +937,115 @@ class DescribeGeneratedDeckSchemaValidity:
             part == "ppt/media/orphan.xyz" and "not declared in [Content_Types].xml" in msg
             for part, msg in violations
         ), violations
+
+
+def _rewritten(blob: bytes, edits) -> bytes:
+    """Return package *blob* with ``edits[name](data)`` applied to the named members."""
+    import zipfile
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(blob)) as zin, zipfile.ZipFile(
+        out, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for name in zin.namelist():
+            data = zin.read(name)
+            zout.writestr(name, edits[name](data) if name in edits else data)
+    return out.getvalue()
+
+
+def _with_doctype(doctype: bytes):
+    """Return an edit that puts *doctype* between a part's XML declaration and its root."""
+
+    def edit(data: bytes) -> bytes:
+        declaration, root = data.split(b"?>", 1)
+        return declaration + b"?>" + doctype + root
+
+    return edit
+
+
+class DescribeUntrustedPackages:
+    """The validator reads a package from anywhere without resolving entities."""
+
+    def it_reports_a_part_that_declares_a_dtd(self):
+        blob = _rewritten(
+            _deck_blank(),
+            {
+                "ppt/slides/slide1.xml": _with_doctype(b"<!DOCTYPE sld>"),
+                "ppt/slides/_rels/slide1.xml.rels": _with_doctype(b"<!DOCTYPE Relationships>"),
+            },
+        )
+
+        violations = list(iter_schema_violations(blob))
+
+        assert sorted(part for part, msg in violations if "declares a DTD" in msg) == [
+            "ppt/slides/_rels/slide1.xml.rels",
+            "ppt/slides/slide1.xml",
+        ]
+
+    def it_does_not_expand_an_entity_into_the_part_it_validates(self, tmp_path):
+        secret = tmp_path / "secret.txt"
+        secret.write_text("TOP-SECRET-MARKER")
+        doctype = (
+            b'<!DOCTYPE sld [<!ENTITY file SYSTEM "' + secret.as_uri().encode() + b'">'
+            b'<!ENTITY text "INTERNAL-ENTITY-TEXT">]>'
+        )
+
+        def edit(data: bytes) -> bytes:
+            # -- character content is not allowed in p:spTree, so an expanded
+            # -- entity would surface in a schema error --
+            assert b"<p:spTree>" in data
+            return _with_doctype(doctype)(data).replace(b"<p:spTree>", b"<p:spTree>&text;&file;")
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+
+        violations = list(iter_schema_violations(blob))
+
+        messages = [msg for part, msg in violations if part == "ppt/slides/slide1.xml"]
+        assert any("declares a DTD" in msg for msg in messages), violations
+        # -- the entities stayed references: the part could not be validated,
+        # -- rather than being validated with their text in place --
+        assert any("could not be validated" in msg for msg in messages), violations
+        assert not any("TOP-SECRET-MARKER" in msg for _, msg in violations)
+        assert not any("Character content" in msg for _, msg in violations)
+
+    def it_does_not_mistake_quoted_doctype_text_for_a_dtd(self):
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:spTree>", b"<p:spTree><!-- <!DOCTYPE x> -->")
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_accepts_comments_and_processing_instructions_in_a_part(self):
+        # -- valid XML that other producers write; these nodes have no QName,
+        # -- which used to stop the validator with a ValueError --
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:spTree>", b"<p:spTree><!-- a comment --><?producer note?>")
+
+        blob = _rewritten(
+            _deck_blank(),
+            {"ppt/slides/slide1.xml": edit, "ppt/slideMasters/slideMaster1.xml": edit},
+        )
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_reads_every_part_with_the_one_hardened_parser(self):
+        from unittest.mock import patch
+
+        from lxml import etree
+
+        from power_pptx import _schema
+
+        blob = _deck_chart()
+        parsers = []
+        real_fromstring = etree.fromstring
+
+        def recording_fromstring(text, parser=None, **kwargs):
+            parsers.append(parser)
+            return real_fromstring(text, parser, **kwargs)
+
+        with patch.object(_schema.etree, "fromstring", recording_fromstring):
+            assert list(iter_schema_violations(blob)) == []
+
+        assert parsers, "expected the validator to parse parts"
+        assert all(parser is _schema._PARSER for parser in parsers)

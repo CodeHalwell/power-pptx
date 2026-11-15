@@ -84,6 +84,27 @@ _CHECKED_EXACT = ("ppt/presentation.xml",)
 _schema_cache: "dict[str, object]" = {}
 
 
+def hardened_parser(**options):
+    """Return an XML parser that is safe on a package from an unknown source.
+
+    Entity references are left unresolved and nothing is fetched from the
+    network, so a part cannot pull a local file into a violation message
+    (XXE) or expand a few bytes into gigabytes.  lxml's default parser
+    resolves entities, external ones included before lxml 5.  *options* are
+    further ``etree.XMLParser`` arguments.
+    """
+    return etree.XMLParser(resolve_entities=False, no_network=True, **options)
+
+
+#: The parser every part in this module is read with.
+_PARSER = hardened_parser() if _LXML else None
+
+
+def parse_xml(data: bytes):
+    """Return the root element of package XML *data*, parsed without resolving entities."""
+    return etree.fromstring(data, _PARSER)
+
+
 def schema_validation_available() -> bool:
     """Return True when lxml is importable and the bundled XSDs are present."""
     return _LXML and (_XSD_DIR / "pml.xsd").is_file()
@@ -97,7 +118,7 @@ def _schema_for_namespace(namespace: str):
     if namespace not in _schema_cache:
         # Parsing with the file path as base URI lets lxml resolve the
         # schema's relative <xsd:import schemaLocation="..."> references.
-        doc = etree.parse(str(_XSD_DIR / xsd_file))
+        doc = etree.parse(str(_XSD_DIR / xsd_file), _PARSER)
         _schema_cache[namespace] = etree.XMLSchema(doc)
     return _schema_cache[namespace]
 
@@ -181,7 +202,7 @@ def _iter_duplicate_shape_id_violations(name: str, doc) -> "Iterator[tuple[str, 
     the file" trigger that pure XSD validation (``unsignedInt``) cannot catch.
     """
     seen: "dict[str, str]" = {}
-    for el in doc.iter():
+    for el in doc.iter("*"):  # -- elements only: a comment has no QName --
         if etree.QName(el).localname != "cNvPr":
             continue
         sid = el.get("id")
@@ -206,7 +227,7 @@ def _iter_content_type_violations(zf, names) -> "Iterator[tuple[str, str]]":
     validation, which never looks at the content-types stream.
     """
     try:
-        ct = etree.fromstring(zf.read("[Content_Types].xml"))
+        ct = parse_xml(zf.read("[Content_Types].xml"))
     except KeyError:
         yield ("[Content_Types].xml", "package is missing [Content_Types].xml")
         return
@@ -269,7 +290,7 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
             continue
         base = _rels_source_dir(rels_name)
         try:
-            rels = etree.fromstring(zf.read(rels_name))
+            rels = parse_xml(zf.read(rels_name))
         except etree.XMLSyntaxError as exc:
             # A corrupt .rels part is itself a repair trigger; report and skip.
             yield (rels_name, "not well-formed XML: %s" % exc)
@@ -294,17 +315,17 @@ def _iter_relationship_violations(zf, names) -> "Iterator[tuple[str, str]]":
         rel_ids = set()
         if rels_name in name_set:
             try:
-                rels = etree.fromstring(zf.read(rels_name))
+                rels = parse_xml(zf.read(rels_name))
             except etree.XMLSyntaxError:
                 # Pass 1 already reported this malformed .rels; skip the r:id
                 # scan for this part rather than flag every ref as dangling.
                 continue
             rel_ids = {rel.get("Id") for rel in rels.iter("{%s}Relationship" % _PKG_REL_NS)}
         try:
-            doc = etree.fromstring(zf.read(part))
+            doc = parse_xml(zf.read(part))
         except etree.XMLSyntaxError:
             continue  # not-well-formed is reported by the main XSD pass
-        for el in doc.iter():
+        for el in doc.iter("*"):
             for attr, value in el.attrib.items():
                 if not attr.startswith("{%s}" % _R_NS) or not value:
                     continue
@@ -333,6 +354,34 @@ def _iter_duplicate_member_violations(names) -> "Iterator[tuple[str, str]]":
         seen.add(name)
 
 
+def _iter_dtd_violations(zf, names) -> "Iterator[tuple[str, str]]":
+    """Yield a violation for each XML part that carries a DOCTYPE declaration.
+
+    OPC (ISO/IEC 29500-2, "XML usage") forbids DTD declarations in package
+    XML and PowerPoint refuses such a part.  A DTD is also the only way to
+    declare the entities behind XXE and "billion laughs" payloads; this module
+    never resolves those (see :func:`hardened_parser`), so a part that uses
+    them cannot be validated further and is reported here instead.
+    """
+    for name in dict.fromkeys(names):
+        if not name.endswith((".xml", ".rels")):
+            continue
+        data = zf.read(name)
+        if b"<!DOCTYPE" not in data:
+            continue  # -- cheap pre-check that ends it for every ordinary part --
+        try:
+            root = parse_xml(data)
+        except etree.XMLSyntaxError:
+            continue  # -- reported by the passes that read the part --
+        # -- the text can also sit in a comment or CDATA section; ask the parser --
+        if root.getroottree().docinfo.doctype:
+            yield (
+                name,
+                "part declares a DTD (<!DOCTYPE ...>) — OPC forbids DTD "
+                "declarations in package XML and PowerPoint rejects the part",
+            )
+
+
 def _iter_orphan_slide_violations(zf, names) -> "Iterator[tuple[str, str]]":
     """Yield a violation for each slide part not registered in ``p:sldIdLst``.
 
@@ -345,8 +394,8 @@ def _iter_orphan_slide_violations(zf, names) -> "Iterator[tuple[str, str]]":
     if "ppt/presentation.xml" not in name_set:
         return
     try:
-        prs = etree.fromstring(zf.read("ppt/presentation.xml"))
-        rels = etree.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+        prs = parse_xml(zf.read("ppt/presentation.xml"))
+        rels = parse_xml(zf.read("ppt/_rels/presentation.xml.rels"))
     except (KeyError, etree.XMLSyntaxError):
         return  # reported by the content/rels passes
     rel_targets = {
@@ -382,12 +431,15 @@ def iter_schema_violations(
 
     *pptx* may be a path, raw ``bytes``, or a file-like object.  Only parts
     with a known root schema are checked against the XSDs; ``mc:AlternateContent``
-    is resolved to its fallback first.  In addition, five package-wide
-    structural checks run that the XSD cannot express — duplicate zip member
-    names, parts missing from ``[Content_Types].xml``, broken/dangling
-    relationships, slide parts absent from ``p:sldIdLst``, and duplicate shape
-    ids — because each is a real "PowerPoint repairs the file" trigger.  Yields
-    nothing for a clean package.
+    is resolved to its fallback first.  In addition, package-wide structural
+    checks run that the XSD cannot express — duplicate zip member names, parts
+    that declare a DTD, parts missing from ``[Content_Types].xml``,
+    broken/dangling relationships, slide parts absent from ``p:sldIdLst``, and
+    duplicate shape ids — because each is a real "PowerPoint repairs the file"
+    trigger.  Yields nothing for a clean package.
+
+    Parts are parsed without resolving entities or touching the network, so
+    validating a package from an unknown source is safe.
     """
     if not schema_validation_available():  # pragma: no cover - guarded by tests
         raise RuntimeError("schema validation unavailable (lxml or XSDs missing)")
@@ -404,6 +456,7 @@ def iter_schema_violations(
 
         # -- package-level structural checks (content types + relationships) --
         yield from _iter_duplicate_member_violations(names)
+        yield from _iter_dtd_violations(zf, names)
         yield from _iter_content_type_violations(zf, names)
         yield from _iter_relationship_violations(zf, names)
         yield from _iter_orphan_slide_violations(zf, names)
@@ -415,7 +468,7 @@ def iter_schema_violations(
             # resolution) for every slide-like part, not just XSD-checked ones.
             if name.startswith(_ID_CHECKED_PREFIXES):
                 try:
-                    raw_doc = etree.fromstring(zf.read(name))
+                    raw_doc = parse_xml(zf.read(name))
                 except etree.XMLSyntaxError:
                     raw_doc = None
                 if raw_doc is not None:
@@ -424,7 +477,7 @@ def iter_schema_violations(
             if not _should_check(name):
                 continue
             try:
-                doc = etree.fromstring(zf.read(name))
+                doc = parse_xml(zf.read(name))
             except etree.XMLSyntaxError as exc:
                 yield (name, "not well-formed XML: %s" % exc)
                 continue
@@ -436,7 +489,15 @@ def iter_schema_violations(
             if schema is None:
                 continue
             _resolve_mce(doc)
-            if not schema.validate(doc):
+            try:
+                valid = schema.validate(doc)  # type: ignore[attr-defined]
+            except etree.XMLSchemaError as exc:
+                # -- libxml2 cannot validate a tree that holds entity references,
+                # -- which are deliberately left unresolved; say so rather than
+                # -- pass the part as clean --
+                yield (name, "could not be validated against the schema: %s" % exc)
+                continue
+            if not valid:
                 for err in schema.error_log:  # type: ignore[attr-defined]
                     yield (name, "line %s: %s" % (err.line, err.message))
 

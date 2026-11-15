@@ -14,7 +14,9 @@ from lxml import etree
 
 from power_pptx._schema import (
     assert_schema_valid,
+    hardened_parser,
     iter_schema_violations,
+    parse_xml,
     schema_validation_available,
 )
 from power_pptx.audit import audit
@@ -80,9 +82,19 @@ _PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 
+#: As hardened as the parser the rest of the package is read with, but
+#: dropping the whitespace between elements, which is not content.
+_CANONICAL_PARSER = hardened_parser(remove_blank_text=True)
+
+
 def _canonical(data):
-    parser = etree.XMLParser(remove_blank_text=True, resolve_entities=False, no_network=True)
-    return etree.tostring(etree.fromstring(data, parser), method="c14n2")
+    root = etree.fromstring(data, _CANONICAL_PARSER)
+    # -- entity references are never resolved here, and C14N cannot write one.
+    # -- (`etree.Entity` is missing from the bundled lxml stubs.) --
+    entity_nodes = root.iter(etree.Entity)  # pyright: ignore[reportAttributeAccessIssue]
+    if next(entity_nodes, None) is not None:
+        raise ValueError("XML with entity references has no canonical form")
+    return etree.tostring(root, method="c14n2")
 
 
 def _relationships(name, data):
@@ -93,10 +105,9 @@ def _relationships(name, data):
     ``../media/a.png``), so each one is reduced to (Id, Type, resolved Target,
     TargetMode). A counter rather than a set keeps a duplicated entry visible.
     """
-    parser = etree.XMLParser(resolve_entities=False, no_network=True)
     base = "/" + posixpath.dirname(posixpath.dirname(name))
     relationships: Counter[tuple[str | None, str | None, str, str]] = Counter()
-    for rel in etree.fromstring(data, parser).iter("{%s}Relationship" % _PKG_REL_NS):
+    for rel in parse_xml(data).iter("{%s}Relationship" % _PKG_REL_NS):
         mode = rel.get("TargetMode") or "Internal"
         target = rel.get("Target") or ""
         if mode == "Internal":
@@ -112,8 +123,7 @@ def _content_types(parts):
     ``Override`` for the part, in any order, so only the resolved type of each
     part is comparable. Lookups ignore case, as the package reader does.
     """
-    parser = etree.XMLParser(resolve_entities=False, no_network=True)
-    root = etree.fromstring(parts[_CONTENT_TYPES], parser)
+    root = parse_xml(parts[_CONTENT_TYPES])
     defaults = {
         (e.get("Extension") or "").lower(): e.get("ContentType")
         for e in root.iter("{%s}Default" % _CT_NS)
@@ -144,8 +154,8 @@ def _same_part(name, a, b):
             return _relationships(name, a) == _relationships(name, b)
         if name.endswith(".xml"):
             return _canonical(a) == _canonical(b)
-    except etree.XMLSyntaxError:
-        pass  # -- not XML despite its name, and the bytes already differ --
+    except (etree.XMLSyntaxError, ValueError):
+        pass  # -- not comparable as XML, and the bytes already differ --
     return False
 
 
@@ -182,7 +192,7 @@ def _missing_fonts(blob):
             ("ppt/slides/slide", "ppt/charts/chart")
         ):
             continue
-        doc = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+        doc = parse_xml(data)
         for node in doc.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}latin"):
             family = node.get("typeface")
             if not family or family.startswith("+"):

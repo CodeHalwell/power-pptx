@@ -98,6 +98,36 @@ def _reversed_children(data):
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
+class DescribeUntrustedInput:
+    """A package that declares XML entities is reported, never expanded."""
+
+    def it_reports_entity_references_instead_of_failing_on_them(self):
+        def add_entity(name, data):
+            if name == "ppt/slides/slide1.xml":
+                declaration, root = data.split(b"?>", 1)
+                assert b"Review me" in root
+                return (
+                    declaration
+                    + b'?><!DOCTYPE sld [<!ENTITY more "AND MORE">]>'
+                    + root.replace(b"Review me", b"Review me &more;")
+                )
+            return data
+
+        report = validate_presentation(_rewritten(presentation_bytes(deck()), add_entity))
+
+        assert report.has_errors
+        assert any(
+            part == "ppt/slides/slide1.xml" and "declares a DTD" in message
+            for part, message in report.schema_violations
+        )
+        # -- the checks after the schema pass still ran: canonicalising a part
+        # -- that holds an entity reference used to raise AttributeError --
+        assert report.errors == []
+        assert report.roundtrip_checked
+        assert report.slide_count == 1
+        assert report.audit
+
+
 class DescribeRoundtripChanges:
     """The save/reopen check compares what a package means, not how it is spelled."""
 
