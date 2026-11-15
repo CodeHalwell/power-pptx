@@ -941,6 +941,40 @@ def _decision_tree(
         bbox.width,
         Emu(int(bbox.height) - int(root_h * 1.4)),
     )
+    coerced = _coerce_branches(branches)
+    style = _TreeStyle(
+        accent=accent, fill=fill, text_color=text_color, leaf_fill=leaf_fill,
+        leaf_text_color=leaf_text_color, font=font, size_pt=size_pt, min_size_pt=min_size_pt,
+    )
+
+    n = len(coerced)
+    col_boxes = branch_area.split_h([1] * n, gap=int(Pt(8)))
+    built: list[Any] = []
+    arrows: list[Any] = []
+    for branch, col in zip(coerced, col_boxes):
+        cards, links = _add_tree_branch(slide, root_card, branch, col, n, style)
+        built += cards
+        arrows += links
+    _tag_group(slide, "decision-tree", [root_card] + built + arrows)
+    return DecisionTreeResult(root=root_card, branches=built, arrows=arrows)
+
+
+@dataclass(frozen=True)
+class _TreeStyle:
+    """How :func:`decision_tree` draws its branch and leaf cards and arrows."""
+
+    accent: str
+    fill: str
+    text_color: str
+    leaf_fill: str
+    leaf_text_color: str
+    font: str | None
+    size_pt: float
+    min_size_pt: float
+
+
+def _coerce_branches(branches: Sequence[Any]) -> list[dict[str, Any]]:
+    """Normalise each branch to ``{"label": ..., "children": [...]}``."""
     coerced = []
     for b in branches:
         if isinstance(b, str):
@@ -952,75 +986,99 @@ def _decision_tree(
                 "branches items must be str or dict; got "
                 f"{type(b).__name__}"
             )
+    return coerced
 
-    n = len(coerced)
-    col_boxes = branch_area.split_h([1] * n, gap=int(Pt(8)))
-    built: list[Any] = []
-    arrows: list[Any] = []
-    for branch, col in zip(coerced, col_boxes):
-        has_children = bool(branch["children"])
-        if has_children:
-            split = col.split_v([1, 3], gap=int(Pt(8)))
-            label_box = split[0]
-            children_box = split[1]
-        else:
-            label_box = col
-            children_box = None
-        branch_card = _card(
-            slide, label_box, fill=fill, line=accent,
-            text=branch["label"], text_color=text_color,
-            font=font, size_pt=size_pt, bold=False, radius=0.04,
-            min_size_pt=min_size_pt, what=f"decision_tree ({n} branches)",
+
+def _add_tree_branch(
+    slide,
+    root_card: Any,
+    branch: dict[str, Any],
+    col: BBox,
+    n_branches: int,
+    style: _TreeStyle,
+) -> tuple[list[Any], list[Any]]:
+    """Add one branch card in *col*, linked to *root_card*, with any children below it.
+
+    Returns ``(cards, arrows)``: the branch card then its children, and the
+    root-to-branch arrow then the children's links.
+    """
+    children = branch["children"]
+    if children:
+        label_box, children_box = col.split_v([1, 3], gap=int(Pt(8)))
+    else:
+        label_box, children_box = col, None
+    branch_card = _card(
+        slide, label_box, fill=style.fill, line=style.accent,
+        text=branch["label"], text_color=style.text_color,
+        font=style.font, size_pt=style.size_pt, bold=False, radius=0.04,
+        min_size_pt=style.min_size_pt, what=f"decision_tree ({n_branches} branches)",
+    )
+    arrow = slide.shapes.add_arrow(
+        root_card, branch_card,
+        head="triangle", color=style.accent, weight_pt=1.5,
+        inset_pt=4.0,
+    )
+    if children_box is None:
+        return [branch_card], [arrow]
+    child_cards, child_links = _add_tree_children(
+        slide, children, col, label_box, children_box, style
+    )
+    return [branch_card, *child_cards], [arrow, *child_links]
+
+
+def _add_tree_children(
+    slide,
+    children: Sequence[Any],
+    col: BBox,
+    label_box: BBox,
+    children_box: BBox,
+    style: _TreeStyle,
+) -> tuple[list[Any], list[Any]]:
+    """Stack the leaf cards of one branch in *children_box*; return ``(cards, arrows)``.
+
+    The children are siblings, so each needs its own link to the branch.
+    Straight branch-to-child arrows would run through the children above;
+    instead the children are indented and a rail down the indent feeds a
+    short arrow into each one's left edge.  The rail is the first arrow.
+    """
+    indent = min(int(int(col.width) * 0.18), int(Inches(0.35)))
+    rail_x = int(col.left) + indent // 2
+    child_area = BBox(
+        Emu(int(children_box.left) + indent),
+        children_box.top,
+        Emu(int(children_box.width) - indent),
+        children_box.height,
+    )
+    child_boxes = child_area.split_v([1] * len(children), gap=int(Pt(6)))
+    last_cy = int(child_boxes[-1].cy)
+    arrows = [
+        slide.shapes.add_arrow(
+            (Emu(rail_x), Emu(int(label_box.bottom))),
+            (Emu(rail_x), Emu(last_cy)),
+            head=None, color=style.accent, weight_pt=1.0,
         )
-        built.append(branch_card)
-        arrow = slide.shapes.add_arrow(
-            root_card, branch_card,
-            head="triangle", color=accent, weight_pt=1.5,
-            inset_pt=4.0,
+    ]
+    cards = []
+    for c, cb in zip(children, child_boxes):
+        label = c if isinstance(c, str) else c.get("label", "")
+        cards.append(
+            _card(
+                slide, cb, fill=style.leaf_fill, line=None,
+                text=label, text_color=style.leaf_text_color,
+                font=style.font, size_pt=style.size_pt * 0.9,
+                radius=0.04,
+                min_size_pt=style.min_size_pt,
+                what=f"decision_tree ({len(child_boxes)} children)",
+            )
         )
-        arrows.append(arrow)
-        if children_box is not None:
-            # The children are siblings, so each needs its own link to the
-            # branch.  Straight branch-to-child arrows would run through the
-            # children above; instead the children are indented and a rail
-            # down the indent feeds a short arrow into each one's left edge.
-            indent = min(int(int(col.width) * 0.18), int(Inches(0.35)))
-            rail_x = int(col.left) + indent // 2
-            child_area = BBox(
-                Emu(int(children_box.left) + indent),
-                children_box.top,
-                Emu(int(children_box.width) - indent),
-                children_box.height,
+        arrows.append(
+            slide.shapes.add_arrow(
+                (Emu(rail_x), Emu(int(cb.cy))),
+                (Emu(int(cb.left) - int(Pt(1))), Emu(int(cb.cy))),
+                head="triangle", color=style.accent, weight_pt=1.0,
             )
-            child_boxes = child_area.split_v([1] * len(branch["children"]), gap=int(Pt(6)))
-            last_cy = int(child_boxes[-1].cy)
-            arrows.append(
-                slide.shapes.add_arrow(
-                    (Emu(rail_x), Emu(int(label_box.bottom))),
-                    (Emu(rail_x), Emu(last_cy)),
-                    head=None, color=accent, weight_pt=1.0,
-                )
-            )
-            for c, cb in zip(branch["children"], child_boxes):
-                label = c if isinstance(c, str) else c.get("label", "")
-                child_card = _card(
-                    slide, cb, fill=leaf_fill, line=None,
-                    text=label, text_color=leaf_text_color,
-                    font=font, size_pt=size_pt * 0.9,
-                    radius=0.04,
-                    min_size_pt=min_size_pt,
-                    what=f"decision_tree ({len(child_boxes)} children)",
-                )
-                built.append(child_card)
-                arrows.append(
-                    slide.shapes.add_arrow(
-                        (Emu(rail_x), Emu(int(cb.cy))),
-                        (Emu(int(cb.left) - int(Pt(1))), Emu(int(cb.cy))),
-                        head="triangle", color=accent, weight_pt=1.0,
-                    )
-                )
-    _tag_group(slide, "decision-tree", [root_card] + built + arrows)
-    return DecisionTreeResult(root=root_card, branches=built, arrows=arrows)
+        )
+    return cards, arrows
 
 
 # ----------------------------------------------------------------------------- columns
