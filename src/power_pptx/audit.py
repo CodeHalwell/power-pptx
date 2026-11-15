@@ -92,52 +92,46 @@ class AuditReport:
     def markdown(self) -> str:
         """Render the report as a markdown string suitable for chat replies."""
         lines = [f"# Audit report — {self.total_slides} slide(s)"]
-        if not (
-            self.lint_issues
-            or self.broken_pictures
-            or self.empty_slides
-            or self.font_warnings
-            or self.size_warnings
-        ):
-            lines.append("")
-            lines.append("**No issues found.**")
-            return "\n".join(lines)
-
-        if self.lint_issues:
-            lines.append("")
-            lines.append(f"## Lint ({len(self.lint_issues)})")
-            for idx, issue in self.lint_issues:
-                lines.append(f"- slide {idx}: {issue}")
-        if self.broken_pictures:
-            lines.append("")
-            lines.append(f"## Broken pictures ({len(self.broken_pictures)})")
-            for idx, shape in self.broken_pictures:
-                lines.append(
-                    f"- slide {idx}: `{shape.name}` is zero-sized or has missing/corrupt image data"
-                )
-        if self.empty_slides:
-            lines.append("")
-            lines.append("## Empty slides")
-            for idx in self.empty_slides:
-                lines.append(f"- slide {idx}: no content-bearing shapes")
-        if self.font_warnings:
-            lines.append("")
-            lines.append(f"## Font warnings ({len(self.font_warnings)})")
-            seen = set()
-            for idx, font in self.font_warnings:
-                key = (idx, font)
-                if key in seen:
-                    continue
-                seen.add(key)
-                lines.append(f"- slide {idx}: uses `{font}` (not in the common safe-list)")
-        if self.size_warnings:
-            lines.append("")
-            lines.append(f"## Large pictures ({len(self.size_warnings)})")
-            for idx, name, size_bytes in self.size_warnings:
-                lines.append(
-                    f"- slide {idx}: `{name}` is {size_bytes / 1_000_000:.1f} MB"
-                )
+        sections = [(heading, items) for heading, items in self._sections() if items]
+        if not sections:
+            lines += ["", "**No issues found.**"]
+        for heading, items in sections:
+            lines += ["", heading, *items]
         return "\n".join(lines)
+
+    def _sections(self) -> list[tuple[str, list[str]]]:
+        """``(heading, bullet lines)`` of each markdown section, empty ones included."""
+        return [
+            (
+                f"## Lint ({len(self.lint_issues)})",
+                [f"- slide {idx}: {issue}" for idx, issue in self.lint_issues],
+            ),
+            (
+                f"## Broken pictures ({len(self.broken_pictures)})",
+                [
+                    f"- slide {idx}: `{shape.name}` is zero-sized or has missing/corrupt image data"
+                    for idx, shape in self.broken_pictures
+                ],
+            ),
+            (
+                "## Empty slides",
+                [f"- slide {idx}: no content-bearing shapes" for idx in self.empty_slides],
+            ),
+            (
+                f"## Font warnings ({len(self.font_warnings)})",
+                [
+                    f"- slide {idx}: uses `{font}` (not in the common safe-list)"
+                    for idx, font in dict.fromkeys((i, f) for i, f in self.font_warnings)
+                ],
+            ),
+            (
+                f"## Large pictures ({len(self.size_warnings)})",
+                [
+                    f"- slide {idx}: `{name}` is {size_bytes / 1_000_000:.1f} MB"
+                    for idx, name, size_bytes in self.size_warnings
+                ],
+            ),
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict of the whole audit.
