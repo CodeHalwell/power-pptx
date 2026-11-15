@@ -21,7 +21,7 @@
     "src/power_pptx/parts/presprops.py"
   ],
   "pythonPlatform": "All",
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.10",
   "stubPath": "./typings",
   "typeCheckingMode": "basic"
 }

@@ -736,7 +736,7 @@ before new surface area. See the HISTORY entry for the complete list.
   text, JSON and SARIF output.
 - [x] **Code health.** Every function has a cognitive complexity of 15 or
   less, Ruff's rules and formatter pass everywhere, and CI enforces both,
-  tests Python 3.9–3.14, and tests the declared minimum dependencies.
+  tests Python 3.10–3.15, and tests the declared minimum dependencies.
 
 Still open: full type annotations for the public API (about half of it is
 fully typed), and verification against PowerPoint itself rather than the

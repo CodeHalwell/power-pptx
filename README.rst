@@ -9,7 +9,7 @@ power-pptx
 
 .. |PyPI - Python Versions| image:: https://img.shields.io/pypi/pyversions/power-pptx.svg
    :target: https://pypi.org/project/power-pptx/
-   :alt: Python 3.9 – 3.14
+   :alt: Python 3.10 – 3.15
 
 .. |CI| image:: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml/badge.svg
    :target: https://github.com/CodeHalwell/power-pptx/actions/workflows/ci.yml
@@ -34,7 +34,7 @@ and slide shows (.ppsx).
 +----------------+----------------------------------------------------------+
 | **Package**    | ``power-pptx`` on PyPI (imports as ``power_pptx``)       |
 +----------------+----------------------------------------------------------+
-| **Python**     | 3.9 – 3.14                                               |
+| **Python**     | 3.10 – 3.15                                              |
 +----------------+----------------------------------------------------------+
 | **License**    | MIT                                                      |
 +----------------+----------------------------------------------------------+

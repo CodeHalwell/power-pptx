@@ -28,7 +28,8 @@ templating packages no longer corrupts or leaks content; ``from_spec`` rejects
 malformed input with located errors and has a safe mode for untrusted specs.
 Adds slide removal and duplication, slide-show settings (issue #53),
 slide-size limits (issue #56), ``Slide.hidden`` and a ``power-pptx lint``
-command.
+command. Python 3.10 is now the oldest supported version, and 3.15 is
+supported.
 
 Added
 .....
@@ -117,6 +118,10 @@ Added
 Changed
 .......
 
+* Python 3.9, which reached its end of life in October 2025, is no longer
+  supported: the package requires Python 3.10 or later. Python 3.15 is tested
+  and declared supported. The ``lxml`` minimum rises from 4.6.2 to 4.6.3, the
+  oldest release with Python 3.10 wheels.
 * ``SpecError.path`` gives the location for errors in a ``shapes`` entry
   (``"slides[0].shapes[1]"``, or its ``.name`` / ``.shape`` key) instead of
   an empty string.
@@ -380,8 +385,9 @@ Development
 ...........
 
 * Declared dependency minimums are ones that install and pass the suite
-  (Pillow 10.1, lxml 4.6.2, XlsxWriter 1.3.7), and a new CI job tests exactly
-  those on Python 3.9. Python 3.14 is tested and declared supported.
+  (Pillow 10.1, lxml 4.6.3, XlsxWriter 1.3.7), and a new CI job tests exactly
+  those on Python 3.10, the oldest supported version. Python 3.14 and 3.15
+  are tested and declared supported.
 * Packaging uses an SPDX licence expression ahead of setuptools dropping the
   old form; the Travis configuration and unused requirements are gone.
 * CI cancels superseded pull-request runs and caches downloads; Qodana runs

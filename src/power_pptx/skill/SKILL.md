@@ -208,7 +208,7 @@ That whole sheet fits on one screen — it's the working set.
 pip install power-pptx
 ```
 
-Python 3.9–3.14; Pillow (10.1+), lxml (4.6.2+) and XlsxWriter (1.3.7+)
+Python 3.10–3.15; Pillow (10.1+), lxml (4.6.3+) and XlsxWriter (1.3.7+)
 are installed with it. The `cairosvg` dependency is optional — install
 only if you want `add_svg_picture(...)` to auto-rasterise the PNG
 fallback. `pyyaml` is optional too — install only if you want

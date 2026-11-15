@@ -18,8 +18,8 @@ code across, replace ``pptx`` with ``power_pptx`` in imports.
 Requirements
 ------------
 
-* Python 3.9 to 3.14.
-* ``lxml`` (4.6.2 or later), ``Pillow`` (10.1 or later), ``XlsxWriter`` (1.3.7
+* Python 3.10 to 3.15.
+* ``lxml`` (4.6.3 or later), ``Pillow`` (10.1 or later), ``XlsxWriter`` (1.3.7
   or later) and ``typing_extensions``, which ``pip`` installs for you. These
   minimum versions are the oldest the test suite passes on, and continuous
   integration runs the suite against exactly those.
