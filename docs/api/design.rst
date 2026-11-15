@@ -84,9 +84,6 @@ Native components
    :members:
 .. autoexception:: LayoutOverflowError
 .. autoclass:: LayoutWarning
-.. autoclass:: LayoutResult
-   :members:
-.. autoexception:: LayoutOverflowError
 
 
 Recipes
