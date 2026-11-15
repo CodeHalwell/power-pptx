@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import math
 import os
+from dataclasses import dataclass
 from typing import IO, TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union, overload
 
 from power_pptx.design.tokens import DesignTokens, TypographyToken
@@ -1637,24 +1638,7 @@ def timeline_slide(
     margin = Inches(0.6)
     content_w = int(slide_w - 2 * margin)
     n = len(milestones)
-
-    # Labels alternate above / below the rail, so the nearest label on the
-    # same side is two markers away: a label may be up to two pitches wide
-    # (less a small gutter).  The first and last labels must also stay
-    # inside the margins, which puts the end markers half a label in from
-    # each side.  Solving both for the label width gives the cap below.
-    label_gutter = int(Inches(0.1))
-    min_label_w = int(Inches(1.0))
-    label_w = int(Inches(2.4))
-    if n > 1:
-        label_w = min(label_w, (2 * content_w - (n - 1) * label_gutter) // (n + 1))
-    label_w = min(label_w, content_w)
-    if label_w < min_label_w:
-        fits = max(1, (2 * content_w + label_gutter - min_label_w) // (min_label_w + label_gutter))
-        raise ValueError(
-            f"timeline_slide: {n} milestones do not fit on a slide this wide; at most "
-            f"{fits} fit with readable labels. Split the timeline across slides."
-        )
+    label_w = _timeline_label_width(n, content_w)
 
     slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
@@ -1674,31 +1658,17 @@ def timeline_slide(
         shrink_to_fit=True,
     )
 
-    # Equally space the markers; n=1 sits dead center.
-    if n == 1:
-        positions = [Length(slide_w // 2)]
-    else:
-        first = int(margin) + label_w // 2
-        pitch = (content_w - label_w) / (n - 1)
-        positions = [Length(first + int(round(i * pitch))) for i in range(n)]
+    positions = _timeline_positions(n, slide_w, margin, content_w, label_w)
 
     # Rail across the middle, from the first marker to the last.
     rail_y = Length(slide_h // 2)
     rail_h = Pt(2)
-    if n == 1:
-        rail_left = Length(margin + Inches(0.5))
-        rail_right = Length(slide_w - margin - Inches(0.5))
-    else:
-        rail_left, rail_right = positions[0], positions[-1]
-    rail = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, rail_left, Length(rail_y - rail_h // 2),
-        Length(rail_right - rail_left), rail_h,
-    )
+    rail_left, rail_right = _timeline_rail_span(positions, slide_w, margin)
     rail_color = _palette(tokens, ("muted", "lt1")) or RGBColor(0xBB, 0xBB, 0xBB)
-    rail.fill.solid()
-    rail.fill.fore_color.rgb = rail_color
-    rail.line.fill.background()
-    rail.text_frame.text = ""
+    rail = _add_plain_shape(
+        slide, MSO_SHAPE.RECTANGLE, rail_left, Length(rail_y - rail_h // 2),
+        Length(rail_right - rail_left), rail_h, rail_color,
+    )
 
     dot_d = Inches(0.28)
     body_token = _typography(tokens, "body", default_size=Pt(12))
@@ -1710,87 +1680,42 @@ def timeline_slide(
         or RGBColor(0x00, 0x8A, 0x3C)
     )
 
-    # One text box per milestone (date paragraph, then label).  Boxes above
-    # the rail run from under the title to just above the marker and are
-    # bottom-anchored; boxes below run from just under the marker to the
-    # bottom margin and are top-anchored.  Either way the text sits next
-    # to its marker and extra lines grow away from the rail.
+    # One text box per milestone (date paragraph, then label), above or
+    # below the rail.
     clearance = Inches(0.08)
     above_top = Length(title_top + title_h + Inches(0.1))
-    above_h = Length(max(int(Inches(0.4)), rail_y - dot_d // 2 - clearance - above_top))
     below_top = Length(rail_y + dot_d // 2 + clearance)
-    below_h = Length(max(int(Inches(0.4)), slide_h - Inches(0.5) - below_top))
+    bands = _LabelBands(
+        width=label_w,
+        above_top=above_top,
+        above_h=Length(max(int(Inches(0.4)), rail_y - dot_d // 2 - clearance - above_top)),
+        below_top=below_top,
+        below_h=Length(max(int(Inches(0.4)), slide_h - Inches(0.5) - below_top)),
+    )
 
     # Bake one size for every label: the largest at which each milestone's
     # text fits its box with whole words, so the row reads evenly.
-    texts = [
-        "\n".join(str(ms[key]) for key in ("date", "label") if str(ms.get(key, "") or ""))
-        for ms in milestones
-    ]
-    label_pt = int(math.ceil(body_token.size.pt)) if body_token.size is not None else 12
-    overflowing = False
-    for i, text in enumerate(texts):
-        if not text:
-            continue
-        box_h = above_h if i % 2 == 0 else below_h
-        fit = _fit_pt(
-            text, label_w - Inches(0.2), int(box_h) - Inches(0.1), body_token, label_pt
-        )
-        if fit is None:
-            fit, overflowing = _MIN_FONT_PT, True
-        label_pt = min(label_pt, fit)
+    lines = [_milestone_lines(ms) for ms in milestones]
+    label_pt, overflowing = _fit_milestone_labels(lines, bands, body_token)
+    style = _LabelStyle(
+        tokens={"date": date_token, "label": body_token},
+        size_pt=label_pt,
+        overflowing=overflowing,
+        color=body_color,
+    )
 
     dots: list[Any] = []
     for i, ms in enumerate(milestones):
         cx = positions[i]
-        # Milestone dot.
-        dot = slide.shapes.add_shape(
-            MSO_SHAPE.OVAL,
-            Length(cx - dot_d // 2),
-            Length(rail_y - dot_d // 2),
-            dot_d,
-            dot_d,
+        dot_color = done_color if ms.get("done") else pending_color
+        dots.append(
+            _add_plain_shape(
+                slide, MSO_SHAPE.OVAL, Length(cx - dot_d // 2), Length(rail_y - dot_d // 2),
+                dot_d, dot_d, dot_color,
+            )
         )
-        dot.fill.solid()
-        dot.fill.fore_color.rgb = (
-            done_color if ms.get("done") else pending_color
-        )
-        dot.line.fill.background()
-        dot.text_frame.text = ""
-        dots.append(dot)
-
-        if not texts[i]:
-            continue
-        # Alternate above / below the rail so labels don't fight for the
-        # same vertical space when milestones are close together.
-        above = (i % 2 == 0)
-        box = slide.shapes.add_textbox(
-            Length(cx - label_w // 2),
-            above_top if above else below_top,
-            Length(label_w),
-            above_h if above else below_h,
-        )
-        tf = box.text_frame
-        tf.word_wrap = True
-        tf.vertical_anchor = MSO_ANCHOR.BOTTOM if above else MSO_ANCHOR.TOP
-        if overflowing:
-            from power_pptx.enum.text import MSO_AUTO_SIZE
-
-            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
-        first_para = True
-        for key, token in (("date", date_token), ("label", body_token)):
-            text = str(ms.get(key, "") or "")
-            if not text:
-                continue
-            para = tf.paragraphs[0] if first_para else tf.add_paragraph()
-            first_para = False
-            para.alignment = PP_ALIGN.CENTER
-            run = para.add_run()
-            run.text = text
-            _apply_typography(run.font, token)
-            if token.size is None or token.size.pt > label_pt:
-                run.font.size = Pt(label_pt)
-            run.font.color.rgb = body_color
+        if lines[i]:
+            _add_milestone_label(slide, cx, i, lines[i], bands, style)
 
     # The markers sit on the rail by design; say so, so the linter does
     # not report every marker as colliding with it.
@@ -1798,6 +1723,164 @@ def timeline_slide(
 
     _apply_transition(slide, transition)
     return slide
+
+
+def _timeline_label_width(n: int, content_w: int) -> int:
+    """Width of each of *n* milestone labels, raising when they cannot be readable.
+
+    Labels alternate above / below the rail, so the nearest label on the
+    same side is two markers away: a label may be up to two pitches wide
+    (less a small gutter).  The first and last labels must also stay
+    inside the margins, which puts the end markers half a label in from
+    each side.  Solving both for the label width gives the cap below.
+    """
+    label_gutter = int(Inches(0.1))
+    min_label_w = int(Inches(1.0))
+    label_w = int(Inches(2.4))
+    if n > 1:
+        label_w = min(label_w, (2 * content_w - (n - 1) * label_gutter) // (n + 1))
+    label_w = min(label_w, content_w)
+    if label_w < min_label_w:
+        fits = max(1, (2 * content_w + label_gutter - min_label_w) // (min_label_w + label_gutter))
+        raise ValueError(
+            f"timeline_slide: {n} milestones do not fit on a slide this wide; at most "
+            f"{fits} fit with readable labels. Split the timeline across slides."
+        )
+    return label_w
+
+
+def _timeline_positions(
+    n: int, slide_w: Length, margin: Length, content_w: int, label_w: int
+) -> list[Length]:
+    """Centre x of each marker: equally spaced, the ends half a label in.
+
+    A single marker sits dead centre.
+    """
+    if n == 1:
+        return [Length(slide_w // 2)]
+    first = int(margin) + label_w // 2
+    pitch = (content_w - label_w) / (n - 1)
+    return [Length(first + int(round(i * pitch))) for i in range(n)]
+
+
+def _timeline_rail_span(
+    positions: Sequence[Length], slide_w: Length, margin: Length
+) -> tuple[Length, Length]:
+    """Left and right ends of the rail: the first and last markers.
+
+    Under a single marker the rail spans the slide, less half an inch
+    inside each margin.
+    """
+    if len(positions) == 1:
+        return Length(margin + Inches(0.5)), Length(slide_w - margin - Inches(0.5))
+    return positions[0], positions[-1]
+
+
+@dataclass(frozen=True)
+class _LabelBands:
+    """Where timeline labels go: even milestones above the rail, odd ones below.
+
+    Alternating keeps neighbouring labels from fighting for the same
+    space.  Boxes above the rail run from under the title to just above
+    the marker and are bottom-anchored; boxes below run from just under
+    the marker to the bottom margin and are top-anchored.  Either way the
+    text sits next to its marker and extra lines grow away from the rail.
+    """
+
+    width: int
+    above_top: Length
+    above_h: Length
+    below_top: Length
+    below_h: Length
+
+    def height(self, index: int) -> Length:
+        """Height of milestone *index*'s label box."""
+        return self.above_h if index % 2 == 0 else self.below_h
+
+    def place(self, index: int) -> tuple[Length, Length, MSO_ANCHOR]:
+        """``(top, height, anchor)`` of milestone *index*'s label box."""
+        if index % 2 == 0:
+            return self.above_top, self.above_h, MSO_ANCHOR.BOTTOM
+        return self.below_top, self.below_h, MSO_ANCHOR.TOP
+
+
+@dataclass(frozen=True)
+class _LabelStyle:
+    """How timeline label text is set: one fitted size for the whole row."""
+
+    tokens: Mapping[str, TypographyToken]  # by line key, "date" / "label"
+    size_pt: int
+    overflowing: bool  # some label does not fit even at the minimum size
+    color: RGBColor
+
+
+def _milestone_lines(milestone: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """The ``(key, text)`` lines *milestone* shows: its date, then its label.
+
+    A missing or empty date or label is left out.
+    """
+    lines = []
+    for key in ("date", "label"):
+        text = str(milestone.get(key, "") or "")
+        if text:
+            lines.append((key, text))
+    return lines
+
+
+def _fit_milestone_labels(
+    lines: Sequence[Sequence[tuple[str, str]]], bands: _LabelBands, token: TypographyToken
+) -> tuple[int, bool]:
+    """Return ``(size_pt, overflowing)``: one size at which every label fits its box.
+
+    The size starts at *token*'s and only shrinks.  A label that does not
+    fit even at the minimum size holds the row at the minimum and sets
+    *overflowing*.
+    """
+    label_pt = int(math.ceil(token.size.pt)) if token.size is not None else 12
+    overflowing = False
+    for i, milestone_lines in enumerate(lines):
+        if not milestone_lines:
+            continue
+        text = "\n".join(line for _, line in milestone_lines)
+        fit = _fit_pt(
+            text, bands.width - Inches(0.2), int(bands.height(i)) - Inches(0.1), token, label_pt
+        )
+        if fit is None:
+            fit, overflowing = _MIN_FONT_PT, True
+        label_pt = min(label_pt, fit)
+    return label_pt, overflowing
+
+
+def _add_milestone_label(
+    slide: "Slide",
+    cx: int,
+    index: int,
+    lines: Sequence[tuple[str, str]],
+    bands: _LabelBands,
+    style: _LabelStyle,
+) -> None:
+    """Add milestone *index*'s label box, centred on *cx*, one paragraph per line."""
+    top, height, anchor = bands.place(index)
+    box = slide.shapes.add_textbox(
+        Length(cx - bands.width // 2), top, Length(bands.width), height
+    )
+    tf = box.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = anchor
+    if style.overflowing:
+        from power_pptx.enum.text import MSO_AUTO_SIZE
+
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    for line_no, (key, text) in enumerate(lines):
+        para = tf.paragraphs[0] if line_no == 0 else tf.add_paragraph()
+        para.alignment = PP_ALIGN.CENTER
+        run = para.add_run()
+        run.text = text
+        token = style.tokens[key]
+        _apply_typography(run.font, token)
+        if token.size is None or token.size.pt > style.size_pt:
+            run.font.size = Pt(style.size_pt)
+        run.font.color.rgb = style.color
 
 
 # ---------------------------------------------------------------------------
