@@ -289,37 +289,53 @@ def _format_text(decks: Sequence[_DeckResult], *, fixed: bool) -> str:
     for deck in checked:
         if lines:
             lines.append("")
-        lines.append(_deck_headline(deck, fixed=fixed))
-        width = max((len(str(issue.code)) for issue in deck.issues), default=0)
-        for slide in deck.slides:
-            if not slide.issues and not slide.fixes:
-                continue
-            label = "Slide %d" % (slide.index + 1)
-            if slide.title:
-                label += ": %s" % slide.title
-            if slide.hidden:
-                label += " (hidden)"
-            lines.append("")
-            lines.append("  " + label)
-            for description in slide.fixes:
-                lines.append("    %-7s  %s" % ("fixed", description))
-            for issue in slide.issues:
-                lines.append(
-                    "    %-7s  %-*s  %s" % (_severity(issue), width, issue.code, issue.message)
-                )
+        lines.extend(_deck_section(deck, fixed=fixed))
     if len(decks) > 1:
-        issues = [issue for deck in checked for issue in deck.issues]
-        total = "%s checked: %s" % (
-            _plural(len(checked), "deck"),
-            "%s (%s)" % (_plural(len(issues), "issue"), _breakdown(_counts(issues)))
-            if issues
-            else "no issues",
-        )
-        unread = len(decks) - len(checked)
-        if unread:
-            total += "; %s could not be checked" % _plural(unread, "deck")
-        lines.extend(["", total])
+        lines.extend(["", _run_total(decks, checked)])
     return "\n".join(lines) + "\n" if lines else ""
+
+
+def _deck_section(deck: _DeckResult, *, fixed: bool) -> list[str]:
+    """The text report's lines for `deck`: its headline, then each slide with something to say."""
+    lines = [_deck_headline(deck, fixed=fixed)]
+    width = max((len(str(issue.code)) for issue in deck.issues), default=0)
+    for slide in deck.slides:
+        if not slide.issues and not slide.fixes:
+            continue
+        lines.append("")
+        lines.append("  " + _slide_label(slide))
+        for description in slide.fixes:
+            lines.append("    %-7s  %s" % ("fixed", description))
+        for issue in slide.issues:
+            lines.append(
+                "    %-7s  %-*s  %s" % (_severity(issue), width, issue.code, issue.message)
+            )
+    return lines
+
+
+def _slide_label(slide: _SlideResult) -> str:
+    """Like "Slide 3: Quarterly results (hidden)", heading the slide's lines in the report."""
+    label = "Slide %d" % (slide.index + 1)
+    if slide.title:
+        label += ": %s" % slide.title
+    if slide.hidden:
+        label += " (hidden)"
+    return label
+
+
+def _run_total(decks: Sequence[_DeckResult], checked: Sequence[_DeckResult]) -> str:
+    """The line ending the report on several decks: what was found in all of them."""
+    issues = [issue for deck in checked for issue in deck.issues]
+    total = "%s checked: %s" % (
+        _plural(len(checked), "deck"),
+        "%s (%s)" % (_plural(len(issues), "issue"), _breakdown(_counts(issues)))
+        if issues
+        else "no issues",
+    )
+    unread = len(decks) - len(checked)
+    if unread:
+        total += "; %s could not be checked" % _plural(unread, "deck")
+    return total
 
 
 def _deck_to_dict(deck: _DeckResult, *, fixed: bool) -> dict[str, Any]:
