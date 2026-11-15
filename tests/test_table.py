@@ -1348,6 +1348,15 @@ def _table_with_header(merged: bool):
     return prs, table
 
 
+def _run_sizes(table):
+    return {
+        run.font.size
+        for cell in table.iter_cells()
+        for paragraph in cell.text_frame.paragraphs
+        for run in paragraph.runs
+    }
+
+
 class DescribeTableFitToBox(object):
     """`Table.fit_to_box` measures each cell in the room it really has."""
 
@@ -1375,6 +1384,22 @@ class DescribeTableFitToBox(object):
         with pytest.raises(ValueError, match="strict=True"):
             table.fit_to_box(font_family="No Such Brand Font", strict=True)
         assert table._tbl.xml == before
+
+    def it_sizes_a_cell_it_cannot_measure_at_the_minimum(self):
+        _, table = _table_with_header(merged=False)
+
+        size = table.fit_to_box(max_font_pt=18, min_font_pt=7, font_file="/no/such/font.ttf")
+
+        assert size == 7
+        assert _run_sizes(table) == {Pt(7)}
+
+    def it_uses_the_largest_size_when_no_cell_has_text(self):
+        _, table = _table_with_header(merged=False)
+        for cell in table.iter_cells():
+            cell.text = " "
+
+        assert table.fit_to_box(max_font_pt=18, min_font_pt=7, font_file=OUTFIT) == 18
+        assert _run_sizes(table) == {Pt(18)}
 
     def but_it_stays_quiet_when_no_family_was_asked_for(self):
         import warnings

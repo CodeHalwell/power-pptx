@@ -79,6 +79,17 @@ class DescribeTruncateText:
 
         assert result == "a state-of-…"
 
+    def it_returns_text_that_fits_unchanged(self):
+        assert truncate_text("a plan", Pt(60), size_pt=10, font_file="fake.ttf") == "a plan"
+
+    def it_returns_nothing_when_not_even_the_ellipsis_fits(self):
+        assert truncate_text("a plan", Pt(3), size_pt=10, font_file="fake.ttf") == ""
+
+    @pytest.mark.parametrize("size_pt", [0, 1.5, True])
+    def it_rejects_a_size_that_is_not_a_positive_integer(self, size_pt):
+        with pytest.raises(ValueError, match="integer size_pt must be positive"):
+            truncate_text("a plan", Pt(60), size_pt=size_pt, font_file="fake.ttf")
+
 
 class DescribeBestFitFontSize:
     def it_fits_East_Asian_text_by_wrapping_it(self):

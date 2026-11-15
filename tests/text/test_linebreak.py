@@ -80,6 +80,27 @@ class DescribeBreakOffsets:
         assert _pieces("ab\u200bcd") == ["ab\u200b", "cd"]
         assert _pieces("ab\u2060cd") == ["ab\u2060cd"]
 
+    @pytest.mark.parametrize(
+        ("word", "expected"),
+        [
+            # -- a sign stays with a bracketed amount, but not with brackets around a word --
+            ("$(100)", ["$(100)"]),
+            ("$(x)", ["$", "(x)"]),
+            ("(100)%", ["(100)%"]),
+            ("12%\u58f2", ["12%", "\u58f2"]),
+            # -- a postfix sign holds on to East Asian text before it; a prefix sign doesn't --
+            ("\u58f2%", ["\u58f2%"]),
+            ("\u58f2+\u4e0a", ["\u58f2", "+\u4e0a"]),
+            ("a+b", ["a+b"]),
+            ("a%b", ["a", "%b"]),
+        ],
+    )
+    def it_places_prefix_and_postfix_signs(self, word, expected):
+        assert _pieces(word) == expected
+
+    def it_ignores_a_combining_mark_that_starts_the_word(self):
+        assert _pieces("\u0301\u58f2\u4e0a") == ["\u0301\u58f2", "\u4e0a"]
+
 
 class DescribeSplitWords:
     def it_splits_at_any_breaking_space(self):

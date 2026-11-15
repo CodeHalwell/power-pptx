@@ -243,6 +243,43 @@ class DescribeTextFitterWrapping(object):
 
         assert all(not line.startswith("́") for line in lines)
 
+    def and_it_lets_a_letter_and_its_mark_overflow_a_line_too_narrow_for_both(self):
+        assert _wrap("éé", 5, break_long_words=True) == ["é", "é"]
+
+    @pytest.mark.parametrize(
+        ("text", "width", "break_long_words", "expected"),
+        [
+            # -- a slash that exactly fills the line ends it only when nothing before can --
+            ("abcdefghi/jklmn", 50, False, ["abcdefghi/", "jklmn"]),
+            ("ab/cdefgh/ijklmn", 50, False, ["ab/", "cdefgh/", "ijklmn"]),
+            ("a-bcdefgh/ijklmn", 50, False, ["a-", "bcdefgh/", "ijklmn"]),
+            # -- a short path after a space is cut at the edge of the box, not at a slash --
+            ("ab abcdef/ghijklmnop", 50, True, ["ab", "abcdef/ghi", "jklmnop"]),
+            ("ab abcdef/ghijklmnop", 60, False, None),
+            # -- a soft line break counts as that space; the start of a paragraph doesn't --
+            ("x\vabcdefg/hijklmn", 50, True, ["x", "abcdefg/hi", "jklmn"]),
+            ("abcdefg/hijklmn", 50, True, ["abcdefg/", "hijklmn"]),
+        ],
+    )
+    def it_breaks_after_a_slash_only_where_LibreOffice_does(
+        self, text, width, break_long_words, expected
+    ):
+        assert _wrap(text, width, break_long_words=break_long_words) == expected
+
+    @pytest.mark.parametrize("estimate_scale", [0.5, 2.0])
+    def it_wraps_by_measured_width_however_far_off_the_estimate_is(
+        self, monkeypatch, estimate_scale
+    ):
+        def advance(text, size, font_file):
+            return _fake_points(text, size) * estimate_scale
+
+        monkeypatch.setattr(layout, "_advance", advance)
+
+        lines = _wrap("one two three four five six seven eight nine ten", 50)
+
+        # -- ten half-em characters to a 50pt line at 10pt --
+        assert lines == ["one two", "three four", "five six", "seven", "eight nine", "ten"]
+
     def it_measures_each_line_only_a_few_times(self, fake_metrics):
         text = " ".join(["revenue growth margin enterprise customers forecast"] * 150)
 

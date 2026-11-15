@@ -23,6 +23,7 @@ from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import XmlPart
 from power_pptx.oxml.ns import qn
 from power_pptx.shapes.autoshape import Shape
+from power_pptx.text.layout import ParagraphFormat
 from power_pptx.text.text import Font, TextFrame, _Hyperlink, _Paragraph, _Run
 from power_pptx.util import Inches, Pt
 
@@ -1947,6 +1948,124 @@ class DescribeFitTextInheritance(object):
         body.paragraphs[0].space_before = Pt(7)
 
         assert body._measured_paragraphs()[1][0].space_before == Pt(7)
+
+    def it_stops_at_a_placeholder_its_layout_does_not_have(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        placeholder = slide.placeholders[1]
+        placeholder._element.find(".//%s" % qn("p:ph")).set("idx", "99")
+        body = placeholder.text_frame
+        body.text = "one\ntwo"
+
+        assert [f.space_before for f in body._measured_paragraphs()[1]] == [0, 0]
+
+    def it_reads_the_master_from_a_layout_placeholder(self):
+        prs = Presentation()
+        body = prs.slide_layouts[1].placeholders[1].text_frame
+
+        assert body._measured_paragraphs()[1][0].space_before == pytest.approx(0.2)
+
+
+class DescribeMeasuredParagraphs(object):
+    """`TextFrame._measured_paragraphs` reads the formatting each paragraph is drawn with."""
+
+    CXML = (
+        "p:txBody/(a:bodyPr,a:lstStyle/(a:lvl1pPr/(a:lnSpc/a:spcPct{val=150000},"
+        "a:defRPr{spc=200}),a:lvl2pPr/(a:spcBef/a:spcPts{val=600},a:defRPr{cap=small})),"
+        'a:p/(a:r/(a:rPr{cap=all},a:t"Ab"),a:br,a:r/(a:rPr{spc=-50},a:t"cd")),'
+        "a:p/(a:pPr{lvl=1}/(a:spcAft/a:spcPct{val=50%},a:defRPr{spc=300}),"
+        'a:r/a:t"ef",a:r/(a:rPr{cap=none},a:t"gh")),'
+        'a:p/(a:pPr/a:lnSpc/a:spcPts{val=2400},a:r/(a:rPr{spc=100},a:t"ij")),'
+        'a:p/a:r/(a:rPr{spc=-50},a:t"kl"))'
+    )
+
+    def it_reads_capitals_tracking_and_spacing_from_runs_paragraphs_and_list_style(self):
+        text_frame = TextFrame(element(self.CXML), None)
+
+        text, formats = text_frame._measured_paragraphs()
+
+        assert text == "AB\vcd\nEFgh\nij\nkl"
+        assert formats == [
+            ParagraphFormat(1.5, 0, 0, 25400),
+            ParagraphFormat(None, Pt(6), 0.5, 38100),
+            ParagraphFormat(Pt(24), 0, 0, 12700),
+            ParagraphFormat(1.5, 0, 0, 0),
+        ]
+
+    def it_replaces_every_paragraphs_line_spacing_when_given_one(self):
+        text_frame = TextFrame(element(self.CXML), None)
+
+        _, formats = text_frame._measured_paragraphs(0.8)
+
+        assert [f.line_spacing for f in formats] == [0.8] * 4
+        assert [f.space_before for f in formats] == [0, Pt(6), 0, 0]
+
+
+class DescribeSetParagraphDefaults(object):
+    """`TextFrame.set_paragraph_defaults` fills in only what is not set already."""
+
+    def it_fills_in_only_the_unset_properties(self, frame):
+        font = frame.paragraphs[0].runs[0].font
+        font.name, font.size, font.bold, font.italic = "Georgia", Pt(9), False, False
+
+        frame.set_paragraph_defaults(font_name="Inter", size=Pt(14), bold=True, italic=True)
+
+        assert (font.name, font.size, font.bold, font.italic) == ("Georgia", Pt(9), False, False)
+        for other in (frame.paragraphs[1].runs[0].font, frame.paragraphs[0].font):
+            assert (other.name, other.size, other.bold, other.italic) == (
+                "Inter",
+                Pt(14),
+                True,
+                True,
+            )
+
+    def it_leaves_the_properties_it_is_not_given_alone(self, frame):
+        frame.set_paragraph_defaults(italic=False)
+
+        font = frame.paragraphs[1].runs[0].font
+        assert (font.name, font.size, font.bold, font.italic) == (None, None, None, False)
+        assert font.color.type is None
+
+    def it_colors_only_text_without_a_color_of_its_own(self, frame):
+        from power_pptx.dml.color import RGBColor
+
+        frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(1, 2, 3)
+
+        frame.set_paragraph_defaults(color=(0x22, 0x22, 0x22))
+
+        assert frame.paragraphs[0].runs[0].font.color.rgb == RGBColor(1, 2, 3)
+        assert frame.paragraphs[1].runs[0].font.color.rgb == RGBColor(0x22, 0x22, 0x22)
+        assert frame.paragraphs[0].font.color.rgb == RGBColor(0x22, 0x22, 0x22)
+
+    def and_it_treats_a_color_it_cannot_read_as_unset(self, frame, monkeypatch):
+        from power_pptx.dml.color import RGBColor, _LazyColorFormat
+
+        def unreadable(self):
+            raise AttributeError("no color type")
+
+        frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(1, 2, 3)
+        monkeypatch.setattr(_LazyColorFormat, "type", property(unreadable))
+
+        frame.set_paragraph_defaults(color="#222222")
+
+        assert frame.paragraphs[0].runs[0].font.color.rgb == RGBColor(0x22, 0x22, 0x22)
+
+    def it_gives_every_paragraph_and_run_its_properties_element(self):
+        text_frame = TextFrame(element('p:txBody/(a:bodyPr,a:p/a:r/a:t"one",a:p)'), None)
+
+        text_frame.set_paragraph_defaults()
+
+        assert text_frame._txBody.xml == xml(
+            'p:txBody/(a:bodyPr,a:p/(a:pPr/a:defRPr,a:r/(a:rPr,a:t"one")),a:p/a:pPr/a:defRPr)'
+        )
+
+    @pytest.fixture
+    def frame(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        text_frame = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2)).text_frame
+        text_frame.text = "one\ntwo"
+        return text_frame
 
 
 class DescribeFitTextInTableCells(object):
