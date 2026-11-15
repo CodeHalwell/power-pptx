@@ -106,6 +106,37 @@ def _set_text(text_body: LxmlElement, text: str) -> None:
     etree.SubElement(r, qn("a:t")).text = text
 
 
+def _set_node_text(pt: LxmlElement, text: str) -> None:
+    """Make *text* the text of the content node *pt*.
+
+    A node without a text body is given one, and a node given text of its
+    own is no longer a placeholder.
+    """
+    t_body = pt.find(qn("dgm:t"))
+    if t_body is None:
+        t_body = _add_text_body(pt)
+    _set_text(t_body, text)
+    if text:
+        for prSet in pt.findall(qn("dgm:prSet")):
+            prSet.attrib.pop("phldr", None)
+
+
+def _add_text_body(pt: LxmlElement) -> LxmlElement:
+    """Give the content node *pt* a minimal, empty ``dgm:t`` and return it.
+
+    It goes ahead of any ``dgm:extLst``, which closes the sequence of a point.
+    """
+    t_body = etree.Element(qn("dgm:t"))
+    etree.SubElement(t_body, qn("a:bodyPr"))
+    etree.SubElement(t_body, qn("a:lstStyle"))
+    ext_lst = pt.find(qn("dgm:extLst"))
+    if ext_lst is None:
+        pt.append(t_body)
+    else:
+        ext_lst.addprevious(t_body)
+    return t_body
+
+
 # ---------------------------------------------------------------------------
 # Public classes
 # ---------------------------------------------------------------------------
@@ -188,23 +219,7 @@ class SmartArtShape:
             if i >= len(values):
                 break
             new_text = str(values[i])
-            t_body = pt.find(qn("dgm:t"))
-            if t_body is None:
-                # No text body yet; build a minimal one. It goes ahead of any
-                # `dgm:extLst`, which closes the sequence of a point.
-                t_body = etree.Element(qn("dgm:t"))
-                etree.SubElement(t_body, qn("a:bodyPr"))
-                etree.SubElement(t_body, qn("a:lstStyle"))
-                ext_lst = pt.find(qn("dgm:extLst"))
-                if ext_lst is None:
-                    pt.append(t_body)
-                else:
-                    ext_lst.addprevious(t_body)
-            _set_text(t_body, new_text)
-            if new_text:
-                # -- a point holding text of its own is no longer a placeholder --
-                for prSet in pt.findall(qn("dgm:prSet")):
-                    prSet.attrib.pop("phldr", None)
+            _set_node_text(pt, new_text)
             if drawing is not None:
                 for text_body in self._cached_text_bodies(drawing, data_el, pt):
                     _set_text(text_body, new_text)
