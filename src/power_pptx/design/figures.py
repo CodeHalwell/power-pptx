@@ -134,18 +134,8 @@ def add_plotly_figure(
     a :class:`ValueError` naming the request instead of fetching it — the
     setting to use for figures built from data you do not control.
     """
-    if backend not in {"auto", "kaleido", "browser"}:
-        raise ValueError("backend must be 'auto', 'kaleido', or 'browser'")
-    if format not in {"auto", "png", "svg"}:
-        raise ValueError("format must be 'auto', 'png', or 'svg'")
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("scale must be finite and positive")
-    for value in (width_px, height_px):
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value <= 0
-        ):
-            raise ValueError("width_px and height_px must be positive integers")
-    failure = None
+    _check_plotly_options(backend, format, scale, width_px, height_px)
+    kaleido_failure = None
     if backend != "browser":
         try:
             blob, fmt = _plotly_to_blob(
@@ -158,53 +148,91 @@ def add_plotly_figure(
         except FigureBackendUnavailable as exc:
             if backend == "kaleido" or not callable(getattr(figure, "to_html", None)):
                 raise
-            failure = exc
+            kaleido_failure = exc
         else:
             return _embed_blob(slide, blob, fmt, left, top, width, height)
-    try:
-        capture, logical_width, logical_height = _plotly_browser_capture(
-            figure,
-            format=format,
-            scale=scale,
-            width_px=width_px,
-            height_px=height_px,
-            browser_path=browser_path,
-            timeout_ms=timeout_ms,
-            allow_network=allow_network,
-        )
-    except Exception as exc:
-        if failure is not None:
-            raise FigureBackendUnavailable(
-                f"Plotly export failed with both backends. Kaleido: {failure}. Browser: {exc}"
-            ) from exc
-        if isinstance(exc, (TypeError, ValueError, FigureBackendUnavailable)):
-            raise
-        raise FigureBackendUnavailable(f"Plotly browser export failed: {exc}") from exc
-    if capture.exported is not None:
-        if not capture.exported.startswith("data:image/svg+xml,"):
-            raise FigureBackendUnavailable("Plotly browser did not return an SVG data URL")
-        svg = unquote_to_bytes(capture.exported.partition(",")[2])
-        if width is None and height is None:
-            width = Inches(logical_width / 96)
-            height = Inches(logical_height / 96)
-        return slide.shapes.add_svg_picture(
-            svg,
+    capture, logical_width, logical_height = _plotly_browser_export(
+        figure,
+        kaleido_failure,
+        format=format,
+        scale=scale,
+        width_px=width_px,
+        height_px=height_px,
+        browser_path=browser_path,
+        timeout_ms=timeout_ms,
+        allow_network=allow_network,
+    )
+    if capture.exported is None:
+        return _embed_html_png(
+            slide,
+            capture.png,
             left,
             top,
             width,
             height,
-            png_fallback=capture.png,
+            fit="contain",
+            device_scale_factor=scale,
         )
-    return _embed_html_png(
-        slide,
-        capture.png,
+    svg = _svg_from_data_url(capture.exported)
+    if width is None and height is None:
+        width = Inches(logical_width / 96)
+        height = Inches(logical_height / 96)
+    return slide.shapes.add_svg_picture(
+        svg,
         left,
         top,
         width,
         height,
-        fit="contain",
-        device_scale_factor=scale,
+        png_fallback=capture.png,
     )
+
+
+def _check_plotly_options(
+    backend: str,
+    format: str,
+    scale: float,
+    width_px: Optional[int],
+    height_px: Optional[int],
+) -> None:
+    if backend not in {"auto", "kaleido", "browser"}:
+        raise ValueError("backend must be 'auto', 'kaleido', or 'browser'")
+    if format not in {"auto", "png", "svg"}:
+        raise ValueError("format must be 'auto', 'png', or 'svg'")
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be finite and positive")
+    for value in (width_px, height_px):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        ):
+            raise ValueError("width_px and height_px must be positive integers")
+
+
+def _plotly_browser_export(figure, kaleido_failure, **options):
+    """Capture *figure* with the browser backend, explaining a failure.
+
+    After a Kaleido failure (*kaleido_failure*) the error names both
+    backends. Otherwise a usage error (``TypeError``, ``ValueError``, a
+    missing dependency) passes through and anything else is reported as the
+    browser backend being unavailable.
+    """
+    try:
+        return _plotly_browser_capture(figure, **options)
+    except Exception as exc:
+        if kaleido_failure is not None:
+            raise FigureBackendUnavailable(
+                "Plotly export failed with both backends. "
+                f"Kaleido: {kaleido_failure}. Browser: {exc}"
+            ) from exc
+        if isinstance(exc, (TypeError, ValueError, FigureBackendUnavailable)):
+            raise
+        raise FigureBackendUnavailable(f"Plotly browser export failed: {exc}") from exc
+
+
+def _svg_from_data_url(exported: str) -> bytes:
+    """Decode the ``data:image/svg+xml,...`` URL that the browser export returns."""
+    if not exported.startswith("data:image/svg+xml,"):
+        raise FigureBackendUnavailable("Plotly browser did not return an SVG data URL")
+    return unquote_to_bytes(exported.partition(",")[2])
 
 
 def _plotly_browser_capture(
