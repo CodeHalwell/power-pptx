@@ -58,6 +58,22 @@ Read-only measurement
 .. autofunction:: truncate_text
 
 
+Best-fit sizing
+---------------
+
+.. currentmodule:: power_pptx.text.layout
+
+:meth:`TextFrame.fit_text() <power_pptx.text.text.TextFrame.fit_text>` is built
+on :class:`TextFitter`, which can also be called directly to find the size that
+fits a box without touching a shape.
+
+.. autoclass:: TextFitter()
+   :members: best_fit_font_size
+
+.. autoclass:: ParagraphFormat
+   :members:
+
+
 Font lookup and registration
 ----------------------------
 
@@ -69,9 +85,14 @@ Font lookup and registration
 
 .. autofunction:: registered_font_dirs
 
+.. autofunction:: registered_font_files
+
 .. autofunction:: clear_registered_fonts
 
 .. autofunction:: find_font_file
+
+.. autoclass:: CollectionFace
+   :members:
 
 .. autofunction:: font_face_family
 
