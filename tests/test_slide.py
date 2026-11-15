@@ -452,6 +452,20 @@ class DescribeSlide(object):
         return instance_mock(request, SlidePart)
 
 
+def _transition_with_kind(kind: str):
+    """A `p:transition` element whose only child is the empty element `kind`.
+
+    `kind` is a prefixed tag, optionally followed by attributes; the extension
+    prefixes (`p14`, `p15`, `p159`) are available, which cxml cannot spell.
+    """
+    from power_pptx.oxml import parse_xml
+    from power_pptx.oxml.ns import nsdecls
+
+    return parse_xml(
+        "<p:transition %s><%s/></p:transition>" % (nsdecls("p", "p14", "p15", "p159"), kind)
+    )
+
+
 class DescribeSlideTransition(object):
     """Unit-test suite for `power_pptx.slide.SlideTransition` objects."""
 
@@ -617,6 +631,31 @@ class DescribeSlideTransition(object):
         transition.duration = None
         assert transition.duration is None
         assert sld.transition.spd is None
+
+    def it_reads_None_for_a_kind_it_has_no_member_for(self):
+        sld = element("p:sld/p:cSld")
+        sld.append(_transition_with_kind('p15:prstTrans prst="airplane"'))
+        transition = SlideTransition(sld)
+
+        assert transition.kind is None
+
+    @pytest.mark.parametrize(
+        ("kind_tag", "expected"),
+        [
+            ("p14:vortex", MSO_TRANSITION_TYPE.VORTEX),
+            ("p159:morph", MSO_TRANSITION_TYPE.MORPH),
+            # -- morph as earlier releases wrote it; retagged to p159 on save --
+            ("p14:morph", MSO_TRANSITION_TYPE.MORPH),
+            # -- a namesake in some other namespace is a different element --
+            ("p15:fade", None),
+            ("p:vortex", None),
+        ],
+    )
+    def it_only_recognises_a_kind_in_the_namespace_it_is_defined_in(self, kind_tag, expected):
+        sld = element("p:sld/p:cSld")
+        sld.append(_transition_with_kind(kind_tag))
+
+        assert SlideTransition(sld).kind == expected
 
     def it_replaces_legacy_spd_when_setting_an_explicit_duration(self):
         sld = element("p:sld/p:cSld")

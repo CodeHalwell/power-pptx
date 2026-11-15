@@ -13,6 +13,7 @@ from power_pptx.enum.presentation import (
 )
 from power_pptx.enum.shapes import PP_PLACEHOLDER
 from power_pptx.oxml.ns import qn
+from power_pptx.oxml.slide import remove_transition_wrappers
 from power_pptx.shapes.shapetree import (
     LayoutPlaceholders,
     LayoutShapes,
@@ -201,7 +202,12 @@ class SlideTransition(object):
 
     @property
     def kind(self) -> MSO_TRANSITION_TYPE | None:
-        """Transition kind as :ref:`MsoTransitionType`, or |None| if not set."""
+        """Transition kind as :ref:`MsoTransitionType`, or |None| if not set.
+
+        Also |None| for a transition of a kind :ref:`MsoTransitionType` has no
+        member for, which PowerPoint may have written. Such a transition is
+        left alone: it is saved back exactly as it was read.
+        """
         transition = self._sld.transition
         if transition is None:
             return None
@@ -209,11 +215,7 @@ class SlideTransition(object):
         if kind_elm is None:
             # explicit `<p:transition/>` with no child means "cut" / no animation
             return MSO_TRANSITION_TYPE.NONE
-        local = kind_elm.tag.rsplit("}", 1)[-1]
-        try:
-            return MSO_TRANSITION_TYPE.from_xml(local)
-        except ValueError:
-            return None
+        return _kind_of(kind_elm)
 
     @kind.setter
     def kind(self, value: MSO_TRANSITION_TYPE | None) -> None:
@@ -232,12 +234,7 @@ class SlideTransition(object):
         if value is MSO_TRANSITION_TYPE.NONE:
             return
         local = value.xml_value
-        if local in P159_TRANSITION_NAMES:
-            prefix = "p159"
-        elif local in P14_TRANSITION_NAMES:
-            prefix = "p14"
-        else:
-            prefix = "p"
+        prefix = _kind_prefix(local)
         kind_elm = etree.Element(
             qn("%s:%s" % (prefix, local)),
             nsmap={prefix: _PREFIX_TO_URI[prefix]},
@@ -334,6 +331,8 @@ class SlideTransition(object):
         |None| again. Idempotent: safe to call when no transition is set.
         """
         self._sld._remove_transition()
+        # -- the wrapper the transition was loaded in goes with it --
+        remove_transition_wrappers(self._sld)
 
 
 _SPD_TO_MS = {"slow": 1000, "med": 750, "fast": 500}
@@ -344,6 +343,38 @@ _PREFIX_TO_URI = {
     "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
     "p159": "http://schemas.microsoft.com/office/powerpoint/2015/09/main",
 }
+
+
+def _kind_prefix(local: str) -> str:
+    """Namespace prefix of the transition-kind element named *local*."""
+    if local in P159_TRANSITION_NAMES:
+        return "p159"
+    if local in P14_TRANSITION_NAMES:
+        return "p14"
+    return "p"
+
+
+def _kind_of(kind_elm) -> MSO_TRANSITION_TYPE | None:
+    """The :ref:`MsoTransitionType` member *kind_elm* stands for, or |None| if none does.
+
+    The namespace counts as much as the name: a kind is only recognised in the
+    namespace it is defined in, so an extension element that merely shares its
+    local name with a member is not mistaken for it.
+    """
+    tag = kind_elm.tag
+    if not isinstance(tag, str) or not tag.startswith("{"):
+        return None
+    uri, local = tag[1:].split("}", 1)
+    try:
+        member = MSO_TRANSITION_TYPE.from_xml(local)
+    except ValueError:
+        return None
+    if uri == _PREFIX_TO_URI[_kind_prefix(local)]:
+        return member
+    # -- earlier releases wrote morph in the p14 namespace; it is retagged on save --
+    if member is MSO_TRANSITION_TYPE.MORPH and uri == _PREFIX_TO_URI["p14"]:
+        return member
+    return None
 
 
 # -- imported here to avoid a circular import at module load time --
