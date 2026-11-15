@@ -51,6 +51,7 @@ export const DOCS_SIDEBAR: SidebarSection[] = [
         href: withBase("/advanced/space-aware-authoring"),
       },
       { label: "Common Pitfalls", href: withBase("/advanced/common-pitfalls") },
+      { label: "Slides & Presentations", href: withBase("/advanced/slides") },
       { label: "Text & Typography", href: withBase("/advanced/text-and-typography") },
       { label: "Geometry & Arrows", href: withBase("/advanced/geometry-and-arrows") },
       { label: "Placeholders & Notes", href: withBase("/advanced/placeholders") },

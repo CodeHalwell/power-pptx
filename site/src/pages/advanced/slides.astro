@@ -1,0 +1,237 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import Code from "@/components/Code.astro";
+import { withBase } from "@/lib/utils";
+
+const open = `from power_pptx import Presentation
+
+prs = Presentation()                  # the bundled blank 4:3 template
+prs = Presentation("deck.pptx")       # a path, a pathlib.Path or a binary stream
+prs = Presentation("brand.potx")      # templates and slide shows open the same way
+
+prs.save("deck.pptx")                 # an ordinary presentation
+prs.save("brand.potx")                # a template
+prs.save("lobby.ppsx")                # a slide show, which opens straight into the show`;
+
+const errors = `import zipfile
+from power_pptx import Presentation
+from power_pptx.exc import InvalidPackageError, PackageNotFoundError
+
+try:
+    prs = Presentation("upload.pptx")
+except InvalidPackageError as exc:      # a file, but not a deck this library can read
+    print(exc)                          # file 'upload.pptx' is not a PowerPoint package
+                                        # (not a zip archive)
+except PackageNotFoundError:            # nothing at that path
+    ...
+
+# Older handlers keep working: InvalidPackageError is all three of these
+issubclass(InvalidPackageError, (PackageNotFoundError, zipfile.BadZipFile, KeyError))`;
+
+const size = `from power_pptx.util import Inches, MAX_SLIDE_SIZE, MIN_SLIDE_SIZE
+
+prs.set_slide_size(Inches(13.333), Inches(7.5))     # 16:9, both sides in one call
+MIN_SLIDE_SIZE.inches, MAX_SLIDE_SIZE.inches         # (1.0, 56.0)
+
+prs.set_slide_size(Inches(80), Inches(11.25))
+# ValueError: slide width must be between 1 and 56 inches (914400 to 51206400
+# EMU), got 80 inches (73152000 EMU); pass fit=True to scale the size to fit,
+# keeping its proportions`;
+
+const wall = `# A 7680 x 1080 px LED wall, at 96 px to the inch, is 80" x 11.25"
+size = prs.set_slide_size(Inches(7680 / 96), Inches(1080 / 96), fit=True)
+size.width.inches, size.height.inches, size.scale    # (56.0, 7.875, 0.7)
+
+# Lay content out in wall pixels, then scale it by the same factor
+px = size.scale * Inches(1) / 96
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+slide.shapes.add_textbox(1920 * px, 120 * px, 3840 * px, 400 * px)
+
+# The same arithmetic without a presentation, for planning a layout
+from power_pptx.util import fit_slide_size
+width, height, scale = fit_slide_size(Inches(7680 / 96), Inches(1080 / 96))`;
+
+const order = `prs = Presentation()
+for title in ("Intro", "Regional template", "Appendix"):
+    prs.slides.add_slide(prs.slide_layouts[5]).shapes.title.text = title
+
+# One slide per region, built from a template slide
+template = prs.slides[1]
+for region in ["North", "South", "East"]:
+    copy = prs.slides.duplicate(template, index=-1)   # index: where the copy ends up
+    copy.shapes.title.text = region
+prs.slides.remove(template)
+
+[s.shapes.title.text for s in prs.slides]
+# ['Intro', 'Appendix', 'North', 'South', 'East']
+
+prs.slides.move(1, len(prs.slides) - 1)   # send the appendix to the end
+prs.slides.reorder([0, 2, 1, 3, 4])       # or give the whole order at once`;
+
+const hidden = `appendix = prs.slides[-1]
+appendix.hidden = True       # stays in the deck, skipped in the slide show
+appendix.hidden              # True
+appendix.hidden = False      # shown again; the attribute is removed, not set to "1"
+
+# Drop a slide from a generated show when its data is missing
+for slide, rows in zip(prs.slides, tables):
+    slide.hidden = not rows`;
+
+const show = `from power_pptx.enum.presentation import MSO_TRANSITION
+
+show = prs.slide_show
+show                         # <SlideShowSettings loop=False show_type=SPEAKER
+                             #   use_timings=True show_narration=True show_animation=True>
+
+# A deck that runs by itself on a lobby screen
+show.loop = True                       # "Loop continuously until 'Esc'"
+show.show_type = "kiosk"               # "speaker" (default) | "window" | "kiosk"
+prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # 5 s a slide
+prs.save("lobby.pptx")
+
+show.show_type                         # PP_SLIDE_SHOW_TYPE.KIOSK - always a member
+show.use_timings = False               # "Advance slides: Manually"
+show.loop = "false"                    # TypeError - True or False only`;
+---
+
+<DocsLayout
+  title="Slides & Presentations"
+  description="Opening and saving decks, templates and slide shows; slide size and its limits; duplicating, removing, moving and hiding slides; slide-show settings."
+>
+  <p class="lead">
+    The presentation owns what every slide shares — the file it came from, the slide size, the
+    order of the slides and how the show runs. This page covers that level. For the members of
+    each class see <a href={withBase("/api/presentation")}>API: Presentation &amp; Slides</a>.
+  </p>
+
+  <h2 id="open-save">Opening and saving</h2>
+  <Code code={open} />
+  <p>
+    Templates (<code>.potx</code>) and slide shows (<code>.ppsx</code>) open like any deck. What is
+    written follows the name you save under, not what was opened: a path ending in
+    <code>.potx</code> writes a template, <code>.ppsx</code> a slide show, and anything else —
+    including a file-like object — an ordinary presentation. So opening <code>brand.potx</code>
+    and saving <code>deck.pptx</code> gives you a deck PowerPoint opens as a presentation, not a
+    template with the wrong extension.
+  </p>
+  <p>
+    Saving to a path is all-or-nothing: the package is written to a temporary file beside the
+    target and moved into place once it is complete, so a failure part-way through leaves any
+    existing file exactly as it was. That includes a <code>lint_on_save = "raise"</code> gate,
+    which runs before anything is written.
+  </p>
+
+  <h3 id="bad-files">Files that are not decks</h3>
+  <p>
+    A path with nothing behind it raises <code>PackageNotFoundError</code>. A file that is there
+    but is not a package this library can read — plain text, a legacy <code>.ppt</code>, a
+    password-protected file, an archive missing its required parts, a part that declares a DTD —
+    raises <code>InvalidPackageError</code> with a message saying which, however the file was
+    passed in. A valid package that is not a presentation, such as a Word document, raises
+    <code>ValueError</code>.
+  </p>
+  <Code code={errors} />
+
+  <h2 id="slide-size">Slide size</h2>
+  <p>
+    The width and height belong to the presentation, not to each slide.
+    <code>prs.slide_width</code> and <code>prs.slide_height</code> set them one at a time;
+    <code>set_slide_size()</code> sets both, checking both before writing either. Neither moves or
+    resizes what is already in the deck, layouts and masters included, so set the size before
+    adding content.
+  </p>
+  <Code code={size} />
+  <p>
+    A slide is at least 1 inch and at most 56 inches in each direction — PowerPoint's own limit,
+    and the range the file format allows. A size outside it raises a <code>ValueError</code> that
+    states the limits in inches. Something specified in pixels, such as a video wall, easily
+    exceeds it; what matters then is the slide's <em>shape</em>, and <code>fit=True</code> uses the
+    largest size with the same aspect ratio:
+  </p>
+  <Code code={wall} />
+  <p>
+    The return value is a <code>SlideSize</code> named tuple, <code>(width, height, scale)</code>.
+    <code>scale</code> is what the requested size was multiplied by — <code>1.0</code> when it
+    already fit — so content laid out for the requested size lands in the right place when its
+    coordinates, and its font sizes, are multiplied by it too. A size already inside the limits is
+    never enlarged; one that is too small is scaled up until its shorter side is 1 inch; a shape
+    more elongated than 56:1 cannot be a slide at all and raises.
+  </p>
+
+  <h2 id="slide-order">Duplicating, removing and reordering slides</h2>
+  <Code code={order} />
+  <ul>
+    <li>
+      <code>duplicate(slide, index=None)</code> adds a copy right after the slide, or so that
+      <code>prs.slides[index]</code> is the copy (negative values count from the end), and returns
+      it. The copy is independent: its own shapes and text, its own notes, and its own copy of
+      each chart and the workbook behind it. Pictures and media cannot be edited in place, so they
+      are shared rather than stored twice. Links to other slides still lead there; a link from the
+      slide to itself leads to the copy.
+    </li>
+    <li>
+      <code>remove(slide)</code> deletes a slide the way PowerPoint's <em>Delete Slide</em> does.
+      It also leaves its section, any custom show and the outline view, and every shape or text
+      run elsewhere in the deck that jumped to it stops being a link (the text stays). Its notes,
+      charts and the pictures and media no other slide uses are not saved any more, so the file
+      has no orphan part or dangling reference. Iterate over <code>list(prs.slides)</code> when
+      removing in a loop, and do not use a removed <code>Slide</code> object again.
+    </li>
+    <li>
+      <code>move(old_index, new_index)</code> and <code>reorder(new_order)</code> change the order;
+      <code>reorder</code> takes a full permutation of indices or of <code>Slide</code> objects.
+    </li>
+  </ul>
+  <p>
+    A slide from another presentation raises <code>ValueError</code>; to copy between decks use
+    <code>prs.import_slide()</code> (see <a href={withBase("/advanced/compose")}>Compose &amp;
+    Templates</a>), of which <code>duplicate()</code> is the same-deck case. Do not remove a slide
+    by deleting its entry from <code>prs.slides._sldIdLst</code>, the old workaround: that leaves
+    the slide in the package, in its section and behind every link to it.
+  </p>
+  <p>
+    In a deck with <a href={`${withBase("/api/presentation")}#sections`}>sections</a>, the sections
+    follow these operations the way they follow a drag in PowerPoint's slide sorter, and stay a
+    set of contiguous runs. A copy joins the section of the slide before it (the original's,
+    unless <code>index</code> puts it elsewhere). A moved slide stays in its section when it lands
+    next to another slide of that section, and otherwise joins the section of the slide now before
+    it — so a move can change which section a slide belongs to.
+  </p>
+
+  <h2 id="hidden">Hidden slides</h2>
+  <Code code={hidden} />
+  <p>
+    A hidden slide stays in the deck and can still be edited, but the slide show skips it —
+    PowerPoint's <em>Hide Slide</em>. Only <code>True</code> and <code>False</code> are accepted;
+    anything else raises <code>TypeError</code>. Hidden slides are still linted (the
+    <code>power-pptx lint</code> report marks them), and the
+    <a href={withBase("/advanced/render")}>thumbnail renderer</a> includes them, so
+    <code>slide_indexes=[n]</code> always means <code>prs.slides[n]</code>.
+  </p>
+
+  <h2 id="slide-show">Slide-show settings</h2>
+  <p>
+    <code>prs.slide_show</code> holds the settings of PowerPoint's <em>Set Up Slide Show</em>
+    dialog: <code>loop</code>, <code>show_type</code>, <code>use_timings</code>,
+    <code>show_narration</code> and <code>show_animation</code>.
+  </p>
+  <Code code={show} />
+  <p>
+    <code>loop</code> alone only changes what happens after the last slide; an unattended show also
+    needs an advance time on every slide, which is part of each slide's transition (in
+    milliseconds). Give the transition a kind as well — <code>MSO_TRANSITION.CUT</code> for no
+    visible effect — because LibreOffice ignores the advance time of a slide whose transition has
+    none. In a kiosk show a click does not advance the slide, and PowerPoint always loops it; set
+    <code>loop</code> too so other viewers do the same.
+  </p>
+  <p>
+    <code>show_type</code> accepts <code>"speaker"</code>, <code>"window"</code>,
+    <code>"kiosk"</code> or a <code>PP_SLIDE_SHOW_TYPE</code> member, and reads back as a member;
+    the four on/off settings take <code>True</code> or <code>False</code> only. Reading never
+    modifies the deck: a presentation with no settings reports PowerPoint's defaults
+    (<code>loop</code> off, <code>SPEAKER</code>, the other three on). The settings live in
+    <code>ppt/presProps.xml</code>; their element is created when a setting first changes and
+    removed again once every setting is back at its default, and the rest of that part — pen
+    colour, recent colours — is left alone.
+  </p>
+</DocsLayout>

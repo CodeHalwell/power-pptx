@@ -6,13 +6,19 @@ import { withBase } from "@/lib/utils";
 const s0 = `from power_pptx import Presentation
 
 prs = Presentation()                  # new deck from the default template
-prs = Presentation("file.pptx")       # open an existing deck
-prs.save("out.pptx")                  # write to a path or file-like object`;
+prs = Presentation("file.pptx")       # open a .pptx, .pptm, .potx or .ppsx
+prs.save("out.pptx")                  # write to a path or file-like object
+prs.save("brand.potx")                # fork: the extension picks the kind of file`;
 
-const s1 = `prs.slide_width            # EMU width of the slide canvas
+const s1 = `from power_pptx.util import Inches
+
+prs.slide_width            # EMU width of the slide canvas
 prs.slide_height           # EMU height
+prs.set_slide_size(Inches(13.333), Inches(7.5))    # fork: -> SlideSize
+prs.set_slide_size(Inches(80), Inches(11.25), fit=True)   # fork: scale into 1"-56"
 prs.slides                 # Slides collection
 prs.sections               # fork: Sections collection (outline pane groupings)
+prs.slide_show             # fork: SlideShowSettings (loop, kiosk, timings, ...)
 prs.slide_layouts          # layouts of the first master
 prs.slide_masters          # SlideMasters collection
 prs.core_properties        # document metadata (author, title, ...)
@@ -22,6 +28,42 @@ prs.part.package           # the OpcPackage
 
 # fork: lint every slide on save - "off" (default) | "warn" | "raise"
 prs.lint_on_save = "raise" # LintError before anything is written`;
+
+const sSize = `from power_pptx.util import (
+    Inches, MAX_SLIDE_SIZE, MIN_SLIDE_SIZE, SlideSize, fit_slide_size,
+)
+
+MIN_SLIDE_SIZE, MAX_SLIDE_SIZE         # Inches(1), Inches(56)
+
+size = prs.set_slide_size(Inches(80), Inches(11.25), fit=True)
+size                                   # SlideSize(width=51206400, height=7200900, scale=0.7)
+width, height, scale = size            # a NamedTuple: unpacks
+
+fit_slide_size(Inches(80), Inches(11.25)) == size    # True - no presentation needed
+prs.slide_width = Inches(60)           # ValueError naming the 1-56 inch limits`;
+
+const sShow = `from power_pptx.enum.slide_show import PP_SLIDE_SHOW_TYPE
+
+show = prs.slide_show                  # SlideShowSettings
+show.loop = True                       # bool, default False
+show.show_type = "kiosk"               # "speaker" | "window" | "kiosk" | member
+show.show_type                         # PP_SLIDE_SHOW_TYPE.KIOSK
+show.use_timings = True                # bool, default True
+show.show_narration = True             # bool, default True
+show.show_animation = True             # bool, default True`;
+
+const sSlides = `slides = prs.slides
+slides.add_slide(prs.slide_layouts[6])          # -> Slide, appended
+copy = slides.duplicate(slides[0])              # fork: -> Slide, right after it
+first = slides.duplicate(slides[2], index=0)    # fork: now prs.slides[0]
+slides.remove(first)                            # fork: + links, section, notes, charts
+slides.move(0, 2)                               # fork: old index -> new index
+slides.reorder(list(reversed(slides)))          # fork: indices or Slide objects
+slides.index(copy)                              # position in the deck
+slides.get(copy.slide_id)                       # lookup by slide id, or None
+
+copy.hidden = True         # fork: skipped in the slide show
+copy.slide_id              # int, unique within the deck`;
 
 const s2 = `from power_pptx.util import Inches
 
@@ -35,6 +77,7 @@ slide.transition           # fork: transition proxy (kind, duration, ...)
 slide.animations           # fork: SlideAnimations
 slide.has_notes_slide      # bool, non-creating test
 slide.notes_slide          # NotesSlide (created on demand)
+slide.hidden               # fork: bool, read/write - skipped in the slide show
 slide.follow_master_background   # bool, read-only
 slide.color_variant        # fork: "light" | "dark" | None
 
@@ -192,7 +235,42 @@ print(report.markdown())`;
   <h2 id="presentation"><code>power_pptx.Presentation</code></h2>
   <p>Factory entry point. Accepts a path/file-like object or nothing (blank default template).</p>
   <Code code={s0} />
+  <p>
+    Templates and slide shows open like any deck; <code>save()</code> writes a template for a path
+    ending in <code>.potx</code>, a slide show for <code>.ppsx</code> and an ordinary
+    presentation otherwise (a file-like object included). Saving to a path is atomic — a failure
+    leaves an existing file untouched. A missing file raises
+    <code>power_pptx.exc.PackageNotFoundError</code>; a file that is not a readable package raises
+    its subclass <code>InvalidPackageError</code> <strong class="text-primary">fork</strong>, which
+    also subclasses <code>zipfile.BadZipFile</code> and <code>KeyError</code>; a package that is
+    not a presentation raises <code>ValueError</code>. See
+    <a href={withBase("/advanced/slides")}>Slides &amp; Presentations</a>.
+  </p>
   <Code code={s1} />
+
+  <h3 id="slide-size"><code>set_slide_size</code> and the size limits <strong class="text-primary">fork</strong></h3>
+  <p>
+    <code>set_slide_size(width, height, *, fit=False)</code> checks both dimensions before writing
+    either and returns a <code>power_pptx.util.SlideSize</code> — a
+    <code>(width, height, scale)</code> named tuple. A side outside
+    <code>MIN_SLIDE_SIZE</code>–<code>MAX_SLIDE_SIZE</code> (1 to 56 inches) raises
+    <code>ValueError</code> stating the limits, from <code>set_slide_size</code> and from the
+    <code>slide_width</code> / <code>slide_height</code> setters alike; <code>fit=True</code>
+    instead scales it, keeping its proportions, and <code>scale</code> reports the factor.
+    <code>fit_slide_size(width, height)</code> is the same arithmetic as a function. Existing
+    shapes, layouts and masters are not moved.
+  </p>
+  <Code code={sSize} />
+
+  <h3 id="slide-show"><code>prs.slide_show</code> <strong class="text-primary">fork</strong></h3>
+  <p>
+    A <code>power_pptx.slide_show.SlideShowSettings</code> over the <em>Set Up Slide Show</em>
+    settings in <code>ppt/presProps.xml</code>. Reading never modifies the deck; the XML is
+    created on the first change and removed when every setting is back at its default. The on/off
+    settings take <code>True</code> or <code>False</code> only (anything else raises
+    <code>TypeError</code>); an unknown <code>show_type</code> raises <code>ValueError</code>.
+  </p>
+  <Code code={sShow} />
 
   <h2 id="slides"><code>power_pptx.slide</code></h2>
   <table>
@@ -200,8 +278,8 @@ print(report.markdown())`;
       <tr><th>Class</th><th>Notes</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>Slides</code></td><td>Sequence of slides; <code>add_slide(layout)</code>, iteration, indexing, <code>index()</code>, reordering via <code>slide_id</code> list</td></tr>
-      <tr><td><code>Slide</code></td><td>A single slide; shapes, background, notes, transition, animations, lint</td></tr>
+      <tr><td><code>Slides</code></td><td>Sequence of slides; <code>add_slide(layout)</code>, iteration, indexing, <code>index()</code>, <code>get(slide_id)</code>; fork: <code>duplicate()</code>, <code>remove()</code>, <code>move()</code>, <code>reorder()</code> — see <a href="#slide-collection">below</a></td></tr>
+      <tr><td><code>Slide</code></td><td>A single slide; shapes, background, notes, <code>hidden</code>, transition, animations, lint</td></tr>
       <tr><td><code>Sections</code> / <code>Section</code> <strong class="text-primary">fork</strong></td><td>Named groupings of slides in the outline pane; see <a href="#sections">Deck sections</a></td></tr>
       <tr><td><code>SlideLayouts</code> / <code>SlideLayout</code></td><td>Layouts of a master; <code>Slide</code> instances clone placeholders from them</td></tr>
       <tr><td><code>SlideMasters</code> / <code>SlideMaster</code></td><td>Masters expose <code>layouts</code>, <code>placeholders</code>, <code>theme</code> via the part</td></tr>
@@ -210,6 +288,34 @@ print(report.markdown())`;
     </tbody>
   </table>
   <Code code={s2} />
+
+  <h3 id="slide-collection">Changing the slide collection <strong class="text-primary">fork</strong></h3>
+  <Code code={sSlides} />
+  <ul>
+    <li>
+      <code>duplicate(slide, index=None) -&gt; Slide</code> — an independent copy (its own shapes,
+      notes, charts and chart workbooks; pictures and media shared) placed after
+      <code>slide</code>, or at <code>index</code>. <code>IndexError</code> for an out-of-range
+      index.
+    </li>
+    <li>
+      <code>remove(slide) -&gt; None</code> — deletes the slide and takes it out of its section,
+      custom shows and the outline view; links to it elsewhere stop being links, and its notes,
+      charts and unshared media are not saved. The <code>Slide</code> object must not be used
+      afterwards.
+    </li>
+    <li>
+      <code>move(old_index, new_index)</code> / <code>reorder(new_order)</code> — sections follow,
+      staying contiguous, so a slide can change section.
+    </li>
+  </ul>
+  <p>
+    <code>duplicate()</code> and <code>remove()</code> raise <code>ValueError</code> for a slide
+    that is not in this presentation (another deck's, or one already removed) and
+    <code>TypeError</code> for something that is not a <code>Slide</code>, leaving the deck
+    unchanged; <code>move()</code> raises <code>IndexError</code> for an index out of range.
+    <code>slide.hidden</code> accepts only <code>True</code> or <code>False</code>.
+  </p>
 
   <h2 id="sections">Deck sections <strong class="text-primary">fork</strong></h2>
   <p>
@@ -248,10 +354,13 @@ print(report.markdown())`;
     <code>section.id</code> is a brace-wrapped GUID; pass <code>id=</code> to
     <code>add()</code> to pin it for deterministic output in tests. A malformed or already-used id
     raises <code>ValueError</code>. Sections reference slides by numeric
-    <code>slide_id</code>, not by position, so reordering slides does not scramble membership —
-    and <code>section.slides</code> silently skips references to slides that have since been
-    deleted. A section may legitimately end up empty; <code>Section.remove_slide()</code> is the
-    one call that can leave a slide belonging to no section at all.
+    <code>slide_id</code>, not by position. <code>prs.slides.remove()</code> takes a slide out of
+    its section (which stays, empty, if that was its last slide), a duplicate joins the section of
+    the slide before it, and <code>prs.slides.move()</code> / <code>reorder()</code> keep the
+    sections contiguous the way PowerPoint's slide sorter does — so moving a slide can change the
+    section it belongs to. A section may legitimately end up empty;
+    <code>Section.remove_slide()</code> is the one call that can leave a slide belonging to no
+    section at all. Section ids are reproducible under <code>SOURCE_DATE_EPOCH</code>.
   </p>
 
   <h2 id="slide-geometry">Slide geometry: <code>slide_bbox()</code> and <code>content_bbox()</code> <strong class="text-primary">fork</strong></h2>
