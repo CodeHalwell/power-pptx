@@ -193,16 +193,20 @@ class ShapeStyle:
             return
         for paragraph in text_frame.paragraphs:
             for run in paragraph.runs:
-                font = run.font
-                font.name = value.family
-                if value.size is not None:
-                    font.size = value.size
-                if value.bold is not None:
-                    font.bold = value.bold
-                if value.italic is not None:
-                    font.italic = value.italic
-                if value.color is not None:
-                    font.color.rgb = value.color
+                _apply_typography(run.font, value)
+
+
+def _apply_typography(font, token: TypographyToken) -> None:
+    """Set *token*'s family on *font*, and each other attribute the token sets."""
+    font.name = token.family
+    if token.size is not None:
+        font.size = token.size
+    if token.bold is not None:
+        font.bold = token.bold
+    if token.italic is not None:
+        font.italic = token.italic
+    if token.color is not None:
+        font.color.rgb = token.color
 
 
 def _text_frame(shape: "BaseShape"):
