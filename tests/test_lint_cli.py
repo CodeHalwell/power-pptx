@@ -18,6 +18,7 @@ from power_pptx.__main__ import main as power_pptx_main
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.lint import lint_report_to_sarif
 from power_pptx.lint_cli import EXIT_CLEAN, EXIT_ISSUES, EXIT_USAGE, main
+from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.util import Inches
 
 # ---------------------------------------------------------------------------
@@ -591,6 +592,26 @@ class DescribeLintCommandFix(object):
         assert status == 0
         assert _severities(error_deck) == ["warning"]
         assert out.splitlines()[0].endswith("; written to %s" % error_deck)
+
+    @pytest.mark.parametrize("suffix", [".potx", ".ppsx"])
+    def it_keeps_a_template_or_a_show_the_kind_of_package_it_was(self, run, tmp_path, suffix):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(9), Inches(3), Inches(3), Inches(1))
+        deck = tmp_path / ("deck" + suffix)
+        prs.save(str(deck))
+        kind = Presentation(str(deck)).part.content_type
+        assert kind != CT.PML_PRESENTATION_MAIN
+        tidied = tmp_path / ("tidied" + suffix)
+
+        for args in (("--output", tidied), ("--in-place",)):
+            status, out, _ = run(deck, "--fix", *args)
+            assert status == 0
+            assert "written to" in out
+
+        assert Presentation(str(tidied)).part.content_type == kind
+        assert Presentation(str(deck)).part.content_type == kind
+        assert sorted(p.name for p in tmp_path.iterdir()) == sorted([deck.name, tidied.name])
 
     def but_it_does_not_rewrite_a_deck_that_needed_no_fixing(self, run, warning_deck):
         original = warning_deck.read_bytes()

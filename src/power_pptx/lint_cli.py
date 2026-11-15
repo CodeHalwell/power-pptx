@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import json
 import os
 import shutil
@@ -166,18 +165,18 @@ def _lint_presentation(prs: PresentationT, *, min_severity: str, fix: bool) -> l
 def _write_presentation(prs: PresentationT, target: Path) -> None:
     """Save `prs` as `target` without ever leaving a half-written file there.
 
-    The deck is serialised in memory, written beside the target and moved into
-    place, so a failure at any point leaves an existing `target` as it was.
+    The deck is saved beside the target and then moved into place, so a failure
+    at any point leaves an existing `target` as it was. The file it is saved to
+    first ends in the target's extension, which is what chooses the kind of
+    package written: a ``.potx`` stays a template and a ``.ppsx`` a slide show.
     """
-    buffer = io.BytesIO()
-    prs.save(buffer)
     if target.is_symlink():
         # -- write through a link rather than replace it with a regular file --
         target = target.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    scratch = target.with_name(".%s.%d.tmp" % (target.name, os.getpid()))
+    scratch = target.with_name(".%s.%d.tmp%s" % (target.stem, os.getpid(), target.suffix))
     try:
-        scratch.write_bytes(buffer.getvalue())
+        prs.save(str(scratch))
         if target.exists():
             shutil.copymode(str(target), str(scratch))
         os.replace(str(scratch), str(target))
