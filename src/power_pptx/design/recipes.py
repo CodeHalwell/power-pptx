@@ -1465,24 +1465,7 @@ def code_slide(
         shrink_to_fit=True,
     )
 
-    panel = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE, margin, panel_top, panel_w, panel_h
-    )
-    panel_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
-    panel.fill.solid()
-    panel.fill.fore_color.rgb = panel_fill
-    border = _palette(tokens, ("muted", "lt1"))
-    if border is not None:
-        panel.line.color.rgb = border
-        panel.line.width = Pt(0.75)
-    else:
-        panel.line.fill.background()
-    # The preset's default corner (a sixth of the short edge) is nearly an
-    # inch on a panel this size; start from a card-like corner and let a
-    # ``radii.md`` token override it.
-    panel.adjustments[0] = 0.03
-    _apply_card_styling(panel, tokens)
-    panel.text_frame.text = ""
+    panel_fill = _add_code_panel(slide, margin, panel_top, panel_w, panel_h, tokens)
 
     code_box = slide.shapes.add_textbox(
         Length(margin + pad),
@@ -1504,50 +1487,122 @@ def code_slide(
     # Try to highlight via Pygments; on any failure (missing dep,
     # unknown lexer) fall back to plain monospace text — the slide
     # renders correctly either way.
-    highlighted = (
-        _pygments_highlight("\n".join(lines), language, dark=dark_panel) if language else None
-    )
-    if highlighted is not None and len(highlighted) != len(lines):
-        # Lexers normalise trailing newlines; re-align with the source lines.
-        highlighted = (highlighted + [[]] * len(lines))[: len(lines)]
+    highlighted = _highlight_lines(lines, language, dark=dark_panel)
 
-    def _code_paragraph(index: int) -> Any:
-        p = tf.paragraphs[0] if index == 0 else tf.add_paragraph()
-        if index == 0:
-            p.text = ""
-        p.alignment = PP_ALIGN.LEFT
-        # An exact line pitch keeps the fit independent of whichever
-        # monospace face the viewing machine ends up substituting.
-        p.line_spacing = Pt(size_pt * _CODE_LINE_PITCH)
-        return p
-
-    def _code_run(p: Any, text: str, rgb: Optional[RGBColor]) -> None:
-        run = p.add_run()
-        run.text = text
-        _set_monospace(run.font, mono_family)
-        run.font.size = Pt(size_pt)
-        if rgb is not None:
-            run.font.color.rgb = rgb
-
-    legible_cache: dict[Any, Optional[RGBColor]] = {None: text_color}
+    block = _CodeBlock(tf, mono_family, size_pt, panel_fill, text_color)
     for line_idx in range(shown):
-        p = _code_paragraph(line_idx)
         if highlighted is None:
-            _code_run(p, lines[line_idx], text_color)
-            continue
-        for text, rgb in highlighted[line_idx]:
-            if not text:
-                continue
-            if rgb not in legible_cache:
-                legible_cache[rgb] = _legible(panel_fill, rgb)
-            _code_run(p, text, legible_cache[rgb])
+            block.add_plain_line(line_idx, lines[line_idx])
+        else:
+            block.add_highlighted_line(line_idx, highlighted[line_idx])
 
     if hidden:
-        marker = f"… (+{hidden} more line{'' if hidden == 1 else 's'})"
-        _code_run(_code_paragraph(shown), marker, text_color)
+        block.add_plain_line(shown, f"… (+{hidden} more line{'' if hidden == 1 else 's'})")
 
     _apply_transition(slide, transition)
     return slide
+
+
+def _add_code_panel(
+    slide: "Slide",
+    left: Length,
+    top: Length,
+    width: Length,
+    height: Length,
+    tokens: Optional[DesignTokens],
+) -> RGBColor:
+    """Draw the rounded panel a code block sits on and return its fill colour."""
+    panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+    panel_fill = _palette(tokens, ("surface", "lt2")) or RGBColor(0x14, 0x14, 0x18)
+    panel.fill.solid()
+    panel.fill.fore_color.rgb = panel_fill
+    border = _palette(tokens, ("muted", "lt1"))
+    if border is not None:
+        panel.line.color.rgb = border
+        panel.line.width = Pt(0.75)
+    else:
+        panel.line.fill.background()
+    # The preset's default corner (a sixth of the short edge) is nearly an
+    # inch on a panel this size; start from a card-like corner and let a
+    # ``radii.md`` token override it.
+    panel.adjustments[0] = 0.03
+    _apply_card_styling(panel, tokens)
+    panel.text_frame.text = ""
+    return panel_fill
+
+
+# One line of highlighted code: ``(text, colour)`` runs, a colour of ``None``
+# meaning the plain-text colour.
+_CodeRuns = list[tuple[str, Optional[RGBColor]]]
+
+
+def _highlight_lines(
+    lines: Sequence[str], language: Optional[str], *, dark: bool
+) -> Optional[list[_CodeRuns]]:
+    """Highlighted runs for each of *lines*, or ``None`` to set them as plain text."""
+    if not language:
+        return None
+    highlighted = _pygments_highlight("\n".join(lines), language, dark=dark)
+    if highlighted is not None and len(highlighted) != len(lines):
+        # Lexers normalise trailing newlines; re-align with the source lines.
+        highlighted = (highlighted + [[]] * len(lines))[: len(lines)]
+    return highlighted
+
+
+class _CodeBlock:
+    """Writes code into a text frame, one fixed-pitch monospace paragraph per line."""
+
+    def __init__(
+        self,
+        text_frame: Any,
+        family: str,
+        size_pt: int,
+        panel_fill: RGBColor,
+        text_color: Optional[RGBColor],
+    ):
+        self._tf = text_frame
+        self._family = family
+        self._size_pt = size_pt
+        self._panel_fill = panel_fill
+        self._text_color = text_color
+        # Syntax colours, each checked against the panel once.
+        self._legible_colours: dict[Any, Optional[RGBColor]] = {None: text_color}
+
+    def add_plain_line(self, index: int, text: str) -> None:
+        """Write *text* as line *index*, in the plain-text colour."""
+        self._add_run(self._paragraph(index), text, self._text_color)
+
+    def add_highlighted_line(self, index: int, runs: _CodeRuns) -> None:
+        """Write line *index* from highlighted *runs*, each in a legible colour."""
+        paragraph = self._paragraph(index)
+        for text, rgb in runs:
+            if text:
+                self._add_run(paragraph, text, self._legible_colour(rgb))
+
+    def _legible_colour(self, rgb: Optional[RGBColor]) -> Optional[RGBColor]:
+        if rgb not in self._legible_colours:
+            self._legible_colours[rgb] = _legible(self._panel_fill, rgb)
+        return self._legible_colours[rgb]
+
+    def _paragraph(self, index: int) -> Any:
+        if index == 0:
+            paragraph = self._tf.paragraphs[0]
+            paragraph.text = ""
+        else:
+            paragraph = self._tf.add_paragraph()
+        paragraph.alignment = PP_ALIGN.LEFT
+        # An exact line pitch keeps the fit independent of whichever
+        # monospace face the viewing machine ends up substituting.
+        paragraph.line_spacing = Pt(self._size_pt * _CODE_LINE_PITCH)
+        return paragraph
+
+    def _add_run(self, paragraph: Any, text: str, rgb: Optional[RGBColor]) -> None:
+        run = paragraph.add_run()
+        run.text = text
+        _set_monospace(run.font, self._family)
+        run.font.size = Pt(self._size_pt)
+        if rgb is not None:
+            run.font.color.rgb = rgb
 
 
 # Candidate monospace families, most code-like first.  A run names exactly
