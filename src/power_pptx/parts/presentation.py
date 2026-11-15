@@ -98,10 +98,37 @@ class PresentationPart(XmlPart):
         in the `rIds` sequence. The name portion is always `slide`. The number part forms a
         continuous sequence starting at 1 (e.g. 1, 2, ... 10, ...). The extension is always
         `.xml`.
+
+        Any *other* part of the package that already has one of those names is moved to the next
+        free slide partname. That happens when the package holds a slide part that is not listed
+        in `p:sldIdLst` (some tools leave such parts behind, and so did slide import in earlier
+        releases); left alone, it would end up sharing a partname with a listed slide and the two
+        would be saved as one zip member name.
         """
-        for idx, rId in enumerate(rIds):
-            slide_part = self.related_part(rId)
-            slide_part.partname = PackURI("/ppt/slides/slide%d.xml" % (idx + 1))
+        slide_parts = [self.related_part(rId) for rId in rIds]
+        new_partnames = [
+            PackURI("/ppt/slides/slide%d.xml" % (idx + 1)) for idx in range(len(slide_parts))
+        ]
+        listed = set(slide_parts)
+        claimed = set(new_partnames)
+        displaced = [
+            part
+            for part in self.package.iter_parts()
+            if part not in listed and part.partname in claimed
+        ]
+
+        for slide_part, partname in zip(slide_parts, new_partnames):
+            slide_part.partname = partname
+
+        if not displaced:
+            return
+        taken = {part.partname for part in self.package.iter_parts()}
+        n = len(slide_parts) + 1
+        for part in displaced:
+            while "/ppt/slides/slide%d.xml" % n in taken:
+                n += 1
+            part.partname = PackURI("/ppt/slides/slide%d.xml" % n)
+            taken.add(part.partname)
 
     def save(self, path_or_stream: str | IO[bytes]):
         """Save this presentation package to `path_or_stream`.

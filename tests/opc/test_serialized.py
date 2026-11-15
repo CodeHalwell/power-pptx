@@ -124,6 +124,23 @@ class DescribePackageWriter:
         _write_pkg_rels_.assert_called_once_with(package_writer, phys_writer_)
         _write_parts_.assert_called_once_with(package_writer, phys_writer_)
 
+    def but_it_refuses_to_write_two_parts_under_one_partname(self, relationships_: Mock):
+        stream = io.BytesIO()
+        parts = [
+            Part(PackURI("/ppt/slides/slide1.xml"), CT.PML_SLIDE, None, b"<a/>"),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None, b"<b/>"),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None, b"<c/>"),
+        ]
+
+        with pytest.raises(ValueError) as e:
+            PackageWriter.write(stream, relationships_, parts)
+
+        assert str(e.value) == (
+            "cannot write package: more than one part is named '/ppt/slides/slide2.xml'"
+        )
+        # -- nothing was written --
+        assert stream.getvalue() == b""
+
     def it_can_write_a_content_types_stream(
         self, request: FixtureRequest, phys_writer_: Mock, relationships_: Mock, part_: Mock
     ):

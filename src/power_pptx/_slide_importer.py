@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import Part, PartFactory, XmlPart
-from power_pptx.opc.packuri import PackURI
+from power_pptx.opc.packuri import PackURI, numbered_partname_pieces
 
 if TYPE_CHECKING:
     from power_pptx.package import Package
@@ -860,16 +860,8 @@ def _numbered_partname(partname: str) -> tuple[str, str]:
     """Split *partname* around its trailing number, for allocating a sibling name.
 
     E.g. ``/ppt/charts/chart3.xml`` → ``("/ppt/charts/chart", ".xml")``, so the
-    next free name is ``/ppt/charts/chart{n}.xml``.  A partname without a
-    trailing number keeps its whole stem (``/ppt/media/logo.png`` →
-    ``("/ppt/media/logo", ".png")``).  The pieces are plain strings to be
-    concatenated, never a printf template, so a ``%`` in the name (as in
-    ``/ppt/media/my%20logo.png``) needs no escaping.
+    next free name is ``/ppt/charts/chart{n}.xml``.  The pieces are plain
+    strings to be concatenated, never a printf template, so a ``%`` in the
+    name (as in ``/ppt/media/my%20logo.png``) needs no escaping.
     """
-    directory, _, filename = partname.rpartition("/")
-    stem, dot, ext = filename.rpartition(".")
-    if not dot:
-        stem, suffix = filename, ""
-    else:
-        suffix = "." + ext
-    return "%s/%s" % (directory, stem.rstrip("0123456789")), suffix
+    return numbered_partname_pieces(partname)

@@ -256,6 +256,39 @@ class DescribeOpcPackage:
 
         PackageWriter_.write.assert_called_once_with("prs.pptx", relationships_, parts_)
 
+    def it_gives_parts_that_share_a_partname_one_each_before_writing(
+        self, request, _rels_prop_, relationships_
+    ):
+        """Two parts under one partname would be written as two zip members of one name."""
+        parts = [
+            Part(PackURI("/ppt/slides/slide1.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/media/my%20logo.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/my%20logo.png"), CT.PNG, None),
+            Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), CT.PML_SLIDE, None),
+        ]
+        _rels_prop_.return_value = relationships_
+        method_mock(request, OpcPackage, "iter_parts", return_value=iter(parts))
+        PackageWriter_ = class_mock(request, "power_pptx.opc.package.PackageWriter")
+        package = OpcPackage(None)
+
+        package.save("prs.pptx")
+
+        PackageWriter_.write.assert_called_once_with("prs.pptx", relationships_, tuple(parts))
+        partnames = [part.partname for part in parts]
+        assert partnames == [
+            "/ppt/slides/slide1.xml",
+            "/ppt/slides/slide2.xml",
+            "/ppt/slides/slide4.xml",
+            "/ppt/media/my%20logo.png",
+            "/ppt/media/my%20logo1.png",
+            "/ppt/slides/slide5.xml",
+            "/ppt/slides/slide3.xml",
+        ]
+        assert all(isinstance(partname, PackURI) for partname in partnames)
+
     def it_loads_the_pkg_file_to_help(self, request, _rels_prop_, relationships_):
         _PackageLoader_ = class_mock(request, "power_pptx.opc.package._PackageLoader")
         _PackageLoader_.load.return_value = "pkg-rels-xml", {"partname": "part"}
@@ -998,6 +1031,19 @@ class Describe_Relationship:
         relationship = _Relationship(None, None, None, RTM.INTERNAL, part_)
 
         assert relationship.target_partname == "/ppt/slideLayouts/slideLayout4.xml"
+
+    def and_it_follows_its_target_part_when_that_part_is_renamed(self):
+        """A remembered target would be written to the .rels file for a part that has since
+        been saved under another name (slide parts are renumbered on first `prs.slides`)."""
+        part = Part(PackURI("/ppt/slides/slide3.xml"), CT.PML_SLIDE, None)
+        relationship = _Relationship("/ppt", "rId7", RT.SLIDE, RTM.INTERNAL, part)
+        assert relationship.target_partname == "/ppt/slides/slide3.xml"
+        assert relationship.target_ref == "slides/slide3.xml"
+
+        part.partname = PackURI("/ppt/slides/slide2.xml")
+
+        assert relationship.target_partname == "/ppt/slides/slide2.xml"
+        assert relationship.target_ref == "slides/slide2.xml"
 
     def but_it_raises_ValueError_on_target_partname_for_external_rel(self):
         relationship = _Relationship(None, None, None, RTM.EXTERNAL, None)

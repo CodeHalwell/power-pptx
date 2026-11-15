@@ -105,5 +105,25 @@ class PackURI(str):
         return PackURI(rels_uri_str)
 
 
+def numbered_partname_pieces(partname: str) -> tuple[str, str]:
+    """Split `partname` around its trailing number, for allocating a sibling name.
+
+    E.g. `"/ppt/charts/chart3.xml"` gives `("/ppt/charts/chart", ".xml")`, so a free sibling name
+    is `"/ppt/charts/chart%d.xml" % n` for some `n`. A partname without a trailing number keeps
+    its whole stem: `"/ppt/media/logo.png"` gives `("/ppt/media/logo", ".png")`.
+
+    The pieces are plain strings meant to be concatenated around the number. They are not a
+    printf-style template, so a `%` in the name (as in `"/ppt/media/my%20logo.png"`) needs no
+    escaping.
+    """
+    directory, _, filename = partname.rpartition("/")
+    stem, dot, ext = filename.rpartition(".")
+    if not dot:
+        stem, suffix = filename, ""
+    else:
+        suffix = "." + ext
+    return "%s/%s" % (directory, stem.rstrip("0123456789")), suffix
+
+
 PACKAGE_URI = PackURI("/")
 CONTENT_TYPES_URI = PackURI("/[Content_Types].xml")

@@ -81,10 +81,29 @@ class PackageWriter:
 
     def _write(self) -> None:
         """Write physical package (.pptx file)."""
+        self._raise_on_shared_partname()
         with _PhysPkgWriter.factory(self._pkg_file) as phys_writer:
             self._write_content_types_stream(phys_writer)
             self._write_pkg_rels(phys_writer)
             self._write_parts(phys_writer)
+
+    def _raise_on_shared_partname(self) -> None:
+        """Raise |ValueError| if two of the parts to be written have the same partname.
+
+        Each part becomes the zip member named by its partname, so two parts with one name would
+        produce a zip with a duplicated member: PowerPoint rejects such a file and the second
+        part silently replaces the first on the next load. `OpcPackage.save()` renames colliding
+        parts before it gets here; this is the last line of defence for any other caller, and it
+        runs before anything is written.
+        """
+        seen: set[str] = set()
+        for part in self._parts:
+            partname = part.partname
+            if partname in seen:
+                raise ValueError(
+                    "cannot write package: more than one part is named '%s'" % partname
+                )
+            seen.add(partname)
 
     def _write_content_types_stream(self, phys_writer: _PhysPkgWriter) -> None:
         """Write `[Content_Types].xml` part to the physical package.

@@ -107,11 +107,12 @@ class DescribePresentationPart(object):
         related_part_.assert_called_once_with(prs_part, "rId42")
         assert slide_master is slide_master_
 
-    def it_can_rename_related_slide_parts(self, request, related_part_):
+    def it_can_rename_related_slide_parts(self, request, related_part_, package_):
         rIds = tuple("rId%d" % n for n in range(5, 0, -1))
         slide_parts = tuple(instance_mock(request, SlidePart) for _ in range(5))
         related_part_.side_effect = iter(slide_parts)
-        prs_part = PresentationPart(None, None, None, None)
+        package_.iter_parts.side_effect = lambda: iter(slide_parts)
+        prs_part = PresentationPart(None, None, package_, None)
 
         prs_part.rename_slide_parts(rIds)
 
@@ -119,6 +120,42 @@ class DescribePresentationPart(object):
         assert [s.partname for s in slide_parts] == [
             PackURI("/ppt/slides/slide%d.xml" % (i + 1)) for i in range(len(rIds))
         ]
+
+    def but_it_moves_an_unlisted_part_off_a_partname_a_listed_slide_needs(
+        self, related_part_, package_
+    ):
+        """A slide part that is in the package but not in `p:sldIdLst` must not end up sharing
+        a partname with a listed slide: the two would be saved as one zip member name."""
+        listed = [
+            Part(PackURI("/ppt/slides/slide1.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide7.xml"), None, None),
+        ]
+        unlisted = [
+            Part(PackURI("/ppt/slides/slide2.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide4.xml"), None, None),
+            Part(PackURI("/ppt/slides/slide3.xml"), None, None),
+        ]
+        bystander = Part(PackURI("/ppt/slides/slide5.xml"), None, None)
+        related_part_.side_effect = iter(listed)
+        package_.iter_parts.side_effect = lambda: iter(listed + unlisted + [bystander])
+        prs_part = PresentationPart(None, None, package_, None)
+
+        prs_part.rename_slide_parts(["rId1", "rId2", "rId3"])
+
+        assert [p.partname for p in listed] == [
+            "/ppt/slides/slide1.xml",
+            "/ppt/slides/slide2.xml",
+            "/ppt/slides/slide3.xml",
+        ]
+        # -- slide2 and the second slide3 were in the way; slide4 and slide5 were not --
+        assert [p.partname for p in unlisted] == [
+            "/ppt/slides/slide6.xml",
+            "/ppt/slides/slide4.xml",
+            "/ppt/slides/slide7.xml",
+        ]
+        assert bystander.partname == "/ppt/slides/slide5.xml"
+        assert all(isinstance(p.partname, PackURI) for p in listed + unlisted)
 
     def it_can_save_the_package_to_a_file(self, package_):
         PresentationPart(None, None, package_, None).save("prs.pptx")

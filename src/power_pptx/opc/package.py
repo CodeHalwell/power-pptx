@@ -7,12 +7,17 @@ presentations to and from a .pptx file.
 from __future__ import annotations
 
 import collections
-from typing import IO, TYPE_CHECKING, DefaultDict, Iterator, Mapping, Set, cast
+from typing import IO, TYPE_CHECKING, DefaultDict, Iterator, Mapping, Sequence, Set, cast
 
 from power_pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.oxml import CT_Relationships, serialize_part_xml
-from power_pptx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
+from power_pptx.opc.packuri import (
+    CONTENT_TYPES_URI,
+    PACKAGE_URI,
+    PackURI,
+    numbered_partname_pieces,
+)
 from power_pptx.opc.serialized import PackageReader, PackageWriter
 from power_pptx.opc.shared import CaseInsensitiveDict
 from power_pptx.oxml import parse_xml
@@ -153,7 +158,9 @@ class OpcPackage(_RelatableMixin):
 
         `file` can be either a path to a file (a string) or a file-like object.
         """
-        PackageWriter.write(pkg_file, self._rels, tuple(self.iter_parts()))
+        parts = tuple(self.iter_parts())
+        _resolve_partname_collisions(parts)
+        PackageWriter.write(pkg_file, self._rels, parts)
 
     def _load(self) -> Self:
         """Return the package after loading all parts and relationships."""
@@ -165,6 +172,36 @@ class OpcPackage(_RelatableMixin):
     def _rels(self) -> _Relationships:
         """|Relationships| object containing relationships of this package."""
         return _Relationships(PACKAGE_URI.baseURI)
+
+
+def _resolve_partname_collisions(parts: Sequence[Part]) -> None:
+    """Give each part in `parts` a partname of its own.
+
+    A partname is the part's file name inside the zip, so two parts sharing one would be written
+    as two zip members of the same name: a package that PowerPoint rejects and that loses one of
+    the parts on the next load. Nothing in the object model enforces uniqueness (a partname is
+    just an attribute), so this is checked at the one place it matters, right before writing.
+
+    The first part to claim a name keeps it. A later part with the same name is renamed to the
+    first free numbered sibling (`/ppt/slides/slide2.xml` -> `/ppt/slides/slide7.xml`).
+    Relationships refer to part objects, not names, so they follow the rename.
+    """
+    seen: Set[str] = set()
+    colliding: list[Part] = []
+    for part in parts:
+        partname = part.partname
+        if partname in seen:
+            colliding.append(part)
+        else:
+            seen.add(partname)
+
+    for part in colliding:
+        prefix, suffix = numbered_partname_pieces(part.partname)
+        n = 1
+        while "%s%d%s" % (prefix, n, suffix) in seen:
+            n += 1
+        part.partname = PackURI("%s%d%s" % (prefix, n, suffix))
+        seen.add(part.partname)
 
 
 class _PackageLoader:
@@ -733,12 +770,17 @@ class _Relationship:
         assert isinstance(self._target, Part)
         return self._target
 
-    @lazyproperty
+    @property
     def target_partname(self) -> PackURI:
         """|PackURI| instance containing partname targeted by this relationship.
 
         Raises `ValueError` on reference if target_mode is external. Use :attr:`target_mode` to
         check before referencing.
+
+        Read from the target part on each access, never cached: a part can be renamed after this
+        relationship is first serialized (slide parts are renumbered when `prs.slides` is first
+        used), and a remembered name would then be written to the .rels file for a part that is
+        saved under a different one.
         """
         if self.is_external:
             raise ValueError(
@@ -748,12 +790,15 @@ class _Relationship:
         assert isinstance(self._target, Part)
         return self._target.partname
 
-    @lazyproperty
+    @property
     def target_ref(self) -> str:
         """str reference to relationship target.
 
         For internal relationships this is the relative partname, suitable for serialization
         purposes. For an external relationship it is typically a URL.
+
+        Like `.target_partname`, this is computed on each access so it always names the target
+        part as it is called now.
         """
         if self.is_external:
             assert isinstance(self._target, str)
