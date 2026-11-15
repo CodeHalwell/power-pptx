@@ -82,6 +82,97 @@ def test_missing_explicit_font_is_reported_without_failing_structural_checks():
     assert validate_presentation(prs, check_fonts=False).missing_fonts == []
 
 
+def _run_with_font(slide, name, *, bold=None, italic=None):
+    """Add a text box to *slide* whose one run is set in face *name*."""
+    box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(5), Inches(1))
+    run = box.text_frame.paragraphs[0].add_run()
+    run.text = "styled"
+    run.font.name = name
+    run.font.bold = bold
+    run.font.italic = italic
+    return run
+
+
+class DescribeMissingFonts:
+    """Only explicit faces on slides and charts are looked up, in the style they are used."""
+
+    def it_names_the_style_a_missing_face_is_used_in(self):
+        prs = deck()
+        slide = prs.slides[0]
+        _run_with_font(slide, "AbsentReviewFont", bold=True, italic=True)
+        _run_with_font(slide, "AbsentReviewFont", bold=True)
+        _run_with_font(slide, "AbsentReviewFont", italic=True)
+        _run_with_font(slide, "AbsentReviewFont", bold=False, italic=False)
+
+        assert validate_presentation(prs).missing_fonts == [
+            "AbsentReviewFont",
+            "AbsentReviewFont bold",
+            "AbsentReviewFont bold italic",
+            "AbsentReviewFont italic",
+        ]
+
+    def it_lists_each_missing_face_once_whichever_slide_uses_it(self):
+        prs = deck()
+        second = prs.slides.add_slide(prs.slide_layouts[6])
+        _run_with_font(prs.slides[0], "ZetaAbsentFont")
+        _run_with_font(second, "AlphaAbsentFont")
+        _run_with_font(second, "ZetaAbsentFont")
+
+        assert validate_presentation(prs).missing_fonts == ["AlphaAbsentFont", "ZetaAbsentFont"]
+
+    def it_looks_up_the_faces_of_charts_too(self):
+        from power_pptx.chart.data import CategoryChartData
+        from power_pptx.enum.chart import XL_CHART_TYPE
+
+        prs = deck()
+        data = CategoryChartData()
+        data.categories = ["A", "B"]
+        data.add_series("S", (1, 2))
+        chart = (
+            prs.slides[0]
+            .shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(3), Inches(5), Inches(3), data
+            )
+            .chart
+        )
+        chart.font.name = "AbsentChartFont"
+        chart.font.bold = True
+
+        assert validate_presentation(prs).missing_fonts == ["AbsentChartFont bold"]
+
+    def but_not_a_face_that_is_installed_in_that_style(self):
+        from power_pptx.text import clear_registered_fonts, register_font_dir
+
+        prs = deck()
+        _run_with_font(prs.slides[0], "Outfit")
+        _run_with_font(prs.slides[0], "Outfit", bold=True)
+        register_font_dir(Path(__file__).parent / "fonts")
+        try:
+            report = validate_presentation(prs)
+        finally:
+            clear_registered_fonts()
+
+        assert report.missing_fonts == []
+
+    def but_not_theme_fonts_empty_faces_or_faces_outside_slides_and_charts(self):
+        prs = deck()
+        _run_with_font(prs.slides[0], "+mn-lt")
+        _run_with_font(prs.slides[0], "")
+        layout_title = prs.slide_layouts[0].placeholders[0]
+        layout_run = layout_title.text_frame.paragraphs[0].add_run()
+        layout_run.text = "layout"
+        layout_run.font.name = "AbsentLayoutFont"
+
+        report = validate_presentation(prs)
+
+        assert report.missing_fonts == []
+        xml = presentation_bytes(prs)
+        with ZipFile(io.BytesIO(xml)) as package:
+            slide = package.read("ppt/slides/slide1.xml")
+        assert b'typeface="+mn-lt"' in slide
+        assert b'typeface=""' in slide
+
+
 def _rewritten(blob, edit):
     """Return *blob* with each member passed through ``edit(name, data) -> data | None``."""
     output = io.BytesIO()
