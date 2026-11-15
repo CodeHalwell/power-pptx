@@ -64,7 +64,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, MutableMapping, Optional, Union
 
 from power_pptx.dml.color import RGBColor
 from power_pptx.util import Emu, Length, Pt
@@ -588,58 +588,7 @@ class DesignTokens:
         }
 
         for key, value in overrides.items():
-            parts = key.split(".")
-            if len(parts) < 2:
-                raise ValueError(
-                    f"override key {key!r} must be dotted, e.g. "
-                    "'palette.primary' or 'typography.heading.size'"
-                )
-            category = parts[0]
-            target = bins.get(category)
-            if target is None:
-                raise ValueError(
-                    f"unknown override category {category!r}; choose "
-                    f"from {sorted(bins)}"
-                )
-            if len(parts) > 3:
-                raise ValueError(
-                    f"override key {key!r} is too deep; expected "
-                    "'category.slot' or 'category.slot.field'"
-                )
-            if len(parts) == 2:
-                slot = parts[1]
-                if category == "palette":
-                    target[slot] = _coerce_color(value, key)
-                elif category in ("radii", "spacings"):
-                    target[slot] = _coerce_length(value, key)
-                elif category == "typography":
-                    target[slot] = _typography_from_value(value, key)
-                elif category == "shadows":
-                    target[slot] = _shadow_from_value(value, key)
-            else:
-                # Sub-field override — merge into an existing token.
-                slot = parts[1]
-                field_name = parts[2]
-                existing = target.get(slot)
-                if category == "typography":
-                    base = (
-                        existing
-                        if isinstance(existing, TypographyToken)
-                        else TypographyToken(family="Calibri")
-                    )
-                    target[slot] = _typography_with_field(
-                        base, field_name, value, key
-                    )
-                elif category == "shadows":
-                    base = (
-                        existing if isinstance(existing, ShadowToken) else ShadowToken()
-                    )
-                    target[slot] = _shadow_with_field(base, field_name, value, key)
-                else:
-                    raise ValueError(
-                        f"sub-field override {key!r} only supported on "
-                        "typography and shadows"
-                    )
+            _apply_override(bins, key, value)
 
         return DesignTokens(
             palette=palette,
@@ -686,25 +635,96 @@ def _flatten_overrides(
     """
     flat: dict[str, Any] = {}
     for key, value in overrides.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError(
-                f"override keys must be non-empty strings; got {key!r}"
-                + (f" under {_prefix!r}" if _prefix else "")
-            )
-        full = f"{_prefix}.{key}" if _prefix else key
-        if isinstance(value, Mapping) and not isinstance(value, RGBColor):
-            # Mappings whose values are themselves token instances
-            # (TypographyToken, ShadowToken) shouldn't be walked.
-            if not _is_token_value(value):
-                flat.update(_flatten_overrides(value, full))
-                continue
-        flat[full] = value
+        path = _override_path(_prefix, key)
+        if _is_nested_override(value):
+            flat.update(_flatten_overrides(value, path))
+        else:
+            flat[path] = value
     return flat
+
+
+def _override_path(prefix: str, key: Any) -> str:
+    """Join override *key* onto the dotted *prefix*, rejecting non-string keys."""
+    if not isinstance(key, str) or not key:
+        where = f" under {prefix!r}" if prefix else ""
+        raise ValueError(f"override keys must be non-empty strings; got {key!r}{where}")
+    return f"{prefix}.{key}" if prefix else key
+
+
+def _is_nested_override(value: Any) -> bool:
+    """True if *value* is a mapping of further overrides to walk, not a slot value.
+
+    Token instances (:class:`TypographyToken`, :class:`ShadowToken`, ...) are
+    slot values and are passed through whole.
+    """
+    return (
+        isinstance(value, Mapping)
+        and not isinstance(value, RGBColor)
+        and not _is_token_value(value)
+    )
 
 
 def _is_token_value(value: Any) -> bool:
     """True if *value* is a typography/shadow/length token shouldn't be flattened."""
     return isinstance(value, (TypographyToken, ShadowToken, Length, RGBColor))
+
+
+def _apply_override(bins: Mapping[str, MutableMapping[str, Any]], key: str, value: Any) -> None:
+    """Apply one dotted-path override *key* to the token *bins*, by category.
+
+    ``category.slot`` replaces the slot with *value* coerced for its
+    category; ``category.slot.field`` merges one field into the slot's
+    existing typography or shadow token.
+    """
+    parts = key.split(".")
+    if len(parts) < 2:
+        raise ValueError(
+            f"override key {key!r} must be dotted, e.g. "
+            "'palette.primary' or 'typography.heading.size'"
+        )
+    category = parts[0]
+    target = bins.get(category)
+    if target is None:
+        raise ValueError(
+            f"unknown override category {category!r}; choose "
+            f"from {sorted(bins)}"
+        )
+    if len(parts) > 3:
+        raise ValueError(
+            f"override key {key!r} is too deep; expected "
+            "'category.slot' or 'category.slot.field'"
+        )
+    if len(parts) == 2:
+        target[parts[1]] = _SLOT_COERCERS[category](value, key)
+    else:
+        target[parts[1]] = _with_override_field(
+            category, target.get(parts[1]), parts[2], value, key
+        )
+
+
+def _with_override_field(
+    category: str, existing: Any, field_name: str, value: Any, key: str
+) -> Any:
+    """Return the *existing* slot token with one field replaced by *value*.
+
+    A slot that holds no token of the category's type starts from the
+    defaults (Calibri for typography).  Only typography and shadow tokens
+    have fields.
+    """
+    if category == "typography":
+        base = (
+            existing
+            if isinstance(existing, TypographyToken)
+            else TypographyToken(family="Calibri")
+        )
+        return _typography_with_field(base, field_name, value, key)
+    if category == "shadows":
+        base = existing if isinstance(existing, ShadowToken) else ShadowToken()
+        return _shadow_with_field(base, field_name, value, key)
+    raise ValueError(
+        f"sub-field override {key!r} only supported on "
+        "typography and shadows"
+    )
 
 
 def _clamp01(x: float) -> float:
@@ -961,6 +981,16 @@ def _shadow_from_value(value: Any, path: str) -> ShadowToken:
         name = _SHADOW_ALIASES.get(key, key)
         fields[name] = _coerce_shadow_field(name, raw, f"{path}.{key}")
     return ShadowToken(**fields)
+
+
+# How a ``category.slot`` override value is coerced, per token category.
+_SLOT_COERCERS: Mapping[str, Callable[[Any, str], Any]] = {
+    "palette": _coerce_color,
+    "typography": _typography_from_value,
+    "radii": _coerce_length,
+    "shadows": _shadow_from_value,
+    "spacings": _coerce_length,
+}
 
 
 def _typography_with_field(
