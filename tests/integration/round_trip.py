@@ -12,13 +12,15 @@ parts (e.g. embedded images) byte-for-byte.
 from __future__ import annotations
 
 import io
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from zipfile import ZipFile
 
 from lxml import etree
 
 from power_pptx import Presentation
-from power_pptx.presentation import Presentation as PresentationT
+
+if TYPE_CHECKING:
+    from power_pptx.presentation import Presentation as PresentationT
 
 
 def _parts(pptx_bytes: bytes) -> dict[str, bytes]:

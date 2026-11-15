@@ -949,7 +949,7 @@ class DescribeEffectBleedGeometry:
         )
         a.shadow.blur_radius = Emu(914400)
         # Shape B: real OffSlide (raw bbox already past the bottom edge).
-        b = slide.shapes.add_shape(
+        slide.shapes.add_shape(
             1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2)
         )
         # Skip the bleed-only variant on the bleed shape.

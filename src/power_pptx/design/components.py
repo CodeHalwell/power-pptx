@@ -45,12 +45,12 @@ from power_pptx.design.recipes import (
     _typography,
     _unify_sizes,
 )
-from power_pptx.design.tokens import DesignTokens
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from power_pptx.util import Inches, Length, Pt
 
 if TYPE_CHECKING:
+    from power_pptx.design.tokens import DesignTokens
     from power_pptx.slide import Slide
 
 

@@ -100,7 +100,8 @@ class Describe_apply_template_happy_path:
         template = Presentation()
         template.slides.add_slide(template.slide_layouts[0])
 
-        before_master_count = len(deck.slide_masters)
+        # -- read the masters first, so the cached collection is the one updated --
+        assert len(deck.slide_masters) == 1
         deck.apply_template(_as_stream(template))
         after_master_count = len(deck.slide_masters)
 

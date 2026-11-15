@@ -10,11 +10,7 @@ import contextlib
 from typing import TYPE_CHECKING, cast
 
 from power_pptx.dml.effect import (
-    BlurFormat,
-    GlowFormat,
-    ReflectionFormat,
     ShadowFormat,
-    SoftEdgeFormat,
 )
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
 from power_pptx.shapes.base import BaseShape
@@ -29,7 +25,15 @@ from power_pptx.util import lazyproperty
 
 if TYPE_CHECKING:
     from power_pptx.chart.chart import Chart
-    from power_pptx.dml.effect import InnerShadowFormat, PresetShadowFormat, ShadowFormat
+    from power_pptx.dml.effect import (
+        BlurFormat,
+        GlowFormat,
+        InnerShadowFormat,
+        PresetShadowFormat,
+        ReflectionFormat,
+        ShadowFormat,
+        SoftEdgeFormat,
+    )
     from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectData, CT_GraphicalObjectFrame
     from power_pptx.parts.chart import ChartPart
     from power_pptx.parts.slide import BaseSlidePart
