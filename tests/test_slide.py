@@ -1212,6 +1212,48 @@ class DescribeSlidesRemove(object):
 class DescribeSlidesDuplicate(object):
     """Integration-style suite for `Slides.duplicate`."""
 
+    @staticmethod
+    def _give_creation_id(slide, value):
+        """Add the ``p14:creationId`` PowerPoint 2010+ writes on every slide."""
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        slide._element.append(
+            parse_xml(
+                f"<p:extLst {nsdecls('p')}>"
+                '<p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}">'
+                '<p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/'
+                f'2010/main" val="{value}"/></p:ext></p:extLst>'
+            )
+        )
+
+    @staticmethod
+    def _creation_ids(prs):
+        tag = "{http://schemas.microsoft.com/office/powerpoint/2010/main}creationId"
+        return [el.get("val") for s in prs.slides for el in s._element.iter(tag)]
+
+    def it_gives_the_copy_its_own_creation_id(self):
+        prs = titled_deck("a", "b")
+        self._give_creation_id(prs.slides[0], 3411862513)
+
+        prs.slides.duplicate(prs.slides[0])
+
+        original, copied = self._creation_ids(prs)
+        assert original == "3411862513"
+        assert copied != original
+        assert 0 <= int(copied) < 2**32
+
+    def and_the_new_creation_id_is_reproducible_under_a_pinned_build(self, monkeypatch):
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+
+        def copied_id():
+            prs = titled_deck("a", "b")
+            self._give_creation_id(prs.slides[0], 3411862513)
+            prs.slides.duplicate(prs.slides[0])
+            return self._creation_ids(prs)[1]
+
+        assert copied_id() == copied_id()
+
     def it_inserts_the_copy_after_the_original(self):
         prs = titled_deck("a", "b", "c")
 

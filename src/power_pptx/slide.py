@@ -52,6 +52,25 @@ if TYPE_CHECKING:
     from power_pptx.text.text import TextFrame
 
 
+_P14_CREATION_ID = qn("p14:creationId")
+
+
+def _renew_creation_id(copy: Slide, source_id: int) -> None:
+    """Give a duplicated slide its own ``p14:creationId``, as PowerPoint does.
+
+    PowerPoint 2010+ records this id on a slide to recognise it when slides
+    are reused or merged, so two slides should not share one. Decks this
+    library creates have none; a slide copied from a PowerPoint-authored deck
+    carries the original's. Under ``SOURCE_DATE_EPOCH`` the new id is derived
+    from the two slides' ids, so builds stay reproducible.
+    """
+    from power_pptx._reproducible import new_uuid
+
+    for creation_id in copy._element.iter(_P14_CREATION_ID):
+        renewed = new_uuid("creationId", source_id, copy.slide_id).int % 2**32
+        creation_id.set("val", str(renewed))
+
+
 class _BaseSlide(PartElementProxy):
     """Base class for slide objects, including masters, layouts and notes."""
 
@@ -1151,6 +1170,7 @@ class Slides(ParentedElementProxy):
             position = self._normalized_index(index, len(sldId_lst) + 1)
         old_ids = [sldId.id for sldId in sldId_lst]
         copy = _import_slide_part(slide.part, self.part)
+        _renew_creation_id(copy, slide.slide_id)
         self._place_last_slide(position, old_ids)
         self._rename_slide_parts()
         return copy
