@@ -929,16 +929,18 @@ class BaseShape(object):
 
             slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *box).fill_hex("#0B5CFF")
 
-        Pass ``None`` to clear the fill (the shape inherits from its
-        theme afterwards).  Hex strings, ``RGBColor`` instances, and
-        ``(r, g, b)`` tuples are all accepted.
+        Pass ``None`` to make the shape transparent: it writes an explicit
+        ``<a:noFill/>``, the same as ``shape.fill.background()``.  That is
+        *not* a return to the theme's fill — an auto shape's style would
+        otherwise paint it in the accent colour, and ``None`` overrides
+        that.  Hex strings, ``RGBColor`` instances, and ``(r, g, b)``
+        tuples are all accepted.
         """
         from power_pptx._color import coerce_color
 
         if hex_color is None:
-            # ``fill.background()`` produces a transparent (no-fill)
-            # solid; the closest thing to "clear" without ripping the
-            # element out wholesale.
+            # ``fill.background()`` writes an explicit `<a:noFill/>`, which
+            # overrides the fill a shape style would otherwise supply.
             try:
                 self.fill.background()  # type: ignore[attr-defined]
             except AttributeError as exc:

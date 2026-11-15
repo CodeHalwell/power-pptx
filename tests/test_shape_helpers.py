@@ -37,6 +37,26 @@ class DescribeFillHex:
         rect.fill_hex("0B5CFF")
         assert str(rect.fill.fore_color.rgb) == "0B5CFF"
 
+    def it_makes_the_shape_transparent_when_given_None(self, slide):
+        # The docstring used to promise "the shape inherits from its theme
+        # afterwards"; what `None` does, and callers rely on, is an explicit
+        # <a:noFill/> that overrides the theme style's fill.
+        from power_pptx.enum.dml import MSO_FILL
+        from power_pptx.oxml.ns import qn
+
+        rect = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(2), Inches(1)
+        )
+        rect.fill_hex("#0B5CFF")
+
+        rect.fill_hex(None)
+
+        assert rect.fill.type == MSO_FILL.BACKGROUND
+        assert rect._element.spPr.find(qn("a:noFill")) is not None
+        doc = " ".join(type(rect).fill_hex.__doc__.split())
+        assert "inherits from its theme" not in doc
+        assert "<a:noFill/>" in doc
+
 
 class DescribeLineHex:
     def it_sets_line_color_and_width(self, slide):

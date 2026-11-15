@@ -249,8 +249,7 @@ def _headline_chart(prs: Presentation) -> None:
         "has_title": False,
         "has_legend": True,
         "legend_position": XL_LEGEND_POSITION.BOTTOM,
-        "category_axis": {"has_major_gridlines": False},
-        "value_axis":    {"has_major_gridlines": True},
+        "has_major_gridlines": True,   # value axis; flat keys only
     })
 
     # Editorial caption tying chart back to the headline metric.

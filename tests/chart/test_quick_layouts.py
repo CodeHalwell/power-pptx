@@ -200,3 +200,70 @@ class DescribeLayoutNames:
         # Make sure the declaration-order contract is testable; first
         # entry should be the most generic preset.
         assert layout_names()[0] == "title_legend_right"
+
+
+class DescribeQuickLayoutSpecKeys:
+    """Dict specs are validated the way keyword overrides always were."""
+
+    def it_rejects_the_nested_axis_keys_the_docs_used_to_show(self):
+        # Regression: the skill's custom-layout example nested its gridline
+        # settings under "category_axis" / "value_axis", which were silently
+        # ignored, so the example never did what it said.
+        chart = _make_column_chart()
+        before = chart._chartSpace.xml
+
+        with pytest.raises(ValueError) as excinfo:
+            chart.apply_quick_layout(
+                {"has_title": True, "value_axis": {"has_major_gridlines": False}}
+            )
+
+        message = str(excinfo.value)
+        assert "'value_axis'" in message
+        assert "has_major_gridlines" in message  # -- points at the flat key
+        assert chart._chartSpace.xml == before  # -- nothing was applied
+
+    @pytest.mark.parametrize(
+        ("key", "suggestion"),
+        [
+            ("has_titel", "has_title"),
+            ("legend_positon", "legend_position"),
+            ("category_axis", "has_category_axis_title"),
+            ("tick_labels", "chart.value_axis.tick_labels"),
+        ],
+    )
+    def it_names_the_closest_valid_key(self, key, suggestion):
+        chart = _make_column_chart()
+        with pytest.raises(ValueError, match="unknown quick-layout key") as excinfo:
+            apply_quick_layout(chart, {key: True})
+        assert suggestion in str(excinfo.value)
+
+    def it_gives_keyword_overrides_the_same_hints(self):
+        chart = _make_column_chart()
+        with pytest.raises(TypeError, match="did you mean 'has_title'"):
+            chart.apply_quick_layout("minimal", has_titel=True)
+
+    def it_accepts_the_corrected_doc_example(self):
+        chart = _make_column_chart()
+        chart.value_axis.has_major_gridlines = False
+
+        chart.apply_quick_layout(
+            {
+                "has_title": True,
+                "title_text": "ARR ($M)",
+                "has_legend": True,
+                "legend_position": "bottom",
+                "has_value_axis_title": True,
+                "value_axis_title_text": "$M",
+                "has_major_gridlines": True,
+                "has_minor_gridlines": False,
+            }
+        )
+
+        assert chart.chart_title.text_frame.text == "ARR ($M)"
+        assert chart.legend.position == XL_LEGEND_POSITION.BOTTOM
+        assert chart.value_axis.axis_title.text_frame.text == "$M"
+        assert chart.value_axis.has_major_gridlines is True
+
+    @pytest.mark.parametrize("name", list(QUICK_LAYOUTS))
+    def it_accepts_every_built_in_preset_as_a_dict(self, name):
+        apply_quick_layout(_make_column_chart(), dict(QUICK_LAYOUTS[name]))

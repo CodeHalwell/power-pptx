@@ -141,7 +141,10 @@ slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *bb) \
     .line_hex("#0D0D0D", weight_pt=1.25)
 ```
 
-`hex_color=None` clears the fill (transparent background).
+`fill_hex(None)` makes the shape transparent: it writes an explicit
+`<a:noFill/>` (same as `fill.background()`), which overrides the theme
+style rather than inheriting from it. `line_hex(None)` likewise removes
+the outline.
 
 ---
 

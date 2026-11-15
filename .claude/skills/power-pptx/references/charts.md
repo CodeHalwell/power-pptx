@@ -137,19 +137,33 @@ chart.apply_quick_layout("minimal")
 chart.apply_quick_layout("dense")
 ```
 
-Custom layouts can be supplied as a dict spec:
+Custom layouts can be supplied as a dict spec. The keys are **flat** —
+there are no nested `"category_axis"` / `"value_axis"` sections:
 
 ```python
 chart.apply_quick_layout({
-    "has_title":       True,
-    "title_text":      "ARR ($M)",
-    "has_legend":      True,
-    "legend_position": "bottom",
-    "category_axis":   {"has_major_gridlines": False},
-    "value_axis":      {"has_major_gridlines": True,
-                        "tick_labels": True},
+    "has_title":             True,
+    "title_text":            "ARR ($M)",
+    "has_legend":            True,
+    "legend_position":       "bottom",
+    "has_value_axis_title":  True,
+    "value_axis_title_text": "$M",
+    "has_major_gridlines":   True,     # value-axis gridlines
+    "has_minor_gridlines":   False,
 })
+
+# or a preset with keyword overrides
+chart.apply_quick_layout("title_legend_bottom", title_text="ARR ($M)")
 ```
+
+All keys: `has_title`, `title_text`, `has_legend`, `legend_position`,
+`legend_in_layout`, `has_category_axis_title`,
+`category_axis_title_text`, `has_value_axis_title`,
+`value_axis_title_text`, `has_major_gridlines`, `has_minor_gridlines`.
+Anything else raises before the chart is touched — `ValueError` in a
+dict, `TypeError` as a keyword — naming the closest valid key. Tick
+labels aren't part of a layout; set `chart.value_axis.tick_labels`
+directly.
 
 Missing keys leave the chart untouched so layouts compose cleanly.
 Charts without category/value axes (e.g. pie) silently skip the
