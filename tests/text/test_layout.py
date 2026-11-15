@@ -93,7 +93,7 @@ class DescribeTextFitter(object):
         predicate = text_fitter._fits_inside_predicate
         result = predicate(point_size)
 
-        _wrap_lines_.assert_called_once_with(text_fitter, line_source_, point_size)
+        _wrap_lines_.assert_called_once_with(text_fitter, line_source_, point_size, fitting=True)
         _rendered_size_.assert_called_once_with("Ty", point_size, text_fitter._font_file)
         assert result is expected_value
 
@@ -310,6 +310,17 @@ class DescribeTextFitterFitting(object):
 
         # -- four lines of five characters at 40pt take 192pt of the 200pt --
         assert size == 40
+
+    def and_it_breaks_a_word_only_at_a_size_where_each_character_fits(self):
+        # -- a character is half an em: "W" is 5pt wide at 10pt, so 10pt is the largest --
+        size = TextFitter.best_fit_font_size("WW", (Pt(5), Pt(100)), 18, None, min_size=6)
+
+        assert size == 10
+
+    def but_it_finds_no_fit_when_not_even_one_character_fits_the_width(self):
+        size = TextFitter.best_fit_font_size("WW", (Pt(5), Pt(100)), 18, None, min_size=12)
+
+        assert size is None
 
     def and_it_never_breaks_a_word_when_told_to_keep_words_whole(self):
         size = TextFitter.best_fit_font_size(

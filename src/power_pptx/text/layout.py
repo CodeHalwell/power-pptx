@@ -160,15 +160,15 @@ class TextFitter(tuple):
             """
             layout = self._layout
             if layout.formats is None:
-                text_lines = self._wrap_lines(self._line_source, point_size)
+                text_lines = self._wrap_lines(self._line_source, point_size, fitting=True)
                 line_counts = None if text_lines is None else (len(text_lines),)
             else:
-                paragraphs = self._wrap_paragraphs(self._line_source, point_size)
+                paragraphs = self._wrap_paragraphs(self._line_source, point_size, fitting=True)
                 line_counts = None if paragraphs is None else [len(p) for p in paragraphs]
             if line_counts is None:
-                # A word is wider than the box at this point size; treat as
-                # "doesn't fit" so the search continues to smaller sizes
-                # rather than crashing.
+                # A word, or even one character, is wider than the box at this
+                # point size; treat as "doesn't fit" so the search continues to
+                # smaller sizes rather than crashing.
                 return False
             line_count = sum(line_counts)
             if layout.max_lines is not None and line_count > layout.max_lines:
@@ -240,7 +240,7 @@ class TextFitter(tuple):
                 height += _paragraph_space(paragraph.space_after, point_size)
         return height
 
-    def _wrap_lines(self, line_source, point_size):
+    def _wrap_lines(self, line_source, point_size, fitting=False):
         """
         Return a sequence of str values representing the text in
         *line_source* wrapped within this fitter when rendered at
@@ -248,14 +248,16 @@ class TextFitter(tuple):
 
         Returns ``None`` when a word in *line_source* is wider than the
         available width at *point_size* and long words are not to be broken,
-        signalling "no-fit" to callers without raising.
+        signalling "no-fit" to callers without raising. With *fitting*, a
+        single character wider than the box is a no-fit too; otherwise it gets
+        a line of its own, drawn past the edge as a renderer draws it.
         """
-        paragraphs = self._wrap_paragraphs(line_source, point_size)
+        paragraphs = self._wrap_paragraphs(line_source, point_size, fitting)
         if paragraphs is None:
             return None
         return [line for lines in paragraphs for line in lines]
 
-    def _wrap_paragraphs(self, line_source, point_size):
+    def _wrap_paragraphs(self, line_source, point_size, fitting=False):
         """The wrapped lines of each paragraph of *line_source*, or ``None`` on no-fit.
 
         Paragraph boundaries (\\n) and soft breaks (\\v) always occupy a line,
@@ -275,21 +277,21 @@ class TextFitter(tuple):
                 letter_spacing = int(formats[index].letter_spacing)
             lines = []
             for units in explicit_lines:
-                unit_lines = self._wrap_units(units, point_size, letter_spacing)
+                unit_lines = self._wrap_units(units, point_size, letter_spacing, fitting)
                 if unit_lines is None:
                     return None
                 lines.extend(unit_lines)
             wrapped.append(lines)
         return wrapped
 
-    def _wrap_units(self, units, point_size, letter_spacing):
+    def _wrap_units(self, units, point_size, letter_spacing, fitting=False):
         """The lines one explicit line of text wraps to, or ``None`` on no-fit.
 
         Each line takes as many whole units as fit this fitter's width; see |_LineBreaker|.
         """
         if not units.ends:
             return [""]
-        return _LineBreaker(self, units, point_size, letter_spacing).lines()
+        return _LineBreaker(self, units, point_size, letter_spacing, fitting).lines()
 
 
 class _LineBreaker(object):
@@ -312,14 +314,17 @@ class _LineBreaker(object):
         "_font_file",
         "_line_width",
         "_break_long_words",
+        "_fitting",
     )
 
-    def __init__(self, fitter, units, point_size, letter_spacing):
+    def __init__(self, fitter, units, point_size, letter_spacing, fitting=False):
         self._units = units
         self._point_size, self._letter_spacing = point_size, letter_spacing
         self._font_file, self._width = fitter._font_file, fitter._width
         self._line_width = fitter._line_width
         self._break_long_words = fitter._layout.break_long_words
+        # -- when choosing a size, a character too wide for the box is no fit --
+        self._fitting = fitting
         self._estimates = units.estimates(point_size, self._font_file, letter_spacing)
         # -- in points, as the estimates are --
         self._budget = self._width / 12700.0
@@ -377,7 +382,8 @@ class _LineBreaker(object):
 
         `last` is the last unit that fits on the line (see `_last_fitting`).
         Returns ``None`` when the line would have to be cut inside a word and
-        long words are kept whole.
+        long words are kept whole, or, when fitting, when not even the line's
+        first character fits.
         """
         units = self._units
         # -- `cut` is the unit the line ends on, or None when no break fits on it --
@@ -390,7 +396,10 @@ class _LineBreaker(object):
         if not self._break_long_words:
             return None
         floor = units.ends[last] if last >= first else begin
-        return _fill(units.text, begin, floor, units.ends[last + 1], self._fits)
+        end = _fill(units.text, begin, floor, units.ends[last + 1], self._fits)
+        if self._fitting and not self._fits(begin, end):
+            return None
+        return end
 
     def _next_line_start(self, end):
         """The first unit and the offset of the line after one that ends at offset `end`."""
