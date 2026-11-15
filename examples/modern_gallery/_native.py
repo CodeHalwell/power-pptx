@@ -59,9 +59,18 @@ def text(s, x, y, w, h, value, size=24, color=INK, bold=False, font=FONT, align=
         anchor="top",
         align=align,
     )
-    shape.text_frame.fit_text(font_family=font, max_size=int(size * 0.75), bold=bold, strict=True)
+    # Fit at the line spacing the text is set in: spacing applied after the
+    # fit would make the lines taller than the box the size was chosen for.
+    line_spacing = 1.12 if bold else 1.25
+    shape.text_frame.fit_text(
+        font_family=font,
+        max_size=int(size * 0.75),
+        bold=bold,
+        strict=True,
+        line_spacing=line_spacing,
+    )
     for p in shape.text_frame.paragraphs:
-        p.line_spacing = 1.12 if bold else 1.25
+        p.line_spacing = line_spacing
         p.space_before = Pt(0)
         p.space_after = Pt(0)
     return shape
