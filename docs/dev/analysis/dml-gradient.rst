@@ -61,7 +61,7 @@ linear gradient in the bottom-to-top direction (90-degrees in UI)::
 **Change angle of linear gradient.**::
 
     >>> fill.gradient_angle
-    270.0
+    90.0
     >>> fill.gradient_angle = 45
     >>> fill.gradient_angle
     45.0

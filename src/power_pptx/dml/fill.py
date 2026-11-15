@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,32 @@ from power_pptx.util import lazyproperty
 if TYPE_CHECKING:
     from power_pptx.enum.dml import MSO_FILL_TYPE
     from power_pptx.oxml.xmlchemy import BaseOxmlElement
+
+
+def _validated_angle(angle: Any) -> float:
+    """Return `angle` as a finite float number of degrees, or raise.
+
+    Raises |TypeError| / |ValueError| the way ``float()`` does for something
+    that is not a number, and |ValueError| for NaN or infinity.
+    """
+    degrees = float(angle)
+    if not math.isfinite(degrees):
+        raise ValueError("gradient angle must be a finite number of degrees, got %r" % (angle,))
+    return degrees
+
+
+def _validated_stop_position(position: Any) -> float:
+    """Return `position` as a float in ``[0.0, 1.0]``, or raise |ValueError|.
+
+    The comparison is written so that NaN, which compares false to
+    everything, is rejected along with out-of-range values.
+    """
+    value = float(position)
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(
+            "gradient stop position must be in range 0.0 to 1.0, got %r" % (position,)
+        )
+    return value
 
 
 def _looks_like_color_value(value: Any) -> bool:
@@ -154,9 +181,10 @@ class FillFormat(object):
 
         The optional ``angle`` keyword sets ``gradient_angle`` after the
         fill has been initialized — symmetric with
-        :meth:`linear_gradient`'s ``angle=`` parameter.  Only meaningful
-        for ``kind="linear"``; passing it with a non-linear ``kind`` is
-        a :class:`ValueError`.
+        :meth:`linear_gradient`'s ``angle=`` parameter, and measured the
+        same way (counter-clockwise; see :attr:`gradient_angle`).  Only
+        meaningful for ``kind="linear"``; passing it with a non-linear
+        ``kind`` is a :class:`ValueError`.
         """
         if kind not in self._GRADIENT_KINDS:
             raise ValueError(
@@ -167,6 +195,8 @@ class FillFormat(object):
             raise ValueError(
                 "angle= is only valid for kind='linear'; got kind=%r" % kind
             )
+        if angle is not None:
+            angle = _validated_angle(angle)
         gradFill = self._xPr.get_or_change_to_gradFill()
         if kind != "linear":
             gradFill.change_to_kind(kind)
@@ -175,7 +205,7 @@ class FillFormat(object):
             gradFill.change_to_kind("linear")
         self._fill = _GradFill(gradFill)
         if angle is not None:
-            self.gradient_angle = float(angle)
+            self.gradient_angle = angle
 
     @property
     def gradient_angle(self):
@@ -184,12 +214,21 @@ class FillFormat(object):
         Read/Write. May be |None|, indicating the angle should be inherited
         from the style hierarchy.
 
-        Angle convention (OOXML)::
+        The angle is measured **counter-clockwise** from the direction
+        pointing right, as angles are in trigonometry, and names the
+        direction in which the gradient runs from its first stop to its
+        last::
 
-              0    →   left-to-right
-              90   →   top-to-bottom
-              180  →   right-to-left
-              270  →   bottom-to-top
+              0    →   left-to-right   (first stop on the left)
+              90   →   bottom-to-top   (first stop at the bottom)
+              180  →   right-to-left   (first stop on the right)
+              270  →   top-to-bottom   (first stop at the top)
+
+        This is the opposite sense to the ``ang`` attribute stored in the
+        XML, which counts clockwise: ``gradient_angle = 90`` is written as
+        ``ang="16200000"`` (270 degrees) and ``gradient_angle = 270`` as
+        ``ang="5400000"`` (90 degrees). For a gradient that runs down the
+        shape use ``270`` (or ``-90``).
 
         Raises |TypeError| when the fill type is not
         MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
@@ -224,9 +263,11 @@ class FillFormat(object):
           ``(color, position)`` pairs (or just colors, in which case
           positions are spread evenly across ``[0.0, 1.0]``).
 
-        *angle* follows the OOXML convention: ``0`` is left-to-right,
-        ``90`` is top-to-bottom, ``180`` is right-to-left, ``270`` is
-        bottom-to-top.
+        *angle* is measured counter-clockwise, as :attr:`gradient_angle`
+        is: ``0`` runs left-to-right, ``90`` bottom-to-top, ``180``
+        right-to-left and ``270`` top-to-bottom, the first stop being where
+        the gradient starts.  So ``linear_gradient(a, b, angle=270)`` puts
+        *a* at the top and *b* at the bottom, and ``angle=90`` the reverse.
 
         Each colour may be an :class:`~power_pptx.dml.color.RGBColor`,
         a 6-digit hex string (with or without leading ``#``), or a
@@ -236,6 +277,9 @@ class FillFormat(object):
         This is a convenience wrapper over the lower-level
         :meth:`gradient` + :attr:`gradient_stops` API; reach for that
         for fine-grained stop manipulation.
+
+        Every stop and the angle are checked before the fill is changed, so
+        a call that raises leaves the existing fill as it was.
         """
         if end is not None:
             # Two-positional-argument form.
@@ -251,14 +295,23 @@ class FillFormat(object):
         if len(pairs) < 2:
             raise ValueError("linear_gradient requires at least two stops")
 
+        # Settle every value before the fill is touched: `gradient()` below
+        # replaces whatever fill the shape had, which a bad stop or angle must
+        # not be allowed to do.  ``replace`` expects ``(position, color)``
+        # while we built ``(color, position)`` to match the public API; flip
+        # the tuples here.
+        angle = _validated_angle(angle)
+        entries = [
+            (
+                _validated_stop_position(position),
+                None if color is None else _GradientStops._coerce_rgb(color),
+            )
+            for color, position in pairs
+        ]
+
         self.gradient("linear")
-        # Defer to the public, atomically-validated GradientStops.replace().
-        # ``replace`` expects ``(position, color)`` while we built
-        # ``(color, position)`` to match the public API; flip the tuples here.
-        # ``replace`` accepts hex strings / RGBColor / 3-tuples natively, so
-        # no extra coercion step is needed.
-        self.gradient_stops.replace([(position, color) for color, position in pairs])
-        self.gradient_angle = float(angle)
+        self.gradient_stops.replace(entries)
+        self.gradient_angle = angle
 
     @property
     def gradient_kind(self):
@@ -413,10 +466,11 @@ class _GradFill(_Fill):
 
         Read/Write. May be |None|, indicating the angle is inherited from the
         style hierarchy. An angle of 0.0 corresponds to a left-to-right
-        gradient. Increasing angles represent clockwise rotation of the line,
-        for example 90.0 represents a top-to-bottom gradient. Raises
-        |TypeError| when the fill type is not MSO_FILL_TYPE.GRADIENT. Raises
-        |ValueError| for a non-linear gradient (e.g. a radial gradient).
+        gradient. Increasing angles represent counter-clockwise rotation of
+        the line, for example 90.0 represents a bottom-to-top gradient and
+        270.0 a top-to-bottom one. Raises |TypeError| when the fill type is
+        not MSO_FILL_TYPE.GRADIENT. Raises |ValueError| for a non-linear
+        gradient (e.g. a radial gradient).
         """
         # ---case 1: gradient path is explicit, but not linear---
         path = self._gradFill.path
@@ -429,10 +483,11 @@ class _GradFill(_Fill):
             return None
 
         # ---case 3: gradient path is explicitly linear---
-        # angle is stored in XML as a clockwise angle, whereas the UI
-        # reports it as counter-clockwise from horizontal-pointing-right.
-        # Since the UI is consistent with trigonometry conventions, we
-        # respect that in the API. An `a:lin` without an `ang` attribute
+        # The angle is stored in XML as a clockwise angle (y grows downward,
+        # so 90 degrees points down the shape). The API has always reported
+        # the counter-clockwise angle from horizontal-pointing-right, the
+        # trigonometric convention, and existing decks depend on that, so
+        # the two are converted here. An `a:lin` without an `ang` attribute
         # (e.g. the default `<a:lin scaled="0"/>` gradient) renders at the
         # effective angle 0.
         clockwise_angle = lin.ang
@@ -581,18 +636,24 @@ class _GradientStops(Sequence):
         * a 3-tuple of integers in ``[0, 255]``.
         * a hex string like ``"3C2F80"`` (with or without leading ``#``).
 
-        Returns the newly-added :class:`_GradientStop`.
+        Returns the newly-added :class:`_GradientStop`. Raises, without
+        adding anything, when `position` is out of range or `color` is not
+        a colour.
         """
+        # -- settle both values first: an `<a:gs>` created and then abandoned
+        # -- has neither its required `pos` nor its required colour
+        position = _validated_stop_position(position)
+        rgb = None if color is None else self._coerce_rgb(color)
         gs = self._gsLst._add_gs()
-        gs.pos = float(position)
+        gs.pos = position
         stop = _GradientStop(gs)
-        if color is None:
+        if rgb is None:
             # Default placeholder color so the emitted `<a:gs>` is valid OOXML
             # (the schema requires a color choice child). Callers can mutate
             # the returned stop's `.color` afterwards.
             stop.color.theme_color = MSO_THEME_COLOR.ACCENT_1
         else:
-            stop.color.rgb = self._coerce_rgb(color)
+            stop.color.rgb = rgb
         return stop
 
     def replace(self, stops):
@@ -605,8 +666,9 @@ class _GradientStops(Sequence):
         copied as-is so non-RGB color choices round-trip without loss.
 
         The new sequence must contain at least 2 entries. The replacement
-        is atomic: if any entry is invalid the existing stops are left
-        untouched.
+        is atomic: if any entry is invalid — a malformed tuple, a position
+        outside ``[0.0, 1.0]``, something that is not a colour — the
+        existing stops are left untouched.
         """
         stops = list(stops)
         if len(stops) < self._MIN_STOP_COUNT:
@@ -614,8 +676,8 @@ class _GradientStops(Sequence):
                 "a gradient must have at least %d stops" % self._MIN_STOP_COUNT
             )
 
-        # Pre-validate every entry so a failure (bad color, malformed tuple)
-        # raises *before* we touch the existing stops.
+        # Pre-validate every entry so a failure (bad color, malformed tuple,
+        # out-of-range position) raises *before* we touch the existing stops.
         validated = []
         for entry in stops:
             if isinstance(entry, _GradientStop):
@@ -628,10 +690,10 @@ class _GradientStops(Sequence):
                     "replace() entries must be (position, color) tuples or "
                     "_GradientStop instances; got %r" % (entry,)
                 ) from e
-            float(position)
+            position = _validated_stop_position(position)
             if color is not None:
-                self._coerce_rgb(color)
-            validated.append(("new", float(position), color))
+                color = self._coerce_rgb(color)
+            validated.append(("new", position, color))
 
         # Mutate only after all entries are validated.
         for gs in self._gs_children:
@@ -649,15 +711,15 @@ class _GradientStops(Sequence):
 
     @staticmethod
     def _coerce_rgb(color):
-        if isinstance(color, RGBColor):
-            return color
-        if isinstance(color, str):
-            return RGBColor.from_hex(color)
-        if isinstance(color, tuple) and len(color) == 3:
-            return RGBColor(*color)
-        raise TypeError(
-            "color must be RGBColor, hex string, 3-tuple, or None; got %r" % type(color)
-        )
+        """Return `color` as an |RGBColor|, by the rules every colour setter uses.
+
+        Raises |ValueError| for a malformed colour (a hex string that is not
+        six digits, a channel outside 0-255) and |TypeError| for something
+        that is not a colour at all.
+        """
+        from power_pptx._color import coerce_color
+
+        return coerce_color(color)
 
 
 class _GradientStop(ElementProxy):

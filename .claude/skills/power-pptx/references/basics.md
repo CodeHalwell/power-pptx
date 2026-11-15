@@ -206,11 +206,15 @@ divider.line.color.alpha = 0.08     # 8% opaque hairline
 ### Two-stop linear gradients
 
 ```python
-bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=90)   # top→bottom
+bar.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top→bottom
 ```
 
-`angle` follows the OOXML convention: `0` is left→right, `90` is
-top→bottom, `180` is right→left, `270` is bottom→top.
+`angle` is **counter-clockwise**, like an angle in maths: `0` runs
+left→right, `90` bottom→top, `180` right→left, `270` (or `-90`)
+top→bottom. The first colour sits where the gradient starts, so
+`angle=270` puts it at the top and `angle=90` at the bottom. (This is
+the reverse of the clockwise `ang` in the XML: `angle=90` is stored as
+`ang="16200000"`.)
 
 → **Multi-stop gradients, gradient kinds, mutable stop lists, and the
 full alpha surface live in `effects.md`** — the canonical fills and

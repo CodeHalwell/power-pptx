@@ -139,6 +139,32 @@ stops::
         (1.0, (255, 255, 255)),
     ])
 
+``replace()`` validates every entry first — position in ``[0.0, 1.0]``,
+a real colour — and leaves the existing stops alone if any is rejected.
+
+A linear gradient takes an angle, either through
+``fill.linear_gradient(start, end, angle=...)`` or
+``fill.gradient_angle``.  The angle is measured **counter-clockwise**,
+as in trigonometry, and gives the direction the gradient runs from its
+first stop to its last:
+
+=========  ==============  ======================
+angle      runs            first colour is at the
+=========  ==============  ======================
+``0``      left to right   left
+``90``     bottom to top   bottom
+``180``    right to left   right
+``270``    top to bottom   top
+=========  ==============  ======================
+
+::
+
+    shape.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)  # top to bottom
+
+This is the reverse of the ``ang`` attribute stored in the XML, which
+counts clockwise: ``angle=90`` is written as ``ang="16200000"`` (270
+degrees).
+
 Picture effects
 ---------------
 

@@ -129,6 +129,30 @@ def _deck_shadow_directions():
     return prs
 
 
+def _deck_gradients():
+    """Gradients at every angle, plus calls that are rejected part-way."""
+    prs = Presentation()
+    slide = _blank_slide(prs)
+    for i, angle in enumerate((0, 90, 180, 270, -90, 360, 359.9999999)):
+        _rect(slide, col=i % 3, row=i // 3).fill.linear_gradient(
+            "#FF0000", "#0000FF", angle=angle
+        )
+
+    # -- a rejected stop or angle must leave a valid fill behind, not an
+    # -- `<a:gs/>` with neither position nor colour
+    sh = _rect(slide, col=1, row=2)
+    sh.fill.gradient()
+    with pytest.raises(ValueError):
+        sh.fill.gradient_stops.replace([(0.0, "#FF0000"), (1.5, "#00FF00")])
+    with pytest.raises(ValueError):
+        sh.fill.gradient_stops.append(-0.5, "#00FF00")
+    with pytest.raises(ValueError):
+        sh.fill.linear_gradient([("#FF0000", -0.2), ("#00FF00", 1.0)])
+    with pytest.raises(ValueError):
+        sh.fill.linear_gradient("#FF0000", "#00F")
+    return prs
+
+
 def _add_chart(slide, chart_type, series_names, row=0, col=0):
     from power_pptx.chart.data import CategoryChartData
 
@@ -181,6 +205,7 @@ def _deck_series_on_secondary_axis():
 _DECK_BUILDERS = {
     "cleared_effects": _deck_cleared_effects,
     "float_effect_lengths": _deck_float_effect_lengths,
+    "gradients": _deck_gradients,
     "rejected_effect_assignments": _deck_rejected_effect_assignments,
     "series_on_secondary_axis": _deck_series_on_secondary_axis,
     "shadow_directions": _deck_shadow_directions,
