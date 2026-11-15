@@ -631,33 +631,32 @@ def _rebind_shape_colors(presentation, palette_map) -> int:
         return 0
 
     # Build a hex-string lookup keyed by uppercase 6-char strings.
-    hex_map: dict[str, str] = {}
-    for (r, g, b), slot in palette_map.items():
-        hex_str = "{:02X}{:02X}{:02X}".format(r, g, b)
-        hex_map[hex_str] = slot.xml_value
+    hex_map: dict[str, str] = {
+        f"{r:02X}{g:02X}{b:02X}": slot.xml_value for (r, g, b), slot in palette_map.items()
+    }
+    return sum(
+        _rebind_srgb_colors(slide._element, hex_map)  # type: ignore[attr-defined]
+        for slide in presentation.slides
+    )
 
-    a_srgbClr = qn("a:srgbClr")
+
+def _rebind_srgb_colors(root, hex_map: dict[str, str]) -> int:
+    """Point each ``<a:srgbClr>`` under *root* whose value is in *hex_map* at its slot.
+
+    The element is retagged in place as ``<a:schemeClr val="<slot>">``, so
+    its alpha/lumMod/etc. modifier children are preserved. Returns the
+    number rebound.
+    """
     a_schemeClr = qn("a:schemeClr")
-
     rebound = 0
-    for slide in presentation.slides:
-        for srgb in slide._element.iter(a_srgbClr):  # type: ignore[attr-defined]
-            val = (srgb.get("val") or "").upper()
-            if val not in hex_map:
-                continue
-            scheme = OxmlElement("a:schemeClr")
-            scheme.set("val", hex_map[val])
-            # Preserve alpha/lumMod/etc. modifier children.
-            for child in list(srgb):
-                scheme.append(child)
-            srgb.tag = a_schemeClr
-            srgb.attrib.clear()
-            srgb.set("val", hex_map[val])
-            for child in list(srgb):
-                srgb.remove(child)
-            for child in list(scheme):
-                srgb.append(child)
-            rebound += 1
+    for srgb in root.iter(qn("a:srgbClr")):
+        val = (srgb.get("val") or "").upper()
+        if val not in hex_map:
+            continue
+        srgb.tag = a_schemeClr
+        srgb.attrib.clear()
+        srgb.set("val", hex_map[val])
+        rebound += 1
     return rebound
 
 
