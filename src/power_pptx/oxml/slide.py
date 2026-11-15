@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from power_pptx.oxml import parse_from_template, parse_xml
 from power_pptx.oxml.dml.fill import CT_GradientFillProperties
@@ -510,7 +510,7 @@ def _same_markup(a, b) -> bool:
     return canonical(a) == canonical(b)
 
 
-def _wrapper_is_sound(ac) -> bool:
+def _wrapper_is_sound(ac: Any) -> bool:
     """True when the transition wrapper *ac* can be written back as it was read.
 
     A wrapper is kept verbatim unless it is one of the known-broken forms, all
@@ -524,27 +524,40 @@ def _wrapper_is_sound(ac) -> bool:
     * the fallback transition holds extension content, which defeats its
       purpose (earlier releases copied a ``p15`` kind into it).
     """
-    transition = _wrapped_transition(ac)
-    choice = transition.getparent()
+    if not _wrapped_kind_is_sound(_wrapped_transition(ac)):
+        return False
+    return not any(
+        _holds_extension_content(fb_transition)
+        for fallback in ac.findall(_mc("Fallback"))
+        for fb_transition in fallback.findall(_p_tag("transition"))
+    )
+
+
+def _wrapped_kind_is_sound(transition: Any) -> bool:
+    """False when the kind of the wrapped *transition* is one a broken wrapper has.
+
+    That is a ``p14:morph``, or an extension kind whose namespace the
+    ``Requires`` of the enclosing ``<mc:Choice>`` does not name.
+    """
     kind = _transition_kind_child(transition)
-    if kind is not None:
-        if kind.tag == "{%s}morph" % _P14_URI:
-            return False
-        kind_uri = _extension_kind_uri(transition)
-        if kind_uri is not None:
-            prefixes = (choice.get("Requires") or "").split()
-            if kind_uri not in {choice.nsmap.get(prefix) for prefix in prefixes}:
-                return False
-    for fallback in ac.findall(_mc("Fallback")):
-        for fb_transition in fallback.findall(_p_tag("transition")):
-            if _has_extension_attr(fb_transition):
-                return False
-            if any(
-                isinstance(child.tag, str) and _namespace_uri(child.tag) != _P_URI
-                for child in fb_transition
-            ):
-                return False
-    return True
+    if kind is None:
+        return True
+    if kind.tag == "{%s}morph" % _P14_URI:
+        return False
+    kind_uri = _extension_kind_uri(transition)
+    if kind_uri is None:
+        return True
+    choice = transition.getparent()
+    prefixes = (choice.get("Requires") or "").split()
+    return kind_uri in {choice.nsmap.get(prefix) for prefix in prefixes}
+
+
+def _holds_extension_content(transition: Any) -> bool:
+    """True when *transition* has an extension attribute or a child outside the ``p:`` namespace."""
+    return _has_extension_attr(transition) or any(
+        isinstance(child.tag, str) and _namespace_uri(child.tag) != _P_URI
+        for child in transition
+    )
 
 
 def slide_has_p14_transition(root) -> bool:
