@@ -324,85 +324,124 @@ def _insets(value):
     return tuple(round(v) for v in values)
 
 
+def _is_finite_positive(value):
+    return math.isfinite(value) and value > 0
+
+
+def _is_finite_non_negative(value):
+    return math.isfinite(value) and value >= 0
+
+
+def _is_positive_int(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def _validate(node, context, names):
     if not isinstance(node, (Container, TextBlock, NativeContent, DataTable)):
         raise TypeError("children must be native Component objects")
     if id(node) in names:
         raise ValueError("Component trees cannot contain cycles or reuse the same instance")
     names.add(id(node))
-    for value in (node.width, node.height):
-        if value is not None and (not math.isfinite(value) or value <= 0):
-            raise ValueError("component dimensions must be finite and positive")
-    if not math.isfinite(node.grow) or node.grow < 0:
-        raise ValueError("grow must be finite and non-negative")
+    _validate_size(node)
     if node.name is not None:
         if node.name in names:
             raise ValueError(f"Duplicate component name: {node.name!r}")
         names.add(node.name)
     if isinstance(node, Container):
-        _insets(node.padding)
-        if (
-            not math.isfinite(node.gap)
-            or node.gap < 0
-            or not math.isfinite(node.radius)
-            or node.radius < 0
-        ):
-            raise ValueError("gap and radius must be non-negative")
-        if node.direction not in {"horizontal", "vertical"}:
-            raise ValueError("direction must be horizontal or vertical")
-        if node.align not in {"start", "center", "end", "stretch"}:
-            raise ValueError("align must be start, center, end, or stretch")
-        if node.justify not in {"start", "center", "end", "space-between"}:
-            raise ValueError("justify must be start, center, end, or space-between")
-        context.color(node.fill)
-        context.color(node.border)
-        if node.fill_last:
-            if node.direction != "vertical":
-                raise ValueError("fill_last applies to vertical containers")
-            if node.children and node.children[-1].height is not None:
-                raise ValueError("fill_last needs a last child without a fixed height")
-        for child in node.children:
-            _validate(child, context, names)
+        _validate_container(node, context, names)
     elif isinstance(node, TextBlock):
-        context.color(node.color)
-        if node.align not in {"left", "center", "right", "justify"}:
-            raise ValueError("invalid text align")
-        if node.anchor not in {"top", "middle", "bottom"}:
-            raise ValueError("invalid text anchor")
-        if node.case not in {None, "upper", "lower"}:
-            raise ValueError("case must be 'upper', 'lower', or None")
-        if not math.isfinite(node.letter_spacing):
-            raise ValueError("letter_spacing must be finite")
-        resolve_weight(node.weight, node.bold)
+        _validate_text(node, context, names)
     elif isinstance(node, DataTable):
-        _validate_table(node, context)
+        _validate_table(node, context, names)
 
 
-def _validate_table(node, context):
+def _validate_size(node):
+    """Check the sizing options every kind of component shares."""
+    for value in (node.width, node.height):
+        if value is not None and not _is_finite_positive(value):
+            raise ValueError("component dimensions must be finite and positive")
+    if not _is_finite_non_negative(node.grow):
+        raise ValueError("grow must be finite and non-negative")
+
+
+def _validate_container(node, context, names):
+    _insets(node.padding)
+    if not (_is_finite_non_negative(node.gap) and _is_finite_non_negative(node.radius)):
+        raise ValueError("gap and radius must be non-negative")
+    if node.direction not in {"horizontal", "vertical"}:
+        raise ValueError("direction must be horizontal or vertical")
+    if node.align not in {"start", "center", "end", "stretch"}:
+        raise ValueError("align must be start, center, end, or stretch")
+    if node.justify not in {"start", "center", "end", "space-between"}:
+        raise ValueError("justify must be start, center, end, or space-between")
+    context.color(node.fill)
+    context.color(node.border)
+    if node.fill_last:
+        _validate_fill_last(node)
+    for child in node.children:
+        _validate(child, context, names)
+
+
+def _validate_fill_last(node):
+    if node.direction != "vertical":
+        raise ValueError("fill_last applies to vertical containers")
+    if node.children and node.children[-1].height is not None:
+        raise ValueError("fill_last needs a last child without a fixed height")
+
+
+def _validate_text(node, context, names):
+    context.color(node.color)
+    if node.align not in {"left", "center", "right", "justify"}:
+        raise ValueError("invalid text align")
+    if node.anchor not in {"top", "middle", "bottom"}:
+        raise ValueError("invalid text anchor")
+    if node.case not in {None, "upper", "lower"}:
+        raise ValueError("case must be 'upper', 'lower', or None")
+    if not math.isfinite(node.letter_spacing):
+        raise ValueError("letter_spacing must be finite")
+    resolve_weight(node.weight, node.bold)
+
+
+def _validate_table(node, context, names):
+    count = _table_column_count(node)
+    if node.columns is not None and (
+        len(node.columns) != count or not all(_is_finite_positive(w) for w in node.columns)
+    ):
+        raise ValueError("DataTable columns must give one positive weight per column")
+    aligns = _column_aligns(node, count)
+    if len(aligns) != count or any(a not in {"left", "center", "right"} for a in aligns):
+        raise ValueError("DataTable align must be left/center/right, once or per column")
+    _validate_cell_text(node)
+    _insets(node.cell_padding)
+    for value in (node.color, node.header_color, node.header_fill, node.fill, node.border):
+        context.color(value)
+
+
+def _table_column_count(node):
+    """The number of columns in a table's rows, which must form a rectangle."""
     if not node.rows or not all(len(row) == len(node.rows[0]) for row in node.rows):
         raise ValueError("DataTable rows must be non-empty and rectangular")
     count = len(node.rows[0])
     if count == 0:
         raise ValueError("DataTable rows need at least one column")
-    if node.columns is not None and (
-        len(node.columns) != count or any(not math.isfinite(w) or w <= 0 for w in node.columns)
-    ):
-        raise ValueError("DataTable columns must give one positive weight per column")
-    aligns = [node.align] * count if isinstance(node.align, str) else list(node.align)
-    if len(aligns) != count or any(a not in {"left", "center", "right"} for a in aligns):
-        raise ValueError("DataTable align must be left/center/right, once or per column")
-    lines = node.max_lines
-    if lines is not None and (isinstance(lines, bool) or not isinstance(lines, int) or lines < 1):
+    return count
+
+
+def _column_aligns(node, count):
+    """One alignment per column, from a single value or a per-column sequence."""
+    return [node.align] * count if isinstance(node.align, str) else list(node.align)
+
+
+def _validate_cell_text(node):
+    """Check the options that size and cut the text in a table's cells."""
+    if node.max_lines is not None and not _is_positive_int(node.max_lines):
         raise ValueError("max_lines must be a positive integer or None")
     if node.truncate and node.max_lines is None:
         raise ValueError("truncate=True needs max_lines")
-    if isinstance(node.size_pt, bool) or not isinstance(node.size_pt, int) or node.size_pt < 1:
+    if not _is_positive_int(node.size_pt):
         raise ValueError("size_pt must be a positive integer")
-    if not math.isfinite(node.line_spacing) or node.line_spacing <= 0:
+    if not _is_finite_positive(node.line_spacing):
         raise ValueError("line_spacing must be finite and positive")
-    _insets(node.cell_padding)
-    for value in (node.color, node.header_color, node.header_fill, node.fill, node.border):
-        context.color(value)
 
 
 def _table_layout(node, width, context):
@@ -917,7 +956,7 @@ def _draw_table(node, plan, slide, context):
     for row, height in zip(table.rows, layout.heights):
         row.height = Emu(height)
     t, r, b, left_pad = _insets(node.cell_padding)
-    aligns = [node.align] * count if isinstance(node.align, str) else list(node.align)
+    aligns = _column_aligns(node, count)
     for row_index, row_lines in enumerate(layout.lines):
         is_header = node.header and row_index == 0
         for column, lines in enumerate(row_lines):
