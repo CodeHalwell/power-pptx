@@ -93,6 +93,7 @@ def add_plotly_figure(
     backend: str = "auto",
     browser_path: str | os.PathLike[str] | None = None,
     timeout_ms: int = 15000,
+    allow_network: bool = True,
 ) -> "Picture":
     """Render a Plotly ``Figure`` and embed the result on *slide*.
 
@@ -126,6 +127,12 @@ def add_plotly_figure(
     a browser-rendered PNG companion and needs no CairoSVG. Explicit formats
     are respected by both backends. Browser readiness waits for Plotly's
     post-render callback, decoded images, and fonts.
+
+    *allow_network* applies to the browser backend, whose page is
+    self-contained. ``False`` captures it with network access blocked, so a
+    figure that needs a remote resource (map tiles, a logo by URL) fails with
+    a :class:`ValueError` naming the request instead of fetching it — the
+    setting to use for figures built from data you do not control.
     """
     if backend not in {"auto", "kaleido", "browser"}:
         raise ValueError("backend must be 'auto', 'kaleido', or 'browser'")
@@ -163,6 +170,7 @@ def add_plotly_figure(
             height_px=height_px,
             browser_path=browser_path,
             timeout_ms=timeout_ms,
+            allow_network=allow_network,
         )
     except Exception as exc:
         if failure is not None:
@@ -208,6 +216,7 @@ def _plotly_browser_capture(
     height_px,
     browser_path,
     timeout_ms,
+    allow_network=True,
 ):
     if not callable(getattr(figure, "to_html", None)):
         raise TypeError("Plotly browser backend requires a Plotly Figure exposing to_html()")
@@ -255,6 +264,7 @@ def _plotly_browser_capture(
         browser_path=browser_path,
         timeout_ms=timeout_ms,
         export_script=export_script,
+        allow_network=allow_network,
     )[0]
     return capture, w, h
 
@@ -416,6 +426,7 @@ def add_html_figure(
     omit_background: bool = False,
     browser_path: str | os.PathLike[str] | None = None,
     fit: str = "contain",
+    allow_network: bool = True,
 ) -> "Picture":
     """Render an HTML snippet to a screenshot via Playwright and embed it.
 
@@ -426,9 +437,16 @@ def add_html_figure(
     image export.
 
     *html* may be raw markup, UTF-8 ``bytes``, or a local ``.html`` path.
-    File inputs preserve relative CSS, font, and image paths. External
-    URLs (``<img src="https://...">``) are loaded as long as the
+    File inputs preserve relative CSS, font, and image paths: the document's
+    directory is served on a loopback port for the duration of the capture —
+    only the files that really live under it, with no directory listings.
+    External URLs (``<img src="https://...">``) are loaded as long as the
     process has network access.
+
+    Rendering HTML means running it. When the markup comes from a model or a
+    user, pass ``allow_network=False``: the page may then load only ``data:``
+    URLs and its own loopback document, and a capture that tries anything
+    else fails with a :class:`ValueError` listing the blocked requests.
 
     *viewport* sizes the headless browser canvas in CSS pixels;
     *device_scale_factor* renders at the equivalent of a retina
@@ -441,7 +459,8 @@ def add_html_figure(
     *wait_for_function* for asynchronous chart/application readiness.
     CSS animations are disabled in the screenshot. *omit_background*
     preserves transparency. *browser_path* (or ``POWER_PPTX_CHROMIUM``)
-    selects an installed Chromium instead of Playwright's managed browser.
+    selects an installed Chromium instead of Playwright's managed browser;
+    it names an executable to run, so never take it from untrusted input.
 
     *fit* is ``"contain"`` (preserve aspect ratio inside the requested box),
     ``"cover"`` (crop to fill it), or ``"stretch"``. Without geometry,
@@ -465,6 +484,7 @@ def add_html_figure(
         wait_for_function=wait_for_function,
         omit_background=omit_background,
         browser_path=browser_path,
+        allow_network=allow_network,
     )
     return _embed_html_png(
         slide,
@@ -490,6 +510,7 @@ def _html_to_png(
     wait_for_function: str | None = None,
     omit_background: bool = False,
     browser_path: str | os.PathLike[str] | None = None,
+    allow_network: bool = True,
 ) -> bytes:
     return capture_html(
         html,
@@ -502,6 +523,7 @@ def _html_to_png(
         wait_for_function=wait_for_function,
         omit_background=omit_background,
         browser_path=browser_path,
+        allow_network=allow_network,
     )[0].png
 
 

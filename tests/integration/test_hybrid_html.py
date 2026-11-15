@@ -123,6 +123,16 @@ def test_hybrid_table_merges_and_styles_remain_editable(browser_path):
             '<div class="chart" data-pptx="chart" style="border-radius:12px">Chart</div>',
             "decorations",
         ),
+        # A solid fill or outline on a chart region has no native counterpart
+        # either; dropping it silently changed the slide's look.
+        (
+            '<div class="chart" data-pptx="chart" style="background-color:#ffffff">Chart</div>',
+            "chart decorations .background colour, border.",
+        ),
+        (
+            '<div class="chart" data-pptx="chart" style="border:1px solid #c5cfdc">Chart</div>',
+            "chart decorations .background colour, border.",
+        ),
         ('<h1 data-pptx="text"><span style="letter-spacing:2px">Wide</span></h1>', "decorations"),
         ('<h1 data-pptx="text" style="font-family:MissingFontXYZ">Font</h1>', "not installed"),
         (

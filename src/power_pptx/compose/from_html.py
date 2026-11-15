@@ -25,18 +25,21 @@ def from_html(
     wait_until: str = "load",
     wait_for_function: str | None = None,
     timeout_ms: int = 15000,
-    browser_path: str | None = None,
+    browser_path: str | os.PathLike[str] | None = None,
     mode: str = "capture",
     font_map: dict[str, str] | None = None,
     strict_fonts: bool = True,
     reference_dir: str | os.PathLike[str] | None = None,
+    allow_network: bool = True,
 ) -> Presentation:
     """Return a deck with one browser-rendered picture per HTML section.
 
     Accepts markup, UTF-8 bytes, or a local HTML path (relative assets work).
     Matching elements are captured in DOM order using one browser session.
     Use fixed-size sections, e.g. ``<section data-slide style="width:1280px;
-    height:720px">...``. ``selector=None`` makes one viewport slide.
+    height:720px">...``. ``selector=None`` makes one viewport slide. A
+    document with no element matching *selector* is reported as such, at
+    once, rather than after the timeout.
 
     Captures preserve CSS, inline SVG, and browser-rendered charts as static
     images. They do not become editable PowerPoint text/shapes. Visible text
@@ -48,7 +51,15 @@ def from_html(
     or ``stretch`` explicitly. Container overflow raises by default.
 
     Requires ``pip install 'power-pptx[html]'`` and
-    ``python -m playwright install chromium``.
+    ``python -m playwright install chromium``. The capture is synchronous;
+    from a thread running an asyncio event loop (a notebook, an async
+    handler) call it with ``await asyncio.to_thread(from_html, ...)``.
+
+    Rendering HTML runs it. For a document you did not write, pass
+    ``allow_network=False``: the page may then load only ``data:`` URLs and
+    its own loopback document, and a capture that asks for anything else
+    raises :class:`ValueError` naming the blocked requests. *browser_path*
+    names an executable to launch and must never come from untrusted input.
 
     ``mode="hybrid"`` converts explicit ``data-pptx="text|chart|table"``
     regions into editable native objects and captures ``data-pptx="capture"``
@@ -85,6 +96,7 @@ def from_html(
         wait_for_function=wait_for_function,
         timeout_ms=timeout_ms,
         browser_path=browser_path,
+        allow_network=allow_network,
         **capture_options,
     )
     if mode == "hybrid":

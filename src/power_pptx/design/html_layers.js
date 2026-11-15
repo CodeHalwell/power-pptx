@@ -37,6 +37,11 @@ root => {
             if (kind!=='text') {
                 if (s.backgroundImage!=='none' || parseFloat(s.borderRadius)>0)
                     fail('native chart/table decorations require an unmarked parent or capture');
+                // A native chart is drawn without a fill or outline of its own, so a
+                // background colour or border on the region would vanish from the slide.
+                if (kind==='chart' && (s.backgroundColor!=='rgba(0, 0, 0, 0)' ||
+                    ['Top','Right','Bottom','Left'].some(edge=>parseFloat(s['border'+edge+'Width'])>0)))
+                    fail('native chart decorations (background colour, border) require an unmarked parent or capture');
                 for(let a=el;a && a!==root.parentElement;a=a.parentElement)
                     if(parseFloat(getComputedStyle(a).opacity)!==1)
                         fail('native chart/table opacity requires capture');
