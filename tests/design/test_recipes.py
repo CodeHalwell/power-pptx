@@ -25,7 +25,7 @@ from power_pptx.design.recipes import (
 from power_pptx.design.tokens import DesignTokens
 from power_pptx.dml.color import RGBColor
 from power_pptx.enum.shapes import MSO_SHAPE_TYPE
-from power_pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from power_pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from power_pptx.text import clear_registered_fonts, register_font_dir
 from power_pptx.util import Inches, Pt
 from power_pptx.validation import iter_schema_violations
@@ -1637,3 +1637,318 @@ class DescribeRecipeDeckRoundTrip:
 
     def it_validates_against_the_schema(self):
         assert _schema_violations(self._deck()) == []
+
+
+# ---------------------------------------------------------------------------
+# Input handling and fallbacks: the branches each recipe takes on unusual input
+# ---------------------------------------------------------------------------
+
+
+def _chart(slide):
+    return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART).chart
+
+
+def _table(slide):
+    return next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
+
+
+_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
+    '<rect width="200" height="100" fill="#3C2F80"/></svg>'
+)
+
+
+class DescribeChartSlideInputs:
+    """`chart_slide` validates series values and degrades gracefully on styling."""
+
+    @pytest.mark.parametrize(
+        ("values", "kind"), [("123", "str"), (5, "int"), ({"a": 1}, "dict")]
+    )
+    def it_rejects_series_values_that_are_not_a_list(self, prs, values, kind):
+        with pytest.raises(
+            ValueError, match=rf"series\[0\] 'values' must be a list of numbers, got {kind}$"
+        ):
+            chart_slide(
+                prs, title="t", categories=["a"], series=[{"name": "s", "values": values}]
+            )
+        assert len(prs.slides) == 0
+
+    def it_rejects_series_values_that_are_not_numbers(self, prs):
+        with pytest.raises(
+            ValueError,
+            match=r"series\[1\] 'values' must be numbers or None: could not convert",
+        ):
+            chart_slide(
+                prs, title="t", categories=["a", "b"],
+                series=[{"name": "s", "values": [1, 2]}, {"name": "u", "values": [1, "x"]}],
+            )
+        assert len(prs.slides) == 0
+
+    def it_colours_pie_slices_by_category(self, prs):
+        slide = chart_slide(
+            prs, title="t", chart_type="pie", categories=["a", "b", "c"],
+            series=[{"name": "s", "values": [1, 2, 3]}],
+            chart_palette=["#FF0000", "#00FF00", "#0000FF"],
+        )
+
+        points = _chart(slide).plots[0].series[0].points
+        assert [str(p.format.fill.fore_color.rgb) for p in points] == [
+            "FF0000", "00FF00", "0000FF"
+        ]
+
+    @pytest.mark.parametrize("chart_type", ["column", "doughnut"])
+    def it_keeps_the_default_colours_when_the_palette_is_unknown(self, prs, chart_type):
+        slide = chart_slide(
+            prs, title="t", chart_type=chart_type, categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}], chart_palette="no-such-palette",
+        )
+
+        series = _chart(slide).plots[0].series[0]
+        assert series.format.fill.type is None
+        assert [p.format.fill.type for p in series.points] == [None, None]
+
+    @pytest.mark.parametrize("data_labels", [True, False])
+    def it_turns_data_labels_on_for_every_plot_only_when_asked(self, prs, data_labels):
+        slide = chart_slide(
+            prs, title="t", chart_type="column", categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}], data_labels=data_labels,
+        )
+
+        assert [p.has_data_labels for p in _chart(slide).plots] == [data_labels]
+
+    def it_smooths_line_marker_charts_but_leaves_other_types_alone(self, prs):
+        line = chart_slide(
+            prs, title="t", chart_type="line_markers", categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}], smooth=True,
+        )
+        area = chart_slide(
+            prs, title="t", chart_type="area", categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}], smooth=True,
+        )
+
+        assert [s.smooth for s in _chart(line).series] == [True]
+        assert "smooth" not in _chart(area)._chartSpace.xml
+
+
+class DescribeTableSlideInputs:
+    """`table_slide` rejects malformed rows and widths before building anything."""
+
+    def it_rejects_a_single_string_as_columns(self, prs):
+        with pytest.raises(ValueError, match="columns must be a list of header strings"):
+            table_slide(prs, title="t", columns="abc", rows=[])
+
+    @pytest.mark.parametrize(("row", "kind"), [("abc", "str"), ({"a": 1}, "dict"), (5, "int")])
+    def it_rejects_a_row_that_is_not_a_list(self, prs, row, kind):
+        with pytest.raises(
+            ValueError, match=rf"rows\[1\] must be a list with one value per column, got {kind}"
+        ):
+            table_slide(prs, title="t", columns=["a"], rows=[["x"], row])
+        assert len(prs.slides) == 0
+
+    def it_pads_a_short_row_with_empty_cells(self, prs):
+        slide = table_slide(prs, title="t", columns=["a", "b", "c"], rows=[[1]])
+
+        table = _table(slide)
+        assert [table.cell(1, c).text_frame.text for c in range(3)] == ["1", "", ""]
+
+    @pytest.mark.parametrize("widths", [5, "123"])
+    def it_rejects_widths_that_are_not_a_list(self, prs, widths):
+        with pytest.raises(ValueError, match="widths must be a list of numbers or Length values"):
+            table_slide(prs, title="t", columns=["a", "b"], rows=[], widths=widths)
+
+    def it_says_how_many_wrapped_rows_fit_when_the_table_overflows(self, prs, outfit_tokens):
+        long_note = "a longer note that has to wrap in a narrow column " * 2
+
+        # one line per row would fit; it is the wrapping that overflows
+        with pytest.raises(
+            ValueError, match="10 rows do not fit on the slide at the 9pt minimum; 8 fit"
+        ):
+            table_slide(
+                prs, title="t", columns=["Key", "Note"], rows=[["A", long_note]] * 10,
+                widths=[3, 1], tokens=outfit_tokens,
+            )
+        assert len(prs.slides) == 0
+
+    @pytest.mark.parametrize("banded", [True, False])
+    def it_tints_every_other_row_only_when_banded(self, prs, tokens, banded):
+        from power_pptx.enum.dml import MSO_FILL_TYPE
+
+        slide = table_slide(
+            prs, title="t", columns=["a"], rows=[[1], [2], [3]], banded=banded, tokens=tokens
+        )
+
+        table = _table(slide)
+        fills = [table.cell(r, 0).fill.type for r in (1, 2, 3)]
+        tinted = MSO_FILL_TYPE.SOLID if banded else MSO_FILL_TYPE.BACKGROUND
+        assert fills == [tinted, MSO_FILL_TYPE.BACKGROUND, tinted]
+        if banded:
+            assert table.cell(1, 0).fill.fore_color.rgb == RGBColor(0xF4, 0xF2, 0xFB)
+
+    def it_aligns_columns_past_the_end_of_aligns_to_the_left(self, prs):
+        slide = table_slide(
+            prs, title="t", columns=["a", "b", "c"], rows=[[1, 2, 3]],
+            aligns=[PP_ALIGN.RIGHT, "Center"],
+        )
+
+        table = _table(slide)
+        assert [table.cell(1, c).text_frame.paragraphs[0].alignment for c in range(3)] == [
+            PP_ALIGN.RIGHT, PP_ALIGN.CENTER, PP_ALIGN.LEFT
+        ]
+
+
+class DescribeCodeSlideHighlighting:
+    """Syntax highlighting maps Pygments tokens to colours and falls back to plain text."""
+
+    def it_falls_back_to_plain_text_for_an_unknown_language(self, prs):
+        slide = code_slide(prs, title="t", code="x = 1\ny = 2", language="no-such-language")
+
+        paras = _code_box(slide).text_frame.paragraphs
+        assert [[r.text for r in p.runs] for p in paras] == [["x = 1"], ["y = 2"]]
+        assert len({r.font.color.rgb for p in paras for r in p.runs}) == 1
+
+    def it_splits_highlighted_runs_at_newlines_inside_a_token(self):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        lines = _pygments_highlight("const a = `x\ny`;\n", "javascript", dark=False)
+
+        assert [[text for text, _ in line] for line in lines] == [
+            ["const", " ", "a", " ", "=", " ", "`", "x"], ["y", "`", ";"], []
+        ]
+        template = RGBColor(0xA3, 0x15, 0x15)  # light-panel string colour
+        assert lines[0][-1] == ("x", template)
+        assert lines[1][0] == ("y", template)
+
+    @pytest.mark.parametrize(
+        ("dark", "string"),
+        [(True, RGBColor(0xCE, 0x91, 0x78)), (False, RGBColor(0xA3, 0x15, 0x15))],
+    )
+    def it_colours_a_token_by_its_nearest_mapped_ancestor(self, dark, string):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        lines = _pygments_highlight("s = 'a'\n", "python", dark=dark)
+
+        # String.Single has no entry of its own and takes String's colour;
+        # an operator maps to None, the plain-text colour.
+        assert lines[0] == [
+            ("s", None), (" ", None), ("=", None), (" ", None),
+            ("'", string), ("a", string), ("'", string),
+        ]
+
+    @pytest.mark.parametrize("language", [None, "", "no-such-language"])
+    def it_returns_none_without_a_usable_language(self, language):
+        from power_pptx.design.recipes import _pygments_highlight
+
+        assert _pygments_highlight("x = 1", language) is None
+
+    def it_returns_none_when_pygments_is_not_installed(self, monkeypatch):
+        import sys
+
+        from power_pptx.design.recipes import _pygments_highlight
+
+        monkeypatch.setitem(sys.modules, "pygments", None)
+
+        assert _pygments_highlight("x = 1", "python") is None
+
+    def it_returns_none_when_lexing_fails(self, monkeypatch):
+        import pygments
+
+        from power_pptx.design.recipes import _pygments_highlight
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("lexer failure")
+
+        monkeypatch.setattr(pygments, "lex", explode)
+
+        assert _pygments_highlight("x = 1", "python") is None
+
+
+class DescribeTimelineSlideLabels:
+    """Milestone labels share one size, and empty parts are left out."""
+
+    _LONG = "General availability and pricing launch across every region we serve "
+
+    def _label_runs(self, slide):
+        return [
+            [(r.text, r.font.size) for p in box.text_frame.paragraphs for r in p.runs]
+            for box in _text_boxes(slide)[1:]
+        ]
+
+    def it_sets_every_label_to_the_size_the_longest_needs(self, prs, outfit_tokens):
+        slide = timeline_slide(
+            prs, title="t", tokens=outfit_tokens,
+            milestones=[
+                {"date": "Q1", "label": "Alpha"},
+                {"date": "Q2", "label": self._LONG * 4},
+                {"label": "GA"},
+            ],
+        )
+
+        runs = self._label_runs(slide)
+        assert [[text[:5] for text, _ in box] for box in runs] == [
+            ["Q1", "Alpha"], ["Q2", "Gener"], ["GA"]
+        ]
+        assert {size for box in runs for _, size in box} == {Pt(12)}  # body is 16pt
+        assert all(
+            box.text_frame.auto_size != MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            for box in _text_boxes(slide)[1:]
+        )
+
+    def it_sets_the_minimum_and_autofit_when_a_label_cannot_fit(self, prs, outfit_tokens):
+        slide = timeline_slide(
+            prs, title="t", tokens=outfit_tokens,
+            milestones=[{"date": "Q1", "label": self._LONG * 10}, {"label": "Beta"}],
+        )
+
+        runs = self._label_runs(slide)
+        assert {size for box in runs for _, size in box} == {Pt(9)}
+        assert all(
+            box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+            for box in _text_boxes(slide)[1:]
+        )
+
+    def it_draws_a_marker_but_no_label_for_an_empty_milestone(self, prs):
+        slide = timeline_slide(
+            prs, title="t", milestones=[{"label": "a"}, {"label": ""}, {"label": "c"}]
+        )
+
+        assert len(_autoshapes(slide)) == 4  # rail + three markers
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["a"], ["c"]
+        ]
+
+    def it_leaves_out_an_empty_date(self, prs):
+        slide = timeline_slide(
+            prs, title="t",
+            milestones=[{"label": "a", "date": None}, {"label": "b", "date": ""}],
+        )
+
+        assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
+            ["a"], ["b"]
+        ]
+
+
+class DescribeFigureSlideSources:
+    """`figure_slide` embeds SVG from a path or a text-returning reader."""
+
+    def _svg_picture(self, slide):
+        picture = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+        assert "svgBlip" in picture.element.xml
+        return picture
+
+    def it_embeds_an_svg_file_by_path(self, prs, tmp_path):
+        path = tmp_path / "figure.svg"
+        path.write_text(_SVG)
+
+        slide = figure_slide(prs, title="t", figure=str(path))
+
+        picture = self._svg_picture(slide)
+        assert picture.width / picture.height == pytest.approx(2.0, rel=1e-3)
+
+    def it_reads_a_file_like_object_that_returns_text(self, prs):
+        class Reader:
+            def read(self):
+                return _SVG
+
+        slide = figure_slide(prs, title="t", figure=Reader())
+
+        self._svg_picture(slide)

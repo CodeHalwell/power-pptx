@@ -452,6 +452,136 @@ class DescribeDecisionTreeRouting:
         assert slide._element.xml == before
 
 
+class DescribeDecisionTreeInputs:
+    def it_rejects_an_empty_branch_list(self, slide):
+        before = slide._element.xml
+
+        with pytest.raises(ValueError, match="branches must be non-empty"):
+            decision_tree(slide, BBox.from_inches(1, 1, 8, 5), root="Q?", branches=[])
+        assert slide._element.xml == before
+
+    def it_rejects_a_branch_that_is_neither_text_nor_a_dict(self, slide):
+        before = slide._element.xml
+
+        with pytest.raises(TypeError, match="branches items must be str or dict; got int"):
+            decision_tree(slide, BBox.from_inches(1, 1, 8, 5), root="Q?", branches=["Yes", 5])
+        # the root card was already on the slide; it is removed again
+        assert slide._element.xml == before
+
+    def it_reads_child_labels_from_text_or_a_dict(self, slide):
+        result = decision_tree(
+            slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+            branches=[{"label": "B", "children": ["text", {"label": "dict"}, {"other": 1}]}],
+        )
+
+        assert [b.text_frame.text for b in result.branches] == ["B", "text", "dict", ""]
+
+    def it_gives_a_childless_branch_its_whole_column(self, slide):
+        result = decision_tree(
+            slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+            branches=[{"label": "A"}, {"label": "B", "children": ["c"]}],
+        )
+
+        a, b = result.branches[:2]
+        assert a.top == b.top
+        assert a.height > b.height
+        # A: root arrow only; B: root arrow, rail, one child arrow
+        assert len(result.arrows) == 1 + 3
+
+
+class DescribeHubAndSpokeStyling:
+    def it_styles_the_hub_and_each_spoke(self, slide, outfit):
+        from power_pptx._color import coerce_color
+        from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
+
+        result = hub_and_spoke(
+            slide, BBox.from_inches(0, 0, 8, 6), centre="Core",
+            spokes=["A", {"label": "B", "fill": "#EEEEEE", "text_color": "#112233"}],
+            font=outfit, accent="#0B5CFF", fill="#FFFFFF", text_color="#0D0D0D",
+            hub_text_color="#FAFAFA",
+        )
+
+        hub_run = result.hub.text_frame.paragraphs[0].runs[0]
+        assert result.hub.fill.fore_color.rgb == coerce_color("#0B5CFF")
+        assert (hub_run.font.name, hub_run.font.bold) == ("Outfit", True)
+        assert hub_run.font.color.rgb == coerce_color("#FAFAFA")
+        a, b = result.spokes
+        assert [s.fill.fore_color.rgb for s in (a, b)] == [
+            coerce_color("#FFFFFF"), coerce_color("#EEEEEE")
+        ]
+        assert [s.line.color.rgb for s in (a, b)] == [coerce_color("#0B5CFF")] * 2
+        runs = [s.text_frame.paragraphs[0].runs[0] for s in (a, b)]
+        assert [r.font.color.rgb for r in runs] == [
+            coerce_color("#0D0D0D"), coerce_color("#112233")
+        ]
+        assert {r.font.name for r in runs} == {"Outfit"}
+        for node in (result.hub, a, b):
+            assert node.text_frame.vertical_anchor == MSO_VERTICAL_ANCHOR.MIDDLE
+            assert node.text_frame.paragraphs[0].alignment == PP_PARAGRAPH_ALIGNMENT.CENTER
+
+    def it_points_each_arrow_from_the_hub_edge_to_the_spoke_edge(self, slide):
+        result = hub_and_spoke(
+            slide, BBox.from_inches(0, 0, 8, 6), centre="Core", spokes=["A", "B", "C"]
+        )
+
+        hub = result.hub
+        hub_r = hub.width / 2
+        hub_c = (hub.left + hub_r, hub.top + hub_r)
+        for spoke, arrow in zip(result.spokes, result.arrows):
+            spoke_r = spoke.width / 2
+            spoke_c = (spoke.left + spoke_r, spoke.top + spoke_r)
+            begin, end = (arrow.begin_x, arrow.begin_y), (arrow.end_x, arrow.end_y)
+            assert hub_r < math.dist(begin, hub_c) < hub_r + Pt(3)
+            assert spoke_r < math.dist(end, spoke_c) < spoke_r + Pt(3)
+
+
+class DescribeComparisonColumnsInputs:
+    def it_rejects_an_empty_column_list(self, slide):
+        with pytest.raises(ValueError, match="columns must be non-empty"):
+            comparison_columns(slide, BBox.from_inches(0, 0, 8, 4), columns=[])
+
+    def it_takes_a_bare_string_as_a_title_over_an_empty_body(self, slide):
+        result = comparison_columns(
+            slide, BBox.from_inches(0, 0, 8, 4),
+            columns=["Only a title", {"title": "T", "body": ["a", "b"]}, {"body": "c"}],
+        )
+
+        assert [h.text_frame.text for h in result.headers] == ["Only a title", "T", ""]
+        assert [c.text_frame.text for c in result.columns] == ["", "a\nb", "c"]
+
+    @pytest.mark.parametrize(("gap", "expected"), [(None, Pt(12)), (int(Inches(1)), Inches(1))])
+    def it_spaces_the_columns_by_the_gap(self, slide, gap, expected):
+        result = comparison_columns(
+            slide, BBox.from_inches(0, 0, 8, 4), columns=["a", "b"], gap=gap
+        )
+
+        first, second = result.headers
+        assert second.left - (first.left + first.width) == pytest.approx(expected, abs=2)
+
+    def it_names_the_body_font_when_one_is_given(self, slide, outfit):
+        result = comparison_columns(
+            slide, BBox.from_inches(0, 0, 8, 4), columns=[{"title": "T", "body": "text"}],
+            font=outfit,
+        )
+
+        assert result.columns[0].text_frame.paragraphs[0].runs[0].font.name == "Outfit"
+
+    def it_keeps_the_body_size_when_the_fit_fails(self, slide, monkeypatch):
+        from power_pptx.text.text import TextFrame
+
+        def fail(self, *args, **kwargs):
+            raise ValueError("cannot fit")
+
+        monkeypatch.setattr(TextFrame, "fit_text", fail)
+
+        result = comparison_columns(
+            slide, BBox.from_inches(0, 0, 8, 4), columns=[{"title": "T", "body": "text"}],
+            body_size_pt=12,
+        )
+
+        assert result.columns[0].text_frame.paragraphs[0].runs[0].font.size == Pt(12)
+
+
 class DescribeDiagramDeckRoundTrip:
     def _deck(self):
         prs = Presentation()

@@ -474,6 +474,109 @@ class DescribeOverrideKeys:
         with pytest.raises(ValueError, match="token overrides must be a mapping"):
             DesignTokens.from_preset("modern_light").with_overrides(["palette.primary"])
 
+    def it_checks_the_category_before_the_depth(self):
+        with pytest.raises(ValueError, match="unknown override category 'nope'"):
+            DesignTokens().with_overrides({"nope.a.b.c": 1})
+
+    @pytest.mark.parametrize("key", ["palette.primary.red", "radii.md.unit", "spacings.sm.x"])
+    def it_rejects_a_sub_field_outside_typography_and_shadows(self, key):
+        with pytest.raises(
+            ValueError,
+            match=rf"sub-field override '{key}' only supported on typography and shadows",
+        ):
+            DesignTokens.from_preset("modern_light").with_overrides({key: 1})
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            ({1: "#FF0000"}, "override keys must be non-empty strings; got 1$"),
+            ({"": "#FF0000"}, "override keys must be non-empty strings; got ''$"),
+            (
+                {"palette": {2: "#FF0000"}},
+                "override keys must be non-empty strings; got 2 under 'palette'$",
+            ),
+            (
+                {"typography": {"heading": {"": 1}}},
+                "got '' under 'typography.heading'$",
+            ),
+        ],
+    )
+    def it_rejects_keys_that_are_not_non_empty_strings(self, overrides, message):
+        with pytest.raises(ValueError, match=message):
+            DesignTokens().with_overrides(overrides)
+
+
+class DescribeWithOverridesSlots:
+    """A slot given a token replaces it; a mapping merges field by field."""
+
+    def it_merges_a_mapping_for_a_typography_slot_into_the_existing_token(self):
+        base = DesignTokens.from_preset("modern_light")
+
+        tokens = base.with_overrides({"typography.heading": {"family": "Arial", "size": 9}})
+
+        assert base.typography["heading"].bold is True
+        assert tokens.typography["heading"] == TypographyToken(
+            family="Arial", size=Pt(9), bold=True
+        )
+
+    def it_replaces_a_typography_slot_from_a_token_or_a_family_name(self):
+        token = TypographyToken(family="Inter", bold=True)
+
+        tokens = DesignTokens().with_overrides(
+            {"typography": {"heading": token, "body": "Georgia"}}
+        )
+
+        assert tokens.typography["heading"] is token
+        assert tokens.typography["body"] == TypographyToken(family="Georgia")
+
+    def it_builds_a_new_shadow_slot_from_a_mapping_and_takes_a_token_whole(self):
+        token = ShadowToken(distance=Pt(1))
+
+        tokens = DesignTokens().with_overrides(
+            {"shadows.card": {"blur_radius": 4}, "shadows": {"lift": token}}
+        )
+
+        assert tokens.shadows["card"] == ShadowToken(blur_radius=Pt(4))
+        assert tokens.shadows["lift"] is token
+
+    @pytest.mark.parametrize(
+        ("key", "error"), [("typography.heading", TypeError), ("shadows.card", TypeError)]
+    )
+    def it_rejects_a_slot_value_it_cannot_build_a_token_from(self, key, error):
+        with pytest.raises(error, match=rf"{key}: cannot build"):
+            DesignTokens().with_overrides({key: 5})
+
+    def it_starts_a_new_typography_slot_from_calibri_for_a_field_override(self):
+        tokens = DesignTokens().with_overrides({"typography.caption.size": 9})
+
+        assert tokens.typography["caption"] == TypographyToken(family="Calibri", size=Pt(9))
+
+    def it_starts_a_new_shadow_slot_from_the_defaults_for_a_field_override(self):
+        tokens = DesignTokens().with_overrides({"shadows.card.blur": 6})
+
+        assert tokens.shadows["card"] == ShadowToken(blur_radius=Pt(6))
+
+    def it_merges_a_field_into_an_existing_shadow(self):
+        base = DesignTokens().with_overrides({"shadows.card": {"distance": 2}})
+
+        tokens = base.with_overrides({"shadows.card.alpha": 0.5})
+
+        assert tokens.shadows["card"] == ShadowToken(distance=Pt(2), alpha=0.5)
+        assert base.shadows["card"] == ShadowToken(distance=Pt(2))
+
+    def it_leaves_the_other_categories_as_they_were(self):
+        base = DesignTokens.from_preset("modern_light").with_overrides(
+            {"spacings.sm": 4, "radii.md": 8}
+        )
+
+        tokens = base.with_overrides({"palette.primary": "#010203"})
+
+        assert tokens.palette["primary"] == RGBColor(1, 2, 3)
+        assert tokens.typography == base.typography
+        assert tokens.radii == base.radii
+        assert tokens.shadows == base.shadows
+        assert tokens.spacings == base.spacings
+
 
 class DescribeFromPptxSources:
     def it_accepts_a_pathlib_path(self, tmp_path):
