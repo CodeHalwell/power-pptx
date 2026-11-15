@@ -106,6 +106,23 @@ class DescribeLoadedTransitionSchemaValidity:
 
         assert_schema_valid(_saved(prs))
 
+    def it_writes_every_kind_schema_valid(self):
+        # One slide per member, each with timing settings as well, so that
+        # the classic kinds, the extension kinds and their wrappers all
+        # meet the schema.
+        prs = Presentation()
+        for kind in MSO_TRANSITION_TYPE:
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            slide.transition.kind = kind
+            slide.transition.duration = 700
+            slide.transition.advance_after = 3000
+
+        pptx = _saved(prs)
+
+        assert_schema_valid(pptx)
+        reopened = Presentation(io.BytesIO(pptx))
+        assert [s.transition.kind for s in reopened.slides] == list(MSO_TRANSITION_TYPE)
+
     def it_repairs_a_transition_an_earlier_release_corrupted(self):
         with pytest.raises(AssertionError):  # -- the input really is invalid --
             assert_schema_valid(_deck_with_transition(_AIRPLANE_CORRUPTED))

@@ -139,6 +139,19 @@ class DescribePowerPointAuthoredTransitionsRoundTrip:
         assert b"prstTrans" not in _parts(_save_to_bytes(reopened))[_SLIDE]
         assert_round_trip(reopened)
 
+    @pytest.mark.parametrize("kind", list(MSO_TRANSITION_TYPE), ids=lambda k: k.name)
+    def it_round_trips_every_kind_the_library_writes(self, kind):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.transition.kind = kind
+        slide.transition.duration = 600
+
+        reopened = Presentation(io.BytesIO(_save_to_bytes(prs)))
+
+        assert reopened.slides[0].transition.kind == kind
+        assert reopened.slides[0].transition.duration == 600
+        assert_round_trip(reopened)
+
     def it_round_trips_a_transition_removed_after_load(self):
         prs = Presentation(io.BytesIO(_deck_with_transition(_AIRPLANE)))
         prs.slides[0].transition.clear()

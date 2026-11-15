@@ -669,6 +669,17 @@ class DescribeSlideTransition(object):
 
         assert transition.kind == MSO_TRANSITION_TYPE.NONE
 
+    def it_can_set_and_read_the_comb_kind(self):
+        sld = element("p:sld/p:cSld")
+        transition = SlideTransition(sld)
+
+        transition.kind = MSO_TRANSITION_TYPE.COMB
+
+        assert transition.kind == MSO_TRANSITION_TYPE.COMB
+        assert sld.transition.kind_element.tag == (
+            "{http://schemas.openxmlformats.org/presentationml/2006/main}comb"
+        )
+
     def it_reads_None_for_a_kind_it_has_no_member_for(self):
         sld = element("p:sld/p:cSld")
         sld.append(_transition_with_kind('p15:prstTrans prst="airplane"'))

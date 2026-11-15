@@ -16,15 +16,20 @@ class MSO_TRANSITION_TYPE(BaseXmlEnum):
 
         slide.transition.kind = MSO_TRANSITION.FADE
 
-    Each member maps to a single child element of ``<p:transition>``. Members
-    drawn from the PowerPoint 2010+ extension namespace (``p14``) are
-    annotated as such; their XML lives in the ``p14`` namespace and is
-    silently preserved on round-trip even when the consuming application
-    cannot render them.
+    Each member maps to a single child element of ``<p:transition>``. Most
+    are the transitions of the ISO/IEC 29500 standard, in the ``p``
+    namespace. Members drawn from a PowerPoint extension namespace are
+    annotated as such: ``p14`` (PowerPoint 2010) and ``p159`` (PowerPoint
+    2016, for Morph). Their XML is written inside ``mc:AlternateContent``
+    with an ISO-pure fallback for applications that cannot render them.
+
+    A transition of a kind with no member here (the ``p15`` kinds of
+    PowerPoint 2013 such as Airplane, for instance) reads as |None| from
+    :attr:`SlideTransition.kind` and is saved back exactly as it was read.
 
     The ``xml_value`` of each member is the local-name of the corresponding
     transition element (``"fade"`` for ``<p:fade/>``, ``"morph"`` for
-    ``<p14:morph/>``, etc.). Consumers should not rely on the integer values
+    ``<p159:morph/>``, etc.). Consumers should not rely on the integer values
     for anything other than enum-membership comparisons.
     """
 
@@ -91,8 +96,8 @@ class MSO_TRANSITION_TYPE(BaseXmlEnum):
     WHEEL = (20, "wheel", "Wheel transition.")
     """Wheel transition."""
 
-    MORPH = (21, "morph", "Morph transition (PowerPoint 2016+; p14 namespace).")
-    """Morph transition (PowerPoint 2016+; p14 namespace)."""
+    MORPH = (21, "morph", "Morph transition (PowerPoint 2016+; p159 namespace).")
+    """Morph transition (PowerPoint 2016+; p159 namespace)."""
 
     FLY_THROUGH = (22, "flythrough", "Fly Through transition (p14 namespace).")
     """Fly Through transition (p14 namespace)."""
@@ -108,6 +113,9 @@ class MSO_TRANSITION_TYPE(BaseXmlEnum):
 
     CONVEYOR = (26, "conveyor", "Conveyor transition (p14 namespace).")
     """Conveyor transition (p14 namespace)."""
+
+    COMB = (27, "comb", "Comb transition.")
+    """Comb transition."""
 
 
 MSO_TRANSITION = MSO_TRANSITION_TYPE
