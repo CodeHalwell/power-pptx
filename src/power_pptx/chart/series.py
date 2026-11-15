@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 
 from power_pptx.chart.analytics import ErrorBars, Trendlines
@@ -132,13 +133,30 @@ class _AnalyticsMixin(object):
     def axis_group(self):
         """Read/write ``"primary"`` or ``"secondary"`` axis group.
 
-        A series shares the value axis of the plot (chart group) it belongs
-        to. Assigning ``"secondary"`` moves this series' whole plot onto a
-        secondary value axis, creating that axis (and a hidden secondary
-        category axis it crosses) if necessary. The newly-allocated axis ids
-        stay within the signed-int32 range so PowerPoint never flags the file
-        for repair. Assigning ``"primary"`` is only valid while the series is
-        already on the primary axis (moving back is unsupported).
+        Assigning ``"secondary"`` moves this series, and only this series,
+        onto the secondary value axis, creating that axis (and a hidden
+        secondary category axis it crosses) if necessary::
+
+            chart.series[1].axis_group = "secondary"
+            chart.secondary_value_axis.maximum_scale = 100
+
+        A series is measured against the axes of the plot (chart group) it
+        belongs to, so a series that shares its plot with others is first
+        split off into a plot of its own, of the same kind and placed in
+        front. A later series of the same kind joins that plot rather than
+        getting another. A series that is alone in its plot takes the plot
+        with it.
+
+        ``chart.series`` lists series plot by plot, so a series that changes
+        plot changes position in it: after ``chart.series[0].axis_group =
+        "secondary"`` on a two-series chart, ``chart.series[0]`` is the
+        *other* series. Keep a reference to the series rather than indexing
+        again. Its name, ``index`` and formatting are untouched.
+
+        The newly-allocated axis ids stay within the signed-int32 range so
+        PowerPoint never flags the file for repair. Assigning ``"primary"``
+        is only valid while the series is already on the primary axis (moving
+        back is unsupported).
         """
         plotArea = self._ser.xpath("ancestor::c:plotArea")[0]
         secondary = plotArea.secondary_value_axis
@@ -159,21 +177,89 @@ class _AnalyticsMixin(object):
             return
         if self.axis_group == "secondary":
             return
-        plotArea = self._ser.xpath("ancestor::c:plotArea")[0]
+        ser = self._ser
+        plotArea = ser.xpath("ancestor::c:plotArea")[0]
         secondary = plotArea.secondary_value_axis
+        xChart = ser.getparent()
+        if len(xChart.xpath("c:ser")) > 1:
+            # -- The axes belong to the plot, not the series, so re-pointing a
+            # -- plot this series shares would drag its siblings along. Give
+            # -- the series a plot it does not share: one already on the
+            # -- secondary axes if there is a like one, else a new one.
+            like_plot = _like_plot_on_axis(xChart, secondary)
+            if like_plot is not None:
+                like_plot.xpath("c:ser")[-1].addnext(ser)
+                return
+            xChart = _split_into_own_plot(ser)
         if secondary is None:
             # Move THIS series' plot (not just the front-most one) onto the new
             # secondary axis — critical for combo charts with multiple plots.
-            plotArea.add_secondary_value_axis(self._ser.getparent())
+            plotArea.add_secondary_value_axis(xChart)
             return
         # -- a secondary axis already exists; re-point this series' plot onto
         # -- the secondary axis ids.
         val2_id = secondary.xpath("c:axId")[0].get("val")
         cross2_id = secondary.xpath("c:crossAx")[0].get("val")
-        ax_ids = self._ser.getparent().xpath("c:axId")
+        ax_ids = xChart.xpath("c:axId")
         if len(ax_ids) >= 2:
             ax_ids[0].set("val", str(cross2_id))
             ax_ids[1].set("val", str(val2_id))
+
+
+#: The children of an xChart element that decide how its series are laid out
+#: against each other. Two plots that agree on these can share their series.
+_PLOT_KIND_TAGS = frozenset(
+    qn(tag) for tag in ("c:barDir", "c:grouping", "c:scatterStyle", "c:radarStyle")
+)
+
+
+def _plot_kind(xChart):
+    """A hashable description of what kind of plot `xChart` is."""
+    return (
+        xChart.tag,
+        tuple((child.tag, child.get("val")) for child in xChart if child.tag in _PLOT_KIND_TAGS),
+    )
+
+
+def _like_plot_on_axis(xChart, valAx):
+    """The plot of the same kind as `xChart` measured against `valAx`, or |None|.
+
+    `valAx` may be |None| (no such axis yet), in which case there is none.
+    """
+    if valAx is None:
+        return None
+    axis_id = valAx.xpath("c:axId")[0].get("val")
+    kind = _plot_kind(xChart)
+    for other in xChart.getparent().iter_xCharts():
+        if other is xChart or _plot_kind(other) != kind:
+            continue
+        if axis_id in other.xpath("c:axId/@val") and other.xpath("c:ser"):
+            return other
+    return None
+
+
+def _split_into_own_plot(ser):
+    """Move `ser` out of the plot it shares into a new one, and return that plot.
+
+    The new plot is a copy of the old one — same kind, grouping, gap width,
+    data-label defaults and, for now, the same axes — holding only `ser`. It
+    goes directly after the plot it came from, so it draws in front of it and
+    every plot still precedes the axes as the schema requires.
+    """
+    xChart = ser.getparent()
+    # -- the series sit between the plot's leading properties (`c:barDir`,
+    # -- `c:grouping`, ...) and its trailing ones (`c:dLbls`, `c:axId`, ...);
+    # -- the copy must keep that position, which the schema prescribes
+    position = xChart.index(xChart.xpath("c:ser")[0])
+    new_xChart = copy.deepcopy(xChart)
+    for copied_ser in new_xChart.xpath("c:ser"):
+        new_xChart.remove(copied_ser)
+    # -- inserting the original element (not a copy) keeps `Series` proxies
+    # -- already handed out pointing at a live element; lxml detaches it from
+    # -- the old plot as part of the move
+    new_xChart.insert(position, ser)
+    xChart.addnext(new_xChart)
+    return new_xChart
 
 
 class AreaSeries(_BaseCategorySeries, _AnalyticsMixin):

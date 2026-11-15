@@ -245,10 +245,29 @@ s.trendlines.add("movingAvg", period=2)      # moving average
 s.error_bars.fixed(0.5)                       # or .percentage(5),
 s.error_bars.standard_deviation(1)            # .standard_error(), .custom(plus, minus)
 
-chart.secondary_value_axis                     # add right-hand value axis
-chart.series[1].axis_group = "secondary"       # move a series onto it
+margin = chart.series[1]
+margin.axis_group = "secondary"                # that series only; adds the axis
+chart.secondary_value_axis.maximum_scale = 1.0 # the right-hand axis
+chart.value_axis.maximum_scale = 500           # still the primary (left) axis
 ```
 
 Trendlines / error bars are available on bar, line, scatter, area, and
 bubble series (not pie/radar). New axis ids stay signed-int32, so
 PowerPoint never prompts to repair the file.
+
+**Dual-axis rules.** `series.axis_group = "secondary"` moves that one
+series: it is split off into its own plot (same chart type, drawn in
+front) because axes belong to a plot, not a series. Other series of the
+same kind moved later join that plot, so two secondary columns still
+cluster side by side.
+
+- Hold on to the series object. `chart.series` lists series plot by
+  plot, so after `chart.series[0].axis_group = "secondary"` index 0 is a
+  *different* series. `chart.plots` gains an entry too.
+- `chart.value_axis` is always the primary axis;
+  `chart.secondary_value_axis` is the right-hand one.
+- You don't need to touch `chart.secondary_value_axis` first — assigning
+  `axis_group` creates it. Accessing it on a chart whose single plot
+  holds several series only adds the (unused) axis; it does not move
+  anything. On a combo chart it still re-points the front-most plot.
+- Moving a series back to `"primary"` is not supported.

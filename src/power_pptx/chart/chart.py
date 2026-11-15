@@ -548,13 +548,42 @@ class Chart(PartElementProxy):
         The |ValueAxis| object providing access to properties of the value
         axis of this chart. Raises |ValueError| if the chart has no value
         axis.
+
+        This is always the *primary* value axis. A chart that has been given
+        a secondary one keeps that on :attr:`secondary_value_axis`.
         """
         valAx_lst = self._chartSpace.valAx_lst
         if not valAx_lst:
             raise ValueError("chart has no value axis")
 
-        idx = 1 if len(valAx_lst) > 1 else 0
-        return ValueAxis(valAx_lst[idx])
+        # -- An XY or bubble chart has two `c:valAx` elements in its one axis
+        # -- group, the X axis first; the second is the value (Y) axis. That is
+        # -- only true *within* a group though: a secondary value axis is a
+        # -- `c:valAx` too, so counting every one in the plot area made a
+        # -- column chart with a secondary axis report that axis as its value
+        # -- axis. Set the secondary group aside before applying the rule.
+        primary = self._primary_valAx_lst(valAx_lst)
+        idx = 1 if len(primary) > 1 else 0
+        return ValueAxis(primary[idx])
+
+    def _primary_valAx_lst(self, valAx_lst):
+        """The `c:valAx` elements in `valAx_lst` that belong to the primary axis group.
+
+        The secondary group is the secondary value axis and the axis it
+        crosses. When leaving those out would leave nothing — the lone value
+        axis of a chart can itself be drawn on the right, which is how the
+        secondary axis is recognised — every `c:valAx` is primary.
+        """
+        secondary = self._chartSpace.plotArea.secondary_value_axis
+        if secondary is None:
+            return valAx_lst
+        secondary_ids = set(secondary.xpath("c:axId/@val | c:crossAx/@val"))
+        primary = [
+            valAx
+            for valAx in valAx_lst
+            if not secondary_ids.intersection(valAx.xpath("c:axId/@val"))
+        ]
+        return primary or valAx_lst
 
     @property
     def secondary_value_axis(self):
@@ -562,10 +591,22 @@ class Chart(PartElementProxy):
 
         Accessing this property is *destructive*: if the chart has only a
         single value axis it adds a secondary value axis (plus a hidden
-        secondary category axis it crosses), then re-points the front-most
-        plot — ``chart.plots[1]`` in a two-plot combo chart — onto the new
-        axes so that plot is measured against the secondary scale. If a
-        secondary value axis already exists it is returned unchanged.
+        secondary category axis it crosses). If a secondary value axis
+        already exists it is returned unchanged.
+
+        What is measured against the new axis depends on the chart:
+
+        * In a combo chart (two or more plots) the front-most plot —
+          ``chart.plots[1]`` of a column-plus-line chart — is re-pointed onto
+          it.
+        * A chart whose one plot holds a single series has that plot
+          re-pointed onto it.
+        * A chart whose one plot holds several series is left as it is, and
+          the new axis starts out unused. Re-pointing the plot would move
+          *every* series, which defeats the purpose of a second scale. Move
+          the series that belong on it with ``series.axis_group =
+          "secondary"``; that alone is enough to create the axis, so this
+          property need not be accessed first.
 
         Newly-allocated axis ids stay within the signed-int32 range
         (``1..2**31-1``); ids at or above ``2**31`` make PowerPoint flag the
@@ -577,7 +618,9 @@ class Chart(PartElementProxy):
         plotArea = self._chartSpace.plotArea
         if not plotArea.xpath("c:valAx"):
             raise ValueError("chart has no value axis")
-        valAx = plotArea.add_secondary_value_axis()
+        xCharts = plotArea.xCharts
+        lone_shared_plot = len(xCharts) == 1 and len(xCharts[0].xpath("c:ser")) > 1
+        valAx = plotArea.add_secondary_value_axis(repoint=not lone_shared_plot)
         return ValueAxis(valAx)
 
     @property

@@ -269,9 +269,204 @@ class DescribeSecondaryValueAxis(object):
 
     def it_moves_a_series_via_axis_group(self):
         prs, chart = _column_chart()
+        # -- hold the series: `chart.series` lists series plot by plot, so the
+        # -- one that moves into a plot of its own is no longer at index 0
+        rev = chart.series[0]
+        rev.axis_group = "secondary"
+        assert rev.axis_group == "secondary"
+        assert len(chart._chartSpace.plotArea.xpath("c:valAx")) == 2
+
+    def it_moves_only_the_series_it_is_asked_to_move(self):
+        # Regression: the axes belong to the plot, so re-pointing the plot the
+        # series shared put *every* series on the secondary axis and left the
+        # primary axes unreferenced.
+        prs, chart = _column_chart()
+        rev, growth = chart.series
+        plotArea = chart._chartSpace.plotArea
+
+        growth.axis_group = "secondary"
+
+        assert (rev.axis_group, growth.axis_group) == ("primary", "secondary")
+        assert [s.name for s in chart.series] == ["Rev", "Growth"]
+        assert len(chart.plots) == 2
+        # -- every axis is used by a plot, and every plot's axes exist
+        axis_ids = set(plotArea.xpath("c:catAx/c:axId/@val | c:valAx/c:axId/@val"))
+        plot_ids = set(plotArea.xpath("c:barChart/c:axId/@val"))
+        assert plot_ids == axis_ids
+        assert len(axis_ids) == 4
+
+    def it_splits_the_series_off_into_a_plot_of_the_same_kind(self):
+        prs, chart = _column_chart(("A", "B", "C"))
+        plotArea = chart._chartSpace.plotArea
+        original = plotArea.xpath("c:barChart")[0]
+        original.get_or_add_gapWidth().val = 80
+
+        chart.series[1].axis_group = "secondary"
+
+        first, second = plotArea.xpath("c:barChart")
+        assert first is original
+        assert [s.name for s in chart.series] == ["A", "C", "B"]
+        # -- the new plot follows the old one and precedes every axis
+        assert [c.tag.rpartition("}")[2] for c in plotArea] == [
+            "barChart",
+            "barChart",
+            "catAx",
+            "valAx",
+            "valAx",
+            "catAx",
+        ]
+        # -- same kind of plot, same settings, different axes
+        assert second.xpath("c:barDir/@val") == first.xpath("c:barDir/@val")
+        assert second.xpath("c:grouping/@val") == first.xpath("c:grouping/@val")
+        assert second.xpath("c:gapWidth/@val") == ["80"]
+        assert not set(second.xpath("c:axId/@val")) & set(first.xpath("c:axId/@val"))
+        # -- series identity is preserved: idx/order are chart-wide and unique
+        assert sorted(plotArea.xpath(".//c:ser/c:idx/@val")) == ["0", "1", "2"]
+        assert sorted(plotArea.xpath(".//c:ser/c:order/@val")) == ["0", "1", "2"]
+
+    def it_gathers_like_series_on_the_secondary_axis_into_one_plot(self):
+        # Two column series on the secondary axis must cluster side by side,
+        # which they only do as members of the same plot.
+        prs, chart = _column_chart(("A", "B", "C"))
+        a, b, c = chart.series
+
+        c.axis_group = "secondary"
+        b.axis_group = "secondary"
+
+        assert [s.axis_group for s in (a, b, c)] == ["primary", "secondary", "secondary"]
+        assert [len(p.series) for p in chart.plots] == [1, 2]
+        assert len(chart._chartSpace.plotArea.xpath("c:valAx")) == 2
+
+    def it_moves_the_whole_plot_when_the_series_is_alone_in_it(self):
+        prs, chart = _column_chart(("Only",))
         chart.series[0].axis_group = "secondary"
         assert chart.series[0].axis_group == "secondary"
+        assert len(chart.plots) == 1
+
+    def it_keeps_a_proxy_obtained_before_the_move_usable(self):
+        prs, chart = _column_chart()
+        growth = chart.series[1]
+        growth.axis_group = "secondary"
+        growth.format.fill.solid()
+        growth.format.fill.fore_color.rgb = "112233"
+        assert chart.series[1].format.fill.fore_color.rgb == growth.format.fill.fore_color.rgb
+
+    def it_is_a_no_op_for_a_series_already_on_the_secondary_axis(self):
+        prs, chart = _column_chart()
+        growth = chart.series[1]
+        growth.axis_group = "secondary"
+        before = chart._chartSpace.xml
+
+        growth.axis_group = "secondary"
+
+        assert chart._chartSpace.xml == before
+
+    def it_splits_a_scatter_series_too(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        data = XyChartData()
+        for name in ("S1", "S2"):
+            s = data.add_series(name)
+            for x, y in [(1, 2), (2, 3), (3, 4)]:
+                s.add_data_point(x, y)
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.XY_SCATTER, Inches(1), Inches(1), Inches(6), Inches(4), data
+        ).chart
+        s1, s2 = chart.series
+        y_axis = chart.value_axis._element
+
+        s2.axis_group = "secondary"
+
+        assert (s1.axis_group, s2.axis_group) == ("primary", "secondary")
+        assert chart.value_axis._element is y_axis
+        assert chart.category_axis._element.xpath("c:axPos/@val") == ["b"]
+
+
+class DescribePrimaryValueAxis(object):
+    """`chart.value_axis` is the primary axis whatever else the chart holds."""
+
+    def it_stays_the_primary_axis_once_a_secondary_one_exists(self):
+        # Regression: with two `c:valAx` in the plot area the second one was
+        # returned, the XY-chart rule, which here is the secondary axis.
+        prs, chart = _column_chart()
+        primary = chart.value_axis._element
+
+        chart.series[1].axis_group = "secondary"
+
+        assert chart.value_axis._element is primary
+        assert chart.value_axis._element is not chart.secondary_value_axis._element
+
+    def it_scales_the_primary_axis_not_the_secondary(self):
+        prs, chart = _column_chart()
+        primary = chart.value_axis._element
+        chart.series[1].axis_group = "secondary"
+
+        chart.value_axis.maximum_scale = 1000
+
+        assert primary.xpath("c:scaling/c:max/@val") == ["1000.0"]
+        assert chart.secondary_value_axis._element.xpath("c:scaling/c:max") == []
+
+    def it_is_still_the_y_axis_of_a_scatter_chart(self):
+        prs, chart = _scatter_chart()
+        x_axis, y_axis = chart._chartSpace.valAx_lst
+        assert chart.value_axis._element is y_axis
+        assert chart.category_axis._element is x_axis
+
+        chart.secondary_value_axis
+
+        assert chart.value_axis._element is y_axis
+
+    def it_is_the_lone_value_axis_even_when_that_is_drawn_on_the_right(self):
+        # `axPos="r"` is how the secondary axis is recognised; a chart whose
+        # only value axis sits there must still report it.
+        prs, chart = _column_chart()
+        valAx = chart._chartSpace.valAx_lst[0]
+        valAx.xpath("c:axPos")[0].set("val", "r")
+
+        assert chart.value_axis._element is valAx
+
+
+class DescribeSecondaryValueAxisAccess(object):
+    """What `chart.secondary_value_axis` re-points when it creates the axis."""
+
+    def it_leaves_a_plot_of_several_series_on_the_primary_axis(self):
+        # Regression: this is the first line of the documented pattern
+        #     chart.secondary_value_axis
+        #     chart.series[1].axis_group = "secondary"
+        # and it used to move the one plot, i.e. both series, by itself.
+        prs, chart = _column_chart()
+        rev, growth = chart.series
+
+        chart.secondary_value_axis
+
+        assert (rev.axis_group, growth.axis_group) == ("primary", "primary")
+
+        growth.axis_group = "secondary"
+
+        assert (rev.axis_group, growth.axis_group) == ("primary", "secondary")
         assert len(chart._chartSpace.plotArea.xpath("c:valAx")) == 2
+
+    def it_still_repoints_a_plot_holding_a_single_series(self):
+        prs, chart = _column_chart(("Only",))
+        chart.secondary_value_axis
+        assert chart.series[0].axis_group == "secondary"
+
+    def it_still_repoints_the_front_plot_of_a_combo_chart(self):
+        import copy
+
+        prs, chart = _column_chart(("A", "B", "C"))
+        # -- make a combo: a second plot on the same axes, holding series C
+        back = chart._chartSpace.plotArea.xpath("c:barChart")[0]
+        front = copy.deepcopy(back)
+        for ser in front.xpath("c:ser")[:2]:
+            front.remove(ser)
+        back.remove(back.xpath("c:ser")[2])
+        back.addnext(front)
+        assert [len(p.series) for p in chart.plots] == [2, 1]
+
+        chart.secondary_value_axis
+
+        assert [s.axis_group for s in chart.series] == ["primary", "primary", "secondary"]
 
     def it_repoints_the_targeted_plot_not_just_the_last(self):
         # Combo chart: two plots sharing the primary axes. Moving the FIRST
