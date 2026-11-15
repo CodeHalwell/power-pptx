@@ -26,7 +26,7 @@ one you ask for.
 ## Convenience methods
 
 ```python
-# All slides → ./thumbs/<n>.png
+# All slides → ./thumbs/_render_input-page-<n>.png (n counts from 1)
 paths = prs.render_thumbnails(out_dir="thumbs")
 
 # Single slide as bytes
@@ -50,10 +50,30 @@ paths = render_slide_thumbnails(
     slide_indexes=[0, 3, 7],                              # only these slides
     soffice_bin="/opt/libreoffice/program/soffice",
     timeout=60,                                            # seconds
+    dpi=150,                                               # the default
 )
 
 png = render_slide_thumbnail(slide, return_bytes=True)
 ```
+
+### Resolution, strategy and file names
+
+`dpi=` sets the resolution (default 150, so a 10in-wide slide is 1500px
+wide). `render_slides(scale=...)` is the same knob in PDF units: `scale=1.0`
+is 72 DPI, `scale=2` is 144, and it overrides `dpi=`. Both apply to every
+deck, one-slide decks included.
+
+`strategy="auto"` (the default) exports a PDF and splits it into pages with
+`pdftoppm` (Poppler) or, failing that, `pypdfium2`. Only when neither is
+installed does it use LibreOffice's direct PNG filter, which ignores `dpi=`
+and, on stock LibreOffice 7+, writes just the first slide, so it serves
+one-slide decks only. `strategy="pdf"` and `strategy="png"` force one path.
+
+Files are named `_render_input-page-<n>.png`, where `<n>` is the slide number
+counting from 1, zero-padded to the width of the slide count (`-page-07` in
+a 12-slide deck), whichever path rendered them. For names of your own use
+`render_slides(prs, out_dir="thumbs", name_template="slide-{:02d}.png")`
+(that index counts from 0).
 
 ### Fonts that aren't in a system folder
 
@@ -71,9 +91,9 @@ names the right font. On macOS that happens to fonts in `~/Library/Fonts`,
 because LibreOffice's bundled fontconfig doesn't search there. Confirm with
 `pdffonts` on the intermediate PDF.
 
-The output resolution is whatever LibreOffice's headless PNG
-converter chooses — there's no `width=` knob. If you need a specific
-size, post-process with Pillow (``Image.open(...).resize(...)``).
+There's no `width=` knob. For an exact pixel size, pick the `dpi=` that
+gives it (`dpi = pixels / slide width in inches`) or post-process with
+Pillow (``Image.open(...).resize(...)``).
 
 ## Pointing at a custom binary
 
@@ -81,7 +101,10 @@ Three ways to choose `soffice`, in priority order:
 
 1. The `soffice_bin=` keyword argument
 2. The `POWER_PPTX_SOFFICE` environment variable
-3. The first `soffice` (or `libreoffice`) on `$PATH`
+3. The first `soffice` on `$PATH`, or else the first `libreoffice`
+
+A binary named through the first two is used as given: if it can't be found,
+`ThumbnailRendererUnavailable` is raised without falling back to `$PATH`.
 
 ```python
 import os

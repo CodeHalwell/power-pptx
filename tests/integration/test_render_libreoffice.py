@@ -122,3 +122,17 @@ def test_hidden_slide_is_rendered_and_indexes_keep_their_meaning(tmp_path):
             prs, out_dir=tmp_path / str(index), slide_indexes=[index], dpi=36
         )
         assert _is_colour(_centre_colour(path), expected)
+
+
+def test_one_slide_deck_gets_the_requested_dpi_and_the_same_file_names(tmp_path):
+    # -- 10in x 7.5in slides: 36 DPI is 360x270, whatever the slide count --
+    (one,) = render_slide_thumbnails(_deck(1), out_dir=tmp_path / "one", dpi=36)
+    three = render_slide_thumbnails(_deck(3), out_dir=tmp_path / "three", dpi=36)
+
+    with Image.open(one) as single, Image.open(three[0]) as first_of_three:
+        assert single.size == first_of_three.size == (360, 270)
+    assert one.name == three[0].name == "_render_input-page-1.png"
+
+    (doubled,) = render_slide_thumbnails(_deck(1), out_dir=tmp_path / "doubled", dpi=72)
+    with Image.open(doubled) as image:
+        assert image.size == (720, 540)

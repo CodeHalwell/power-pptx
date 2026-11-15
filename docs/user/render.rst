@@ -32,15 +32,28 @@ Module-level entry points
         slide_indexes=[0, 3, 7],
         soffice_bin="/opt/libreoffice/program/soffice",
         timeout=60,
+        dpi=150,
     )
 
-The output resolution is whatever LibreOffice's headless PNG converter
-chooses — there is no ``width=`` knob.  Post-process with Pillow if you
-need a specific size.
+``dpi=`` sets the resolution (default 150, so a 10in-wide slide is 1500px
+wide) for every deck, one-slide decks included.
+``render_slides(scale=...)`` is the same knob in PDF units: ``scale=1.0`` is
+72 DPI and ``scale=2`` is 144.  There is no ``width=`` knob; pick the
+``dpi=`` that gives the size you need or post-process with Pillow.
+
+Slides are exported to PDF and split into pages with ``pdftoppm`` (Poppler)
+or ``pypdfium2``.  LibreOffice's direct PNG filter, which ignores ``dpi=``
+and usually writes only the first slide, is used only when neither is
+installed or when ``strategy="png"`` asks for it.  Files are named
+``_render_input-page-<n>.png``, ``<n>`` counting slides from 1 and
+zero-padded to the width of the slide count; ``render_slides`` takes a
+``name_template=`` for names of your own.
 
 Set the ``POWER_PPTX_SOFFICE`` environment variable to override the
-binary path globally; ``return_bytes=True`` returns each image as raw
-PNG bytes instead of writing files.
+binary path globally; without it or ``soffice_bin=``, the first ``soffice``
+on ``$PATH`` is used, or else the first ``libreoffice``.
+``return_bytes=True`` returns each image as raw PNG bytes instead of
+writing files.
 
 Hidden slides are rendered like any other, so ``slide_indexes=[n]`` always
 means ``prs.slides[n]``. This needs LibreOffice 7.4 or later; an older
