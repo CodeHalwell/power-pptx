@@ -4111,13 +4111,20 @@ class _Backdrops:
             # A shape inside a group: what the group is painted over is not
             # modelled, so only the slide background can be offered.
             return self.slide_rgb()
+        return self._rgb_beneath(index)
+
+    def _rgb_beneath(self, index: int):
+        """The RGB painted beneath shape `index`, or ``None`` if unresolvable.
+
+        The nearest shape beneath that paints anything decides: an opaque
+        fill covering the whole shape, unrotated, gives its colour; anything
+        else is ambiguous.  With nothing painted beneath, the slide shows.
+        """
         bounds = self._infos[index].box
         for k in reversed(self._beneath.get(index, ())):  # nearest beneath first
             other = self._infos[k]
             box = other.box
-            if bounds[0] >= box[2] or box[0] >= bounds[2]:
-                continue
-            if bounds[1] >= box[3] or box[1] >= bounds[3]:
+            if not _boxes_intersect(bounds, box):
                 continue
             kind, rgb = other.backdrop
             if kind == "clear":
@@ -4126,6 +4133,11 @@ class _Backdrops:
                 return rgb
             return None
         return self.slide_rgb()
+
+
+def _boxes_intersect(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    """True when two boxes share some area (merely touching edges does not count)."""
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
 def _is_rotated(shape: BaseShape) -> bool:
