@@ -17,12 +17,14 @@ which returns a :class:`Sections` collection.  Typical use::
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterator, cast
 
 from power_pptx.oxml.ns import qn
 from power_pptx.shared import ParentedElementProxy
 
 if TYPE_CHECKING:
+    from lxml.etree import _Element  # pyright: ignore[reportPrivateUsage]
+
     from power_pptx.oxml.presentation import (
         CT_Presentation,
         CT_Section,
@@ -52,21 +54,13 @@ def _remove_section_element(section_elm: CT_Section) -> None:
     sectionLst = section_elm.getparent()
     if sectionLst is None:
         return
-    siblings = list(sectionLst)
-    idx = siblings.index(section_elm)
-    member_ids = [sldId.id for sldId in section_elm.sldId_lst]
-
+    siblings = cast("list[CT_Section]", list(sectionLst))
     if len(siblings) == 1:
-        ext = sectionLst.getparent()  # the `p:ext` carrying the extension
-        extLst = ext.getparent() if ext is not None else None
-        if ext is not None and extLst is not None:
-            extLst.remove(ext)
-            if len(extLst) == 0:
-                prs_elm = extLst.getparent()
-                if prs_elm is not None:
-                    prs_elm.remove(extLst)
+        _remove_section_extension(sectionLst)
         return
 
+    idx = siblings.index(section_elm)
+    member_ids = [sldId.id for sldId in section_elm.sldId_lst]
     sectionLst.remove(section_elm)
     if not member_ids:
         return
@@ -76,11 +70,32 @@ def _remove_section_element(section_elm: CT_Section) -> None:
             siblings[idx - 1].add_sldId(slide_id)
     else:
         # The first section was removed: its slides precede the (new) first
-        # section's members, so prepend in order.
-        target_lst = siblings[1].get_or_add_sldIdLst()
-        for pos, slide_id in enumerate(member_ids):
-            entry = target_lst.makeelement(qn("p14:sldId"), {"id": str(slide_id)})
-            target_lst.insert(pos, entry)
+        # section's members.
+        _prepend_members(siblings[1], member_ids)
+
+
+def _remove_section_extension(sectionLst: _Element) -> None:
+    """Remove the ``p:ext`` carrying *sectionLst*, and the ``p:extLst`` if that empties it."""
+    ext = sectionLst.getparent()
+    if ext is None:
+        return
+    extLst = ext.getparent()
+    if extLst is None:
+        return
+    extLst.remove(ext)
+    if len(extLst) > 0:
+        return
+    prs_elm = extLst.getparent()
+    if prs_elm is not None:
+        prs_elm.remove(extLst)
+
+
+def _prepend_members(section_elm: CT_Section, slide_ids: list[int]) -> None:
+    """Put the slides *slide_ids*, in order, ahead of the members of *section_elm*."""
+    target_lst = section_elm.get_or_add_sldIdLst()
+    for pos, slide_id in enumerate(slide_ids):
+        entry = target_lst.makeelement(qn("p14:sldId"), {"id": str(slide_id)})
+        target_lst.insert(pos, entry)
 
 
 def _follow_slide_order(
