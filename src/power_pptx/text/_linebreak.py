@@ -126,6 +126,29 @@ def _class_of(char: str) -> int:
     return AL
 
 
+#: Classes a line never starts with, unless a zero-width space precedes them:
+#: closing punctuation, exclamation and infix marks, slashes, the hyphens and
+#: dashes a line breaks after, small kana and the like, and quotation marks.
+_NO_BREAK_BEFORE = frozenset((CL, EX, IS, SY, BA, HY, NS, QU))
+
+#: Classes a line never ends with: opening punctuation and quotation marks.
+_NO_BREAK_AFTER = frozenset((OP, QU))
+
+#: For each other class, the classes that hold on to it when they come right before it.
+_HELD_AFTER = {
+    AL: frozenset((AL, NU, PR, PO, IS, CL)),
+    B2: frozenset((B2,)),
+    # -- only a currency sign holds on to an East Asian character --
+    HG: frozenset((HG, PR)),
+    ID: frozenset((PR,)),
+    IN: frozenset((AL, ID, HG, IN, NU)),
+    NU: frozenset((AL, PR, PO, IS, CL)),
+    OP: frozenset((AL, NU)),
+    PO: frozenset((ID, HG)),
+    PR: frozenset((AL,)),
+}
+
+
 def _may_break(before: int, after: int, in_number: bool, after_number: bool) -> bool:
     """True when a line may end between a character of class `before` and one of `after`.
 
@@ -136,26 +159,18 @@ def _may_break(before: int, after: int, in_number: bool, after_number: bool) -> 
         return False
     if before == ZW:
         return True
-    if after in (CL, EX, IS, SY, BA, HY, NS) or before == OP:
+    if after in _NO_BREAK_BEFORE or before in _NO_BREAK_AFTER:
         return False
-    if QU in (before, after) or before == after in (B2, HG):
+    if _continues_number(after, in_number, after_number):
         return False
-    if after == IN:
-        return before not in (AL, ID, HG, IN, NU)
+    return before not in _HELD_AFTER.get(after, ())
+
+
+def _continues_number(after: int, in_number: bool, after_number: bool) -> bool:
+    """True when `after` carries on the number before it: a digit, or a sign after one."""
     if after == NU:
-        return not (in_number or before in (AL, PR, PO, IS, CL))
-    if after in (PR, PO) and (in_number or after_number):
-        return False
-    if after == PO:
-        return before not in (ID, HG)
-    if after == PR:
-        return before != AL
-    if after == AL:
-        return before not in (AL, NU, PR, PO, IS, CL)
-    if after == OP:
-        return before not in (AL, NU)
-    # -- an East Asian character or a dash: only a currency sign holds on to the former --
-    return not (before == PR and after in (ID, HG))
+        return in_number
+    return after in (PR, PO) and (in_number or after_number)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -172,19 +187,25 @@ def break_offsets(word: str) -> tuple[int, ...]:
     in_number = after_number = False
     for offset, char in enumerate(word):
         after = _class_of(char)
-        if before == -1:
-            if after == CM:
-                continue
-        elif after == OP and before in (PR, PO) and _next_is_digit(word, offset):
-            pass  # -- "$(100)": the sign stays with the bracketed amount --
-        elif _may_break(before, after, in_number, after_number):
-            offsets.append(offset)
+        # -- a combining mark goes with the character before it, never breaking from it --
         if after == CM:
             continue
+        if before != -1 and _may_break_at(word, offset, before, after, in_number, after_number):
+            offsets.append(offset)
         after_number = in_number and after == CL
         in_number = after == NU or (in_number and after in (SY, IS))
         before = after
     return tuple(offsets)
+
+
+def _may_break_at(
+    word: str, offset: int, before: int, after: int, in_number: bool, after_number: bool
+) -> bool:
+    """True when a line may end before `word[offset]`, of class `after`, the last class `before`."""
+    # -- "$(100)": the sign stays with the bracketed amount --
+    if after == OP and before in (PR, PO) and _next_is_digit(word, offset):
+        return False
+    return _may_break(before, after, in_number, after_number)
 
 
 def _next_is_digit(word: str, offset: int) -> bool:
