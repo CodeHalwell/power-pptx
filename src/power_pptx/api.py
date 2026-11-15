@@ -32,6 +32,13 @@ def Presentation(
     :meth:`~power_pptx.presentation.Presentation.save`: a path ending in
     ``.potx`` writes a template, ``.ppsx`` a slide show, and anything else
     (including a file-like object) an ordinary presentation.
+
+    Raises :class:`~power_pptx.exc.PackageNotFoundError` when there is no
+    file at the path given, its subclass
+    :class:`~power_pptx.exc.InvalidPackageError` when what is there is not a
+    readable package (not a zip archive, or one missing its required
+    parts), and :class:`ValueError` for a valid package that is not a
+    presentation, such as a Word document.
     """
     if pptx is None:
         pptx = _default_pptx_path()

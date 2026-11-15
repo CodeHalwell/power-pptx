@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 import posixpath
 import zipfile
+import zlib
 from typing import IO, TYPE_CHECKING, Any, Container, Sequence
 
 from power_pptx._reproducible import zip_date_time
-from power_pptx.exc import PackageNotFoundError
+from power_pptx.exc import InvalidPackageError, PackageNotFoundError
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.oxml import CT_Types, serialize_part_xml
 from power_pptx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
@@ -27,7 +28,7 @@ class PackageReader(Container[bytes]):
     perhaps by unzipping a .pptx file.
     """
 
-    def __init__(self, pkg_file: str | IO[bytes]):
+    def __init__(self, pkg_file: str | os.PathLike[str] | IO[bytes]):
         self._pkg_file = pkg_file
 
     def __contains__(self, pack_uri: object) -> bool:
@@ -37,6 +38,17 @@ class PackageReader(Container[bytes]):
     def __getitem__(self, pack_uri: PackURI) -> bytes:
         """Return bytes for part corresponding to `pack_uri`."""
         return self._blob_reader[pack_uri]
+
+    def close(self) -> None:
+        """Release the package file, if this reader has opened it.
+
+        Package items are read on demand, so the underlying file stays open between reads.
+        Call this once everything needed has been read. A stream passed in by the caller is
+        left open; it is theirs.
+        """
+        blob_reader = self.__dict__.get("_blob_reader")
+        if blob_reader is not None:
+            blob_reader.close()
 
     def rels_xml_for(self, partname: PackURI) -> bytes | None:
         """Return optional rels item XML for `partname`.
@@ -146,10 +158,17 @@ class _PhysPkgReader(Container[PackURI]):
             f"`{type(self).__name__}` must implement `.__contains__()`"
         )
 
+    def close(self) -> None:
+        """Release any resource held open for reading. A no-op unless overridden."""
+
     @classmethod
-    def factory(cls, pkg_file: str | IO[bytes]) -> _PhysPkgReader:
+    def factory(cls, pkg_file: str | os.PathLike[str] | IO[bytes]) -> _PhysPkgReader:
         """Return |_PhysPkgReader| subtype instance appropriage for `pkg_file`."""
-        # --- for pkg_file other than str, assume it's a stream and pass it to Zip
+        # --- a path object is a path, exactly like the str it stands for ---
+        if isinstance(pkg_file, os.PathLike):
+            pkg_file = os.fsdecode(pkg_file)
+
+        # --- for pkg_file other than a path, assume it's a stream and pass it to Zip
         # --- reader to sort out
         if not isinstance(pkg_file, str):
             return _ZipPkgReader(pkg_file)
@@ -161,7 +180,10 @@ class _PhysPkgReader(Container[PackURI]):
         if zipfile.is_zipfile(pkg_file):
             return _ZipPkgReader(pkg_file)
 
-        raise PackageNotFoundError("Package not found at '%s'" % pkg_file)
+        if not os.path.exists(pkg_file):
+            raise _PackageFileNotFoundError("Package not found at '%s'" % pkg_file)
+
+        raise InvalidPackageError(_not_a_package_message("file '%s'" % pkg_file, pkg_file))
 
 
 class _DirPkgReader(_PhysPkgReader):
@@ -190,29 +212,105 @@ class _DirPkgReader(_PhysPkgReader):
 
 
 class _ZipPkgReader(_PhysPkgReader):
-    """Implements |PhysPkgReader| interface for a zip-file OPC package."""
+    """Implements |PhysPkgReader| interface for a zip-file OPC package.
+
+    Members are decompressed one at a time, when asked for. The package loader only asks for
+    the items the package's relationships actually lead to, so a member that nothing refers to
+    is never inflated, however large it claims to be.
+    """
 
     def __init__(self, pkg_file: str | IO[bytes]):
         self._pkg_file = pkg_file
 
     def __contains__(self, pack_uri: object) -> bool:
         """Return True when part identified by `pack_uri` is present in zip archive."""
-        return pack_uri in self._blobs
+        return pack_uri in self._members
 
     def __getitem__(self, pack_uri: PackURI) -> bytes:
         """Return bytes for part corresponding to `pack_uri`.
 
         Raises |KeyError| if no matching member is present in zip archive.
         """
-        if pack_uri not in self._blobs:
+        if pack_uri not in self._members:
             raise KeyError("no member '%s' in package" % pack_uri)
-        return self._blobs[pack_uri]
+        try:
+            return self._zipf.read(self._members[pack_uri])
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as e:
+            # -- a bad CRC, a truncated or corrupt deflate stream, a compression method this
+            # -- Python cannot read, or an encrypted member --
+            raise InvalidPackageError(
+                "cannot read '%s' from package: %s" % (pack_uri.membername, e)
+            ) from e
+
+    def close(self) -> None:
+        """Close the zip archive, if it has been opened.
+
+        A file this reader opened from a path is closed with it; a stream handed in by the
+        caller is left open.
+        """
+        zipf = self.__dict__.pop("_zipf", None)
+        if zipf is not None:
+            zipf.close()
 
     @lazyproperty
-    def _blobs(self) -> dict[PackURI, bytes]:
-        """dict mapping partname to package part binaries."""
-        with zipfile.ZipFile(self._pkg_file, "r") as z:
-            return {PackURI("/%s" % name): z.read(name) for name in z.namelist()}
+    def _members(self) -> dict[PackURI, zipfile.ZipInfo]:
+        """dict mapping the pack URI of each zip member to its directory entry.
+
+        Reading the directory inflates nothing. When a name occurs more than once the last
+        entry wins, which is also the one `ZipFile.read(name)` would return.
+        """
+        return {PackURI("/%s" % zinfo.filename): zinfo for zinfo in self._zipf.infolist()}
+
+    @lazyproperty
+    def _zipf(self) -> zipfile.ZipFile:
+        """`ZipFile` instance open for reading."""
+        try:
+            return zipfile.ZipFile(self._pkg_file, "r")
+        except zipfile.BadZipFile as e:
+            source = (
+                "file '%s'" % self._pkg_file
+                if isinstance(self._pkg_file, str)
+                else "the stream provided"
+            )
+            raise InvalidPackageError(_not_a_package_message(source, self._pkg_file)) from e
+
+
+class _PackageFileNotFoundError(PackageNotFoundError, FileNotFoundError):
+    """Raised when there is no file at the path a package was to be opened from.
+
+    A path given as `str` has always raised |PackageNotFoundError| here, while a path object
+    used to fall through to `zipfile` and raise `FileNotFoundError`. Both spellings now take the
+    same route, and this is both of those errors so neither kind of caller has to change.
+    """
+
+
+# -- the first bytes of an OLE compound file, which is what both a PowerPoint 97-2003 .ppt
+# -- and a password-protected (encrypted) .pptx are on disk --
+_OLE_COMPOUND_FILE_MAGIC = bytes.fromhex("d0cf11e0a1b11ae1")
+
+
+def _not_a_package_message(source: str, pkg_file: str | IO[bytes]) -> str:
+    """Return the error message for `pkg_file` not being a zip archive at all."""
+    message = "%s is not a PowerPoint package (not a zip archive)" % source
+    if _leading_bytes(pkg_file, len(_OLE_COMPOUND_FILE_MAGIC)) == _OLE_COMPOUND_FILE_MAGIC:
+        message += (
+            "; it looks like a legacy .ppt file or a password-protected presentation,"
+            " neither of which can be read"
+        )
+    return message
+
+
+def _leading_bytes(pkg_file: str | IO[bytes], count: int) -> bytes:
+    """Return the first `count` bytes of `pkg_file`, or b"" if they cannot be read."""
+    try:
+        if isinstance(pkg_file, str):
+            with open(pkg_file, "rb") as f:
+                return f.read(count)
+        pkg_file.seek(0)
+        head = pkg_file.read(count)
+        return head if isinstance(head, bytes) else b""
+    except Exception:
+        return b""
 
 
 class _PhysPkgWriter:

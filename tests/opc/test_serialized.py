@@ -10,7 +10,7 @@ import zipfile
 
 import pytest
 
-from power_pptx.exc import PackageNotFoundError
+from power_pptx.exc import InvalidPackageError, PackageNotFoundError
 from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.package import Part, _Relationships
 from power_pptx.opc.packuri import CONTENT_TYPES_URI, PackURI
@@ -71,6 +71,20 @@ class DescribePackageReader:
         package_reader = PackageReader("")
 
         assert package_reader.rels_xml_for(PackURI("/ppt/slides.slide1.xml")) is None
+
+    def it_can_close_the_package_file_once_reading_is_done(self, request: FixtureRequest):
+        phys_pkg_reader_ = instance_mock(request, _PhysPkgReader)
+        _PhysPkgReader_ = class_mock(request, "power_pptx.opc.serialized._PhysPkgReader")
+        _PhysPkgReader_.factory.return_value = phys_pkg_reader_
+        package_reader = PackageReader("prs.pptx")
+
+        # -- nothing has been opened yet, so there is nothing to close (or to open) --
+        package_reader.close()
+        assert _PhysPkgReader_.factory.call_count == 0
+
+        PackURI("/ppt/presentation.xml") in package_reader  # noqa: B015
+        package_reader.close()
+        phys_pkg_reader_.close.assert_called_once_with()
 
     def it_constructs_its_blob_reader_to_help(self, request: FixtureRequest):
         phys_pkg_reader_ = instance_mock(request, _PhysPkgReader)
@@ -242,10 +256,49 @@ class Describe_PhysPkgReader:
         _ZipPkgReader_.assert_called_once_with(pkg_file_path)
         assert phys_reader is zip_pkg_reader_
 
+    def and_it_treats_a_path_object_like_the_str_path_it_stands_for(
+        self, request: FixtureRequest, _ZipPkgReader_: Mock, zip_pkg_reader_: Mock
+    ):
+        import pathlib
+
+        _ZipPkgReader_.return_value = zip_pkg_reader_
+        dir_pkg_reader_ = instance_mock(request, _DirPkgReader)
+        _DirPkgReader_ = class_mock(
+            request, "power_pptx.opc.serialized._DirPkgReader", return_value=dir_pkg_reader_
+        )
+
+        assert _PhysPkgReader.factory(pathlib.Path(test_pptx_path)) is zip_pkg_reader_
+        assert _PhysPkgReader.factory(pathlib.Path(dir_pkg_path)) is dir_pkg_reader_
+
+        # -- the readers get the plain str, as they do for a str path --
+        _ZipPkgReader_.assert_called_once_with(test_pptx_path)
+        _DirPkgReader_.assert_called_once_with(dir_pkg_path)
+
     def but_it_raises_when_pkg_path_is_not_a_package(self):
         with pytest.raises(PackageNotFoundError) as e:
             _PhysPkgReader.factory("foobar")
         assert str(e.value) == "Package not found at 'foobar'"
+
+    def and_it_raises_the_same_for_a_path_object_that_does_not_exist(self):
+        import pathlib
+
+        with pytest.raises(PackageNotFoundError) as e:
+            _PhysPkgReader.factory(pathlib.Path("foobar"))
+        assert str(e.value) == "Package not found at 'foobar'"
+        # -- which is what a path object raised before it was given the same route as str --
+        assert isinstance(e.value, FileNotFoundError)
+        assert not isinstance(e.value, InvalidPackageError)
+
+    def and_it_raises_InvalidPackageError_when_the_file_exists_but_is_not_a_zip(self, tmp_path):
+        path = tmp_path / "notes.pptx"
+        path.write_bytes(b"just some text")
+
+        for pkg_file in (str(path), path):
+            with pytest.raises(InvalidPackageError) as e:
+                _PhysPkgReader.factory(pkg_file)
+            assert str(e.value) == (
+                "file '%s' is not a PowerPoint package (not a zip archive)" % path
+            )
 
     # --- fixture components -------------------------------
 
@@ -301,17 +354,60 @@ class Describe_ZipPkgReader:
             zip_pkg_reader[PackURI("/ppt/foobar.xml")]
         assert str(e.value) == "\"no member '/ppt/foobar.xml' in package\""
 
-    def it_loads_the_package_blobs_on_first_access_to_help(self, zip_pkg_reader: _ZipPkgReader):
-        blobs = zip_pkg_reader._blobs
-        assert len(blobs) == 38
-        assert "/ppt/presentation.xml" in blobs
-        assert "/ppt/_rels/presentation.xml.rels" in blobs
+    def it_indexes_the_package_members_on_first_access_to_help(
+        self, zip_pkg_reader: _ZipPkgReader
+    ):
+        members = zip_pkg_reader._members
+        assert len(members) == 38
+        assert "/ppt/presentation.xml" in members
+        assert "/ppt/_rels/presentation.xml.rels" in members
+
+    def it_inflates_a_member_only_when_it_is_asked_for(self, request: FixtureRequest):
+        """Loading every member up front let an unreferenced one exhaust memory."""
+        read_ = method_mock(request, zipfile.ZipFile, "read", return_value=b"blob")
+        zip_pkg_reader = _ZipPkgReader(zip_pkg_path)
+        request.addfinalizer(zip_pkg_reader.close)
+
+        assert PackURI("/ppt/presentation.xml") in zip_pkg_reader
+        assert len(zip_pkg_reader._members) == 38
+        assert read_.call_count == 0
+
+        assert zip_pkg_reader[PackURI("/ppt/presentation.xml")] == b"blob"
+        assert [c.args[1].filename for c in read_.call_args_list] == ["ppt/presentation.xml"]
+
+    def it_raises_InvalidPackageError_when_the_stream_is_not_a_zip(self):
+        zip_pkg_reader = _ZipPkgReader(io.BytesIO(b"this is not a zip archive"))
+
+        with pytest.raises(InvalidPackageError) as e:
+            PackURI("/ppt/presentation.xml") in zip_pkg_reader  # noqa: B015
+        assert str(e.value) == (
+            "the stream provided is not a PowerPoint package (not a zip archive)"
+        )
+
+    def it_closes_the_file_it_opened_but_not_a_stream_it_was_given(self):
+        from_path = _ZipPkgReader(zip_pkg_path)
+        zipf = from_path._zipf
+        assert zipf.fp is not None
+        from_path.close()
+        assert zipf.fp is None
+        from_path.close()  # -- and closing twice is harmless --
+
+        with open(zip_pkg_path, "rb") as stream:
+            from_stream = _ZipPkgReader(stream)
+            assert PackURI("/ppt/presentation.xml") in from_stream
+            from_stream.close()
+            assert not stream.closed
+
+        never_opened = _ZipPkgReader("no-such-file.pptx")
+        never_opened.close()
 
     # --- fixture components -------------------------------
 
     @pytest.fixture
     def zip_pkg_reader(self):
-        return _ZipPkgReader(zip_pkg_path)
+        zip_pkg_reader = _ZipPkgReader(zip_pkg_path)
+        yield zip_pkg_reader
+        zip_pkg_reader.close()
 
 
 class Describe_PhysPkgWriter:
