@@ -304,7 +304,7 @@ regression test.
   imported from a ``.potx``.
 
 * **Picture effects** — transparency, brightness, contrast, recolor
-  (grayscale, sepia, washout, duotone); native SVG embedding with
+  (grayscale, sepia, washout, black-and-white, duotone); native SVG embedding with
   PNG fallback.
 
 * **Design-system layer** — ``DesignTokens`` (palette, typography,

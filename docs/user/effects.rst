@@ -177,8 +177,18 @@ Pictures gain a dedicated ``effects`` accessor that wraps the OOXML
     pic.effects.contrast = 0.05
     pic.effects.set_duotone(RGBColor(0x12, 0x1E, 0x4D), "#A8C0FF")
 
-``set_duotone`` accepts |RGBColor|, hex strings (with or without ``#``),
-or RGB 3-tuples.
+``set_duotone`` accepts |RGBColor|, 6-digit hex strings (with or without
+``#``), or RGB 3-tuples.  Anything else — ``"#FFF"``, ``"red"``,
+``(300, 0, 0)`` — raises and leaves the picture's current recolour in
+place.
+
+``pic.effects.recolor`` selects a preset: ``"grayscale"``, ``"sepia"``,
+``"washout"``, ``"black_and_white"`` or ``"duotone"``; ``None`` clears
+it.  ``"washout"`` is PowerPoint's Washout, a fixed brightness/contrast
+pair (``<a:lum bright="70000" contrast="-70000"/>``), so it reads back
+through ``brightness`` and ``contrast`` and is replaced by assigning
+either.  ``"black_and_white"`` is the hard two-tone split
+(``<a:biLevel>``) that earlier releases wrote for ``"washout"``.
 
 Native SVG
 ----------

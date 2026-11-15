@@ -27,21 +27,30 @@ pic.effects.contrast     = 0.05
 ## Recolor presets
 
 `recolor` is a **property, not a method** — assign to it. There are
-exactly four modes; anything else raises `ValueError`, and the existing
+exactly five modes; anything else raises `ValueError`, and the existing
 effect is left intact because the value is validated before it mutates.
 
 ```python
 pic.effects.recolor = "grayscale"
-pic.effects.recolor = "sepia"         # a preset duotone under the hood
-pic.effects.recolor = "washout"       # PowerPoint's "Washout"
-pic.effects.recolor = "duotone"       # neutral grey duotone; see below
-                                      # to pick your own two colours
+pic.effects.recolor = "sepia"           # a preset duotone under the hood
+pic.effects.recolor = "washout"         # PowerPoint's "Washout": faded to white
+pic.effects.recolor = "black_and_white" # pure black / pure white, 50% threshold
+pic.effects.recolor = "duotone"         # neutral grey duotone; see below
+                                        # to pick your own two colours
 
-pic.effects.recolor                   # read it back: the mode, or None
+pic.effects.recolor                     # read it back: the mode, or None
 ```
 
-There is no `"black_and_white"` mode. `"washout"` is the closest
-equivalent.
+`"washout"` is a brightness/contrast pair, exactly as PowerPoint writes
+it (`<a:lum bright="70000" contrast="-70000"/>`). It shares that element
+with `effects.brightness` / `effects.contrast`: after `recolor =
+"washout"` they read `0.7` and `-0.7`, and assigning either one
+afterwards takes the picture out of washout. Set washout *or* your own
+brightness/contrast, not both.
+
+`"black_and_white"` is the hard two-tone split (`<a:biLevel>`). Earlier
+releases wrote that for `"washout"`, and read it back as `"washout"`;
+if you relied on that look, ask for `"black_and_white"`.
 
 ## Duotone
 
@@ -54,6 +63,11 @@ pic.effects.set_duotone(
 # Plain RGB tuples are also accepted
 pic.effects.set_duotone((18, 30, 77), (168, 192, 255))
 ```
+
+Colours follow the same rules as everywhere else: `RGBColor`, a
+**6-digit** hex string, or a 3-tuple of ints in 0–255. `"#FFF"`,
+`"red"` or `(300, 0, 0)` raise, and the picture keeps whatever recolour
+it had.
 
 To clear, assign `None` — there is no `clear_recolor()` method:
 
