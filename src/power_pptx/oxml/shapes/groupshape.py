@@ -448,38 +448,58 @@ def _arrivals_fit(container, remembered: tuple, from_end: bool, cursor: int) -> 
     id, or the end has changed beyond what can be followed from here.
     """
     anchors = remembered[0]
-    changed = False
-    if anchors:
-        # -- the outermost remembered child still in place marks where the
-        # -- known part ends; one that is gone was deleted or moved away
-        for anchor in anchors:
-            if anchor.getparent() is container:
-                break
-            changed = True
-        else:
-            return None
-        sibling = anchor.getnext() if from_end else anchor.getprevious()
-        outward = True
-    else:
+    if not anchors:
         # -- no shapes were here last time, so any here now are new; look at
         # -- them all, starting from this end
-        sibling = next(container.iterchildren(reversed=from_end), None)
-        outward = False
-    # -- "outward" is away from the remembered children: forward at the end of
-    # -- the container, backward at its start
-    forward = from_end if outward else not from_end
+        first = next(container.iterchildren(reversed=from_end), None)
+        arrivals = _count_arrivals(first, not from_end, cursor, stop_at_non_shape=False)
+        return None if arrivals is None else arrivals > 0
 
+    # -- the outermost remembered child still in place marks where the known
+    # -- part ends; the walk goes outward from it, away from the remembered
+    # -- children: forward at the end of the container, backward at its start,
+    # -- where it stops at `p:grpSpPr` (nothing precedes it but `p:nvGrpSpPr`)
+    in_place = _outermost_in_place(anchors, container)
+    if in_place is None:
+        return None
+    anchor, lost = in_place
+    beyond = anchor.getnext() if from_end else anchor.getprevious()
+    arrivals = _count_arrivals(beyond, from_end, cursor, stop_at_non_shape=not from_end)
+    if arrivals is None:
+        return None
+    return lost or arrivals > 0
+
+
+def _outermost_in_place(anchors: tuple, container) -> tuple | None:
+    """`(anchor, lost)` for the outermost of `anchors` still in `container`, else |None|.
+
+    `lost` is |True| when the anchors outside that one are gone: deleted or
+    moved away.
+    """
+    for index, anchor in enumerate(anchors):
+        if anchor.getparent() is container:
+            return anchor, index > 0
+    return None
+
+
+def _count_arrivals(sibling, forward: bool, cursor: int, stop_at_non_shape: bool) -> int | None:
+    """Count the shapes from `sibling` on, walking `forward` or backward.
+
+    Children that are not shapes are stepped over, or end the walk when
+    `stop_at_non_shape`. Returns |None| instead when one of the shapes carries
+    an id above `cursor`, or when there are more than `_MAX_NEW_PER_END` to
+    look at.
+    """
     examined = 0
     while sibling is not None:
-        if sibling.tag in _NON_SHAPE_TAGS:
-            if outward and not from_end:
-                break  # -- `p:grpSpPr`: nothing precedes it but `p:nvGrpSpPr`
-        elif examined == _MAX_NEW_PER_END or _max_id_in(sibling) > cursor:
-            return None
-        else:
+        if sibling.tag not in _NON_SHAPE_TAGS:
+            if examined == _MAX_NEW_PER_END or _max_id_in(sibling) > cursor:
+                return None
             examined += 1
+        elif stop_at_non_shape:
+            break
         sibling = sibling.getnext() if forward else sibling.getprevious()
-    return changed or examined > 0
+    return examined
 
 
 class CT_GroupShapeNonVisual(BaseShapeElement):
