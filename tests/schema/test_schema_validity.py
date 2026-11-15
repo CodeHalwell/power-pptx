@@ -9,6 +9,8 @@ check that ordinary "does it reopen" tests miss.
 from __future__ import annotations
 
 import io
+import re
+import zipfile
 
 import pytest
 
@@ -1289,3 +1291,144 @@ class DescribeUntrustedPackages:
 
         assert parsers, "expected the validator to parse parts"
         assert all(parser is _schema._PARSER for parser in parsers)
+
+
+def _truncated(data: bytes) -> bytes:
+    """Return part *data* cut short, so it is no longer well-formed XML."""
+    return data[:-10]
+
+
+class DescribeUnreadableParts:
+    """A part that is not well-formed is reported once, by the check that reads it."""
+
+    SLIDE = "ppt/slides/slide1.xml"
+    SLIDE_RELS = "ppt/slides/_rels/slide1.xml.rels"
+    PRESENTATION_RELS = "ppt/_rels/presentation.xml.rels"
+
+    def it_reports_a_slide_that_is_not_well_formed(self):
+        blob = _rewritten(_deck_picture_washout(), {self.SLIDE: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.SLIDE]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_a_chart_that_is_not_well_formed(self):
+        blob = _rewritten(_deck_chart(), {"ppt/charts/chart1.xml": _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == ["ppt/charts/chart1.xml"]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_a_relationships_part_that_is_not_well_formed(self):
+        # -- and does not then call each reference in the slide dangling --
+        blob = _rewritten(_deck_picture_washout(), {self.SLIDE_RELS: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.SLIDE_RELS]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_unreadable_presentation_relationships_once(self):
+        # -- the orphan-slide check needs them too, and leaves the report to this one --
+        blob = _rewritten(_deck_blank(), {self.PRESENTATION_RELS: _truncated})
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == [self.PRESENTATION_RELS]
+        assert violations[0][1].startswith("not well-formed XML: ")
+
+    def it_reports_each_unreadable_relationships_part_in_name_order(self):
+        blob = _rewritten(
+            _deck_blank(),
+            {self.SLIDE_RELS: _truncated, "_rels/.rels": _truncated},
+        )
+
+        violations = list(iter_schema_violations(blob))
+
+        assert [part for part, _ in violations] == ["_rels/.rels", self.SLIDE_RELS]
+
+
+class DescribeRelationshipTargets:
+    """Every internal relationship must name a part that is in the package."""
+
+    SLIDE_RELS = "ppt/slides/_rels/slide1.xml.rels"
+
+    def _with_relationships(self, relationships: bytes) -> bytes:
+        def edit(data: bytes) -> bytes:
+            assert data.count(b"</Relationships>") == 1
+            return data.replace(b"</Relationships>", relationships + b"</Relationships>")
+
+        return _rewritten(_deck_blank(), {self.SLIDE_RELS: edit})
+
+    def it_does_not_look_for_the_target_of_an_external_relationship(self):
+        blob = self._with_relationships(
+            b'<Relationship Id="rId90" Type="http://example.com/link" '
+            b'Target="http://example.com/" TargetMode="External"/>'
+        )
+
+        assert list(iter_schema_violations(blob)) == []
+
+    def it_resolves_a_target_against_the_folder_of_its_source(self):
+        blob = self._with_relationships(
+            b'<Relationship Id="rId90" Type="http://example.com/image" '
+            b'Target="../media/absent.png"/>'
+            b'<Relationship Id="rId91" Type="http://example.com/image" '
+            b'Target="/ppt/media/absent.png"/>'
+            b'<Relationship Id="rId92" Type="http://example.com/image"/>'
+        )
+
+        assert list(iter_schema_violations(blob)) == [
+            (self.SLIDE_RELS, "relationship rId90 points at missing part 'ppt/media/absent.png'"),
+            (self.SLIDE_RELS, "relationship rId91 points at missing part 'ppt/media/absent.png'"),
+            (self.SLIDE_RELS, "relationship rId92 points at missing part 'ppt/slides'"),
+        ]
+
+    def it_reports_every_dangling_reference_in_a_part_without_relationships(self):
+        blob = _deck_picture_washout()
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            slide = zf.read("ppt/slides/slide1.xml").decode()
+        embeds = re.findall(r'r:embed="([^"]+)"', slide)
+        assert len(embeds) == 2
+
+        out = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(blob)) as zin, zipfile.ZipFile(out, "w") as zout:
+            for name in zin.namelist():
+                if name != self.SLIDE_RELS:
+                    zout.writestr(name, zin.read(name))
+
+        violations = list(iter_schema_violations(out.getvalue()))
+
+        assert violations == [
+            (
+                "ppt/slides/slide1.xml",
+                "dangling embed=%r on <blip> — no such relationship in %s" % (rid, self.SLIDE_RELS),
+            )
+            for rid in embeds
+        ]
+
+
+class DescribeSchemaViolationSources:
+    """The package can be given as bytes, a path or a stream."""
+
+    @pytest.mark.parametrize("kind", ["bytes", "bytearray", "str", "path", "stream"])
+    def it_reports_the_same_violations_whatever_the_source(self, kind, tmp_path):
+        def edit(data: bytes) -> bytes:
+            return data.replace(b"<p:cSld", b"<p:bogus/><p:cSld", 1)
+
+        blob = _rewritten(_deck_blank(), {"ppt/slides/slide1.xml": edit})
+        path = tmp_path / "deck.pptx"
+        path.write_bytes(blob)
+        source = {
+            "bytes": blob,
+            "bytearray": bytearray(blob),
+            "str": str(path),
+            "path": path,
+            "stream": io.BytesIO(blob),
+        }[kind]
+
+        violations = list(iter_schema_violations(source))
+
+        assert [part for part, _ in violations] == ["ppt/slides/slide1.xml"]
+        assert "bogus" in violations[0][1]
