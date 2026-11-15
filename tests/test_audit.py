@@ -54,6 +54,49 @@ class DescribeAudit:
         assert any(font == "Definitely-Not-A-Real-Font-Name"
                    for _, font in report.font_warnings)
 
+    def it_resolves_a_theme_font_reference_instead_of_flagging_it(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "Theme body font"
+        # How PowerPoint writes "use the theme's body font".
+        box.text_frame.paragraphs[0].runs[0].font.name = "+mn-lt"
+
+        report = audit(prs)
+
+        # The default theme's minor font is Calibri, which is common.
+        assert report.font_warnings == []
+
+    def it_reports_the_theme_font_a_reference_stands_for(self, prs):
+        prs.theme.fonts.minor = "Instrument Serif"
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "Theme body font"
+        box.text_frame.paragraphs[0].runs[0].font.name = "+mn-lt"
+
+        assert audit(prs).font_warnings == [(0, "Instrument Serif")]
+
+    def it_checks_fonts_set_on_a_paragraph_and_in_table_cells(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "Brand font set on the paragraph"
+        box.text_frame.paragraphs[0].font.name = "Instrument Serif"
+        table = slide.shapes.add_table(1, 1, Inches(6), Inches(1), Inches(2), Inches(1)).table
+        table.cell(0, 0).text = "cell"
+        table.cell(0, 0).text_frame.paragraphs[0].runs[0].font.name = "Papyrus"
+
+        report = audit(prs)
+
+        assert report.font_warnings == [(0, "Instrument Serif"), (0, "Papyrus")]
+
+    def it_does_not_change_the_deck(self):
+        from tests.test_accessibility import foreign_deck, slide_snapshot
+
+        prs, before = foreign_deck()
+
+        audit(prs)
+
+        assert slide_snapshot(prs) == before
+
     def it_treats_full_bleed_only_slide_as_empty(self, prs):
         # A slide whose only shape is a slide-spanning background rect
         # should be reported as empty (it has no content).

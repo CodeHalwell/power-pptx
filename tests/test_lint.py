@@ -3367,6 +3367,32 @@ class DescribeZOrderAnomalyIntent:
         assert not any(isinstance(i, ZOrderAnomaly) for i in slide.lint().issues)
 
 
+class DescribeLintIsReadOnly:
+    def it_does_not_change_the_deck(self):
+        from tests.test_accessibility import foreign_deck, slide_snapshot
+
+        prs, before = foreign_deck()
+
+        for slide in prs.slides:
+            slide.lint()
+            slide.lint(include_effect_bleed=True)
+
+        assert slide_snapshot(prs) == before
+
+    def it_does_not_change_the_deck_when_previewing_fixes(self):
+        from tests.test_accessibility import foreign_deck, slide_snapshot
+
+        prs, before = foreign_deck()
+        slide = prs.slides[0]
+        slide.shapes.add_shape(1, Inches(9), Inches(1), Inches(3), Inches(1)).text = " ".join(
+            [_SENTENCE] * 3
+        )
+        before = slide_snapshot(prs)
+
+        assert slide.lint().auto_fix(dry_run=True)
+        assert slide_snapshot(prs) == before
+
+
 class DescribeMalformedGeometry:
     def it_reports_a_negative_width_instead_of_crashing(self):
         _, slide = _new_blank_slide()

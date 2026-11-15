@@ -20,7 +20,9 @@ The report contains:
   decoration (full-bleed rects, layout placeholders).
 * ``font_warnings`` — fonts referenced by shapes that aren't typically
   pre-installed on Windows / macOS / Linux (raises false positives;
-  treat as advisory).
+  treat as advisory).  Fonts set on runs, on paragraphs and in table
+  cells all count, once per slide; a theme reference such as ``+mn-lt``
+  is reported as the theme font it stands for.
 * ``size_warnings`` — pictures larger than ``size_warn_bytes`` (default
   2 MB) — flagged so callers can choose to compress.
 
@@ -36,6 +38,8 @@ from typing import TYPE_CHECKING, Any, Iterable, Iterator
 from PIL import Image as PILImage
 
 from power_pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from power_pptx.lint import _has_visible_text
+from power_pptx.oxml.ns import qn
 from power_pptx.shapes.autoshape import Shape
 from power_pptx.shapes.group import GroupShape
 
@@ -210,15 +214,15 @@ def audit(
         for issue in slide.lint().issues:
             report.lint_issues.append((idx, issue))
 
+        fonts = _SlideFonts(slide) if check_fonts else None
         content_shapes = 0
         for shape in _leaf_shapes(slide.shapes):
-            tf = getattr(shape, "text_frame", None)
+            tx_body = _tx_body(shape)
+            has_text = tx_body is not None and _has_visible_text(tx_body)
+            if fonts is not None:
+                fonts.collect(shape, tx_body)
             # Skip layout placeholders that are entirely inherited.
-            if (
-                shape.is_placeholder
-                and tf is not None
-                and not tf.text.strip()
-            ):
+            if shape.is_placeholder and tx_body is not None and not has_text:
                 continue
             # Skip full-bleed background rectangles — they're decoration,
             # not content, so a slide that only contains them should be
@@ -241,10 +245,9 @@ def audit(
                 and int(shape.top or 0) <= slide_h * 0.05
                 and int(shape.left or 0) + sw >= bleed_w
                 and int(shape.top or 0) + sh >= bleed_h
+                and not has_text
             ):
-                has_text = tf is not None and tf.text.strip()
-                if not has_text:
-                    continue
+                continue
             content_shapes += 1
 
             # Picture sanity.
@@ -273,15 +276,8 @@ def audit(
                 if broken:
                     report.broken_pictures.append((idx, shape))
 
-            # Font warning sweep.
-            if check_fonts and tf is not None:
-                for para in tf.paragraphs:
-                    for run in para.runs:
-                        if run._r.rPr is None:
-                            continue
-                        name = run.font.name
-                        if name and name.lower() not in _COMMON_FONTS:
-                            report.font_warnings.append((idx, name))
+        if fonts is not None:
+            report.font_warnings.extend((idx, name) for name in fonts.uncommon())
 
         if content_shapes == 0:
             report.empty_slides.append(idx)
@@ -296,3 +292,50 @@ def _leaf_shapes(shapes: Iterable[BaseShape]) -> Iterator[BaseShape]:
             yield from _leaf_shapes(shape.shapes)
         else:
             yield shape
+
+
+def _tx_body(shape: BaseShape):
+    """The shape's ``<p:txBody>``, or ``None``.
+
+    Read off the element: ``shape.text_frame`` adds an empty text body to a
+    shape that has none, and the audit must not change the deck.
+    """
+    if not getattr(shape, "has_text_frame", False):
+        return None
+    return getattr(shape._element, "txBody", None)  # pyright: ignore[reportPrivateUsage]
+
+
+class _SlideFonts:
+    """Collects the typefaces a slide's text asks for, in order of appearance.
+
+    Every ``<a:latin>`` counts — on a run, on a paragraph's default run
+    properties, on an end-of-paragraph mark, or in a list style — in shapes
+    and in table cells alike.  A theme reference such as ``+mn-lt`` is
+    resolved to the theme's font, the one PowerPoint actually draws with.
+    """
+
+    _LATIN = qn("a:latin")
+
+    def __init__(self, slide):
+        from power_pptx.lint import _TextEnv
+
+        self._env = _TextEnv(slide)
+        self._names: dict[str, None] = {}
+
+    def collect(self, shape: BaseShape, tx_body) -> None:
+        bodies = [] if tx_body is None else [tx_body]
+        if getattr(shape, "has_table", False):
+            try:
+                tbl = shape._element.graphic.graphicData.tbl  # pyright: ignore[reportPrivateUsage]
+                bodies.extend(tc.txBody for tc in tbl.iter_tcs() if tc.txBody is not None)
+            except AttributeError:
+                pass
+        for body in bodies:
+            for latin in body.iter(self._LATIN):
+                face = latin.get("typeface")
+                if face:
+                    self._names.setdefault(self._env.family(face), None)
+
+    def uncommon(self) -> list[str]:
+        """The collected families not in the common safe-list, once each."""
+        return [name for name in self._names if name.lower() not in _COMMON_FONTS]
