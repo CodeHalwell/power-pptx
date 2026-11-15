@@ -471,3 +471,341 @@ class Describe_import_slide_relationship_remap:
             assert "media/" in relmap[rid], (
                 "r:embed=%r points at %r, not an image" % (rid, relmap[rid])
             )
+
+
+# ---------------------------------------------------------------------------
+# Links from the imported slide to other slides
+# ---------------------------------------------------------------------------
+
+
+def _slide_part_names(prs: Presentation) -> list[str]:
+    """Names of the slide parts in the package `prs` saves to."""
+    import zipfile
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    with zipfile.ZipFile(buf) as z:
+        return sorted(
+            n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+        )
+
+
+def _saved_bytes(prs: Presentation) -> bytes:
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def _linked_source() -> Presentation:
+    """Three slides: the first has a button that jumps to the second."""
+    src = Presentation()
+    blank = src.slide_layouts[6]
+    a, b, c = (src.slides.add_slide(blank) for _ in range(3))
+    button = a.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+    button.text_frame.text = "Go to appendix"
+    button.click_action.target_slide = b
+    b.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1)).text_frame.text = (
+        "CONFIDENTIAL salary table"
+    )
+    c.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1)).text_frame.text = (
+        "Public summary"
+    )
+    return src
+
+
+class Describe_import_slide_links_to_other_slides:
+    """Regression: a slide-jump link dragged its target slide into the package.
+
+    The target arrived as an orphan part — not in `p:sldIdLst`, no layout
+    relationship — carrying content the caller never asked to import.
+    """
+
+    def it_does_not_copy_a_slide_the_imported_slide_links_to(self):
+        import zipfile
+
+        src = _linked_source()
+        dst = Presentation()
+
+        dst.import_slide(src.slides[0])
+        dst.import_slide(src.slides[2])
+
+        assert len(dst.slides) == 2
+        saved = _saved_bytes(dst)
+        with zipfile.ZipFile(io.BytesIO(saved)) as z:
+            slide_parts = [
+                n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+            ]
+            leaked = [n for n in z.namelist() if b"CONFIDENTIAL" in z.read(n)]
+        assert sorted(slide_parts) == ["ppt/slides/slide1.xml", "ppt/slides/slide2.xml"]
+        assert leaked == []
+
+    def it_removes_the_link_but_keeps_the_shape(self):
+        src = _linked_source()
+        dst = Presentation()
+
+        imported = dst.import_slide(src.slides[0])
+
+        button = imported.shapes[0]
+        assert button.text_frame.text == "Go to appendix"
+        assert button.click_action.target_slide is None
+        assert button.click_action.hyperlink.address is None
+        assert imported.part._element.xpath("//a:hlinkClick") == []
+        assert not any(
+            rel.reltype.endswith("/slide") for rel in imported.part.rels.values()
+        )
+        # -- the source deck is untouched --
+        assert src.slides[0].shapes[0].click_action.target_slide == src.slides[1]
+
+    def it_removes_a_text_run_link_to_a_slide_that_is_not_imported(self):
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+        from power_pptx.oxml import parse_xml
+        from power_pptx.oxml.ns import nsdecls
+
+        src = _linked_source()
+        a, b = src.slides[0], src.slides[1]
+        box = a.shapes.add_textbox(Inches(1), Inches(3), Inches(3), Inches(1))
+        run = box.text_frame.paragraphs[0].add_run()
+        run.text = "see the appendix"
+        rId = a.part.relate_to(b.part, RT.SLIDE)
+        run._r.get_or_add_rPr().append(
+            parse_xml(
+                '<a:hlinkClick %s r:id="%s" action="ppaction://hlinksldjump"/>'
+                % (nsdecls("a", "r"), rId)
+            )
+        )
+
+        dst = Presentation()
+        imported = dst.import_slide(a)
+
+        assert imported.shapes[1].text_frame.text == "see the appendix"
+        assert imported.part._element.xpath("//a:hlinkClick") == []
+        assert _slide_part_names(dst) == ["ppt/slides/slide1.xml"]
+
+    def it_repoints_the_link_at_a_target_imported_earlier(self):
+        src = _linked_source()
+        dst = Presentation()
+
+        target = dst.import_slide(src.slides[1])
+        linking = dst.import_slide(src.slides[0])
+
+        assert linking.shapes[0].click_action.target_slide == target
+        assert _slide_part_names(dst) == ["ppt/slides/slide1.xml", "ppt/slides/slide2.xml"]
+        reopened = _round_trip(dst)
+        assert reopened.slides[1].shapes[0].click_action.target_slide == reopened.slides[0]
+
+    def but_not_at_a_target_that_has_since_been_deleted(self):
+        src = _linked_source()
+        dst = Presentation()
+        dst.import_slide(src.slides[1])
+        sldIdLst = dst.slides._sldIdLst
+        dst.part.drop_rel(sldIdLst[0].rId)
+        sldIdLst.remove(sldIdLst[0])
+
+        linking = dst.import_slide(src.slides[0])
+
+        assert linking.shapes[0].click_action.target_slide is None
+        assert _slide_part_names(dst) == ["ppt/slides/slide1.xml"]
+
+    def it_keeps_the_link_in_a_same_deck_import(self):
+        deck = _linked_source()
+
+        duplicate = deck.import_slide(deck.slides[0])
+
+        assert len(deck.slides) == 4
+        assert duplicate.shapes[0].click_action.target_slide == deck.slides[1]
+        assert len(_slide_part_names(deck)) == 4
+
+    def it_points_a_slide_that_links_to_itself_at_its_own_copy(self):
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        box.click_action.target_slide = slide
+
+        dst = Presentation()
+        dst.slides.add_slide(dst.slide_layouts[6])
+        imported = dst.import_slide(slide)
+
+        assert imported.shapes[0].click_action.target_slide == imported
+        assert len(_slide_part_names(dst)) == 2
+
+    def it_saves_a_package_that_survives_reopen_and_resave(self):
+        # The orphan used to be renumbered onto a visible slide's partname the
+        # moment `prs.slides` was touched after a reopen, so the next save
+        # wrote two zip members called ppt/slides/slide2.xml.
+        import zipfile
+        from collections import Counter
+
+        src = _linked_source()
+        dst = Presentation()
+        dst.import_slide(src.slides[0])
+        dst.import_slide(src.slides[2])
+
+        reopened = _round_trip(dst)
+        assert len(reopened.slides) == 2
+        resaved = _saved_bytes(reopened)
+
+        with zipfile.ZipFile(io.BytesIO(resaved)) as z:
+            duplicated = [n for n, count in Counter(z.namelist()).items() if count > 1]
+        assert duplicated == []
+        again = Presentation(io.BytesIO(resaved))
+        assert [_first_textbox_text(s) for s in again.slides] == [
+            "Go to appendix",
+            "Public summary",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Shared pictures / media and awkward partnames
+# ---------------------------------------------------------------------------
+
+
+class Describe_import_slide_shared_binaries:
+    def it_reuses_an_image_the_destination_already_has(self):
+        # Regression: ten slides sharing one picture arrived with ten copies
+        # of it, multiplying the size of the merged deck.
+        import zipfile
+
+        src = Presentation()
+        for _ in range(10):
+            slide = src.slides.add_slide(src.slide_layouts[6])
+            slide.shapes.add_picture(io.BytesIO(_PNG), Inches(1), Inches(1), Inches(2), Inches(2))
+
+        dst = Presentation()
+        for slide in src.slides:
+            dst.import_slide(slide)
+
+        with zipfile.ZipFile(io.BytesIO(_saved_bytes(dst))) as z:
+            media = [n for n in z.namelist() if n.startswith("ppt/media/")]
+        assert len(media) == 1
+        image_parts = {id(s.part.related_part(s.shapes[0]._element.blip_rId)) for s in dst.slides}
+        assert len(image_parts) == 1
+        assert [s.shapes[0].image.blob for s in _round_trip(dst).slides] == [_PNG] * 10
+
+    def it_reuses_an_image_added_to_the_destination_directly(self):
+        src = Presentation()
+        src.slides.add_slide(src.slide_layouts[6]).shapes.add_picture(
+            io.BytesIO(_PNG), Inches(1), Inches(1)
+        )
+        dst = Presentation()
+        own = dst.slides.add_slide(dst.slide_layouts[6]).shapes.add_picture(
+            io.BytesIO(_PNG), Inches(1), Inches(1)
+        )
+
+        imported = dst.import_slide(src.slides[0])
+
+        own_part = dst.slides[0].part.related_part(own._element.blip_rId)
+        assert imported.part.related_part(imported.shapes[0]._element.blip_rId) is own_part
+
+    def it_does_not_duplicate_an_image_in_a_same_deck_import(self):
+        import zipfile
+
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[6]).shapes.add_picture(
+            io.BytesIO(_PNG), Inches(1), Inches(1)
+        )
+
+        deck.import_slide(deck.slides[0])
+
+        with zipfile.ZipFile(io.BytesIO(_saved_bytes(deck))) as z:
+            media = [n for n in z.namelist() if n.startswith("ppt/media/")]
+        assert len(media) == 1
+
+    def but_it_keeps_different_images_apart(self):
+        import zipfile
+
+        other_png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d494844520000000100000001080600"
+            "00001f15c4890000000d49444154789c626001000000ffff030000"
+            "060005a5f5e2bd0000000049454e44ae426082"
+        )
+        src = Presentation()
+        for png in (_PNG, other_png):
+            src.slides.add_slide(src.slide_layouts[6]).shapes.add_picture(
+                io.BytesIO(png), Inches(1), Inches(1)
+            )
+
+        dst = Presentation()
+        for slide in src.slides:
+            dst.import_slide(slide)
+
+        with zipfile.ZipFile(io.BytesIO(_saved_bytes(dst))) as z:
+            media = [n for n in z.namelist() if n.startswith("ppt/media/")]
+        assert len(media) == 2
+        assert [s.shapes[0].image.blob for s in _round_trip(dst).slides] == [_PNG, other_png]
+
+    def it_gives_each_imported_chart_its_own_copy(self):
+        # Only opaque binaries are shared; a chart is editable per slide.
+        from power_pptx.chart.data import CategoryChartData
+        from power_pptx.enum.chart import XL_CHART_TYPE
+
+        src = Presentation()
+        slide = src.slides.add_slide(src.slide_layouts[6])
+        chart_data = CategoryChartData()
+        chart_data.categories = ["a", "b"]
+        chart_data.add_series("s", (1, 2))
+        slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(5), Inches(3), chart_data
+        )
+
+        dst = Presentation()
+        first = dst.import_slide(src.slides[0])
+        second = dst.import_slide(src.slides[0])
+
+        assert first.shapes[0].chart.part is not second.shapes[0].chart.part
+
+
+class Describe_import_slide_awkward_partnames:
+    def it_imports_a_part_whose_name_contains_a_percent_sign(self):
+        # Regression: the partname was spliced into a printf template, so
+        # `/ppt/media/my%20logo.png` raised "not enough arguments for format
+        # string".
+        import zipfile
+
+        deck = Presentation()
+        deck.slides.add_slide(deck.slide_layouts[6]).shapes.add_picture(
+            io.BytesIO(_PNG), Inches(1), Inches(1)
+        )
+        renamed = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(_saved_bytes(deck))) as zin, zipfile.ZipFile(
+            renamed, "w", zipfile.ZIP_DEFLATED
+        ) as zout:
+            for name in zin.namelist():
+                data = zin.read(name)
+                if name == "ppt/media/image1.png":
+                    name = "ppt/media/my%20logo.png"
+                if name.endswith(".rels"):
+                    data = data.replace(b"media/image1.png", b"media/my%20logo.png")
+                zout.writestr(name, data)
+        src = Presentation(io.BytesIO(renamed.getvalue()))
+        assert any(
+            part.partname == "/ppt/media/my%20logo.png" for part in src.part.package.iter_parts()
+        )
+
+        dst = Presentation()
+        imported = dst.import_slide(src.slides[0])
+
+        assert imported.shapes[0].image.blob == _PNG
+        assert _round_trip(dst).slides[0].shapes[0].image.blob == _PNG
+
+    def it_allocates_names_from_plain_prefix_and_suffix_pieces(self):
+        from power_pptx._slide_importer import _numbered_partname
+
+        assert _numbered_partname("/ppt/charts/chart3.xml") == ("/ppt/charts/chart", ".xml")
+        assert _numbered_partname("/ppt/media/my%20logo.png") == ("/ppt/media/my%20logo", ".png")
+        assert _numbered_partname("/ppt/media/100%.png") == ("/ppt/media/100%", ".png")
+        assert _numbered_partname("/ppt/embeddings/oleObject12") == ("/ppt/embeddings/oleObject", "")
+        assert _numbered_partname("/ppt/v1.2/thing7.bin") == ("/ppt/v1.2/thing", ".bin")
+
+
+class Describe_import_slide_merge_master_argument:
+    @pytest.mark.parametrize("bad", ["dedup", "Clone", "", None, "merge"])
+    def it_rejects_an_unknown_merge_master_value(self, bad):
+        # "dedup" used to be accepted silently and behave like "clone".
+        src = _make_prs_with_text("A")
+        dst = Presentation()
+
+        with pytest.raises(ValueError, match="merge_master must be 'dedupe' or 'clone'"):
+            dst.import_slide(src.slides[0], merge_master=bad)
+
+        assert len(dst.slides) == 0
+        assert len(dst.slide_masters) == 1

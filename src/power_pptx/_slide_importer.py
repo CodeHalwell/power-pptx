@@ -24,7 +24,8 @@ The following slide-level parts are copied:
 * The slide itself.
 * Its notes slide (if any).
 * All image / media / chart / OLE-object / SmartArt-diagram / video parts
-  reachable from the slide.
+  reachable from the slide.  An image or media file the destination already
+  holds (same bytes) is reused rather than copied again.
 * The slide layout (always cloned — layouts belong to a specific master).
 * The slide master and its theme (deduped or cloned, see above).
 
@@ -33,26 +34,35 @@ The following are intentionally **not** deep-copied:
 * The notes master — the copied notes slide is re-linked to the destination's
   own notes master; the source's is cloned only when the destination has none.
 * The handout master.
+* **Other slides.**  A "jump to slide" link (``click_action.target_slide``,
+  a text-run hyperlink to a slide) is a relationship to another slide.  It is
+  re-pointed when the target is already in the destination — a same-deck
+  import, or a slide imported earlier into the same |Presentation| object —
+  and removed otherwise.  The target slide is never brought along: the caller
+  did not ask for it, and an unregistered slide part corrupts the package.
 """
 
 from __future__ import annotations
 
 import hashlib
+import weakref
 from copy import deepcopy
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from power_pptx.opc.constants import CONTENT_TYPE as CT
 from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from power_pptx.opc.package import Part, PartFactory, XmlPart
 from power_pptx.opc.packuri import PackURI
 
 if TYPE_CHECKING:
-    from power_pptx.opc.package import _Relationships  # pyright: ignore[reportPrivateUsage]
     from power_pptx.package import Package
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart
     from power_pptx.slide import Slide
 
 MergeMaster = Literal["dedupe", "clone"]
+
+_MERGE_MASTER_VALUES: tuple[str, ...] = ("dedupe", "clone")
 
 # Relationship types whose target parts belong to the master / layout hierarchy
 # and are therefore handled separately from the general part graph copy.
@@ -66,6 +76,23 @@ _MASTER_HIERARCHY_RELTYPES = frozenset(
 
 # Relationship types for parts that travel with the slide (non-master deps)
 _NOTES_MASTER_RELTYPE = RT.NOTES_MASTER
+
+# Relationship types whose targets are opaque binary payloads (pictures,
+# video, audio).  Such a part is immutable and has no relationships of its
+# own, so one copy can safely serve every slide that uses the same bytes.
+_SHARED_BINARY_RELTYPES = frozenset({RT.IMAGE, RT.MEDIA, RT.VIDEO, RT.AUDIO})
+
+# Local names of the DrawingML elements that carry a hyperlink relationship.
+# When the relationship they name is not carried over, the whole element goes:
+# a hyperlink element without its `r:id` is a link to nowhere.
+_HYPERLINK_TAGS = frozenset({"hlinkClick", "hlinkHover", "hlinkMouseOver"})
+
+# Destination package → {source slide part → weakref to the slide part it was
+# imported as}.  Lets a later import re-point a "jump to slide" link at a
+# slide that an earlier `import_slide()` call already brought across.  Both
+# levels are weak so neither the source nor the destination deck is kept
+# alive by this bookkeeping.
+_IMPORTED_SLIDES: "weakref.WeakKeyDictionary[Any, Any]" = weakref.WeakKeyDictionary()
 
 
 def import_slide(
@@ -83,12 +110,17 @@ def import_slide(
         The :class:`~power_pptx.parts.presentation.PresentationPart` of the target.
     merge_master:
         ``'dedupe'`` (default) or ``'clone'`` — controls master handling.
+        Any other value raises :class:`ValueError`.
 
     Returns
     -------
     Slide
         The newly imported :class:`~power_pptx.slide.Slide` object.
     """
+    if merge_master not in _MERGE_MASTER_VALUES:
+        raise ValueError(
+            "merge_master must be 'dedupe' or 'clone', got %r" % (merge_master,)
+        )
     importer = _SlideImporter(src_slide_part, dst_prs_part, merge_master)
     return importer.run()
 
@@ -96,6 +128,304 @@ def import_slide(
 # ---------------------------------------------------------------------------
 # Internal implementation
 # ---------------------------------------------------------------------------
+
+
+class _PartCopier:
+    """Copies parts, and everything they depend on, into a destination presentation.
+
+    Shared by slide import and template application: both need to bring a
+    master, its theme, its layouts and their pictures across intact, with
+    non-colliding partnames and relationship ids rewritten to match.
+
+    One instance covers one operation; it remembers what it has copied so a
+    part reachable by two routes is copied once.
+    """
+
+    def __init__(self, dst_prs_part: PresentationPart) -> None:
+        self._dst_prs_part = dst_prs_part
+        self._dst_package: Package = dst_prs_part.package  # type: ignore[assignment]
+        # Mapping: source Part → copied (or reused) destination Part
+        self.part_map: dict[Part, Part] = {}
+        # Partnames already picked in this run (but not yet in the package graph)
+        self._reserved_partnames: set[str] = set()
+        # (content-type, sha1) → binary part available in the destination;
+        # built on first use, see `_binary_parts`.
+        self._binary_index: dict[tuple[str, str], Part] | None = None
+
+    # ------------------------------------------------------------------
+    # Partnames
+    # ------------------------------------------------------------------
+
+    def next_partname(self, prefix: str, suffix: str) -> PackURI:
+        """Return the next free partname of the form `{prefix}{n}{suffix}`.
+
+        Accounts for parts copied earlier in this run that are not reachable
+        from the package graph yet.  *prefix* and *suffix* are used verbatim —
+        no printf formatting — so a name containing ``%`` is safe.
+        """
+        taken = {p.partname.lower() for p in self._dst_package.iter_parts()}
+        taken |= self._reserved_partnames
+        n = 1
+        while True:
+            candidate = "%s%d%s" % (prefix, n, suffix)
+            if candidate.lower() not in taken:
+                self._reserved_partnames.add(candidate.lower())
+                return PackURI(candidate)
+            n += 1
+
+    # ------------------------------------------------------------------
+    # Generic part-graph copy
+    # ------------------------------------------------------------------
+
+    def copy_dependencies(self, src_part: Part, dst_part: Part) -> tuple[dict[str, str], set[str]]:
+        """Copy *src_part*'s dependencies onto *dst_part*.
+
+        Returns ``(id_map, dropped)``: the source-rId → destination-rId map,
+        and the source rIds that were deliberately not carried over.  The
+        caller runs both through :func:`_remap_rids` on the copied XML.
+
+        External relationships are re-created verbatim; master-hierarchy
+        relationships (layout / master / theme) are skipped — callers wire
+        those explicitly; a notes-master relationship is re-pointed at the
+        destination's own notes master (importing the source's only when the
+        destination has none).  A relationship to a *slide* is re-pointed at
+        that slide's counterpart in the destination when there is one and
+        dropped otherwise — the slide itself is never copied.  Every other
+        related part is copied recursively.
+        """
+        id_map: dict[str, str] = {}
+        dropped: set[str] = set()
+        for rel in src_part.rels.values():
+            if rel.is_external:
+                id_map[rel.rId] = dst_part.relate_to(
+                    rel.target_ref, rel.reltype, is_external=True
+                )
+                continue
+            if rel.reltype in _MASTER_HIERARCHY_RELTYPES:
+                continue
+            if rel.reltype == _NOTES_MASTER_RELTYPE:
+                # Re-point at the destination's own notes master (created
+                # from the default template when absent) — a notes slide
+                # without its notesSlide→notesMaster relationship risks the
+                # repair prompt when notes view is opened or notes printed.
+                dst_notes_master = self._dst_prs_part.notes_master_part
+                id_map[rel.rId] = dst_part.relate_to(dst_notes_master, RT.NOTES_MASTER)
+                continue
+            target_part = rel.target_part
+            if rel.reltype == RT.SLIDE or target_part.content_type == CT.PML_SLIDE:
+                dst_slide_part = self._destination_slide_for(target_part)
+                if dst_slide_part is None:
+                    dropped.add(rel.rId)
+                else:
+                    id_map[rel.rId] = dst_part.relate_to(dst_slide_part, rel.reltype)
+                continue
+            dst_dep = self.copy_part(target_part, rel.reltype)
+            id_map[rel.rId] = dst_part.relate_to(dst_dep, rel.reltype)
+        return id_map, dropped
+
+    def copy_part(self, src_part: Part, reltype: str | None = None) -> Part:
+        """Return the destination counterpart of *src_part*, copying it if need be.
+
+        Recursively copies all related parts (depth-first).  Each source part
+        is copied at most once; subsequent calls for the same part return the
+        already-copied destination counterpart.  *reltype* is the type of the
+        relationship the part was reached by; a picture or media file the
+        destination already holds is reused instead of copied.
+        """
+        if src_part in self.part_map:
+            return self.part_map[src_part]
+
+        binary_key = _binary_key(src_part) if _is_shared_binary(src_part, reltype) else None
+        if binary_key is not None:
+            existing = self._binary_parts.get(binary_key)
+            if existing is not None:
+                self.part_map[src_part] = existing
+                return existing
+
+        prefix, suffix = _numbered_partname(src_part.partname)
+        dst_part = _clone_part(src_part, self.next_partname(prefix, suffix), self._dst_package)
+        self.part_map[src_part] = dst_part
+        if binary_key is not None:
+            self._binary_parts[binary_key] = dst_part
+
+        id_map, dropped = self.copy_dependencies(src_part, dst_part)
+
+        # Rewrite embedded rId references in cloned XML parts (e.g. a chart's
+        # <c:externalData r:id=…> pointing at its embedded workbook).
+        if isinstance(dst_part, XmlPart):
+            _remap_rids(dst_part._element, id_map, dropped)  # pyright: ignore[reportPrivateUsage]
+
+        return dst_part
+
+    @property
+    def _binary_parts(self) -> dict[tuple[str, str], Part]:
+        """(content-type, sha1) → picture/media part already in the destination.
+
+        Built once per run, on first need, so importing a slide with no
+        pictures never walks the destination package for this.
+        """
+        if self._binary_index is None:
+            index: dict[tuple[str, str], Part] = {}
+            for rel in self._dst_package.iter_rels():
+                if rel.is_external:
+                    continue
+                part = rel.target_part
+                if _is_shared_binary(part, rel.reltype):
+                    index.setdefault(_binary_key(part), part)
+            self._binary_index = index
+        return self._binary_index
+
+    # ------------------------------------------------------------------
+    # Slide-to-slide links
+    # ------------------------------------------------------------------
+
+    def remember_imported_slide(self, src_slide_part: Part, dst_slide_part: Part) -> None:
+        """Record that *src_slide_part* now lives in the destination as *dst_slide_part*."""
+        imported = _IMPORTED_SLIDES.get(self._dst_package)
+        if imported is None:
+            imported = weakref.WeakKeyDictionary()
+            _IMPORTED_SLIDES[self._dst_package] = imported
+        imported[src_slide_part] = weakref.ref(dst_slide_part)
+
+    def _destination_slide_for(self, src_slide_part: Part) -> Part | None:
+        """Return the slide in the destination that a link to *src_slide_part* should target.
+
+        That is, in order: the copy being made in this run (a slide linking to
+        itself, or a notes slide's back-reference); the very same slide for a
+        same-deck import; the copy made by an earlier import into this
+        destination.  |None| when the destination has no such slide.
+        """
+        mapped = self.part_map.get(src_slide_part)
+        if mapped is not None:
+            return mapped
+        if src_slide_part.package is self._dst_package:
+            return src_slide_part if self._is_registered_slide(src_slide_part) else None
+        imported = _IMPORTED_SLIDES.get(self._dst_package)
+        ref = imported.get(src_slide_part) if imported is not None else None
+        dst_slide_part = ref() if ref is not None else None
+        if dst_slide_part is not None and self._is_registered_slide(dst_slide_part):
+            return dst_slide_part
+        return None
+
+    def _is_registered_slide(self, slide_part: Part) -> bool:
+        """True when *slide_part* is one of the destination presentation's slides."""
+        return any(
+            not rel.is_external and rel.reltype == RT.SLIDE and rel.target_part is slide_part
+            for rel in self._dst_prs_part.rels.values()
+        )
+
+    # ------------------------------------------------------------------
+    # Master / layout cloning
+    # ------------------------------------------------------------------
+
+    def clone_master(
+        self, src_master_part: SlideMasterPart
+    ) -> tuple[SlideMasterPart, dict[SlideLayoutPart, SlideLayoutPart]]:
+        """Clone a master (+ theme + all of its layouts) and register it with the destination.
+
+        Returns the new master part and a source-layout → cloned-layout map,
+        in the source master's layout order.
+        """
+        dst_package = self._dst_package
+
+        # --- Clone theme (with any pictures it references) ---
+        dst_theme_part: Part | None = None
+        try:
+            src_theme_part = src_master_part.part_related_by(RT.THEME)
+        except KeyError:
+            pass  # some masters have no theme
+        else:
+            dst_theme_part = self.copy_part(src_theme_part, RT.THEME)
+
+        # --- Clone master ---
+        master_partname = self.next_partname("/ppt/slideMasters/slideMaster", ".xml")
+        dst_master_part = _clone_xml_part(src_master_part, master_partname, dst_package)
+
+        # The deep-copied master XML still carries the *source* master's
+        # `p:sldLayoutIdLst` — its r:id values point at whatever landed on
+        # those rIds in the new rels (the theme, off-by-one layouts), which
+        # PowerPoint cannot resolve.  Empty it here and rebuild it entry by
+        # entry as each layout is cloned below.
+        master_element = dst_master_part._element  # pyright: ignore[reportPrivateUsage]
+        sldLayoutIdLst = master_element.get_or_add_sldLayoutIdLst()
+        for stale_entry in list(sldLayoutIdLst):
+            sldLayoutIdLst.remove(stale_entry)
+
+        if dst_theme_part is not None:
+            dst_master_part.relate_to(dst_theme_part, RT.THEME)
+        id_map, dropped = self.copy_dependencies(src_master_part, dst_master_part)
+        _remap_rids(master_element, id_map, dropped)
+
+        # --- Register new master with presentation (fresh unique id) ---
+        rId = self._dst_prs_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
+        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
+        sldMasterIdLst = prs_element.get_or_add_sldMasterIdLst()
+        master_entry = sldMasterIdLst._add_sldMasterId(rId=rId)  # pyright: ignore[reportAttributeAccessIssue]
+        master_entry.set("id", str(self.next_hierarchy_id()))
+
+        # --- Clone layouts, preserving the source master's layout order ---
+        src_to_dst_layout: dict[SlideLayoutPart, SlideLayoutPart] = {}
+        for src_lo in _iter_master_layouts(src_master_part):
+            src_to_dst_layout[src_lo] = self.clone_layout_into_master(src_lo, dst_master_part)
+
+        return dst_master_part, src_to_dst_layout  # type: ignore[return-value]
+
+    def clone_layout_into_master(
+        self, src_layout_part: SlideLayoutPart, dst_master_part: SlideMasterPart
+    ) -> SlideLayoutPart:
+        """Clone *src_layout_part* and attach it to *dst_master_part*.
+
+        Copies the layout's own dependencies (background pictures etc.),
+        wires the layout ↔ master relationships, and registers the layout in
+        the master's `p:sldLayoutIdLst` with a fresh unique id — an
+        unregistered layout is invisible to PowerPoint's layout picker and
+        leaves the master's id list inconsistent with its relationships.
+        """
+        new_partname = self.next_partname("/ppt/slideLayouts/slideLayout", ".xml")
+        dst_layout_part = _clone_xml_part(src_layout_part, new_partname, self._dst_package)
+        id_map, dropped = self.copy_dependencies(src_layout_part, dst_layout_part)
+        _remap_rids(dst_layout_part._element, id_map, dropped)  # pyright: ignore[reportPrivateUsage]
+        # Relate layout → master
+        dst_layout_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
+        # Relate master → layout
+        rId = dst_master_part.relate_to(dst_layout_part, RT.SLIDE_LAYOUT)
+        # Register in the master's layout-id list
+        master_element = dst_master_part._element  # pyright: ignore[reportPrivateUsage]
+        sldLayoutIdLst = master_element.get_or_add_sldLayoutIdLst()
+        entry = sldLayoutIdLst._add_sldLayoutId(rId=rId)
+        entry.set("id", str(self.next_hierarchy_id()))
+        return dst_layout_part  # type: ignore[return-value]
+
+    def iter_dst_masters(self):  # type: ignore[return]
+        """Yield each SlideMasterPart registered in the destination presentation."""
+        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
+        if prs_element.sldMasterIdLst is None:
+            return
+        for entry in prs_element.sldMasterIdLst.sldMasterId_lst:
+            try:
+                yield self._dst_prs_part.related_part(entry.rId)
+            except KeyError:
+                continue
+
+    def next_hierarchy_id(self) -> int:
+        """Return a fresh unique id for a `p:sldMasterId` / `p:sldLayoutId` entry.
+
+        These share one id space starting at 2147483648 (ST_SlideMasterId /
+        ST_SlideLayoutId minimum); duplicates across the presentation are a
+        repair trigger, so scan every master's layout-id list plus the
+        presentation's master-id list for the current maximum.
+        """
+        used = [2147483647]
+        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
+        used += [int(v) for v in prs_element.xpath("p:sldMasterIdLst/p:sldMasterId/@id")]
+        for dst_master_part in self.iter_dst_masters():
+            used += [
+                int(v)
+                for v in dst_master_part._element.xpath(  # pyright: ignore[reportPrivateUsage]
+                    "p:sldLayoutIdLst/p:sldLayoutId/@id"
+                )
+            ]
+        return max(used) + 1
 
 
 class _SlideImporter:
@@ -111,34 +441,15 @@ class _SlideImporter:
         self._dst_prs_part = dst_prs_part
         self._merge_master = merge_master
         self._dst_package: Package = dst_prs_part.package  # type: ignore[assignment]
-        # Mapping: source Part → copied destination Part
-        self._part_map: dict[Part, Part] = {}
-        # Partnames already picked in this import run (but not yet in the package graph)
-        self._reserved_partnames: set[str] = set()
+        self._copier = _PartCopier(dst_prs_part)
 
     def run(self) -> Slide:
         """Execute the import and return the new Slide."""
         dst_layout_part = self._resolve_layout()
         dst_slide_part = self._copy_slide(dst_layout_part)
         self._register_slide(dst_slide_part)
+        self._copier.remember_imported_slide(self._src_slide_part, dst_slide_part)
         return dst_slide_part.slide
-
-    def _next_partname(self, tmpl: str) -> PackURI:
-        """Return the next non-colliding partname for *tmpl*, accounting for parts
-        not yet in the package graph that have already been reserved in this run."""
-        prefix = tmpl[: (tmpl % 42).find("42")]
-        existing = {
-            p.partname for p in self._dst_package.iter_parts()
-            if p.partname.startswith(prefix)
-        }
-        taken = existing | {pn for pn in self._reserved_partnames if pn.startswith(prefix)}
-        n = 1
-        while True:
-            candidate = tmpl % n
-            if candidate not in taken:
-                self._reserved_partnames.add(candidate)
-                return PackURI(candidate)
-            n += 1
 
     # ------------------------------------------------------------------
     # Master / layout resolution
@@ -164,18 +475,10 @@ class _SlideImporter:
     def _find_matching_master(self, src_master_part: SlideMasterPart) -> SlideMasterPart | None:
         """Return a destination master part whose fingerprint matches src_master_part, or None."""
         src_fp = _master_fingerprint(src_master_part)
-        for dst_master_part in self._iter_dst_masters():
+        for dst_master_part in self._copier.iter_dst_masters():
             if _master_fingerprint(dst_master_part) == src_fp:
                 return dst_master_part
         return None
-
-    def _iter_dst_masters(self):  # type: ignore[return]
-        """Yield each SlideMasterPart already in the destination presentation."""
-        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
-        if prs_element.sldMasterIdLst is None:
-            return
-        for entry in prs_element.sldMasterIdLst.sldMasterId_lst:
-            yield self._dst_prs_part.related_part(entry.rId)
 
     def _find_or_clone_layout_in_master(
         self, src_layout_part: SlideLayoutPart, dst_master_part: SlideMasterPart
@@ -194,13 +497,17 @@ class _SlideImporter:
         src_type = src_layout_part._element.get("type")  # pyright: ignore[reportPrivateUsage]
 
         # Walk existing layouts on the destination master
-        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT2
-
         layout_candidates: list[SlideLayoutPart] = []
         for rel in dst_master_part.rels.values():
-            if rel.is_external or rel.reltype != RT2.SLIDE_LAYOUT:
+            if rel.is_external or rel.reltype != RT.SLIDE_LAYOUT:
                 continue
             layout_candidates.append(rel.target_part)  # type: ignore[arg-type]
+
+        # Priority 0: the very same layout (a same-deck import) — two layouts
+        # of one master may share a name, and the slide must keep its own.
+        for lp in layout_candidates:
+            if lp is src_layout_part:
+                return lp
 
         # Priority 1: name match
         for lp in layout_candidates:
@@ -214,33 +521,7 @@ class _SlideImporter:
                     return lp  # type: ignore[return-value]
 
         # Priority 3: clone the layout into the existing master
-        return self._clone_layout_into_master(src_layout_part, dst_master_part)
-
-    def _clone_layout_into_master(
-        self, src_layout_part: SlideLayoutPart, dst_master_part: SlideMasterPart
-    ) -> SlideLayoutPart:
-        """Clone *src_layout_part* and attach it to *dst_master_part*.
-
-        Copies the layout's own dependencies (background pictures etc.),
-        wires the layout ↔ master relationships, and registers the layout in
-        the master's `p:sldLayoutIdLst` with a fresh unique id — an
-        unregistered layout is invisible to PowerPoint's layout picker and
-        leaves the master's id list inconsistent with its relationships.
-        """
-        new_partname = self._next_partname("/ppt/slideLayouts/slideLayout%d.xml")
-        dst_layout_part = _clone_xml_part(src_layout_part, new_partname, self._dst_package)
-        id_map = self._copy_dependencies(src_layout_part, dst_layout_part)
-        _remap_rids(dst_layout_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
-        # Relate layout → master
-        dst_layout_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
-        # Relate master → layout
-        rId = dst_master_part.relate_to(dst_layout_part, RT.SLIDE_LAYOUT)
-        # Register in the master's layout-id list
-        master_element = dst_master_part._element  # pyright: ignore[reportPrivateUsage]
-        sldLayoutIdLst = master_element.get_or_add_sldLayoutIdLst()
-        entry = sldLayoutIdLst._add_sldLayoutId(rId=rId)
-        entry.set("id", str(self._next_hierarchy_id()))
-        return dst_layout_part  # type: ignore[return-value]
+        return self._copier.clone_layout_into_master(src_layout_part, dst_master_part)
 
     def _clone_master_with_layout(
         self, src_master_part: SlideMasterPart, src_layout_part: SlideLayoutPart
@@ -249,46 +530,7 @@ class _SlideImporter:
 
         Returns the cloned layout corresponding to *src_layout_part*.
         """
-        dst_package = self._dst_package
-
-        # --- Clone theme ---
-        dst_theme_part: Part | None = None
-        try:
-            src_theme_part = src_master_part.part_related_by(RT.THEME)
-            theme_partname = self._next_partname("/ppt/theme/theme%d.xml")
-            dst_theme_part = _clone_part(src_theme_part, theme_partname, dst_package)
-        except KeyError:
-            pass  # some masters have no theme
-
-        # --- Clone master ---
-        master_partname = self._next_partname("/ppt/slideMasters/slideMaster%d.xml")
-        dst_master_part = _clone_xml_part(src_master_part, master_partname, dst_package)
-        if dst_theme_part is not None:
-            dst_master_part.relate_to(dst_theme_part, RT.THEME)
-        id_map = self._copy_dependencies(src_master_part, dst_master_part)
-        _remap_rids(dst_master_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
-
-        # The deep-copied master XML still carries the *source* master's
-        # `p:sldLayoutIdLst` — its r:id values point at whatever landed on
-        # those rIds in the new rels (the theme, off-by-one layouts), which
-        # PowerPoint cannot resolve.  Empty it here and rebuild it entry by
-        # entry as each layout is cloned below.
-        master_element = dst_master_part._element  # pyright: ignore[reportPrivateUsage]
-        sldLayoutIdLst = master_element.get_or_add_sldLayoutIdLst()
-        for stale_entry in list(sldLayoutIdLst):
-            sldLayoutIdLst.remove(stale_entry)
-
-        # --- Register new master with presentation (fresh unique id) ---
-        rId = self._dst_prs_part.relate_to(dst_master_part, RT.SLIDE_MASTER)
-        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
-        sldMasterIdLst = prs_element.get_or_add_sldMasterIdLst()
-        master_entry = sldMasterIdLst._add_sldMasterId(rId=rId)  # pyright: ignore[reportAttributeAccessIssue]
-        master_entry.set("id", str(self._next_hierarchy_id()))
-
-        # --- Clone layouts, preserving the source master's layout order ---
-        src_to_dst_layout: dict[SlideLayoutPart, SlideLayoutPart] = {}
-        for src_lo in self._iter_master_layouts(src_master_part):
-            src_to_dst_layout[src_lo] = self._clone_layout_into_master(src_lo, dst_master_part)
+        dst_master_part, src_to_dst_layout = self._copier.clone_master(src_master_part)
 
         # Return the cloned version of the source layout
         dst_layout = src_to_dst_layout.get(src_layout_part)
@@ -297,50 +539,8 @@ class _SlideImporter:
             dst_layout = next(iter(src_to_dst_layout.values()), None)
         if dst_layout is None:
             # Emergency: clone the layout directly
-            dst_layout = self._clone_layout_into_master(src_layout_part, dst_master_part)  # type: ignore[assignment]
-        return dst_layout  # type: ignore[return-value]
-
-    def _iter_master_layouts(self, master_part: SlideMasterPart) -> list[SlideLayoutPart]:
-        """Return *master_part*'s layout parts, in `p:sldLayoutIdLst` order.
-
-        Falls back to relationship order for a master whose layout-id list is
-        absent or entirely unresolvable.
-        """
-        layouts: list[SlideLayoutPart] = []
-        sldLayoutIdLst = master_part._element.sldLayoutIdLst  # pyright: ignore[reportPrivateUsage]
-        if sldLayoutIdLst is not None:
-            for entry in sldLayoutIdLst.sldLayoutId_lst:
-                try:
-                    layouts.append(master_part.related_part(entry.rId))  # type: ignore[arg-type]
-                except KeyError:
-                    continue
-        if layouts:
-            return layouts
-        return [
-            rel.target_part  # type: ignore[misc]
-            for rel in master_part.rels.values()
-            if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT
-        ]
-
-    def _next_hierarchy_id(self) -> int:
-        """Return a fresh unique id for a `p:sldMasterId` / `p:sldLayoutId` entry.
-
-        These share one id space starting at 2147483648 (ST_SlideMasterId /
-        ST_SlideLayoutId minimum); duplicates across the presentation are a
-        repair trigger, so scan every master's layout-id list plus the
-        presentation's master-id list for the current maximum.
-        """
-        used = [2147483647]
-        prs_element = self._dst_prs_part._element  # pyright: ignore[reportPrivateUsage]
-        used += [int(v) for v in prs_element.xpath("p:sldMasterIdLst/p:sldMasterId/@id")]
-        for dst_master_part in self._iter_dst_masters():
-            used += [
-                int(v)
-                for v in dst_master_part._element.xpath(  # pyright: ignore[reportPrivateUsage]
-                    "p:sldLayoutIdLst/p:sldLayoutId/@id"
-                )
-            ]
-        return max(used) + 1
+            dst_layout = self._copier.clone_layout_into_master(src_layout_part, dst_master_part)
+        return dst_layout
 
     # ------------------------------------------------------------------
     # Slide copy
@@ -353,18 +553,18 @@ class _SlideImporter:
         are also copied.  The new slide is related to *dst_layout_part*.
         """
         dst_package = self._dst_package
-        new_partname = self._next_partname("/ppt/slides/slide%d.xml")
+        new_partname = self._copier.next_partname("/ppt/slides/slide", ".xml")
         dst_slide_part = _clone_xml_part(self._src_slide_part, new_partname, dst_package)
 
         # Seed the part map with the slide itself so a copied notes slide's
         # back-reference to its slide resolves to *this* part rather than
         # triggering a second, orphan clone of the whole slide graph.
-        self._part_map[self._src_slide_part] = dst_slide_part
+        self._copier.part_map[self._src_slide_part] = dst_slide_part
 
         # Copy all deps except master-hierarchy rels.  Track source-rId ->
         # destination-rId so the cloned slide XML's embedded references
         # (r:embed, r:id, …) can be rewritten to the new ids.
-        id_map = self._copy_dependencies(self._src_slide_part, dst_slide_part)
+        id_map, dropped = self._copier.copy_dependencies(self._src_slide_part, dst_slide_part)
 
         # Always wire layout relationship; map the source layout rId onto the new
         # one in case the slide XML references it.
@@ -374,64 +574,8 @@ class _SlideImporter:
                 id_map[rel.rId] = layout_rId
                 break
 
-        _remap_rids(dst_slide_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
+        _remap_rids(dst_slide_part._element, id_map, dropped)  # pyright: ignore[reportPrivateUsage]
         return dst_slide_part  # type: ignore[return-value]
-
-    def _copy_dependencies(self, src_part: Part, dst_part: Part) -> dict[str, str]:
-        """Copy *src_part*'s dependencies onto *dst_part*; return the rId map.
-
-        External relationships are re-created verbatim; master-hierarchy
-        relationships (layout / master / theme) are skipped — callers wire
-        those explicitly; a notes-master relationship is re-pointed at the
-        destination's own notes master (importing the source's only when the
-        destination has none).  Every other related part is copied
-        recursively.  The caller is responsible for running the returned
-        source-rId → destination-rId map through :func:`_remap_rids`.
-        """
-        id_map: dict[str, str] = {}
-        for rel in src_part.rels.values():
-            if rel.is_external:
-                id_map[rel.rId] = dst_part.relate_to(
-                    rel.target_ref, rel.reltype, is_external=True
-                )
-                continue
-            if rel.reltype in _MASTER_HIERARCHY_RELTYPES:
-                continue
-            if rel.reltype == _NOTES_MASTER_RELTYPE:
-                # Re-point at the destination's own notes master (created
-                # from the default template when absent) — a notes slide
-                # without its notesSlide→notesMaster relationship risks the
-                # repair prompt when notes view is opened or notes printed.
-                dst_notes_master = self._dst_prs_part.notes_master_part
-                id_map[rel.rId] = dst_part.relate_to(dst_notes_master, RT.NOTES_MASTER)
-                continue
-            dst_dep = self._copy_part_recursive(rel.target_part)
-            id_map[rel.rId] = dst_part.relate_to(dst_dep, rel.reltype)
-        return id_map
-
-    def _copy_part_recursive(self, src_part: Part) -> Part:
-        """Return a copy of *src_part* in the destination package.
-
-        Recursively copies all related parts (depth-first).  Each source part
-        is copied at most once; subsequent calls for the same part return the
-        already-copied destination counterpart.
-        """
-        if src_part in self._part_map:
-            return self._part_map[src_part]
-
-        dst_package = self._dst_package
-        new_partname = self._next_partname(_partname_template(src_part.partname))
-        dst_part = _clone_part(src_part, new_partname, dst_package)
-        self._part_map[src_part] = dst_part
-
-        id_map = self._copy_dependencies(src_part, dst_part)
-
-        # Rewrite embedded rId references in cloned XML parts (e.g. a chart's
-        # <c:externalData r:id=…> pointing at its embedded workbook).
-        if isinstance(dst_part, XmlPart):
-            _remap_rids(dst_part._element, id_map)  # pyright: ignore[reportPrivateUsage]
-
-        return dst_part
 
     # ------------------------------------------------------------------
     # Presentation registration
@@ -474,6 +618,52 @@ def _clone_xml_part(src_part: XmlPart, new_partname: PackURI, dst_package: Packa
     return src_part.__class__(new_partname, src_part.content_type, dst_package, new_element)
 
 
+def _iter_master_layouts(master_part: SlideMasterPart) -> list[SlideLayoutPart]:
+    """Return *master_part*'s layout parts, in `p:sldLayoutIdLst` order.
+
+    Falls back to relationship order for a master whose layout-id list is
+    absent or entirely unresolvable.
+    """
+    layouts: list[SlideLayoutPart] = []
+    sldLayoutIdLst = master_part._element.sldLayoutIdLst  # pyright: ignore[reportPrivateUsage]
+    if sldLayoutIdLst is not None:
+        for entry in sldLayoutIdLst.sldLayoutId_lst:
+            try:
+                rel = master_part.rels[entry.rId]
+            except KeyError:
+                continue
+            # An id-list entry whose relationship is not a layout (a master
+            # damaged by an earlier tool) must not be cloned as one.
+            if rel.is_external or rel.reltype != RT.SLIDE_LAYOUT:
+                continue
+            layouts.append(rel.target_part)  # type: ignore[arg-type]
+    if layouts:
+        return layouts
+    return [
+        rel.target_part  # type: ignore[misc]
+        for rel in master_part.rels.values()
+        if not rel.is_external and rel.reltype == RT.SLIDE_LAYOUT
+    ]
+
+
+def _is_shared_binary(part: Part, reltype: str | None) -> bool:
+    """True when *part* is a picture/media payload one copy of which can be shared.
+
+    That means: reached by an image/media relationship, not an XML part
+    (those are mutable and belong to one slide), and with no relationships
+    of its own.
+    """
+    return reltype in _SHARED_BINARY_RELTYPES and not isinstance(part, XmlPart) and not part.rels
+
+
+def _binary_key(part: Part) -> tuple[str, str]:
+    """Return the (content-type, sha1) identity of a binary *part*."""
+    sha1 = getattr(part, "sha1", None)
+    if not isinstance(sha1, str):
+        sha1 = hashlib.sha1(part.blob).hexdigest()
+    return part.content_type, sha1
+
+
 # Relationship-id references embedded in part XML all live in the ``r:``
 # namespace (``r:embed``, ``r:id``, ``r:link``, and the SmartArt
 # ``dgm:relIds`` ``r:dm``/``r:lo``/``r:qs``/``r:cs``).  When a part is cloned its
@@ -484,19 +674,39 @@ def _clone_xml_part(src_part: XmlPart, new_partname: PackURI, dst_package: Packa
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
-def _remap_rids(element, id_map: dict[str, str]) -> None:
+def _remap_rids(
+    element, id_map: dict[str, str], dropped: set[str] | frozenset[str] = frozenset()
+) -> None:
     """Rewrite every ``r:*`` attribute on *element*'s tree through *id_map*.
 
     Only relationship-namespace attributes whose value is a known source rId are
     touched, so non-relationship attributes are never disturbed.
+
+    *dropped* holds source rIds whose relationship was deliberately not
+    carried over (a link to a slide that is not in the destination).  A
+    hyperlink element naming one is removed outright — the shape or text run
+    simply stops being a link; on any other element just the dangling
+    attribute is removed.
     """
-    if not id_map:
+    if not id_map and not dropped:
         return
     prefix = "{%s}" % _R_NS
-    for el in element.iter():
+    dead_links = []
+    for el in element.iter("*"):
         for name, value in list(el.attrib.items()):
-            if name.startswith(prefix) and value in id_map:
+            if not name.startswith(prefix):
+                continue
+            if value in id_map:
                 el.set(name, id_map[value])
+            elif value in dropped:
+                if el.tag.rpartition("}")[2] in _HYPERLINK_TAGS:
+                    dead_links.append(el)
+                else:
+                    del el.attrib[name]
+    for el in dead_links:
+        parent = el.getparent()
+        if parent is not None:
+            parent.remove(el)
 
 
 def _master_fingerprint(master_part: Part) -> bytes:
@@ -572,26 +782,20 @@ def _normalized_master_xml(master_part: Part, master_elm) -> bytes:
     return etree.tostring(clone)
 
 
-def _partname_template(partname: PackURI) -> str:
-    """Return a partname template string suitable for ``Package.next_partname()``.
+def _numbered_partname(partname: str) -> tuple[str, str]:
+    """Split *partname* around its trailing number, for allocating a sibling name.
 
-    E.g. ``/ppt/charts/chart3.xml`` → ``/ppt/charts/chart%d.xml``.
+    E.g. ``/ppt/charts/chart3.xml`` → ``("/ppt/charts/chart", ".xml")``, so the
+    next free name is ``/ppt/charts/chart{n}.xml``.  A partname without a
+    trailing number keeps its whole stem (``/ppt/media/logo.png`` →
+    ``("/ppt/media/logo", ".png")``).  The pieces are plain strings to be
+    concatenated, never a printf template, so a ``%`` in the name (as in
+    ``/ppt/media/my%20logo.png``) needs no escaping.
     """
-    # Split off the trailing number (if any) and extension
-    name = partname  # str-like
-    # Find the last digit sequence before the extension
-    base = name.rsplit(".", 1)
-    if len(base) == 2:
-        stem, ext = base
+    directory, _, filename = partname.rpartition("/")
+    stem, dot, ext = filename.rpartition(".")
+    if not dot:
+        stem, suffix = filename, ""
     else:
-        stem, ext = name, ""
-
-    # Strip trailing digits from stem to get the "root"
-    root = stem.rstrip("0123456789")
-    if not root.endswith("/") and root == stem:
-        # No trailing digits — use the whole stem
-        root = stem
-
-    if ext:
-        return f"{root}%d.{ext}"
-    return f"{root}%d"
+        suffix = "." + ext
+    return "%s/%s" % (directory, stem.rstrip("0123456789")), suffix

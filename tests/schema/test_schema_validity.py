@@ -655,6 +655,75 @@ class DescribeGeneratedDeckSchemaValidity:
         dst.import_slide(src.slides[0])
         assert_schema_valid(_saved(dst))
 
+    def it_validates_an_imported_slide_that_linked_to_another_slide(self):
+        # A slide-jump link is re-pointed when its target is in the
+        # destination and removed otherwise; neither outcome may leave a
+        # dangling r:id or an unregistered (orphan) slide part behind.
+        src = Presentation()
+        a = _blank_slide(src)
+        b = _blank_slide(src)
+        button = a.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+        button.text_frame.text = "next"
+        button.click_action.target_slide = b
+
+        link_dropped = Presentation()
+        link_dropped.import_slide(a)
+        assert_schema_valid(_saved(link_dropped))
+
+        link_kept = Presentation()
+        link_kept.import_slide(b)
+        link_kept.import_slide(a)
+        assert_schema_valid(_saved(link_kept))
+
+        same_deck = Presentation(io.BytesIO(_saved(src)))
+        same_deck.import_slide(same_deck.slides[0])
+        assert_schema_valid(_saved(same_deck))
+
+    def it_validates_a_deck_after_apply_template(self):
+        # apply_template must leave every p:sldLayoutId pointing at a layout
+        # (not the theme) and every master/layout picture reference resolved.
+        from copy import deepcopy
+
+        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+            "0000000d49444154789c6360000002000100ffff03000006000557bfabd4000000"
+            "0049454e44ae426082"
+        )
+
+        def add_picture_to(owner, prs):
+            scratch = prs.slides.add_slide(prs.slide_layouts[6])
+            pic = scratch.shapes.add_picture(io.BytesIO(png), 0, 0, Inches(1), Inches(1))
+            image_part = scratch.part.related_part(pic._element.blip_rId)
+            pic_el = deepcopy(pic._element)
+            pic_el.blipFill.blip.rEmbed = owner.part.relate_to(image_part, RT.IMAGE)
+            pic_el.nvPicPr.cNvPr.id = 1 + max(
+                int(v) for v in owner._element.xpath("//p:cNvPr/@id")
+            )
+            owner.shapes._spTree.append(pic_el)
+            sldIdLst = prs.slides._sldIdLst
+            prs.part.drop_rel(sldIdLst[-1].rId)
+            sldIdLst.remove(sldIdLst[-1])
+
+        plain_template = io.BytesIO(_saved(Presentation()))
+        branded = Presentation()
+        add_picture_to(branded.slide_master, branded)
+        add_picture_to(branded.slide_layouts[1], branded)
+        branded_template = io.BytesIO(_saved(branded))
+        assert_schema_valid(branded_template.getvalue())
+
+        for template in (plain_template, branded_template):
+            deck = Presentation()
+            deck.slides.add_slide(deck.slide_layouts[1]).shapes.title.text = "hello"
+            deck.apply_template(template)
+            assert_schema_valid(_saved(deck))
+            # ...and still valid after carrying on authoring, and a reopen.
+            deck.slides.add_slide(deck.slide_layouts[5])
+            reopened = Presentation(io.BytesIO(_saved(deck)))
+            reopened.slides.add_slide(reopened.slide_layouts[0])
+            assert_schema_valid(_saved(reopened))
+
     def it_reports_violations_as_part_message_pairs(self):
         # The validator's own contract: a clean deck yields no violations.
         assert list(iter_schema_violations(_deck_blank())) == []
