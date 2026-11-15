@@ -14,11 +14,17 @@ shape = slide.shapes.add_text(
 
 Entrance.fade(slide, shape)                                    # default: ON_CLICK
 Entrance.fly_in(slide, shape, direction="left")                # top/bottom/left/right
+Entrance.wipe(slide, shape, direction="top")                   # wipes take one too
 Emphasis.pulse(slide, shape, trigger=Trigger.WITH_PREVIOUS)
 Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS, delay=200)   # delay in ms
+Exit.wheel(slide, shape)                                       # also Exit.random_bars
 
-# Motion path preset
-MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)`;
+Entrance.fly_in(slide, shape, direction="sideways")            # ValueError
+
+# Motion path preset, or a path of your own
+MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)
+MotionPath.custom(slide, shape, "M 0 0 L 0.5 0.5 L 1 0 E")     # E ends the path
+MotionPath.svg(slide, shape, "M 0 0 H 100 V 50", viewbox=(0, 0, 200, 100))`;
 
 const snippet1 = `# Reveal a text frame one paragraph per click, in order
 body = slide.shapes.add_textbox(Inches(1), Inches(3.4), Inches(8), Inches(2))
@@ -41,7 +47,7 @@ const snippet3 = `from power_pptx.enum.presentation import MSO_TRANSITION_TYPE
 # Deck-wide default first...
 prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=400)   # milliseconds
 
-# ...then override individual slides (Morph is a first-class p14 kind)
+# ...then override individual slides (Morph is a first-class kind)
 slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
 slide.transition.duration = 1500
 
@@ -60,7 +66,31 @@ prs.save("animated.pptx")`;
   </p>
 
   <h2 id="animations">Animations</h2>
+  <p>
+    <strong>Experimental.</strong> The animation XML is valid against the OOXML schema, survives a
+    save and reopen, and imports into LibreOffice as the effect each preset names — but playback
+    in Microsoft PowerPoint has not been verified, and has been reported to show animated shapes
+    faint and then snap them into view. Prefer slide transitions where they serve, and check an
+    animated deck in PowerPoint before relying on it.
+  </p>
   <Code code={snippet0} />
+  <p>
+    <code>direction</code> is one of <code>"bottom"</code>, <code>"top"</code>,
+    <code>"left"</code> and <code>"right"</code> for the presets that have one (fly in and out,
+    wipe); anything else raises <code>ValueError</code>. Exit effects hide the shape when they end.
+    A raw motion path knows <code>M</code>, <code>L</code>, <code>C</code>, <code>Z</code> and
+    <code>E</code> (lower case for relative coordinates, as fractions of the slide);
+    <code>custom</code> adds a missing closing <code>E</code>, and <code>svg</code> also takes
+    <code>H</code>, <code>V</code> and <code>Q</code>, writing quadratic curves as cubics. A
+    malformed path raises <code>ValueError</code>, and float durations and delays are rounded to
+    whole milliseconds.
+  </p>
+  <p>
+    Effects authored in PowerPoint are part of <code>slide.animations</code> too, and new effects
+    join PowerPoint's main sequence. <code>shape.delete()</code> and <code>group.ungroup()</code>
+    remove the timing entries that pointed at the removed shape, and
+    <code>slide.animations.purge_orphans()</code> does the same for anything else.
+  </p>
 
   <h2 id="paragraph-reveal">Per-paragraph reveal</h2>
   <Code code={snippet1} />
@@ -71,7 +101,21 @@ prs.save("animated.pptx")`;
   <h2 id="transitions">Transitions</h2>
   <Code code={snippet3} />
   <p>
-    Morph and the other <code>p14:</code> extension transitions are first-class — PowerPoint 2019+
-    renders them natively and older versions degrade gracefully.
+    A deck-wide <code>kind</code> goes only to slides without a kind of their own (pass
+    <code>force=True</code> to overwrite those too), while <code>duration</code> and the advance
+    settings apply to every slide — so set a slide's own duration after the deck-wide call. A slide
+    whose transition carries only timing settings has no kind yet and does take the deck-wide one.
+  </p>
+  <p>
+    <code>MSO_TRANSITION_TYPE</code> has the ISO set (<code>FADE</code>, <code>PUSH</code>,
+    <code>WIPE</code>, <code>COMB</code>, <code>CUT</code>, …), the PowerPoint 2010
+    <code>p14</code> kinds (<code>VORTEX</code>, <code>SWITCH</code>, <code>GALLERY</code>,
+    <code>CONVEYOR</code>, <code>FLY_THROUGH</code>) and PowerPoint 2016's <code>MORPH</code>
+    (<code>p159</code>). Extension kinds are written inside <code>mc:AlternateContent</code> with a
+    plain fallback, as PowerPoint writes them, so older viewers degrade gracefully. A transition
+    with no member — PowerPoint 2013's Airplane, Curtains, Origami, Wind and the rest — reads as
+    <code>kind = None</code> and is saved exactly as it was read unless you change it. Assigning
+    <code>None</code> to the last timing setting removes the transition element rather than
+    leaving an empty one.
   </p>
 </DocsLayout>

@@ -181,13 +181,24 @@ for i, issue in new:
     print(f"slide {i}: {issue}")
 sys.exit(1 if new else 0)`;
 
-const s2 = `prs.render_thumbnails(out_dir="thumbs")
+const s2 = `prs.render_thumbnails(out_dir="thumbs")       # _render_input-page-1.png, ...
+prs.render_thumbnails(out_dir="thumbs", dpi=72, timeout=60)
+prs.slides[0].render_thumbnail(out_path="cover.png")
 
-from power_pptx.render import render_slides
+from power_pptx.render import (
+    render_slide_thumbnails, render_slide_thumbnail, render_slides,
+    ThumbnailRendererError, ThumbnailRendererUnavailable,
+)
 render_slides(prs, slides=[0, 1], out_dir="thumbs",
-              name_template="slide-{:02d}.png")
+              name_template="slide-{:02d}.png",   # index counts from 0
+              scale=2)                            # 144 dpi; overrides dpi=
+render_slide_thumbnails(prs, slide_indexes=[0], return_bytes=True,
+                        strategy="auto",          # "pdf" | "png"
+                        font_dirs=["assets/fonts"])
 
-# raises ThumbnailRendererUnavailable without soffice on PATH`;
+# ThumbnailRendererUnavailable: no soffice / libreoffice to run
+# ThumbnailRendererError: conversion failed or timed out, or a multi-slide
+#   deck with neither pdftoppm nor pypdfium2 to split the PDF`;
 
 const s3 = `from power_pptx import BBox
 from power_pptx.animation import Entrance, Exit, Emphasis, MotionPath, Trigger
@@ -197,11 +208,14 @@ from power_pptx.util import Inches
 shape = slide.shapes.add_text(BBox.from_inches(1, 2, 4, 1), text="Animate me")
 
 Entrance.fade(slide, shape)
-Entrance.fly_in(slide, shape, direction="left")
+Entrance.fly_in(slide, shape, direction="left")   # bottom | top | left | right
 Emphasis.pulse(slide, shape, trigger=Trigger.WITH_PREVIOUS)
-Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS)
+Exit.wipe(slide, shape, trigger=Trigger.AFTER_PREVIOUS, direction="right")
+Exit.wheel(slide, shape)                          # also Exit.random_bars
 Entrance.fade(slide, shape.text_frame, by_paragraph=True)
 MotionPath.arc(slide, shape, dx=Inches(2), dy=Inches(0), height=0.4)
+MotionPath.svg(slide, shape, "M 0 0 Q 50 80 100 0", viewbox=(0, 0, 200, 100))
+slide.animations.purge_orphans()                  # drop entries for deleted shapes
 
 with slide.animations.sequence():
     Entrance.fade(slide, shape)      # first: on click
@@ -209,7 +223,8 @@ with slide.animations.sequence():
 
 slide.transition.kind = MSO_TRANSITION_TYPE.MORPH
 slide.transition.duration = 600      # ms
-prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=300)`;
+prs.set_transition(kind=MSO_TRANSITION_TYPE.FADE, duration=300)   # MORPH slide keeps MORPH
+prs.set_transition(kind=MSO_TRANSITION_TYPE.COMB, force=True)     # every slide`;
 
 const s4 = `from power_pptx.dml.color import RGBColor
 from power_pptx.enum.dml import MSO_THEME_COLOR
@@ -365,9 +380,22 @@ rgb = resolve_color(run.font.color, theme=theme)     # scheme -> effective RGB`;
 
   <h2 id="render"><code>power_pptx.render</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s2} />
+  <p>
+    Every strategy names files <code>_render_input-page-N.png</code> (1-based, zero-padded), and
+    <code>"auto"</code> goes through PDF whenever <code>pdftoppm</code> or <code>pypdfium2</code> is
+    available, so <code>dpi</code> applies to every deck. Hidden slides are rendered. See
+    <a href={withBase("/advanced/render")}>Rendering Thumbnails</a>.
+  </p>
 
   <h2 id="animation"><code>power_pptx.animation</code> &amp; transitions <strong class="text-primary">fork</strong></h2>
   <Code code={s3} />
+  <p>
+    An unknown <code>direction</code> for <code>fly_in</code>, <code>fly_out</code> or
+    <code>wipe</code> raises <code>ValueError</code>, as does a malformed motion path. Preset ids
+    now match PowerPoint and LibreOffice, so effects written by releases before 2.15 may read back
+    as a different <code>AnimationEntry.preset</code>. The animation API is experimental: see
+    <a href={withBase("/advanced/animations")}>Animations &amp; Transitions</a>.
+  </p>
 
   <h2 id="theme"><code>power_pptx.theme</code> &amp; <code>inherit</code> <strong class="text-primary">fork</strong></h2>
   <Code code={s4} />

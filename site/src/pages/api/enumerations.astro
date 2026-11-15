@@ -29,7 +29,8 @@ from power_pptx.enum.dml import (
     MSO_PRESET_SHADOW,
     BevelPreset, PresetMaterial,        # fork: 3-D
 )
-from power_pptx.enum.presentation import MSO_TRANSITION_TYPE   # fork
+from power_pptx.enum.presentation import MSO_TRANSITION_TYPE   # fork; alias MSO_TRANSITION
+from power_pptx.enum.slide_show import PP_SLIDE_SHOW_TYPE      # fork; alias PP_SLIDE_SHOW
 from power_pptx.enum.action import PP_ACTION          # click actions
 from power_pptx.enum.lang import MSO_LANGUAGE_ID      # 214 locale ids
 from power_pptx.enum.animation import PP_ANIM_TRIGGER # fork; alias:
@@ -59,14 +60,22 @@ len(list(MSO_SHAPE))                 # 182
 MSO_SHAPE.CHEVRON.value              # 52 — the MsoAutoShapeType int
 MSO_SHAPE.CHEVRON.__doc__            # 'Chevron'`;
 
-const s3 = `from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
+const s3 = `import copy
+
+from power_pptx.util import Inches, Pt, Cm, Mm, Emu, Length
 
 Inches(1) + Pt(72) == Inches(2)       # Length arithmetic works
 (Inches(10) - Inches(0.4)) / 2        # floats coerce at the setter
+copy.deepcopy(Inches(1)) == Inches(1) # copies and pickles keep the value
+
+# fork: slide-size limits and the fitting helper
+from power_pptx.util import MAX_SLIDE_SIZE, MIN_SLIDE_SIZE, SlideSize, fit_slide_size
+MIN_SLIDE_SIZE.inches, MAX_SLIDE_SIZE.inches        # (1.0, 56.0)
+fit_slide_size(Inches(80), Inches(11.25))           # SlideSize(..., scale=0.7)
 
 from power_pptx.dml.color import RGBColor
 RGBColor(0x0B, 0x5C, 0xFF)
-RGBColor.from_string("0B5CFF")
+RGBColor.from_hex("#0B5CFF")          # from_string() is deprecated
 
 # fork: alpha lives on the colour proxies (fill / font / line), not RGBColor
 from power_pptx import Presentation, BBox
@@ -420,16 +429,25 @@ shape.fill.fore_color.alpha = 0.5     # fork: alpha tint`;
   <p>These do not exist upstream:</p>
   <ul>
     <li>
-      <code>MSO_TRANSITION_TYPE</code> (<code>power_pptx.enum.presentation</code>) — 27 members:
-      <code>NONE</code>, <code>FADE</code>, <code>PUSH</code>, <code>WIPE</code>,
-      <code>SPLIT</code>, <code>RANDOM_BAR</code>, <code>CIRCLE</code>, <code>DISSOLVE</code>,
+      <code>MSO_TRANSITION_TYPE</code> (<code>power_pptx.enum.presentation</code>, alias
+      <code>MSO_TRANSITION</code>) — 28 members: <code>NONE</code>; the ISO set
+      <code>FADE</code>, <code>PUSH</code>, <code>WIPE</code>, <code>SPLIT</code>,
+      <code>RANDOM_BAR</code>, <code>CIRCLE</code>, <code>DISSOLVE</code>,
       <code>CHECKER</code>, <code>DIAMOND</code>, <code>PLUS</code>, <code>WEDGE</code>,
       <code>ZOOM</code>, <code>NEWSFLASH</code>, <code>COVER</code>, <code>STRIPS</code>,
       <code>CUT</code>, <code>BLINDS</code>, <code>PULL</code>, <code>RANDOM</code>,
-      <code>WHEEL</code>, and the PowerPoint 2016+ <code>p14</code> set —
-      <code>MORPH</code>, <code>FLY_THROUGH</code>, <code>VORTEX</code>, <code>SWITCH</code>,
-      <code>GALLERY</code>, <code>CONVEYOR</code>. See
+      <code>WHEEL</code>, <code>COMB</code>; the PowerPoint 2010 <code>p14</code> kinds
+      <code>FLY_THROUGH</code>, <code>VORTEX</code>, <code>SWITCH</code>,
+      <code>GALLERY</code>, <code>CONVEYOR</code>; and PowerPoint 2016's <code>MORPH</code>
+      (<code>p159</code>). See
       <a href={withBase("/advanced/animations")}>Animations &amp; Transitions</a>.
+    </li>
+    <li>
+      <code>PP_SLIDE_SHOW_TYPE</code> (<code>power_pptx.enum.slide_show</code>, alias
+      <code>PP_SLIDE_SHOW</code>) — <code>SPEAKER</code> (the default), <code>WINDOW</code>,
+      <code>KIOSK</code>: the values of <code>prs.slide_show.show_type</code>, which also
+      accepts the strings <code>"speaker"</code>, <code>"window"</code> and <code>"kiosk"</code>.
+      See <a href={`${withBase("/advanced/slides")}#slide-show`}>Slide-show settings</a>.
     </li>
     <li>
       <code>PP_ANIM_TRIGGER</code> (<code>power_pptx.enum.animation</code>, re-exported as
