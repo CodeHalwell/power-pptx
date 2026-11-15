@@ -461,6 +461,25 @@ def _capture_html_references(
 
 
 def main(argv=None):
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    _register_cli_font_dirs(parser, args.font_dir)
+    if len(args.inputs) > 1 and (args.reference_html or args.reference_dir):
+        parser.error("Explicit references apply to a single input")
+    names = [p.stem for p in args.inputs]
+    if len(set(names)) != len(names):
+        parser.error("Batch inputs must have distinct basenames")
+    results = []
+    for path in args.inputs:
+        target = args.out_dir / path.stem if len(args.inputs) > 1 else args.out_dir
+        _review_input(path, target, args, results)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    if len(args.inputs) > 1:
+        _write_batch_index(args.out_dir, args.inputs, results)
+    return 1 if any(not record["passed"] for record in results) else 0
+
+
+def _build_parser():
     parser = argparse.ArgumentParser(prog="power-pptx review", description=__doc__)
     parser.add_argument(
         "inputs", nargs="+", type=Path, help="PPTX, HTML, JSON, or YAML slide sources"
@@ -484,103 +503,137 @@ def main(argv=None):
         default=[],
         help="Extra font folder for measurement and rendering (repeatable)",
     )
-    args = parser.parse_args(argv)
-    if args.font_dir:
-        from power_pptx.text.fonts import register_font_dir
+    return parser
 
-        for directory in args.font_dir:
-            if not directory.is_dir():
-                parser.error(f"--font-dir {directory} is not a directory")
-            register_font_dir(directory)
-    if len(args.inputs) > 1 and (args.reference_html or args.reference_dir):
-        parser.error("Explicit references apply to a single input")
-    names = [p.stem for p in args.inputs]
-    if len(set(names)) != len(names):
-        parser.error("Batch inputs must have distinct basenames")
-    results = []
-    for path in args.inputs:
-        target = args.out_dir / path.stem if len(args.inputs) > 1 else args.out_dir
-        try:
-            with tempfile.TemporaryDirectory(prefix="pptx-review-source-") as tmp:
-                reference = args.reference_dir
-                source = path
-                suffix = path.suffix.lower()
-                if suffix in {".html", ".htm"}:
-                    from power_pptx.compose import from_html
 
-                    capture_reference = None
-                    if reference is None and args.reference_html is None:
-                        reference = Path(tmp) / "reference"
-                        capture_reference = reference
-                    source = from_html(
-                        path,
-                        mode=args.mode,
-                        browser_path=args.browser_path,
-                        selector=args.selector,
-                        wait_for_function=args.ready,
-                        reference_dir=capture_reference,
-                    )
-                elif suffix in {".json", ".yaml", ".yml"}:
-                    from power_pptx.compose import from_spec, from_yaml
+def _register_cli_font_dirs(parser, font_dirs):
+    """Register each ``--font-dir``, or exit with a usage error at one that is not a folder."""
+    if not font_dirs:
+        return
+    from power_pptx.text.fonts import register_font_dir
 
-                    source = (
-                        from_spec(json.loads(path.read_text(encoding="utf-8")))
-                        if suffix == ".json"
-                        else from_yaml(path)
-                    )
-                elif suffix != ".pptx":
-                    raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
-                report = review_presentation(
-                    source,
-                    out_dir=target,
-                    reference_dir=reference,
-                    reference_html=args.reference_html,
-                    browser_path=args.browser_path,
-                    wait_for_function=args.ready,
-                    selector=args.selector,
-                    dpi=args.dpi,
-                    soffice_bin=args.soffice_bin,
-                    max_mean_error=args.max_error,
-                    font_policy=args.font_policy,
-                    fail_on_warnings=args.fail_on_warnings,
-                )
-                results.append(
-                    {"input": str(path), "passed": not report.has_errors, "directory": str(target)}
-                )
-                print(
-                    f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — "
-                    f"{target / 'index.html'}",
-                    flush=True,
-                )
-        except Exception as exc:
-            failure = {"input": str(path), "passed": False, "error": str(exc)}
-            results.append(failure)
-            target.mkdir(parents=True, exist_ok=True)
-            # -- Nothing was reviewed, so an earlier review's files stay as they
-            # -- are (the input itself may be among them); only the manifest
-            # -- and index say what happened this time. --
-            (target / "manifest.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
-            (target / "index.html").write_text(
-                '<!doctype html><meta charset="utf-8"><title>Review failed</title>'
-                f"<h1>{escape(path.name)}</h1><p>{escape(str(exc))}</p>"
-                '<a href="manifest.json">Failure details</a>',
-                encoding="utf-8",
+    for directory in font_dirs:
+        if not directory.is_dir():
+            parser.error(f"--font-dir {directory} is not a directory")
+        register_font_dir(directory)
+
+
+def _review_input(path, target, args, results):
+    """Review the input *path* into *target*, appending its outcome to *results*.
+
+    A review that fails is recorded with its findings; an input that cannot be
+    reviewed at all is recorded with the reason, which is also written to
+    *target* and reported on standard error.
+    """
+    try:
+        with tempfile.TemporaryDirectory(prefix="pptx-review-source-") as tmp:
+            source, reference = _review_source(path, args, Path(tmp))
+            report = review_presentation(
+                source,
+                out_dir=target,
+                reference_dir=reference,
+                reference_html=args.reference_html,
+                browser_path=args.browser_path,
+                wait_for_function=args.ready,
+                selector=args.selector,
+                dpi=args.dpi,
+                soffice_bin=args.soffice_bin,
+                max_mean_error=args.max_error,
+                font_policy=args.font_policy,
+                fail_on_warnings=args.fail_on_warnings,
             )
-            print(f"{path.name}: FAIL — {exc}", file=sys.stderr, flush=True)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    if len(args.inputs) > 1:
-        (args.out_dir / "batch.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-        cards = "".join(
-            f'<li><a href="{escape(path.stem)}/index.html">{escape(path.name)}</a>: '
-            f"{'PASS' if result['passed'] else 'FAIL'}</li>"
-            for path, result in zip(args.inputs, results)
-        )
-        (args.out_dir / "index.html").write_text(
-            '<!doctype html><meta charset="utf-8"><title>Deck reviews</title>'
-            f'<h1>Deck reviews</h1><ul>{cards}</ul><a href="batch.json">Batch results</a>',
-            encoding="utf-8",
-        )
-    return 1 if any(not record["passed"] for record in results) else 0
+            results.append(
+                {"input": str(path), "passed": not report.has_errors, "directory": str(target)}
+            )
+            print(
+                f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — "
+                f"{target / 'index.html'}",
+                flush=True,
+            )
+    except Exception as exc:
+        failure = {"input": str(path), "passed": False, "error": str(exc)}
+        results.append(failure)
+        _write_failure(target, path, exc, failure)
+        print(f"{path.name}: FAIL — {exc}", file=sys.stderr, flush=True)
+
+
+def _review_source(path, args, tmp):
+    """Return the deck to review for the input *path*, and the references to compare it with.
+
+    A PPTX is reviewed as it is; HTML and JSON/YAML specs are built into a
+    deck first. *tmp* is a scratch folder that lasts as long as the review.
+    """
+    suffix = path.suffix.lower()
+    if suffix in {".html", ".htm"}:
+        return _deck_from_html(path, args, tmp)
+    if suffix in {".json", ".yaml", ".yml"}:
+        return _deck_from_spec(path, suffix), args.reference_dir
+    if suffix != ".pptx":
+        raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
+    return path, args.reference_dir
+
+
+def _deck_from_html(path, args, tmp):
+    """Build the HTML input *path* into a deck; return it and the references to compare with.
+
+    Without references of its own, the review compares the deck against the
+    browser captures made while building it, saved in *tmp*.
+    """
+    from power_pptx.compose import from_html
+
+    reference = args.reference_dir
+    capture_reference = None
+    if reference is None and args.reference_html is None:
+        reference = tmp / "reference"
+        capture_reference = reference
+    source = from_html(
+        path,
+        mode=args.mode,
+        browser_path=args.browser_path,
+        selector=args.selector,
+        wait_for_function=args.ready,
+        reference_dir=capture_reference,
+    )
+    return source, reference
+
+
+def _deck_from_spec(path, suffix):
+    """Build the JSON or YAML spec at *path* into a deck."""
+    from power_pptx.compose import from_spec, from_yaml
+
+    if suffix == ".json":
+        return from_spec(json.loads(path.read_text(encoding="utf-8")))
+    return from_yaml(path)
+
+
+def _write_failure(target, path, exc, failure):
+    """Write what stopped the input *path* from being reviewed into *target*."""
+    target.mkdir(parents=True, exist_ok=True)
+    # -- Nothing was reviewed, so an earlier review's files stay as they
+    # -- are (the input itself may be among them); only the manifest
+    # -- and index say what happened this time. --
+    (target / "manifest.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+    (target / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>Review failed</title>'
+        f"<h1>{escape(path.name)}</h1><p>{escape(str(exc))}</p>"
+        '<a href="manifest.json">Failure details</a>',
+        encoding="utf-8",
+    )
+
+
+def _write_batch_index(out_dir, inputs, results):
+    """Write the results of reviewing several *inputs*, and a page linking each review."""
+    (out_dir / "batch.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    cards = "".join(
+        f'<li><a href="{escape(path.stem)}/index.html">{escape(path.name)}</a>: '
+        f"{'PASS' if result['passed'] else 'FAIL'}</li>"
+        for path, result in zip(inputs, results)
+    )
+    (out_dir / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>Deck reviews</title>'
+        f'<h1>Deck reviews</h1><ul>{cards}</ul><a href="batch.json">Batch results</a>',
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":
