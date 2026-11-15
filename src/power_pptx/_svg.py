@@ -82,16 +82,40 @@ def looks_like_svg(blob: bytes) -> bool:
     return name.localname == "svg" and name.namespace in {None, "http://www.w3.org/2000/svg"}
 
 
+# What CairoSVG draws in place of a resource it was not allowed to fetch.
+_EMPTY_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+
+def _fetch_data_url_only(url: str, resource_type: str) -> bytes:
+    """Return the content of `url` for CairoSVG when it is a ``data:`` URL.
+
+    An SVG can pull in images and stylesheets by URL. CairoSVG before 2.7
+    fetches every one, local files and network addresses alike, so an untrusted
+    SVG (from a ``from_spec(..., safe=True)`` spec, say) could read files or make
+    requests while it is rasterised. Any other URL gets an empty SVG instead,
+    which is what CairoSVG 2.7 and later do by default.
+    """
+    if not url or url[:5].lower() != "data:":
+        return _EMPTY_SVG
+    from urllib.request import urlopen
+
+    # -- urllib decodes a data: URL in memory; nothing is opened or requested --
+    with urlopen(url) as response:
+        return response.read()
+
+
 def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None) -> bytes:
     """Rasterise `svg_blob` to PNG bytes using ``cairosvg``.
 
     `output_size` is an optional ``(width_px, height_px)`` pair.  When
     omitted, ``cairosvg`` uses the SVG's intrinsic size, which is
-    usually the right thing for embedding.  Raises
-    :class:`CairoSvgUnavailable` when ``cairosvg`` isn't installed.
+    usually the right thing for embedding.  Resources the SVG refers to by
+    URL are drawn only when the URL is a ``data:`` URL; files and network
+    addresses are never read.  Raises :class:`CairoSvgUnavailable` when
+    ``cairosvg`` isn't installed.
     """
     try:
-        import cairosvg  # type: ignore[import-not-found]
+        from cairosvg import surface  # type: ignore[import-not-found]
     except ImportError as exc:
         raise CairoSvgUnavailable(
             "rasterising SVG requires the optional `cairosvg` dependency; "
@@ -103,7 +127,11 @@ def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None
     if output_size is not None:
         kwargs["output_width"] = int(output_size[0])
         kwargs["output_height"] = int(output_size[1])
-    result = cairosvg.svg2png(bytestring=svg_blob, **kwargs)
+    # -- `cairosvg.svg2png()` takes no `url_fetcher`; the converter it wraps passes one
+    # -- through to the parser, in every release from 2.5 --
+    result = surface.PNGSurface.convert(
+        bytestring=svg_blob, url_fetcher=_fetch_data_url_only, **kwargs
+    )
     if result is None:
         raise RuntimeError("SVG rasterisation produced no PNG data")
     return result

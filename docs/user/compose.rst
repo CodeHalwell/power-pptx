@@ -141,6 +141,9 @@ figures are captured with ``allow_network=False``, so a page can load only
 relative paths when ``safe`` is off. ``from_yaml`` takes the same two
 arguments.
 
+An SVG figure is drawn for its PNG fallback without reading any file or URL
+it refers to: only ``data:`` URLs are drawn, in safe mode or not.
+
 Whatever ``safe`` is, a spec cannot choose the browser executable:
 ``browser_path`` in ``html_options`` / ``plotly_options`` is rejected. Set
 ``POWER_PPTX_CHROMIUM`` or pass ``browser_path=`` from Python instead.

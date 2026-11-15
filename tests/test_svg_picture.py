@@ -14,6 +14,7 @@ from lxml import etree
 
 from power_pptx import Presentation
 from power_pptx._svg import (
+    _EMPTY_SVG,
     CairoSvgUnavailable,
     add_svg_blip_extension,
     looks_like_svg,
@@ -191,6 +192,69 @@ class DescribeRasterizeSvg:
         monkeypatch.setitem(sys.modules, "cairosvg", None)
         with pytest.raises(CairoSvgUnavailable, match="cairosvg"):
             rasterize_svg(SVG_DOC)
+
+    def it_lets_cairosvg_fetch_only_data_urls(self, monkeypatch):
+        # -- CairoSVG before 2.7 fetches any URL an SVG names, so an untrusted SVG
+        # -- could read local files or make requests while it is rasterised --
+        import base64
+        import sys
+        import types
+        import urllib.request
+
+        captured = {}
+
+        def convert(**kwargs):
+            captured.update(kwargs)
+            return TINY_PNG
+
+        surface = types.SimpleNamespace(PNGSurface=types.SimpleNamespace(convert=convert))
+        monkeypatch.setitem(sys.modules, "cairosvg", types.SimpleNamespace(surface=surface))
+        monkeypatch.setitem(sys.modules, "cairosvg.surface", surface)
+        rasterize_svg(SVG_DOC)
+        fetch = captured["url_fetcher"]
+
+        real_urlopen = urllib.request.urlopen
+        opened = []
+
+        def urlopen(url, *args, **kwargs):
+            opened.append(url)
+            return real_urlopen(url, *args, **kwargs)
+
+        monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+        for url in ("http://example.invalid/a.png", "file:///etc/hostname", "FILE:///x", ""):
+            assert fetch(url, "image/png") == _EMPTY_SVG
+        assert opened == []
+
+        inline = "data:image/png;base64," + base64.b64encode(TINY_PNG).decode()
+        assert fetch(inline, "image/png") == TINY_PNG
+        assert fetch("DATA" + inline[4:], "image/png") == TINY_PNG
+
+    def it_draws_an_inline_image_but_not_a_linked_file(self, tmp_path):
+        try:
+            import cairosvg  # noqa: F401  # pyright: ignore[reportMissingImports]
+        except (ImportError, OSError):
+            pytest.skip("needs cairosvg and the cairo library")
+        import base64
+
+        from PIL import Image
+
+        red = io.BytesIO()
+        Image.new("RGB", (4, 4), "red").save(red, "PNG")
+        linked = tmp_path / "linked.png"
+        linked.write_bytes(red.getvalue())
+
+        def centre_of(href: str) -> tuple[int, ...]:
+            svg = (
+                '<svg xmlns="http://www.w3.org/2000/svg"'
+                ' xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4">'
+                f'<image width="4" height="4" xlink:href="{href}"/></svg>'
+            )
+            png = rasterize_svg(svg.encode())
+            return Image.open(io.BytesIO(png)).convert("RGBA").getpixel((2, 2))
+
+        inline = "data:image/png;base64," + base64.b64encode(red.getvalue()).decode()
+        assert centre_of(inline) == (255, 0, 0, 255)
+        assert centre_of(linked.as_uri())[3] == 0
 
 
 class DescribeAddSvgBlipExtension:

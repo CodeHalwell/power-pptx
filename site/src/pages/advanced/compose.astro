@@ -166,6 +166,10 @@ layouts = prs.slide_layouts             # read again: the old ones were replaced
       fails naming the blocked URLs. A safe spec cannot turn that off.
     </li>
     <li>
+      SVG figures never fetch what they refer to, in safe mode or not: when the PNG fallback is
+      drawn, only <code>data:</code> URLs are read.
+    </li>
+    <li>
       Independently of <code>safe</code>, a spec can never choose the browser executable:
       <code>browser_path</code> in <code>html_options</code> / <code>plotly_options</code> raises.
       Set <code>POWER_PPTX_CHROMIUM</code>, or pass <code>browser_path=</code> to the Python

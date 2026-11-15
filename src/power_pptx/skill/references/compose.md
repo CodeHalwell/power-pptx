@@ -203,6 +203,8 @@ prs = from_spec(spec, safe=True, base_dir="/srv/decks/job-42")
   else. A figure that asks for more fails with a `SpecError` naming the
   blocked URLs instead of fetching them. A safe spec cannot set
   `"allow_network": true`.
+- SVG figures never fetch what they refer to, in safe mode or not: when
+  the PNG fallback is drawn, only `data:` URLs are read.
 
 Independently of `safe`, a spec can never choose the browser executable:
 `browser_path` in `html_options` / `plotly_options` raises. Set

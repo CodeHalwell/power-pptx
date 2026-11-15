@@ -368,6 +368,11 @@ Security
   the parts it needs; the validator never resolves entities.
 * ``import_slide()`` no longer ships the content of slides the imported
   slide merely links to.
+* Rasterising an SVG for its PNG fallback no longer reads the files or URLs
+  the SVG refers to; only ``data:`` URLs are drawn. CairoSVG 2.7 and later
+  already behaved this way, but 2.5 and 2.6 fetched any URL, so an untrusted
+  SVG figure, even in a ``safe=True`` spec, could read local files or make
+  requests.
 
 Development
 ...........
