@@ -2701,13 +2701,36 @@ _PATH_TOKEN_RE = re.compile(
     r"[\s,]*(?:([A-Za-z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?))"
 )
 
-# Number of coordinates each supported SVG command takes per repetition.
-_SVG_ARG_COUNTS = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Q": 4, "Z": 0}
+@dataclass(frozen=True)
+class _PathDialect:
+    """The commands one kind of path string knows, and its name in messages."""
 
-# The same for the commands of an OOXML motion path, which are all there are:
-# ISO/IEC 29500-1 §19.5.4 gives the allowed set as {M, L, C, Z, E} and their
+    name: str
+    """What the path is called in error messages, e.g. ``"svg path"``."""
+
+    arg_counts: dict[str, int]
+    """Number of coordinates each (upper-case) command takes per repetition."""
+
+    unsupported: str
+    """Message for a command not in `arg_counts`, formatted with `cmd` and `path`."""
+
+
+# The commands of an SVG path that can be converted to a motion path.
+_SVG_PATH = _PathDialect(
+    "svg path",
+    {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Q": 4, "Z": 0},
+    "unsupported svg path command {cmd!r}; supported: M/m L/l H/h V/v C/c Q/q Z/z",
+)
+
+# The commands of an OOXML motion path, which are all there are: ISO/IEC
+# 29500-1 §19.5.4 gives the allowed set as {M, L, C, Z, E} and their
 # lower-case (relative) forms.
-_MOTION_ARG_COUNTS = {"M": 2, "L": 2, "C": 6, "Z": 0, "E": 0}
+_MOTION_PATH = _PathDialect(
+    "motion path",
+    {"M": 2, "L": 2, "C": 6, "Z": 0, "E": 0},
+    "unsupported motion path command {cmd!r} in {path!r}: a motion path knows only M, L, C, "
+    "Z and E (lower case for relative coordinates). For SVG path syntax use MotionPath.svg().",
+)
 
 
 def _path_tokens(path: str, what: str) -> list[str | float]:
@@ -2731,6 +2754,83 @@ def _path_tokens(path: str, what: str) -> list[str | float]:
     return tokens
 
 
+class _PathCommands:
+    """The commands of a *dialect* path string, each with its coordinates.
+
+    Iterating yields a ``(command, coordinates)`` pair for every repetition of
+    a command: a command repeats for as long as coordinates follow it, so
+    ``"L 1 2 3 4"`` yields ``("L", [1.0, 2.0])`` and then ``("L", [3.0,
+    4.0])``.  As in SVG, the coordinate pairs after the first of a moveto
+    are linetos.  An ``E`` ends the path.
+
+    The path is checked as it is read: anything that is not a well-formed
+    path in *dialect* raises |ValueError|.
+    """
+
+    def __init__(self, path: str, dialect: _PathDialect):
+        self._path = path
+        self._dialect = dialect
+        self._tokens = _path_tokens(path, dialect.name)
+        if not self._tokens:
+            raise ValueError(f"no recognisable commands in {dialect.name} {path!r}")
+        self._pos = 0
+        # -- the command a number with no letter before it repeats --
+        self._current = ""
+
+    def __iter__(self) -> Iterator[tuple[str, list[float]]]:
+        while self._pos < len(self._tokens):
+            cmd = self._next_command()
+            coordinates = self._take_coordinates(cmd)
+            if cmd in ("E", "e") and self._pos < len(self._tokens):
+                raise ValueError(
+                    f"nothing can follow the end command {cmd!r} in"
+                    f" {self._dialect.name} {self._path!r}"
+                )
+            yield cmd, coordinates
+            # -- as in SVG, further coordinate pairs after a moveto are linetos --
+            self._current = {"M": "L", "m": "l"}.get(cmd, cmd)
+
+    def _next_command(self) -> str:
+        """The command the token at the read position starts or repeats."""
+        token = self._tokens[self._pos]
+        if isinstance(token, str):
+            self._pos += 1
+            return self._checked_command(token)
+        if not self._current:
+            raise ValueError(
+                f"{self._dialect.name} must start with M/m; got a number in {self._path!r}"
+            )
+        if self._current in ("Z", "z"):
+            # Every other command repeats for as long as coordinates follow;
+            # closepath takes none, so a number here belongs to no command.
+            raise ValueError(
+                f"expected a command after {self._current!r}, got a number in"
+                f" {self._dialect.name} {self._path!r}"
+            )
+        return self._current
+
+    def _checked_command(self, letter: str) -> str:
+        """*letter*, once it is known to be a command that can come next."""
+        if letter.upper() not in self._dialect.arg_counts:
+            raise ValueError(self._dialect.unsupported.format(cmd=letter, path=self._path))
+        if not self._current and letter.upper() != "M":
+            raise ValueError(
+                f"{self._dialect.name} must start with M/m; got {letter!r} in {self._path!r}"
+            )
+        return letter
+
+    def _take_coordinates(self, cmd: str) -> list[float]:
+        """Read the coordinates of one repetition of *cmd*."""
+        count = self._dialect.arg_counts[cmd.upper()]
+        args = self._tokens[self._pos : self._pos + count]
+        if len(args) < count or any(isinstance(arg, str) for arg in args):
+            raise ValueError(
+                f"{cmd!r} needs {count} coordinate(s) in {self._dialect.name} {self._path!r}"
+            )
+        self._pos += count
+        return [float(arg) for arg in args]
+
+
 def _normalise_motion_path(path: Any) -> str:
     """Return the OOXML motion path *path* checked, tidied and terminated.
 
@@ -2749,47 +2849,13 @@ def _normalise_motion_path(path: Any) -> str:
         raise ValueError(
             "motion path must be a non-empty OOXML path string, e.g. 'M 0 0 L 0.5 0 E'"
         )
-    tokens = _path_tokens(path, "motion path")
-    if not tokens:
-        raise ValueError(f"no recognisable commands in motion path {path!r}")
-
     out: list[str] = []
     cmd = ""
-    i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        if cmd in ("E", "e"):
-            raise ValueError(f"nothing can follow the end command {cmd!r} in motion path {path!r}")
-        if isinstance(token, str):
-            cmd = token
-            i += 1
-            if cmd.upper() not in _MOTION_ARG_COUNTS:
-                raise ValueError(
-                    f"unsupported motion path command {cmd!r} in {path!r}: a motion path "
-                    "knows only M, L, C, Z and E (lower case for relative coordinates). "
-                    "For SVG path syntax use MotionPath.svg()."
-                )
-            if not out and cmd.upper() != "M":
-                raise ValueError(f"motion path must start with M/m; got {cmd!r} in {path!r}")
-        elif not cmd:
-            raise ValueError(f"motion path must start with M/m; got a number in {path!r}")
-        elif cmd in ("Z", "z"):
-            raise ValueError(
-                f"expected a command after {cmd!r}, got a number in motion path {path!r}"
-            )
+    for cmd, coordinates in _PathCommands(path, _MOTION_PATH):
         out.append(cmd)
-
-        count = _MOTION_ARG_COUNTS[cmd.upper()]
-        args = tokens[i : i + count]
-        if len(args) < count or any(isinstance(arg, str) for arg in args):
-            raise ValueError(f"{cmd!r} needs {count} coordinate(s) in motion path {path!r}")
-        i += count
-        out.extend(_fmt(float(arg)) for arg in args)
-        if cmd in ("M", "m"):
-            # -- as in SVG, further coordinate pairs after a moveto are linetos --
-            cmd = "L" if cmd == "M" else "l"
-
-    if out[-1] not in ("E", "e") and cmd not in ("Z", "z"):
+        out.extend(_fmt(value) for value in coordinates)
+    # -- a path ended with E, or closed with Z, is complete as it stands --
+    if cmd.upper() not in ("E", "Z"):
         out.append("E")
     return " ".join(out)
 
@@ -2836,112 +2902,104 @@ def _svg_to_ooxml_motion_path(
     """
     if not svg or not svg.strip():
         raise ValueError("svg path must be a non-empty string")
+    width, height = _viewbox_size(viewbox)
+    return _SvgMotionPathWriter(width, height).write(_PathCommands(svg, _SVG_PATH))
 
+
+def _viewbox_size(viewbox: tuple[float, float, float, float] | None) -> tuple[float, float]:
+    """The width and height of *viewbox*, the unit square's when it is ``None``."""
     if viewbox is None:
-        vb_w, vb_h = 1.0, 1.0
-    else:
-        _, _, vb_w, vb_h = (float(v) for v in viewbox)
-    if vb_w <= 0 or vb_h <= 0:
-        raise ValueError(
-            "viewbox width and height must be positive; got "
-            f"{viewbox!r}"
-        )
+        return 1.0, 1.0
+    _, _, width, height = (float(v) for v in viewbox)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"viewbox width and height must be positive; got {viewbox!r}")
+    return width, height
 
-    tokens = _path_tokens(svg, "svg path")
-    if not tokens:
-        raise ValueError(f"no recognisable commands in svg path {svg!r}")
 
-    out_parts: list[str] = []
-    # Track the SVG-coord cursor (cx, cy), the rebase origin — where the
-    # first moveto landed in SVG coords — and the most-recent subpath start
-    # for ``Z`` closure.
-    cx = cy = 0.0
-    origin_x = origin_y = 0.0
-    subpath_x = subpath_y = 0.0
-    started = False
+class _SvgMotionPathWriter:
+    """Writes the commands of an SVG path as an OOXML motion path.
 
-    def emit(letter: str, *points: tuple[float, float]) -> None:
-        # Rebase each SVG point to the origin and map viewbox → unit square.
-        out_parts.append(letter)
+    Every point is rebased so that the first moveto lands on ``0 0`` (a
+    motion path is relative to where the shape starts) and mapped from a
+    viewbox *width* by *height* into the unit square.
+    """
+
+    def __init__(self, width: float, height: float):
+        self._width = width
+        self._height = height
+        self._parts: list[str] = []
+        # -- the current point, in SVG coordinates --
+        self._cursor = (0.0, 0.0)
+        # -- where the first moveto landed: the point that becomes ``0 0`` --
+        self._origin = (0.0, 0.0)
+        self._started = False
+        # -- where the current subpath started, which ``Z`` returns to --
+        self._subpath_start = (0.0, 0.0)
+        self._draw = {
+            "M": self._move,
+            "L": self._line,
+            "H": self._horizontal_line,
+            "V": self._vertical_line,
+            "C": self._cubic,
+            "Q": self._quadratic,
+            "Z": self._close,
+        }
+
+    def write(self, commands: _PathCommands) -> str:
+        """The motion path drawing *commands*, ended with ``E``."""
+        for cmd, coordinates in commands:
+            self._draw[cmd.upper()](cmd.islower(), coordinates)
+        self._parts.append("E")
+        return " ".join(self._parts)
+
+    def _move(self, relative: bool, coordinates: list[float]) -> None:
+        (point,) = self._points(relative, coordinates)
+        if not self._started:
+            self._origin = point
+            self._started = True
+        self._subpath_start = point
+        self._emit("M", point)
+
+    def _line(self, relative: bool, coordinates: list[float]) -> None:
+        self._emit("L", *self._points(relative, coordinates))
+
+    def _horizontal_line(self, relative: bool, coordinates: list[float]) -> None:
+        x, y = self._cursor
+        self._emit("L", (coordinates[0] + x if relative else coordinates[0], y))
+
+    def _vertical_line(self, relative: bool, coordinates: list[float]) -> None:
+        x, y = self._cursor
+        self._emit("L", (x, coordinates[0] + y if relative else coordinates[0]))
+
+    def _cubic(self, relative: bool, coordinates: list[float]) -> None:
+        self._emit("C", *self._points(relative, coordinates))
+
+    def _quadratic(self, relative: bool, coordinates: list[float]) -> None:
+        # -- a motion path has no quadratic curve; write the cubic tracing it --
+        control, end = self._points(relative, coordinates)
+        c1x, c1y, c2x, c2y = _cubic_from_quadratic(self._cursor, control, end)
+        self._emit("C", (c1x, c1y), (c2x, c2y), end)
+
+    def _close(self, relative: bool, coordinates: list[float]) -> None:
+        # -- closing a subpath draws a line back to its start --
+        self._emit("L", self._subpath_start)
+
+    def _points(self, relative: bool, coordinates: list[float]) -> list[tuple[float, float]]:
+        """*coordinates* as absolute points; relative ones are offsets from the cursor."""
+        pairs = zip(coordinates[0::2], coordinates[1::2])
+        if not relative:
+            return list(pairs)
+        cx, cy = self._cursor
+        return [(x + cx, y + cy) for x, y in pairs]
+
+    def _emit(self, letter: str, *points: tuple[float, float]) -> None:
+        """Write *letter* and *points* rebased and scaled; the last point is the new cursor."""
+        origin_x, origin_y = self._origin
+        self._parts.append(letter)
         for x, y in points:
-            out_parts.append(_fmt((x - origin_x) / vb_w))
-            out_parts.append(_fmt((y - origin_y) / vb_h))
-
-    i = 0
-    cmd = ""
-    while i < len(tokens):
-        token = tokens[i]
-        if isinstance(token, str):
-            cmd = token
-            i += 1
-            if cmd.upper() not in _SVG_ARG_COUNTS:
-                raise ValueError(
-                    f"unsupported svg path command {cmd!r}; supported: "
-                    "M/m L/l H/h V/v C/c Q/q Z/z"
-                )
-        elif not cmd:
-            raise ValueError(f"svg path must start with M/m; got a number in {svg!r}")
-        elif cmd in ("Z", "z"):
-            # Every other command repeats for as long as coordinates follow;
-            # closepath takes none, so a number here belongs to no command.
-            raise ValueError(
-                f"expected a command after {cmd!r}, got a number in svg path {svg!r}"
-            )
-
-        relative = cmd.islower()
-        kind = cmd.upper()
-        if kind != "M" and not started:
-            # Any non-M command must be preceded by a moveto in valid SVG.
-            raise ValueError(f"svg path must start with M/m; got {cmd!r} in {svg!r}")
-
-        count = _SVG_ARG_COUNTS[kind]
-        args = tokens[i : i + count]
-        if len(args) < count or any(isinstance(arg, str) for arg in args):
-            raise ValueError(
-                f"{cmd!r} needs {count} coordinate(s) in svg path {svg!r}"
-            )
-        i += count
-        nums = [float(arg) for arg in args]
-
-        if kind == "Z":
-            # Close current subpath: SVG draws a line back to its start.
-            cx, cy = subpath_x, subpath_y
-            emit("L", (cx, cy))
-            continue
-
-        # Resolve the coordinates to absolute SVG points.
-        if kind == "H":
-            points = [(nums[0] + cx if relative else nums[0], cy)]
-        elif kind == "V":
-            points = [(cx, nums[0] + cy if relative else nums[0])]
-        else:
-            points = [
-                (x + cx, y + cy) if relative else (x, y)
-                for x, y in zip(nums[0::2], nums[1::2])
-            ]
-        start = (cx, cy)
-        cx, cy = points[-1]
-
-        if kind == "M":
-            subpath_x, subpath_y = cx, cy
-            if not started:
-                origin_x, origin_y = cx, cy
-                started = True
-            emit("M", (cx, cy))
-            # Implicit lineto continuation: further coordinate pairs under
-            # the same moveto are linetos.
-            cmd = "l" if relative else "L"
-        elif kind == "C":
-            emit("C", *points)
-        elif kind == "Q":
-            control, end = points
-            c1x, c1y, c2x, c2y = _cubic_from_quadratic(start, control, end)
-            emit("C", (c1x, c1y), (c2x, c2y), end)
-        else:  # L, H, V
-            emit("L", points[0])
-
-    out_parts.append("E")
-    return " ".join(out_parts)
+            self._parts.append(_fmt((x - origin_x) / self._width))
+            self._parts.append(_fmt((y - origin_y) / self._height))
+        self._cursor = points[-1]
 
 
 def _slide_dimensions_emu(slide: Slide) -> tuple[int, int]:
