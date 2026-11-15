@@ -11,6 +11,7 @@ import pytest
 from power_pptx.chart.data import ChartData
 from power_pptx.enum.chart import XL_CHART_TYPE
 from power_pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_CONNECTOR, PP_PLACEHOLDER, PROG_ID
+from power_pptx.geometry import BBox
 from power_pptx.media import SPEAKER_IMAGE_BYTES, Video
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.shapes.groupshape import CT_GroupShape
@@ -51,6 +52,7 @@ from power_pptx.shapes.shapetree import (
     _MoviePicElementCreator,
     _NotesSlideShapeFactory,
     _OleObjectElementCreator,
+    _resolve_endpoint,
     _SlidePlaceholderFactory,
 )
 from power_pptx.slide import SlideLayout, SlideMaster
@@ -2357,3 +2359,74 @@ class Describe_NotesSlideShapeFactory(object):
     @pytest.fixture
     def shapes_(self, request):
         return instance_mock(request, _BaseShapes)
+
+
+class Describe_resolve_endpoint:
+    """`_resolve_endpoint()` turns an arrow endpoint into the point the line meets."""
+
+    @pytest.mark.parametrize(
+        ("opposite", "expected"),
+        [
+            ((Inches(9), Inches(2.5)), (Inches(4), Inches(2.5))),
+            ((Inches(3), Inches(0)), (Inches(3), Inches(2))),
+            (BBox.from_inches(0, 2, 1, 1), (Inches(2), Inches(2.5))),
+            (BBox.from_inches(2.5, 6, 1, 1), (Inches(3), Inches(3))),
+            # -- no usable opposite: a tie at the box's own centre goes right --
+            (None, (Inches(4), Inches(2.5))),
+            ("junk", (Inches(4), Inches(2.5))),
+        ],
+    )
+    def it_meets_a_box_at_the_edge_facing_the_other_end(self, opposite, expected):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=opposite, side="auto", inset_emu=0)
+
+        assert point == expected
+
+    def it_faces_the_centre_of_a_shape_at_the_other_end(self):
+        from power_pptx import Presentation
+        from power_pptx.enum.shapes import MSO_SHAPE
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        other = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *BBox.from_inches(2, 6, 2, 1))
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=other, side=None, inset_emu=0)
+
+        assert point == (Inches(3), Inches(3))
+
+    @pytest.mark.parametrize(
+        ("side", "expected"),
+        [
+            (None, (Inches(3.9), Inches(2.5))),
+            ("right", (Inches(3.9), Inches(2.5))),
+            ("left", (Inches(2.1), Inches(2.5))),
+            ("top", (Inches(3), Inches(2.1))),
+            ("bottom", (Inches(3), Inches(2.9))),
+        ],
+    )
+    def it_pulls_the_point_on_the_chosen_edge_inward_by_the_inset(self, side, expected):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        point = _resolve_endpoint(box, opposite=None, side=side, inset_emu=Inches(0.1))
+
+        assert point == expected
+
+    def it_rejects_an_unknown_side(self):
+        box = BBox.from_inches(2, 2, 2, 1)
+
+        with pytest.raises(ValueError, match="side must be 'top'/'right'/'bottom'/'left'/'auto'"):
+            _resolve_endpoint(box, opposite=None, side="diagonal", inset_emu=0)
+
+    @pytest.mark.parametrize("point", [(1, 2), [Inches(1), Inches(2)]])
+    def it_passes_a_point_through(self, point):
+        assert _resolve_endpoint(point, opposite=None, side="top", inset_emu=99) == (
+            int(point[0]),
+            int(point[1]),
+        )
+
+    @pytest.mark.parametrize("target", ["junk", (1, 2, 3), None])
+    def it_rejects_anything_else(self, target):
+        with pytest.raises(TypeError, match="arrow endpoint must be"):
+            _resolve_endpoint(target, opposite=None, side="auto", inset_emu=0)
