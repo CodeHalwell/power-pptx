@@ -52,6 +52,8 @@ jobs:
           src/power_pptx/parts/presprops.py src/power_pptx/enum/slide_show.py
           tests/test_slide_show.py tests/test_slide_size.py tests/test_slide_hidden.py
           tests/test_repo_invariants.py tests/test_review.py
+      - name: Keep every function's cognitive complexity at 15 or less
+        run: complexipy
       - name: Check public entry point types
         run: pyright --project pyright-ci.json
       - name: Check release gate behavior

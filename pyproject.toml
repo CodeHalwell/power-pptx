@@ -64,6 +64,13 @@ Roadmap = "https://github.com/codehalwell/power-pptx/blob/master/ROADMAP.md"
 Upstream = "https://github.com/scanny/python-pptx"
 UpstreamDocumentation = "https://python-pptx.readthedocs.io/en/latest/"
 
+[tool.complexipy]
+# -- Every function in the library, its tests and the examples keeps a cognitive
+# -- complexity of 15 or less. CI runs `complexipy` with no arguments, which reads
+# -- this table; run the same locally before pushing.
+paths = ["src", "tests", "examples"]
+max-complexity-allowed = 15
+
 [tool.pyright]
 exclude = [
     "**/__pycache__",
