@@ -19,14 +19,16 @@ card.shadow.color.alpha = 0.35
 
 card.glow.radius = Pt(12)
 card.glow.color.rgb = "#0B5CFF"
-card.soft_edges.radius = Pt(6)
+card.soft_edges.radius = Pt(6) / 2     # floats are fine; rounded to whole EMU
 card.blur.radius = Pt(3)
 card.reflection.blur_radius = Pt(4)
 card.reflection.distance = Pt(2)
 card.reflection.start_alpha = 0.4
 
-# Clear an effect: assign None; the element is dropped with its last property
-card.glow.radius = None`;
+# Clear an effect: assign None to each property you set, the colour included;
+# the element goes with the last one, and the theme's effect applies again
+card.glow.radius = None
+card.glow.color = None`;
 
 const snippet1 = `card.fill.solid()
 card.fill.fore_color.rgb = "#0B5CFF"
@@ -38,13 +40,17 @@ card.line.color.alpha = 0.8`;
 
 const snippet2 = `fill = card.fill
 fill.gradient(kind="linear", angle=90)   # linear | radial | rectangular | shape
-
+                                         # 90 runs bottom -> top (counter-clockwise)
 stops = fill.gradient_stops              # mutable stop list
 stops.replace([
-    (0.0, "#0B5CFF"),
+    (0.0, "#0B5CFF"),                    # first stop: the bottom edge at angle=90
     (1.0, "#00D4FF"),
 ])
-stops.append(0.85, "#A8C0FF")            # OOXML requires at least two stops`;
+stops.append(0.85, "#A8C0FF")            # OOXML requires at least two stops
+stops.append(1.5, "#A8C0FF")             # ValueError, and the fill is unchanged
+
+# Two colours (or a list of them) and an angle in one call
+card.fill.linear_gradient("#06D6FE", "#B14AED", angle=270)   # top -> bottom`;
 
 const snippet3 = `from power_pptx.util import Inches
 from power_pptx.enum.dml import (
@@ -68,7 +74,8 @@ const snippet4 = `pic = slide.shapes.add_picture("logo.png", *BBox.from_inches(5
 pic.effects.transparency = 0.25        # 0..1
 pic.effects.brightness = 0.10          # -1..1
 pic.effects.contrast = -0.20
-pic.effects.recolor = "grayscale"      # grayscale | sepia | washout | duotone
+pic.effects.recolor = "grayscale"      # grayscale | sepia | washout | duotone |
+                                       #   black_and_white | None
 pic.effects.set_duotone((0x0B, 0x1B, 0x2A), (0xE8, 0xF0, 0xFF))`;
 
 const snippet5 = `# Embeds the SVG with a PNG fallback for older PowerPoint versions.
@@ -92,12 +99,31 @@ slide.shapes.add_svg_picture(
 
   <h2 id="shape-effects">Shape effects</h2>
   <Code code={snippet0} />
+  <p>
+    Lengths may be floats such as <code>Pt(6) / 2</code> on every effect, 3-D and
+    <code>line.width</code> setter. A value a setter rejects — a negative radius, an alpha above
+    1.0, a string — raises and leaves the shape exactly as it was, with no half-built element.
+    <code>color = None</code> clears a chosen colour on shadow, inner shadow, glow and preset
+    shadow. Clearing every property of an effect removes it, and the empty effect list with it,
+    so the theme's effect style applies again; <code>shape.shadow.clear()</code> removes a shadow
+    outright, theme reference included.
+  </p>
 
   <h2 id="alpha">Alpha-tinted colours</h2>
   <Code code={snippet1} />
 
   <h2 id="gradients">Gradient fills</h2>
   <Code code={snippet2} />
+  <p>
+    <code>angle</code> is <strong>counter-clockwise</strong>, as in maths, and gives the direction
+    the gradient runs from its first stop to its last: <code>0</code> runs left to right,
+    <code>90</code> bottom to top, <code>180</code> right to left and <code>270</code> (or
+    <code>-90</code>) top to bottom. That is the convention the code has always used; it is the
+    reverse of the XML's clockwise <code>ang</code> attribute, so <code>angle=90</code> is stored
+    as 270°. The same holds for <code>fill.gradient_angle</code> and
+    <code>linear_gradient()</code>. A bad stop position, colour or angle raises before anything
+    changes.
+  </p>
 
   <h2 id="lines">Line ends, caps, joins, compound lines</h2>
   <Code code={snippet3} />

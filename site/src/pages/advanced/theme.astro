@@ -20,7 +20,9 @@ theme.fonts.minor = "Inter"`;
 const snippet2 = `brand = Presentation("brand.potx")
 prs.theme.apply(brand.theme)       # copies palette + major/minor fonts across
 
-prs.theme.to_dark_mode()           # one-call dark palette; accents stay legible`;
+prs.theme.to_dark_mode()           # one-call dark palette; accents stay legible
+prs.theme.to_dark_mode()           # idempotent: an already-dark theme stays dark
+prs.theme.to_dark_mode(min_contrast=7.0)   # AAA accents`;
 
 const snippet3 = `from power_pptx import BBox
 from power_pptx.inherit import resolve_color
@@ -53,6 +55,14 @@ rgb = resolve_color(run.font.color, theme=prs.theme)`;
 
   <h2 id="apply">Applying a theme from a template</h2>
   <Code code={snippet2} />
+  <p>
+    <code>to_dark_mode()</code> swaps each background/text pair only while the background slot
+    holds the lighter colour, so calling it on a dark theme, or twice, changes nothing. Accents
+    that fall short of <code>min_contrast</code> (4.5 by default) against the new canvas are moved
+    away from it — lightened on a dark canvas — keeping their hue. To bring a template's masters
+    and layouts across as well, not just its palette and fonts, use
+    <a href={`${withBase("/advanced/compose")}#apply-template`}><code>apply_template</code></a>.
+  </p>
 
   <h2 id="resolve">Theme-aware colour resolution</h2>
   <Code code={snippet3} />

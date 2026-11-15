@@ -195,11 +195,17 @@ prs.save("revenue.pptx")`;
 
 const snippet11 = `from power_pptx.formats import percent
 
-secondary = chart.secondary_value_axis      # creates it on first access
+# A two-series column chart: "Revenue" ($M) and "Margin" (a fraction)
+margin = chart.series[1]
+margin.axis_group = "secondary"             # that series only; adds the axis
+
+secondary = chart.secondary_value_axis      # the right-hand axis
+secondary.maximum_scale = 1.0
 secondary.tick_labels.number_format = percent(decimals=0)
 secondary.tick_labels.number_format_is_linked = False
 
-chart.series[1].axis_group = "secondary"`;
+chart.value_axis.maximum_scale = 500        # still the primary (left) axis
+len(chart.plots)                            # 2 - Margin now has a plot of its own`;
 
 const snippet12 = `# Single entry point — dispatches per chart type
 chart.recolour("vibrant")      # per-point on pie/doughnut, per-series otherwise
@@ -217,16 +223,22 @@ const snippet13 = `chart.apply_quick_layout("minimal")       # one of ten preset
 from power_pptx.chart.quick_layouts import layout_names
 print(layout_names())   # title_legend_right, title_legend_bottom, ...
 
-# A dict spec composes with whatever is already set — missing keys are
+# A dict spec composes with whatever is already set - missing keys are
 # left alone, and charts without axes silently skip the axis keys.
+# The keys are flat: there are no nested "value_axis" sections.
 chart.apply_quick_layout({
     "has_title": True,
     "title_text": "ARR ($M)",
     "has_legend": True,
     "legend_position": "bottom",
-    "category_axis": {"has_major_gridlines": False},
-    "value_axis": {"has_major_gridlines": True, "tick_labels": True},
-})`;
+    "has_value_axis_title": True,
+    "value_axis_title_text": "$M",
+    "has_major_gridlines": True,      # value-axis gridlines
+    "has_minor_gridlines": False,
+})
+
+# ...or a preset with keyword overrides
+chart.apply_quick_layout("title_legend_bottom", title_text="ARR ($M)")`;
 
 const snippet14 = `series = chart.series[0]
 series.format.fill.gradient(kind="linear", angle=0)
@@ -386,19 +398,22 @@ const snippet16 = `chart.category_axis.reverse_order = False`;
 
   <h2 id="secondary-axis">A second value axis</h2>
   <p>
-    <code>chart.secondary_value_axis</code> adds a right-hand value axis (plus the hidden category
-    axis it crosses) on first access, and returns the existing one afterwards. It raises
-    <code>ValueError</code> on chart types with no value axis, such as pie.
+    <code>series.axis_group = "secondary"</code> moves that one series onto a right-hand value
+    axis, creating the axis (plus the hidden category axis it crosses) if the chart has none.
+    Because an axis belongs to a <em>plot</em>, not a series, the series is split off into a plot
+    of its own — the same chart type, drawn in front — and other series moved later join it, so
+    two secondary columns still cluster side by side.
   </p>
   <Code code={snippet11} />
   <p>
-    The axis group belongs to the <em>plot</em>, not the series:
-    <code>series.axis_group = "secondary"</code> moves the whole plot that series belongs to. A
-    chart built by <code>add_chart</code> has exactly one plot, so on a freshly-built chart this
-    moves every series onto the secondary axis at once. Genuine two-scale combo charts have two
-    plots and therefore come from a template deck or an imported slide; there, moving
-    <code>chart.plots[1]</code>'s series does what you expect. Moving a series back to
-    <code>"primary"</code> is not supported.
+    <code>chart.value_axis</code> is always the primary axis and
+    <code>chart.secondary_value_axis</code> the right-hand one; both raise
+    <code>ValueError</code> on chart types with no value axis, such as pie. Hold on to the series
+    object rather than its index: <code>chart.series</code> lists series plot by plot, so after the
+    move <code>chart.series[0]</code> may be a different series. Reading
+    <code>secondary_value_axis</code> on a single-plot chart only adds the (unused) axis; it moves
+    nothing. Moving a series back to <code>"primary"</code> is not supported and raises
+    <code>ValueError</code>.
   </p>
 
   <h2 id="recolour">Palettes and recolouring <strong class="text-primary">fork</strong></h2>
@@ -416,6 +431,16 @@ const snippet16 = `chart.category_axis.reverse_order = False`;
     toggles above — the same thing Excel's "Quick Layout" gallery does, in one call.
   </p>
   <Code code={snippet13} />
+  <p>
+    The keys are <code>has_title</code>, <code>title_text</code>, <code>has_legend</code>,
+    <code>legend_position</code>, <code>legend_in_layout</code>,
+    <code>has_category_axis_title</code>, <code>category_axis_title_text</code>,
+    <code>has_value_axis_title</code>, <code>value_axis_title_text</code>,
+    <code>has_major_gridlines</code> and <code>has_minor_gridlines</code>. Anything else raises
+    before the chart is touched — <code>ValueError</code> in a dict, <code>TypeError</code> as a
+    keyword — naming the closest valid key. Tick labels are not part of a layout; set
+    <code>chart.value_axis.tick_labels</code> directly.
+  </p>
 
   <h2 id="series-fills">Per-series fills</h2>
   <p>
