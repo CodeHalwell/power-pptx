@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
 from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.geometry import BBox
-from power_pptx.util import Emu, Inches, Pt
+from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:
     from power_pptx.shapes.autoshape import Shape
@@ -285,6 +285,110 @@ def _fit_circular_label(
     )
 
 
+def _style_runs(
+    tf: Any,
+    *,
+    font: str | None,
+    size: Length,
+    color: str,
+    bold: bool | None = None,
+    align: Any = None,
+) -> None:
+    """Set every run of *tf* in *font* at *size* and *color*.
+
+    *bold*, when given, is set on every run too, and *align* on every
+    paragraph.  The colour is coerced per run, so text without runs never
+    looks at it.
+    """
+    from power_pptx._color import coerce_color
+
+    for para in tf.paragraphs:
+        if align is not None:
+            para.alignment = align
+        for run in para.runs:
+            if font is not None:
+                run.font.name = font
+            run.font.size = size
+            if bold is not None:
+                run.font.bold = bold
+            run.font.color.rgb = coerce_color(color)
+
+
+def _circle_box(centre: tuple[int, int], diameter: int) -> BBox:
+    """The bounding box of a circle of *diameter* centred on *centre*."""
+    cx, cy = centre
+    return BBox(
+        Emu(cx - diameter // 2),
+        Emu(cy - diameter // 2),
+        Emu(diameter),
+        Emu(diameter),
+    )
+
+
+def _ring_point(centre: tuple[int, int], radius: int, angle: float) -> tuple[int, int]:
+    """The point *radius* from *centre* in the direction *angle* (radians)."""
+    cx, cy = centre
+    return cx + int(radius * math.cos(angle)), cy + int(radius * math.sin(angle))
+
+
+def _ring_angle(index: int, count: int) -> float:
+    """Angle of node *index* of *count* spaced evenly round a ring, the first at the top."""
+    return 2 * math.pi * index / count - math.pi / 2
+
+
+def _set_circle_label(
+    node: Any,
+    text: str,
+    *,
+    font: str | None,
+    size: Length,
+    color: str,
+    bold: bool | None = None,
+) -> None:
+    """Write *text* into circular *node*, centred both ways and wrapping."""
+    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
+
+    tf = node.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+    tf.text = text
+    _style_runs(
+        tf, font=font, size=size, color=color, bold=bold, align=PP_PARAGRAPH_ALIGNMENT.CENTER
+    )
+
+
+def _add_step_node(
+    slide,
+    step: _Step,
+    centre: tuple[int, int],
+    diameter: int,
+    *,
+    fill: str,
+    accent: str,
+    text_color: str,
+    font: str | None,
+    size_pt: float,
+    min_size_pt: float,
+    what: str,
+) -> Any:
+    """Add *step* as an outlined circle of *diameter* on *centre*, its label fitted.
+
+    The step's own ``fill`` / ``text_color`` win over the recipe's.
+    """
+    node = slide.shapes.add_shape(MSO_SHAPE.OVAL, *_circle_box(centre, diameter))
+    node.fill_hex(step.fill or fill)
+    node.line_hex(accent, weight_pt=1.5)
+    _set_circle_label(
+        node, step.label, font=font, size=Pt(float(size_pt)),
+        color=step.text_color or text_color,
+    )
+    _fit_circular_label(
+        node, diameter=diameter, font=font, max_size_pt=size_pt,
+        min_size_pt=min_size_pt, what=what,
+    )
+    return node
+
+
 def _card(
     slide,
     bbox: BBox,
@@ -323,16 +427,10 @@ def _card(
         margin = Pt(6)
         tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
         tf.text = text
-        for para in tf.paragraphs:
-            para.alignment = PP_PARAGRAPH_ALIGNMENT.CENTER
-            for run in para.runs:
-                if font is not None:
-                    run.font.name = font
-                run.font.size = Pt(float(size_pt))
-                run.font.bold = bool(bold)
-                from power_pptx._color import coerce_color
-
-                run.font.color.rgb = coerce_color(text_color)
+        _style_runs(
+            tf, font=font, size=Pt(float(size_pt)), color=text_color, bold=bool(bold),
+            align=PP_PARAGRAPH_ALIGNMENT.CENTER,
+        )
         # Space-awareness: shrink the label so a long word never clips its card
         # (the rectangular siblings of the already-fitted circular nodes).  A
         # card too small for its label at the minimum size is an error, not a
@@ -585,87 +683,65 @@ def _build_hub_and_spoke(
     min_size_pt: float,
 ) -> tuple[Any, list[Any], list[Any]]:
     """Add the hub, spokes and arrows of :func:`hub_and_spoke` to *slide*."""
-    from power_pptx._color import coerce_color
-    from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
-
     n = len(coerced)
     hub = slide.shapes.add_shape(MSO_SHAPE.OVAL, *hub_box)
     hub.fill_hex(hub_fill or accent)
     hub.line.fill.background()
-
-    tf = hub.text_frame
-    tf.word_wrap = True
-    tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-    tf.text = centre
-    for para in tf.paragraphs:
-        para.alignment = PP_PARAGRAPH_ALIGNMENT.CENTER
-        for run in para.runs:
-            if font is not None:
-                run.font.name = font
-            run.font.size = Pt(float(size_pt))
-            run.font.bold = True
-            run.font.color.rgb = coerce_color(hub_text_color)
+    _set_circle_label(
+        hub, centre, font=font, size=Pt(float(size_pt)), color=hub_text_color, bold=True
+    )
     _fit_circular_label(
         hub, diameter=hub_diameter, font=font, max_size_pt=size_pt,
         min_size_pt=min_size_pt, bold=True, what="hub_and_spoke hub",
     )
 
-    # Place spokes evenly around the hub.
+    # Place spokes evenly around the hub; each arrow stops a little short of
+    # the hub's and the spoke's edges.
     radius = (short - spoke_diameter) // 2
+    inset = min(int(Pt(2)), gap // 4)
     spokes_built: list[Any] = []
     arrows: list[Any] = []
     for i, step in enumerate(coerced):
-        angle = 2 * math.pi * i / n - math.pi / 2  # start at top
-        sx = cx + int(radius * math.cos(angle))
-        sy = cy + int(radius * math.sin(angle))
-        spoke_box = BBox(
-            Emu(sx - spoke_diameter // 2),
-            Emu(sy - spoke_diameter // 2),
-            Emu(spoke_diameter),
-            Emu(spoke_diameter),
-        )
-        spoke = slide.shapes.add_shape(MSO_SHAPE.OVAL, *spoke_box)
-        spoke.fill_hex(step.fill or fill)
-        spoke.line_hex(accent, weight_pt=1.5)
-        tfs = spoke.text_frame
-        tfs.word_wrap = True
-        tfs.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-        tfs.text = step.label
-        for para in tfs.paragraphs:
-            para.alignment = PP_PARAGRAPH_ALIGNMENT.CENTER
-            for run in para.runs:
-                if font is not None:
-                    run.font.name = font
-                run.font.size = Pt(float(size_pt) * 0.85)
-                from power_pptx._color import coerce_color
-
-                run.font.color.rgb = coerce_color(step.text_color or text_color)
-        _fit_circular_label(
-            spoke, diameter=spoke_diameter, font=font, max_size_pt=size_pt * 0.85,
+        angle = _ring_angle(i, n)
+        spoke_centre = _ring_point((cx, cy), radius, angle)
+        spoke = _add_step_node(
+            slide, step, spoke_centre, spoke_diameter, fill=fill, accent=accent,
+            text_color=text_color, font=font, size_pt=size_pt * 0.85,
             min_size_pt=min_size_pt, what=f"hub_and_spoke ({n} spokes)",
         )
-
         spokes_built.append(spoke)
-        # Shape-to-shape arrow routing chooses rectangular card edges. Circular
-        # nodes need perimeter points along the radial direction instead.
-        inset = min(int(Pt(2)), gap // 4)
-        ux, uy = math.cos(angle), math.sin(angle)
-        arrow = slide.shapes.add_arrow(
-            (
-                Emu(round(cx + (hub_diameter / 2 + inset) * ux)),
-                Emu(round(cy + (hub_diameter / 2 + inset) * uy)),
-            ),
-            (
-                Emu(round(sx - (spoke_diameter / 2 + inset) * ux)),
-                Emu(round(sy - (spoke_diameter / 2 + inset) * uy)),
-            ),
-            head="triangle",
-            color=accent,
-            weight_pt=1.5,
-            inset_pt=0.0,
+        arrows.append(
+            _add_radial_arrow(
+                slide, (cx, cy), hub_diameter / 2 + inset,
+                spoke_centre, spoke_diameter / 2 + inset, angle, accent,
+            )
         )
-        arrows.append(arrow)
     return hub, spokes_built, arrows
+
+
+def _add_radial_arrow(
+    slide,
+    start: tuple[int, int],
+    start_r: float,
+    end: tuple[int, int],
+    end_r: float,
+    angle: float,
+    color: str,
+) -> Any:
+    """Add an arrow along *angle* from *start_r* out of *start* to *end_r* short of *end*.
+
+    Shape-to-shape arrow routing chooses rectangular card edges. Circular
+    nodes need perimeter points along the radial direction instead.
+    """
+    ux, uy = math.cos(angle), math.sin(angle)
+    return slide.shapes.add_arrow(
+        (Emu(round(start[0] + start_r * ux)), Emu(round(start[1] + start_r * uy))),
+        (Emu(round(end[0] - end_r * ux)), Emu(round(end[1] - end_r * uy))),
+        head="triangle",
+        color=color,
+        weight_pt=1.5,
+        inset_pt=0.0,
+    )
 
 
 # ----------------------------------------------------------------------------- cycle
@@ -739,39 +815,14 @@ def _build_cycle(
 ) -> tuple[list[Any], list[Any]]:
     """Add the nodes and arrows of :func:`cycle` to *slide*."""
     n = len(coerced)
-    cards: list[Any] = []
-    for i, step in enumerate(coerced):
-        angle = 2 * math.pi * i / n - math.pi / 2
-        sx = cx + int(radius * math.cos(angle))
-        sy = cy + int(radius * math.sin(angle))
-        card_box = BBox(
-            Emu(sx - card_diameter // 2),
-            Emu(sy - card_diameter // 2),
-            Emu(card_diameter),
-            Emu(card_diameter),
-        )
-        card = slide.shapes.add_shape(MSO_SHAPE.OVAL, *card_box)
-        card.fill_hex(step.fill or fill)
-        card.line_hex(accent, weight_pt=1.5)
-        from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
-        from power_pptx._color import coerce_color
-
-        tf = card.text_frame
-        tf.word_wrap = True
-        tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
-        tf.text = step.label
-        for para in tf.paragraphs:
-            para.alignment = PP_PARAGRAPH_ALIGNMENT.CENTER
-            for run in para.runs:
-                if font is not None:
-                    run.font.name = font
-                run.font.size = Pt(float(size_pt))
-                run.font.color.rgb = coerce_color(step.text_color or text_color)
-        _fit_circular_label(
-            card, diameter=card_diameter, font=font, max_size_pt=size_pt,
+    cards = [
+        _add_step_node(
+            slide, step, _ring_point((cx, cy), radius, _ring_angle(i, n)), card_diameter,
+            fill=fill, accent=accent, text_color=text_color, font=font, size_pt=size_pt,
             min_size_pt=min_size_pt, what=f"cycle ({n} steps)",
         )
-        cards.append(card)
+        for i, step in enumerate(coerced)
+    ]
 
     arrows: list[Any] = []
     for i in range(n):
