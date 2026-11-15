@@ -6,14 +6,22 @@ Recipes are deliberately additive: they sit on top of the low-level shape
 APIs and the :class:`~power_pptx.design.style.ShapeStyle` facade, and never invent
 new OOXML semantics.
 
-The five recipes cover the slide types that account for most of a
-typical pitch deck:
+The recipes cover the slide types that account for most of a typical
+pitch deck:
 
 * :func:`title_slide`        — title + subtitle hero slide.
 * :func:`bullet_slide`       — title + bulleted body.
 * :func:`kpi_slide`          — title + KPI card row.
 * :func:`quote_slide`        — large pull-quote with attribution.
 * :func:`image_hero_slide`   — full-bleed image with overlay caption.
+* :func:`section_divider`    — section title with optional progress dots.
+* :func:`chart_slide`        — title + native chart.
+* :func:`table_slide`        — title + measured, banded table.
+* :func:`code_slide`         — title + highlighted, fitted code panel.
+* :func:`timeline_slide`     — milestones along a rail.
+* :func:`comparison_slide`   — two columns of matched left/right rows.
+* :func:`figure_slide`       — title + embedded figure (image, SVG, chart
+  library or HTML), contain-fitted by default.
 
 All recipes accept an optional :class:`DesignTokens` argument; when omitted,
 they fall back to PowerPoint's defaults (black text, no fill).  Each

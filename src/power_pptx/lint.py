@@ -143,9 +143,11 @@ class TextOverflow(LintIssue):
     #: True when a typeface was not installed, so the figures come from the
     #: text engine's fallback metrics rather than the real font.
     estimated: bool = False
-    #: Zero-based table row and column of the cell with the most text, for an
-    #: overflowing table row; ``None`` for a shape's own text frame.
+    #: Zero-based table row of the overflowing row; ``None`` for a shape's own
+    #: text frame.
     row: int | None = None
+    #: Zero-based column of the cell in that row with the most text; ``None``
+    #: for a shape's own text frame.
     col: int | None = None
 
     def __init__(

@@ -5,14 +5,18 @@ The :mod:`power_pptx.design.recipes` module covers whole-slide layouts
 those recipes are built from so callers can compose mixed layouts with
 brand-consistent components.
 
-Two public callables today, both intentionally small:
+Six public callables, each intentionally small:
 
 * :func:`add_kpi_card` — a single KPI tile (label + headline value +
   optional delta), styled from a :class:`DesignTokens` instance.
 * :func:`add_progress_bar` — a track + fill rounded-rectangle pair
   representing a 0..1 fraction.
+* :func:`add_gauge` — a semicircular gauge for a 0..1 fraction.
+* :func:`add_status_pill` — a short coloured status label.
+* :func:`add_stat_strip` — a row of label/value statistics.
+* :func:`add_article_card` — a titled card with a short body.
 
-Both accept an optional ``tokens`` argument that drives palette and
+Each accepts an optional ``tokens`` argument that drives palette and
 typography. When omitted, sensible defaults derived from the chart
 palette are used. Each component is created using the existing
 ``slide.shapes.add_*`` primitives and returns a small dataclass

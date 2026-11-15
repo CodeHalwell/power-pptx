@@ -138,8 +138,9 @@ class Presentation(PartElementProxy):
 
         Thin wrapper around :func:`power_pptx.render.render_slide_thumbnails` that
         forwards `out_dir`, `slide_indexes`, `soffice_bin`, `timeout`, and
-        `return_bytes` keyword arguments.  Requires ``soffice`` (LibreOffice)
-        on PATH; raises ``ThumbnailRendererUnavailable`` otherwise.
+        `return_bytes` keyword arguments.  Requires LibreOffice (``soffice`` or
+        ``libreoffice`` on PATH, or named by `soffice_bin`); raises
+        ``ThumbnailRendererUnavailable`` otherwise.
         """
         from power_pptx.render import render_slide_thumbnails
 

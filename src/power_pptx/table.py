@@ -273,8 +273,9 @@ class Table(object):
         lengths aren't known up front.
 
         Parameters mirror :meth:`TextFrame.fit_text`, including how a
-        missing font is reported: `font_family` defaults to ``"Calibri"``;
-        a named family that isn't installed emits a
+        missing font is reported: with `font_family` left as |None| the
+        text is measured as Calibri without a warning; a named family that
+        isn't installed emits a
         :class:`~power_pptx.exc.FontMetricsWarning`, and ``strict=True``
         raises |ValueError| instead of measuring with fallback metrics.
         """

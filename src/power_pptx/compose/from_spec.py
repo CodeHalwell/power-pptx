@@ -257,11 +257,12 @@ def from_spec(
         is an error rather than silently dropped content.
 
         A slide dict may also carry a ``shapes`` list of extra shapes
-        drawn on top of whatever the layout produced — see
-        :func:`_add_spec_shapes` for the full shape-entry surface,
-        including the ``lint_group`` / ``allow_overlap_with`` /
-        ``layer`` / ``layer_above`` fields that declare an overlap as
-        intentional at generation time.
+        drawn on top of whatever the layout produced.  Each entry needs
+        ``left`` / ``top`` / ``width`` / ``height`` in inches, and may
+        give a ``name``, ``text``, a ``shape`` (an ``MSO_SHAPE`` member
+        name; a text box by default), and the ``lint_group`` /
+        ``allow_overlap_with`` / ``layer`` / ``layer_above`` fields that
+        declare an overlap as intentional at generation time.
 
         A recipe slide may carry its own ``tokens`` (the same forms as
         the spec-level key).  A ``preset`` or ``yaml`` there replaces
@@ -287,9 +288,8 @@ def from_spec(
         (``{"width": 13.333, "height": 7.5}``).  Numbers are
         interpreted as inches.  The template's masters and layouts are
         rescaled to the new size, so placeholder layouts fill the
-        slide.  See :func:`_apply_slide_size` for the
-        resolver implementation and ``_SLIDE_SIZE_PRESETS`` for the
-        full list of named aspect ratios.
+        slide.  An unknown name raises :class:`SpecError` listing the
+        names accepted.
 
     ``vars`` *(optional)*
         Variable bag for ``{{name}}`` interpolation in any string field

@@ -92,8 +92,8 @@ class TextFitter(tuple):
         The return value is the largest whole-number point size less than or equal to
         `max_size` that allows `text` to fit completely within `extents` when rendered
         using font defined in `font_file`.  Returns ``None`` when no size from
-        `min_size` up fits the extents — callers are expected to surface that as an
-        error (see :meth:`TextFrame._best_fit_font_size`).
+        `min_size` up fits the extents; callers are expected to surface that as an
+        error, as :meth:`TextFrame.fit_text` does.
 
         Text wraps where PowerPoint and LibreOffice wrap it: at spaces, after
         hyphens and slashes, and between East Asian characters. By default

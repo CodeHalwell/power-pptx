@@ -9,7 +9,8 @@ temporary file, ask headless ``soffice`` to convert it, and return one
 PNG per slide as paths (or PNG bytes).
 
 This is an *optional* feature with no hard dependency: callers must have
-``soffice`` (LibreOffice) on ``PATH``.  When it isn't available the
+LibreOffice installed, found as ``soffice`` or ``libreoffice`` on ``PATH`` or
+named by ``soffice_bin`` / ``POWER_PPTX_SOFFICE``.  When it isn't available the
 functions raise :class:`ThumbnailRendererUnavailable` with an actionable
 hint so the failure mode is obvious.
 
@@ -73,7 +74,7 @@ _PDF_WITH_HIDDEN_SLIDES = (
 
 
 class ThumbnailRendererUnavailable(RuntimeError):
-    """Raised when LibreOffice/soffice is not available on PATH.
+    """Raised when LibreOffice (``soffice`` or ``libreoffice``) cannot be found.
 
     The message includes an install hint so callers can route users to
     a working configuration without grepping documentation.
