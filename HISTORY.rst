@@ -17,6 +17,10 @@ installs the ``pptx`` import name) is also present in the environment.
 Unreleased
 ++++++++++
 
+
+2.15.0 (2026-11-15)
++++++++++++++++++++
+
 A review-driven release. The linter now measures text with the same engine
 as ``fit_text`` and checks the auto-size frames it used to skip; the text
 engine wraps where PowerPoint and LibreOffice wrap; opening, importing and
