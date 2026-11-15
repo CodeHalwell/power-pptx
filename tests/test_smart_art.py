@@ -194,6 +194,23 @@ class DescribeSmartArtShape_set_text:
         assert [child.tag for child in pt] == [qn("dgm:t"), qn("dgm:extLst")]
         assert sa.texts == ["Alice", "Bob", "Carol"]
 
+    def and_it_adds_it_last_in_a_node_without_an_extension_list(self):
+        from power_pptx.oxml.ns import qn
+
+        prs = _make_prs()
+        sa = prs.slides[0].smart_art[0]
+        pt = _content_nodes(sa)[1]
+        pt.remove(pt.find(qn("dgm:t")))
+        assert pt.find(qn("dgm:extLst")) is None
+        tags_before = [child.tag for child in pt]
+
+        sa.set_text(["Alice", "Bob", "Carol"])
+
+        assert [child.tag for child in pt] == tags_before + [qn("dgm:t")]
+        t_body = pt.find(qn("dgm:t"))
+        assert [child.tag for child in t_body] == [qn("a:bodyPr"), qn("a:lstStyle"), qn("a:p")]
+        assert sa.texts == ["Alice", "Bob", "Carol"]
+
 
 # ---------------------------------------------------------------------------
 # SmartArt as PowerPoint writes it
