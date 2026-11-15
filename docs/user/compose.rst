@@ -35,14 +35,38 @@ shapes before construction (no JSON Schema is involved)::
         "lint": "raise",
     })
 
-Layout names map either to Phase-9 design recipes (where supplied) or to
-a small built-in set of layouts using the host presentation's master.
+Layout names map either to a :ref:`design recipe <design>` or to one of the
+host presentation's own layouts, whose placeholders are filled in:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Layout
+     - Builds
+   * - ``title``, ``bullets``, ``section``, ``two_column``,
+       ``comparison_layout``, ``title_only``, ``blank``, ``caption``,
+       ``picture``, ``kpi_grid``
+     - The template's *Title Slide*, *Title and Content*, *Section Header*,
+       *Two Content*, *Comparison*, *Title Only*, *Blank*, *Content with
+       Caption* and *Picture with Caption* layouts (``kpi_grid`` draws KPI
+       cards on *Title Only*).  ``two_column`` and ``comparison_layout``
+       take ``left`` / ``right`` content, and ``comparison_layout`` also
+       ``left_heading`` / ``right_heading``.  Any other layout name of the
+       template is accepted too.
+   * - ``title_recipe``, ``bullets_recipe``, ``kpi``, ``chart``, ``table``,
+       ``code``, ``timeline``, ``comparison``, ``quote``, ``image_hero``,
+       ``section_divider``, ``figure``
+     - The matching function of :mod:`power_pptx.design.recipes`
+       (``kpi_slide``, ``chart_slide``, …); the slide's other keys are its
+       keyword arguments.
+
 When ``tokens`` are given, ``title`` and ``bullets`` use the token-styled
 recipes. ``slide_size`` (1–56 inches per side) also rescales the
 template's masters and layouts, so placeholder layouts fill the new size.
 
-Legacy and recipe layouts both reject unknown fields with a
-:class:`ValueError` naming the slide and suggesting corrections. For
+Legacy and recipe layouts both reject unknown fields with an error
+naming the slide and suggesting corrections. For
 example, ``subtitel`` on a ``title`` slide suggests ``subtitle`` instead
 of silently losing the content. Named standard layouts such as
 ``Title Slide`` populate the same fields as their aliases. Slide entries
@@ -204,7 +228,8 @@ reference works**: naming a shape defined later in the same list is fine.
 
 Names must be unique within a slide, and a reference may not cross
 slides: an allowance is keyed on shape id, and ids are only unique per
-slide.  Both mistakes raise :class:`ValueError` locating the bad entry.
+slide.  Both mistakes raise :class:`~power_pptx.compose.SpecError` locating
+the bad entry.
 
 Cross-presentation operations
 -----------------------------

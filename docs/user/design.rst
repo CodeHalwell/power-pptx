@@ -156,6 +156,62 @@ figure it cannot embed — a kind no adapter takes, a missing file, image
 bytes that cannot be read, a rejected ``plotly_options`` value — raises
 the adapter's error and leaves no half-built slide in the deck.
 
+Shape-level components
+----------------------
+
+``power_pptx.design.components`` builds single elements on a slide you
+already have: ``add_kpi_card``, ``add_progress_bar``, ``add_gauge``,
+``add_status_pill``, ``add_stat_strip`` and ``add_article_card``, all also
+importable from :mod:`power_pptx`.  Each takes the box as ``left`` / ``top``
+/ ``width`` / ``height`` keywords and optional tokens, and returns a small
+dataclass holding the shapes it made::
+
+    from power_pptx import add_stat_strip
+    from power_pptx.util import Inches
+
+    strip = add_stat_strip(
+        slide, left=Inches(0.5), top=Inches(1.5),
+        width=Inches(9), height=Inches(1.9),
+        items=[{"label": "ARR", "value": "$182M", "delta": 0.27},
+               {"label": "NDR", "value": "131%", "delta": 0.03},
+               {"label": "Logos", "value": "412", "delta_text": "+38"}],
+        tokens=tokens,
+    )
+    strip.cards[0].value_box          # the "$182M" text box
+
+They follow the recipe rules above: text is fitted at build time, an item
+key other than ``label``, ``value``, ``delta`` and ``delta_text`` raises with
+a did-you-mean hint, and a box too small for its content (a KPI card under
+0.95" tall, a strip card under 0.75" wide) raises :class:`ValueError`.
+
+Diagrams
+--------
+
+:mod:`power_pptx.diagrams` draws the common architecture-slide figures from
+native shapes: ``horizontal_pipeline``, ``vertical_pipeline``,
+``hub_and_spoke``, ``cycle``, ``decision_tree`` and ``comparison_columns``.
+Each takes a slide, a :class:`~power_pptx.geometry.BBox` to fill and the
+content, and returns the shapes it made::
+
+    from power_pptx import BBox
+    from power_pptx.diagrams import horizontal_pipeline
+
+    result = horizontal_pipeline(
+        slide, BBox.from_inches(0.5, 2.5, 9, 2.2),
+        steps=["Extract", "Classify",
+               {"label": "Enrich", "sublabel": "3 sources"}, "Output"],
+        accent="#0B5CFF",
+    )
+    result.cards, result.arrows
+
+In the pipelines, ``hub_and_spoke``, ``cycle`` and ``decision_tree``, labels
+start at ``size_pt`` and shrink to fit the text area of their card or circle,
+without breaking words.  When a label would have to go below
+``min_size_pt`` (default 6pt) — too many steps for the box, or a very long
+label — the diagram raises :class:`ValueError` and adds nothing to the
+slide.  Pass a lower ``min_size_pt`` to accept smaller text, or give the
+diagram more room.
+
 Starter pack
 ------------
 
