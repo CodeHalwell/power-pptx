@@ -212,6 +212,111 @@ class DescribeAuditAccessibility:
         parsed = json.loads(report.to_json())
         assert "issues" in parsed
 
+    def it_treats_a_file_name_as_missing_alt_text(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
+        # add_picture fills in the file name when no description is given.
+        assert pic.alt_text == "python-powered.png"
+
+        issues = [i for i in audit_accessibility(prs).issues if i.code == "MissingAltText"]
+
+        assert [(i.shape, i.severity) for i in issues] == [
+            (pic.name, AccessibilitySeverity.ERROR)
+        ]
+        assert "file name" in issues[0].message
+
+    @pytest.mark.parametrize(
+        "alt", ["photo.JPG", "C:\\images\\chart.png", "/tmp/team photo.webp", "image.svg"]
+    )
+    def it_recognises_file_name_alt_text(self, prs, alt):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
+        pic.alt_text = alt
+
+        assert any(i.code == "MissingAltText" for i in audit_accessibility(prs).issues)
+
+    def it_checks_a_picture_inserted_into_a_placeholder(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[8])  # Picture with Caption
+        slide.shapes.title.text = "Team"
+        placeholder = next(
+            p for p in slide.placeholders if p.placeholder_format.type.name == "PICTURE"
+        )
+        pic = placeholder.insert_picture(_IMAGE)
+        pic.alt_text = ""
+
+        issues = [i for i in audit_accessibility(prs).issues if i.code == "MissingAltText"]
+
+        assert [(i.shape, i.severity) for i in issues] == [
+            (pic.name, AccessibilitySeverity.ERROR)
+        ]
+
+    def it_judges_text_on_a_dark_card_as_lint_does(self, prs):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(5), Inches(3)
+        )
+        card.fill_hex("#0B1F3A")
+        light = slide.shapes.add_textbox(Inches(1.5), Inches(1.5), Inches(4), Inches(1))
+        light.text_frame.text = "White text on the dark card"
+        light.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        dark = slide.shapes.add_textbox(Inches(1.5), Inches(2.6), Inches(4), Inches(1))
+        dark.text_frame.text = "Dark text on the dark card"
+        dark.text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0x10, 0x20, 0x40)
+
+        audited = [i.shape for i in audit_accessibility(prs).issues if i.code == "LowContrast"]
+        linted = [i.shapes[0].name for i in slide.lint().issues if i.code == "LowContrast"]
+
+        assert audited == linted == [dark.name]
+
+
+def foreign_deck():
+    """A deck shaped the way other tools write them, and a snapshot of its slides.
+
+    Runs without ``<a:rPr>``, shapes without ``<p:txBody>`` (top level and
+    in a group), a table, a picture and a title placeholder: everything a
+    read-only pass could be tempted to "complete" by reading a property.
+    """
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Title"
+    box = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(4), Inches(1))
+    paragraph = box.text_frame.paragraphs[0]
+    paragraph.add_run().text = "plain "  # no <a:rPr>
+    coloured = paragraph.add_run()
+    coloured.text = "coloured"
+    coloured.font.color.rgb = RGBColor(0x77, 0x77, 0x77)
+    # Pure geometry with no <p:txBody>, as other producers write it.
+    bare = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(6), Inches(3), Inches(2), Inches(1)
+    )
+    bare._element.remove(bare._element.txBody)
+    group = slide.shapes.add_group_shape()
+    inner = group.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(1), Inches(5), Inches(1), Inches(1)
+    )
+    inner._element.remove(inner._element.txBody)
+    table = slide.shapes.add_table(2, 2, Inches(6), Inches(5), Inches(3), Inches(1)).table
+    table.cell(0, 0).text = "cell"
+    slide.shapes.add_picture(_IMAGE, Inches(4), Inches(5), Inches(1), Inches(1))
+    return prs, slide_snapshot(prs)
+
+
+def slide_snapshot(prs):
+    from lxml import etree
+
+    return [etree.tostring(s._element) for s in prs.slides]
+
+
+class DescribeAccessibilityAuditIsReadOnly:
+    def it_does_not_change_the_deck(self):
+        prs, before = foreign_deck()
+
+        audit_accessibility(prs)
+
+        assert slide_snapshot(prs) == before
+
 
 # ---------------------------------------------------------------------------
 # Round-trip safety + schema validity
