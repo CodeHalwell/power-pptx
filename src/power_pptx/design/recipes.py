@@ -3054,25 +3054,7 @@ def _column_widths(
         raise ValueError(
             f"table_slide: widths has {len(widths)} entries for {n_cols} columns"
         )
-    fixed: dict[int, int] = {}
-    weights: dict[int, float] = {}
-    for i, width in enumerate(widths):
-        if isinstance(width, Length):
-            if int(width) <= 0:
-                raise ValueError(f"table_slide: widths[{i}] must be positive, got {width!r}")
-            fixed[i] = int(width)
-        elif (
-            isinstance(width, bool)
-            or not isinstance(width, (int, float))
-            or not math.isfinite(width)
-            or width <= 0
-        ):
-            raise ValueError(
-                f"table_slide: widths[{i}] must be a positive number (a relative weight) "
-                f"or a Length, got {width!r}"
-            )
-        else:
-            weights[i] = float(width)
+    fixed, weights = _split_widths(widths)
 
     unspecified = n_cols - len(widths)
     remaining = table_w - sum(fixed.values())
@@ -3080,30 +3062,73 @@ def _column_widths(
         raise ValueError(
             "table_slide: the fixed widths leave no room for the other columns"
         )
-    out = [0] * n_cols
-    for i, width_emu in fixed.items():
-        out[i] = width_emu
-    total = sum(weights.values())
-    if unspecified:
-        if total >= 1.0 - 1e-9:
-            raise ValueError(
-                f"table_slide: widths covers {len(widths)} of {n_cols} columns and leaves no "
-                "room for the rest; give every column a width, or use fractions that sum to "
-                "less than 1"
-            )
-        for i, weight in weights.items():
-            out[i] = int(round(remaining * weight))
-        share = remaining * (1.0 - total) / unspecified
-        for i in range(len(widths), n_cols):
-            out[i] = int(round(share))
-    else:
-        for i, weight in weights.items():
-            out[i] = int(round(remaining * weight / total))
+    flexible = _flexible_widths(weights, remaining, len(widths), n_cols)
     # Put the rounding remainder in the last flexible column so the
     # columns add up to the table width exactly.
-    flexible = [i for i in range(n_cols) if i not in fixed]
     if flexible:
-        out[flexible[-1]] += remaining - sum(out[i] for i in flexible)
+        flexible[max(flexible)] += remaining - sum(flexible.values())
+    resolved = {**fixed, **flexible}
+    return [resolved[i] for i in range(n_cols)]
+
+
+def _split_widths(
+    widths: Sequence[Union[float, Length]],
+) -> tuple[dict[int, int], dict[int, float]]:
+    """Sort ``widths`` entries, by column, into exact EMU widths and relative weights.
+
+    Raises :class:`ValueError` for an entry that is neither a positive
+    :class:`Length` nor a positive number.
+    """
+    fixed: dict[int, int] = {}
+    weights: dict[int, float] = {}
+    for i, width in enumerate(widths):
+        if isinstance(width, Length):
+            if int(width) <= 0:
+                raise ValueError(f"table_slide: widths[{i}] must be positive, got {width!r}")
+            fixed[i] = int(width)
+        elif _is_weight(width):
+            weights[i] = float(width)
+        else:
+            raise ValueError(
+                f"table_slide: widths[{i}] must be a positive number (a relative weight) "
+                f"or a Length, got {width!r}"
+            )
+    return fixed, weights
+
+
+def _is_weight(value: Any) -> bool:
+    """True for a finite, positive int or float; a bool is not a weight."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
+def _flexible_widths(
+    weights: Mapping[int, float], remaining: int, n_given: int, n_cols: int
+) -> dict[int, int]:
+    """EMU widths, by column, of the weighted columns and those past the given *n_given*.
+
+    When every column is given, the weights share *remaining* in
+    proportion.  Otherwise they are fractions of it, and the columns past
+    the end split what they leave evenly — which needs the fractions to
+    sum to less than 1.
+    """
+    total = sum(weights.values())
+    unspecified = n_cols - n_given
+    if not unspecified:
+        return {i: int(round(remaining * weight / total)) for i, weight in weights.items()}
+    if total >= 1.0 - 1e-9:
+        raise ValueError(
+            f"table_slide: widths covers {n_given} of {n_cols} columns and leaves no "
+            "room for the rest; give every column a width, or use fractions that sum to "
+            "less than 1"
+        )
+    out = {i: int(round(remaining * weight)) for i, weight in weights.items()}
+    share = remaining * (1.0 - total) / unspecified
+    out.update((i, int(round(share))) for i in range(n_given, n_cols))
     return out
 
 
