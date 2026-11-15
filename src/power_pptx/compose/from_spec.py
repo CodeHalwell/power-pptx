@@ -2145,39 +2145,47 @@ def _coerce_length(
     *minimum* and *maximum* are inclusive bounds in inches; a value
     outside them, or one that is not finite, is rejected.
     """
+    length = _as_length(value, what, path)
+    inches = length / 914400
+    if (minimum is not None and inches < minimum) or (maximum is not None and inches > maximum):
+        allowed = _describe_bounds(minimum, maximum)
+        raise SpecError(f"{what} must be {allowed} inches; got {value!r}", path=path)
+    return length
+
+
+def _as_length(value: Any, what: str, path: str) -> Any:
+    """Return *value* — a Length, or a finite number of inches — as a Length."""
     from power_pptx.util import Inches, Length
 
     if isinstance(value, Length):
-        length = value
+        return value
     # ``bool`` is a subclass of ``int``, so the ``isinstance(value,
     # (int, float))`` branch below would silently accept
     # ``slide_size=(True, False)`` as a 1" × 0" canvas.  Reject it
     # explicitly — matches the boolean-rejection rule that
     # ``power_pptx.util._coerce_emu`` applies for shape coordinates.
-    elif isinstance(value, bool):
+    if isinstance(value, bool):
         raise SpecError(
             f"{what} must be a number (inches) or Length; got bool: {value!r}", path=path
         )
-    elif isinstance(value, (int, float)):
-        if not math.isfinite(value):
-            raise SpecError(
-                f"{what} must be a finite number (inches) or Length; got {value!r}", path=path
-            )
-        length = Inches(float(value))
-    else:
+    if not isinstance(value, (int, float)):
         raise SpecError(
             f"{what} must be a number (inches) or Length; "
             f"got {type(value).__name__!r}: {value!r}",
             path=path,
         )
-    inches = length / 914400
-    if (minimum is not None and inches < minimum) or (maximum is not None and inches > maximum):
-        if minimum is not None and maximum is not None:
-            allowed = f"between {minimum:g} and {maximum:g}"
-        else:
-            allowed = f"at least {minimum:g}" if maximum is None else f"at most {maximum:g}"
-        raise SpecError(f"{what} must be {allowed} inches; got {value!r}", path=path)
-    return length
+    if not math.isfinite(value):
+        raise SpecError(
+            f"{what} must be a finite number (inches) or Length; got {value!r}", path=path
+        )
+    return Inches(float(value))
+
+
+def _describe_bounds(minimum: Optional[float], maximum: Optional[float]) -> str:
+    """Return the allowed range for an error: ``between 0 and 56`` and so on."""
+    if minimum is not None and maximum is not None:
+        return f"between {minimum:g} and {maximum:g}"
+    return f"at least {minimum:g}" if maximum is None else f"at most {maximum:g}"
 
 
 def _resolve_slide_size(slide_size: Any) -> tuple[Any, Any]:
