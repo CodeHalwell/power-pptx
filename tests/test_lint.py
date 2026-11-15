@@ -3999,3 +3999,89 @@ class DescribeMinSeverityMember:
 
         assert [i.code for i in warnings] == ["OffSlide", "MinFontSize"]
         assert [i.code for i in errors] == ["OffSlide"]
+
+
+_HYPHENATED = (
+    "Our state-of-the-art end-to-end platform gives cross-functional teams self-service "
+    "year-over-year reporting with best-in-class customer-facing dashboards"
+)
+_KINSOKU = (
+    "四半期の売上高は、すべての地域で予測を上回るペースで成長しました。「企業向け更新」と"
+    "高いサービス付帯率が牽引しました。ちょっとしたニュースです。"
+)
+
+
+class DescribeTextOverflowBreaksLinesLikeTheEngine:
+    """Lint wraps a line where ``fit_text`` and ``measure_text`` wrap it."""
+
+    @staticmethod
+    def _lines(text, width_in, font, size_pt=18):
+        """``(lint's line count, the engine's)`` for `text` in a frame `width_in` wide."""
+        from power_pptx.text import measure_text
+
+        _, slide = _new_blank_slide()
+        box = _fixed_textbox(slide, width=width_in, height=6)
+        for side in ("left", "top", "right", "bottom"):
+            setattr(box.text_frame, f"margin_{side}", 0)
+        box.text_frame.text = text
+        _set_font(box.text_frame, font, size_pt)
+        engine = measure_text(
+            text, Inches(width_in), size_pt=size_pt, font_family=font, break_long_words=True
+        )
+        return _measure(slide, box).lines, len(engine.lines)
+
+    @pytest.mark.parametrize("width_in", [1.3, 1.7, 2.1, 2.6, 3.2])
+    def it_breaks_after_a_hyphen(self, outfit, width_in):
+        lint_lines, engine_lines = self._lines(_HYPHENATED, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize("width_in", [1.0, 1.4, 2.0, 2.3])
+    def it_breaks_a_path_that_starts_the_paragraph_after_its_slashes(self, outfit, width_in):
+        url = "https://example.com/reports/2026/q4/regional/summary/index.html"
+
+        lint_lines, engine_lines = self._lines(url, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize(
+        ("text", "width_in"),
+        [
+            ("Full details at https://example.com/reports/2026/q4", 1.5),
+            ("Full details at https://example.com/reports/2026/q4", 2.2),
+            ("Details:\vhttps://example.com/reports/2026/q4/regional/summary", 1.4),
+        ],
+    )
+    def but_it_cuts_a_path_near_a_space_where_the_box_ends(self, outfit, text, width_in):
+        # LibreOffice keeps such a path whole on the next line, cutting it at
+        # the edge of the box rather than after one of its slashes.
+        lint_lines, engine_lines = self._lines(text, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    @pytest.mark.parametrize("width_in", [1.1, 1.9, 2.7, 3.4])
+    def it_keeps_closing_punctuation_off_the_start_of_a_line(self, outfit, width_in):
+        lint_lines, engine_lines = self._lines(_KINSOKU, width_in, outfit)
+
+        assert lint_lines == engine_lines
+
+    def it_keeps_words_joined_by_a_no_break_space_together(self, outfit):
+        text = " ".join(["Delivered in Q4 2026"] * 6)
+
+        lint_lines, engine_lines = self._lines(text, 2.0, outfit)
+
+        assert lint_lines == engine_lines
+
+    def it_does_not_report_a_frame_fit_text_sized_for_hyphenated_text(self, outfit):
+        flagged = 0
+        for width_in, height_in in [(1.6, 1.2), (2.2, 0.9), (3.0, 1.4), (2.6, 2.0), (1.9, 2.4)]:
+            _, slide = _new_blank_slide()
+            box = slide.shapes.add_textbox(
+                Inches(1), Inches(1), Inches(width_in), Inches(height_in)
+            )
+            box.text_frame.word_wrap = True
+            box.text_frame.text = _HYPHENATED
+            box.text_frame.fit_text(font_family=outfit, max_size=40)
+            flagged += len(_overflows(slide))
+
+        assert flagged == 0

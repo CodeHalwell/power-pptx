@@ -37,9 +37,10 @@ Declaring intentional overlap (so the collision detector stays quiet)::
 
 from __future__ import annotations
 
+import bisect
 import functools
+import itertools
 import math
-import re
 import unicodedata
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
@@ -47,6 +48,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Sequence
 
 from power_pptx.enum.text import MSO_AUTO_SIZE
+from power_pptx.text._linebreak import break_offsets, is_character_start, split_words
 from power_pptx.util import Emu
 
 if TYPE_CHECKING:
@@ -115,8 +117,8 @@ class TextOverflow(LintIssue):
     The text is laid out with the font metrics ``TextFrame.fit_text`` uses:
     each run is measured at its effective size and typeface (run, then
     paragraph, then the placeholder / master it inherits from), wrapped to
-    the frame width inside its insets, and stacked at the frame's line
-    spacing.
+    the frame width inside its insets at the places ``fit_text`` breaks a
+    line, and stacked at the frame's line spacing.
 
     Severity depends on whether a renderer can repair the overflow.  A
     fixed-size frame is an ERROR: the text spills in every renderer.  A frame
@@ -1425,7 +1427,8 @@ def _check_off_slide(
 # ``TextOverflow`` used to count characters at the first run's size.  It now
 # measures: every run at its effective size and typeface, words through the
 # same Pillow metrics ``TextFrame.fit_text`` and ``measure_text`` use, wrapped
-# to the frame width inside its insets, stacked at the paragraph's line
+# to the frame width inside its insets where the text engine breaks lines
+# (``power_pptx.text._linebreak``), stacked at the paragraph's line
 # spacing.  Everything here reads the XML directly so that linting never adds
 # a ``<p:txBody>`` or ``<a:rPr>`` to the slide it is inspecting.
 # ---------------------------------------------------------------------------
@@ -1473,7 +1476,6 @@ _T_NORMAUTOFIT = _A + "normAutofit"
 _T_SPAUTOFIT = _A + "spAutoFit"
 
 _UNSET: Any = object()
-_TOKEN_RE = re.compile(r"\s+|\S+")
 #: ``<a:bodyPr vert>`` values whose lines run top-to-bottom, so the frame's
 #: height is the line length and its width is what the lines stack across.
 _ROTATED_TEXT = frozenset({"vert", "vert270", "eaVert", "mongolianVert"})
@@ -1635,22 +1637,50 @@ def _text_width(text: str, style: _RunStyle) -> float:
 _Atom = tuple  # (width, line_height_pt, space_before, pieces)
 
 
-def _text_atoms(fragments: Sequence[tuple[str, _RunStyle]]) -> list[_Atom]:
+def _text_atoms(
+    fragments: Sequence[tuple[str, _RunStyle]], starts_paragraph: bool = True
+) -> list[_Atom]:
     """Split `fragments` into the unbreakable units a line is built from.
 
-    Each atom is ``(width, line_height_pt, space_before, pieces)``.  A break is
-    allowed at whitespace and on either side of an East Asian wide character;
-    a word that changes style mid-way stays one atom.
+    Each atom is ``(width, line_height_pt, space_before, pieces)``.  A line
+    breaks where the text engine breaks one (see :func:`_word_breaks`): at
+    whitespace other than a no-break space and, inside a word, after a hyphen
+    or dash, between East Asian characters, or after a slash of a path.
+    `starts_paragraph` says the fragments are a paragraph's first line.  Part
+    of a word that changes style mid-way stays one atom.
     """
-    builder = _AtomBuilder()
-    for text, style in fragments:
-        for token in _TOKEN_RE.findall(text):
-            if token.isspace():
-                builder.add_space(style)
-            else:
-                builder.add_word(token, style)
-    builder.close()
-    return builder.atoms
+    line = _StyledLine(fragments)
+    atoms: list[_Atom] = []
+    end = 0
+    for index, word in enumerate(split_words(line.text)):
+        start = line.text.find(word, end)
+        space = line.space_width(end, start) if atoms else 0.0
+        cuts = _word_breaks(word, starts_paragraph and index == 0)
+        for begin, stop in zip((0, *cuts), (*cuts, len(word))):
+            pieces = line.pieces(start + begin, start + stop)
+            width = sum(_text_width(text, style) for text, style in pieces)
+            atoms.append((width, max(style.line_pt for _, style in pieces), space, pieces))
+            space = 0.0
+        end = start + len(word)
+    return atoms
+
+
+#: A line ends after a slash of a path or URL only this many characters into
+#: it, unless the path starts the paragraph: nearer its start LibreOffice moves
+#: the whole path to the next line, or cuts it where the box ends.  The text
+#: engine's rule (``TextFitter._slash_break``).
+_SLASH_REACH = 65
+
+
+def _word_breaks(word: str, starts_paragraph: bool) -> tuple[int, ...]:
+    """Offsets inside `word` at which a line may end, as the text engine breaks it.
+
+    `starts_paragraph` says `word` is the first word of a paragraph.
+    """
+    offsets = break_offsets(word)
+    if starts_paragraph or "/" not in word:
+        return offsets
+    return tuple(offset for offset in offsets if word[offset - 1] != "/" or offset > _SLASH_REACH)
 
 
 def _space_advance(style: _RunStyle) -> float:
@@ -1658,104 +1688,106 @@ def _space_advance(style: _RunStyle) -> float:
     return _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT
 
 
-def _wide_parts(word: str) -> list[str]:
-    """`word` cut so that each East Asian wide character stands alone."""
-    if word.isascii():
-        return [word]
-    parts: list[str] = []
-    run = ""
-    for char in word:
-        if not _is_wide(char):
-            run += char
-            continue
-        if run:
-            parts.append(run)
-            run = ""
-        parts.append(char)
-    if run:
-        parts.append(run)
-    return parts
+class _StyledLine:
+    """The text of one explicit line, and the run each part of it belongs to."""
 
+    def __init__(self, fragments: Sequence[tuple[str, _RunStyle]]):
+        self._fragments = fragments
+        self.text = "".join(text for text, _ in fragments)
+        #: Offset in `text` at which each fragment starts, and the end.
+        self._starts = list(itertools.accumulate((len(text) for text, _ in fragments), initial=0))
 
-class _AtomBuilder:
-    """Collects the atoms of :func:`_text_atoms`, one piece of text at a time."""
+    def pieces(self, begin: int, end: int) -> list[tuple[str, _RunStyle]]:
+        """``text[begin:end]`` cut where the runs change, each piece with its run's style."""
+        pieces: list[tuple[str, _RunStyle]] = []
+        index = bisect.bisect_right(self._starts, begin) - 1
+        while begin < end:
+            stop = min(end, self._starts[index + 1])
+            if stop > begin:
+                pieces.append((self.text[begin:stop], self._fragments[index][1]))
+            begin = stop
+            index += 1
+        return pieces
 
-    def __init__(self):
-        self.atoms: list[_Atom] = []
-        self._pieces: list[tuple[str, _RunStyle]] = []
-        self._space = 0.0  # whitespace owed before the atom being built
-        self._pending = 0.0  # whitespace seen since the last atom was closed
+    def extent(self, begin: int, end: int) -> tuple[float, float]:
+        """``(width, line_height_pt)`` of the text ``text[begin:end]``, which is not empty."""
+        pieces = self.pieces(begin, end)
+        width = sum(_text_width(text, style) for text, style in pieces)
+        return width, max(style.line_pt for _, style in pieces)
 
-    def add_space(self, style: _RunStyle) -> None:
-        """Whitespace set in `style`: it ends the atom being built."""
-        self.close()
-        self._pending = max(self._pending, _space_advance(style) + style.spacing)
-
-    def add_word(self, word: str, style: _RunStyle) -> None:
-        """Text without whitespace set in `style`, broken around wide characters."""
-        for part in _wide_parts(word):
-            if self._pieces and (_is_wide(part[0]) or _is_wide(self._pieces[-1][0][-1])):
-                self.close()
-            if not self._pieces:
-                self._space, self._pending = (self._pending if self.atoms else 0.0), 0.0
-            self._pieces.append((part, style))
-
-    def close(self) -> None:
-        """Finish the atom being built, if any."""
-        pieces = self._pieces
-        if not pieces:
-            return
-        self.atoms.append(
-            (
-                sum(_text_width(text, style) for text, style in pieces),
-                max(style.line_pt for _, style in pieces),
-                self._space,
-                pieces,
-            )
-        )
-        self._pieces = []
+    def space_width(self, begin: int, end: int) -> float:
+        """Width of the whitespace ``text[begin:end]``: one space, in the widest of its styles."""
+        width = 0.0
+        for _, style in self.pieces(begin, end):
+            width = max(width, _space_advance(style) + style.spacing)
+        return width
 
 
 def _split_overlong(
     pieces: Sequence[tuple[str, _RunStyle]], first_limit: float, limit: float
 ) -> list[tuple[float, float]]:
-    """Break one over-wide word at characters, the way a renderer does.
+    """Cut one over-wide word where the box ends, the way a renderer does.
 
     Returns ``(width, line_height_pt)`` for each line the word occupies.
     """
+    word = _StyledLine(pieces)
     lines: list[tuple[float, float]] = []
-    width = size = 0.0
-    cap = first_limit
-    for text, style in pieces:
-        for char in text:
-            char_width = _text_width(char, style)
-            if width > 0 and width + char_width > cap:
-                lines.append((width, size))
-                width = size = 0.0
-                cap = limit
-            width += char_width
-            size = max(size, style.line_pt)
-    if width > 0:
-        lines.append((width, size))
+    begin, cap = 0, first_limit
+    while begin < len(word.text):
+        end = _cut_offset(word, begin, cap)
+        lines.append(word.extent(begin, end))
+        begin, cap = end, limit
     return lines
 
 
+def _cut_offset(word: _StyledLine, begin: int, cap: float) -> int:
+    """Where a line of `word` that starts at `begin` is cut: as much as fits in `cap`.
+
+    The line is measured whole, as the text engine measures it, and takes at
+    least one character; it is not cut in front of a combining mark.
+    """
+    text = word.text
+    if word.extent(begin, len(text))[0] <= cap:
+        return len(text)
+    low, high = begin, len(text) - 1
+    while low < high:
+        middle = (low + high + 1) // 2
+        if word.extent(begin, middle)[0] <= cap:
+            low = middle
+        else:
+            high = middle - 1
+    end = low
+    while end > begin and not is_character_start(text, end):
+        end -= 1
+    if end > begin:
+        return end
+    end = begin + 1
+    while end < len(text) and not is_character_start(text, end):
+        end += 1
+    return end
+
+
 def _wrap_fragments(
-    fragments: Sequence[tuple[str, _RunStyle]], first_limit: float, limit: float, wrap: bool
+    fragments: Sequence[tuple[str, _RunStyle]],
+    first_limit: float,
+    limit: float,
+    wrap: bool,
+    starts_paragraph: bool = True,
 ) -> list[tuple[float, float]]:
     """Lay one explicit line of text out as ``(width, line_height_pt)`` per rendered line.
 
     Greedy first-fit, which is what ``TextFitter`` and the renderers do.  An
     empty list means the fragments hold no visible text.  A line that cannot
     wrap is measured whole, run by run, as ``measure_text`` measures a line,
-    so spacing between words matches the engine exactly.
+    so spacing between words matches the engine exactly.  `starts_paragraph`
+    says the line is the paragraph's first rather than one after a break.
     """
     if not wrap:
         return _unwrapped_line(fragments)
     lines: list[tuple[float, float]] = []
     line: tuple[float, float] | None = None  # (width, line_height_pt) being filled
     cap = first_limit
-    for atom_width, atom_size, space, pieces in _text_atoms(fragments):
+    for atom_width, atom_size, space, pieces in _text_atoms(fragments, starts_paragraph):
         if line is not None:
             width, size = line
             if width + space + atom_width <= cap:
@@ -2344,7 +2376,8 @@ class _TextLayout:
         lines: list[tuple[float, float]] = []
         for index, (fragments, empty_h) in enumerate(zip(explicit, [*break_heights, end_h])):
             cap = first_limit if index == 0 else limit
-            lines.extend(_wrap_fragments(fragments, cap, limit, self.body.wrap) or [(0.0, empty_h)])
+            wrapped = _wrap_fragments(fragments, cap, limit, self.body.wrap, index == 0)
+            lines.extend(wrapped or [(0.0, empty_h)])
         return lines, end_h
 
     def _explicit_lines(

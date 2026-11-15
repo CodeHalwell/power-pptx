@@ -38,7 +38,9 @@ Issue types
   :meth:`TextFrame.fit_text <power_pptx.text.text.TextFrame.fit_text>` uses:
   every run at its effective size and typeface (run, then paragraph, then the
   placeholder and master it inherits from), wrapped inside the frame's
-  margins and stacked at its line and paragraph spacing.  Text in groups and
+  margins where ``fit_text`` breaks lines (at spaces, after hyphens and
+  dashes, between East Asian characters, at the slashes of a long path) and
+  stacked at its line and paragraph spacing.  Text in groups and
   table cells is checked too, and a frame ``fit_text`` has sized is never
   flagged.  When a typeface is not installed the engine's fallback metrics
   are used, without a warning, and the issue's ``estimated`` is ``True``.
