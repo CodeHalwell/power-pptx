@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from copy import deepcopy
 from typing import TYPE_CHECKING, Iterable, cast
 
 from power_pptx.action import ActionSetting
@@ -1014,39 +1015,51 @@ class BaseShape(object):
                 f"shape {self.name!r} has no text frame; can't replace text"
             )
         tf = self.text_frame  # type: ignore[attr-defined]
-
-        from copy import deepcopy
-
-        rPr_template = None
-        pPr_template = None
-        first_para = tf.paragraphs[0] if tf.paragraphs else None
-        if first_para is not None:
-            pPr = first_para._p.pPr  # type: ignore[attr-defined]
-            if pPr is not None:
-                pPr_template = deepcopy(pPr)
-            if first_para.runs:
-                rPr = first_para.runs[0]._r.rPr  # type: ignore[attr-defined]
-                if rPr is not None:
-                    rPr_template = deepcopy(rPr)
+        pPr_template, rPr_template = _first_paragraph_formatting(tf)
 
         # Rebuild the body using the high-level text setter; this gives
         # us one paragraph per "\n" with a single run per paragraph.
         tf.text = new_text if new_text else ""
 
         for para in tf.paragraphs:
-            p_elm = para._p  # type: ignore[attr-defined]
             if pPr_template is not None:
-                existing_pPr = p_elm.pPr
-                if existing_pPr is not None:
-                    p_elm._remove_pPr()
-                p_elm._insert_pPr(deepcopy(pPr_template))
+                _replace_pPr(para._p, pPr_template)  # type: ignore[attr-defined]
             if rPr_template is not None:
                 for run in para.runs:
-                    r_elm = run._r  # type: ignore[attr-defined]
-                    if r_elm.rPr is not None:
-                        r_elm._remove_rPr()
-                    r_elm._insert_rPr(deepcopy(rPr_template))
+                    _replace_rPr(run._r, rPr_template)  # type: ignore[attr-defined]
         return self
+
+
+def _first_paragraph_formatting(text_frame) -> tuple:
+    """`(pPr, rPr)`: copies of the first paragraph's `a:pPr` and its first run's `a:rPr`.
+
+    Either is |None| when there is no such element to copy.
+    """
+    paragraphs = text_frame.paragraphs
+    if not paragraphs:
+        return None, None
+    first_para = paragraphs[0]
+    pPr = first_para._p.pPr
+    runs = first_para.runs
+    rPr = runs[0]._r.rPr if runs else None
+    return (
+        None if pPr is None else deepcopy(pPr),
+        None if rPr is None else deepcopy(rPr),
+    )
+
+
+def _replace_pPr(p, pPr_template) -> None:
+    """Give paragraph element `p` a copy of `pPr_template` in place of any `a:pPr` it has."""
+    if p.pPr is not None:
+        p._remove_pPr()
+    p._insert_pPr(deepcopy(pPr_template))
+
+
+def _replace_rPr(r, rPr_template) -> None:
+    """Give run element `r` a copy of `rPr_template` in place of any `a:rPr` it has."""
+    if r.rPr is not None:
+        r._remove_rPr()
+    r._insert_rPr(deepcopy(rPr_template))
 
 
 class _PlaceholderFormat(ElementProxy):
