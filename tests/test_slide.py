@@ -452,6 +452,94 @@ class DescribeSlide(object):
         return instance_mock(request, SlidePart)
 
 
+class DescribeSlideFindEmptyRegion:
+    """`Slide.find_empty_region()` on the 12 x 8 grid over a 10 x 7.5 in slide."""
+
+    def it_returns_the_first_largest_free_row_run(self, slide):
+        assert slide.find_empty_region() == _inches(0, 0, 10, 0.9375)
+
+        _add_rect(slide, 0, 0, 3, 1)  # -- covers part of the first two rows --
+
+        assert slide.find_empty_region() == _inches(0, 1.875, 10, 0.9375)
+
+    def it_merges_only_adjacent_free_cells_in_the_same_row(self, slide):
+        for row in range(8):
+            _add_rect(slide, 0, row * 0.9375, 5, 0.1)
+
+        assert slide.find_empty_region() == _inches(5, 0, 5, 0.9375)
+
+    def it_returns_None_when_no_region_is_big_enough(self, slide):
+        from power_pptx.util import Inches
+
+        _add_rect(slide, 0, 0, 3, 1)
+
+        assert slide.find_empty_region(min_width=Inches(11)) is None
+        assert slide.find_empty_region(min_height=Inches(1)) is None
+
+    def it_returns_None_when_the_slide_is_full(self, slide):
+        _add_rect(slide, 0, 0, 10, 7.5)
+
+        assert slide.find_empty_region() is None
+        # -- `near` is not looked at when nothing is free --
+        assert slide.find_empty_region(near="not-a-shape") is None
+
+    def it_ignores_shapes_that_have_no_geometry(self, slide):
+        _add_rect(slide, 0, 0, 3, 1)
+        shapeless = _add_rect(slide, 0, 0, 10, 7.5)
+        spPr = shapeless._element.spPr
+        spPr.remove(spPr.xfrm)
+
+        assert slide.find_empty_region() == _inches(0, 1.875, 10, 0.9375)
+
+    def it_prefers_the_region_nearest_a_shape(self, slide):
+        from power_pptx.geometry import BBox
+
+        _add_rect(slide, 0, 0, 3, 1)
+        target = _add_rect(slide, 8, 6, 1, 1)
+
+        region = slide.find_empty_region(near=target)
+
+        # -- the last cell of the row the target sits in --
+        assert region == BBox.from_emu(11 * 762000, 6 * 857250, 762000, 857250)
+
+    def it_prefers_the_region_nearest_a_bbox(self, slide):
+        from power_pptx.util import Inches
+
+        _add_rect(slide, 0, 0, 3, 1)
+        _add_rect(slide, 8, 6, 1, 1)
+        near = _inches(0, 3, 1, 1)
+
+        assert slide.find_empty_region(near=near) == _inches(0, 5.625, 7.5, 0.9375)
+        assert slide.find_empty_region(near=near, min_width=Inches(8)) == _inches(
+            0, 2.8125, 10, 0.9375
+        )
+
+    def it_rejects_a_near_that_is_neither_a_shape_nor_a_bbox(self, slide):
+        with pytest.raises(TypeError, match="must be a BaseShape or BBox; got str"):
+            slide.find_empty_region(near="not-a-shape")
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        import power_pptx
+
+        prs = power_pptx.Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _inches(left, top, width, height):
+    from power_pptx.geometry import BBox
+
+    return BBox.from_inches(left, top, width, height)
+
+
+def _add_rect(slide, left, top, width, height):
+    from power_pptx.enum.shapes import MSO_SHAPE
+
+    return slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *_inches(left, top, width, height))
+
+
 def _transition_with_kind(kind: str):
     """A `p:transition` element whose only child is the empty element `kind`.
 
