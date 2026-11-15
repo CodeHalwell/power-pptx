@@ -16,8 +16,9 @@ needing Microsoft PowerPoint installed.
   it can be installed side-by-side with upstream `python-pptx`). When migrating
   code, replace `pptx` with `power_pptx` in imports.
 - Current version is defined in `src/power_pptx/__init__.py` (`__version__`).
-- Python 3.9–3.13 supported. Runtime deps: `Pillow`, `XlsxWriter`, `lxml`,
-  `typing_extensions`.
+- Python 3.9–3.14 supported. Runtime deps: `Pillow`, `XlsxWriter`, `lxml`,
+  `typing_extensions`. The minimum versions in `pyproject.toml` are the oldest
+  the suite passes on; the `lowest-deps` CI job installs exactly those.
 
 ### Why the fork exists: space-aware authoring
 

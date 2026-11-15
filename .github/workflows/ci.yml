@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request supersedes the run in progress.
+# Runs on master are never cancelled: the release workflow waits for the
+# CI result of the exact commit it is about to tag.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
 
   quality:
@@ -114,14 +121,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      # Let every interpreter report, so one failure shows whether it is
+      # version-specific.
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.txt
       - name: Display Python version
         run: python -c "import sys; print(sys.version)"
       - name: Install test dependencies
@@ -132,6 +146,28 @@ jobs:
         run: pytest --cov=power_pptx --cov-report term-missing tests
       - name: Acceptance tests with behave
         run: behave --stop
+
+  lowest-deps:
+    # Install the oldest dependency versions pyproject.toml allows, on the
+    # oldest supported Python, and run the suites against them.  Without
+    # this the declared floors drift: they once named releases that could
+    # not even be installed on a supported interpreter.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Create a Python 3.9 environment
+        run: uv venv --python 3.9
+      - name: Install the package at its minimum dependency versions
+        run: uv pip install --resolution lowest-direct .
+      - name: Install the test tools without upgrading the runtime dependencies
+        run: uv pip install -r requirements-test.txt
+      - name: Show what was resolved
+        run: uv pip list
+      - name: Test with pytest
+        run: .venv/bin/python -m pytest -q tests
+      - name: Acceptance tests with behave
+        run: .venv/bin/behave --stop
 
   examples-lint:
     # Static-check examples/ for unused imports / undefined names so
