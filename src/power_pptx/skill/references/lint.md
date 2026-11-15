@@ -282,3 +282,44 @@ report.to_dict()                       # JSON-serializable for a CI gate / LLM l
 
 Flags: `MissingAltText` (pictures = error), `LowContrast` (below WCAG AA
 4.5:1), `NoSlideTitle` (no title landmark for navigation).
+
+## Command line: `power-pptx lint`
+
+Checks saved decks without writing Python — for a CI job that gates
+decks another job built. It runs `slide.lint()` on every slide:
+
+```bash
+power-pptx lint deck.pptx                         # report grouped by slide
+power-pptx lint build/*.pptx --fail-on warning    # stricter gate
+power-pptx lint deck.pptx --min-severity warning  # hide info-level issues
+power-pptx lint deck.pptx --format json           # one JSON document
+power-pptx lint deck.pptx --format sarif > lint.sarif   # code scanning
+power-pptx lint deck.pptx --fix --output tidied.pptx    # slide.tidy(), then report
+power-pptx lint deck.pptx --fix --in-place        # overwrite (opt-in only)
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | no issue at or above `--fail-on` |
+| `1` | at least one issue at or above `--fail-on` |
+| `2` | usage error, or a deck that could not be read or written |
+
+- `--fail-on {error,warning,never}`, default `error`. Info-level
+  issues never fail the run. An unreadable deck exits `2` even with
+  `never`; the decks that could be read are still reported.
+- `--min-severity {info,warning,error}` drops lower issues from the
+  report *and* from the exit-status decision.
+- `--format json`: `{"decks": [...], "counts", "exit_code", ...}`; each
+  slide entry is that slide's `report.to_dict()` plus `index`, `number`,
+  `title`, `hidden` (and `fixes` with `--fix`). An unreadable deck is
+  `{"path", "error"}`.
+- `--format sarif`: the linter's own `lint_report_to_sarif` output, one
+  run per deck, each run tagged with the deck's path
+  (`automationDetails.id`, `properties.deck`).
+- `--fix` applies `slide.tidy()` (and only that — collisions, contrast
+  and the like still need you) and needs `--output PATH` or
+  `--in-place`; it never overwrites the input otherwise. With several
+  decks (or a path ending in `/`, or an existing directory) `--output`
+  is a directory. The report and exit status describe what is *left*
+  after fixing. `--in-place` rewrites a deck only if a fix changed it.
+- Hidden slides are linted too, and marked `(hidden)` in the report.

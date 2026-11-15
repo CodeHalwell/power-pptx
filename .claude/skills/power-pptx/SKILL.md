@@ -153,6 +153,8 @@ card.layer, badge.layer_above = "card", "card"   # also asserts z-order
 
 # --- validate at save time (off by default) ---
 prs.lint_on_save = "raise"                 # or "warn"; raises before writing
+# shell / CI: `power-pptx lint deck.pptx [--format json|sarif] [--fail-on warning]`
+#   exit 0 clean, 1 issues, 2 unreadable; `--fix --output tidied.pptx` runs tidy()
 
 # --- self-running show: loop + kiosk + timed advance ---
 from power_pptx.enum.presentation import MSO_TRANSITION

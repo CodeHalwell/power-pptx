@@ -319,3 +319,95 @@ Recommended pattern for generators
 
 When building through :func:`power_pptx.compose.from_spec`, the
 ``"lint": "raise"`` field on the spec dict is the equivalent of step 2.
+
+
+.. _lint-cli:
+
+From the command line
+---------------------
+
+``power-pptx lint`` checks saved decks without any Python, which is what
+a CI job needs when one step builds the decks and another has to gate
+them.  It runs :meth:`Slide.lint() <power_pptx.slide.Slide.lint>` on every
+slide of every deck it is given::
+
+    power-pptx lint deck.pptx
+    power-pptx lint build/*.pptx --fail-on warning
+
+The default report is grouped by slide, with the slide's title when it has
+one, and only the slides that have something to report::
+
+    deck.pptx: 2 issues on 2 of 3 slides (1 error, 1 warning)
+
+      Slide 1: Quarterly review
+        error    OffSlide        Shape 'Runaway' extends beyond the right edge of the slide.
+
+      Slide 3 (hidden)
+        warning  ShapeCollision  Shapes 'Card A' and 'Card B' overlap (33% of ...
+
+Hidden slides are linted like any other and marked as such.
+
+Exit status
+~~~~~~~~~~~
+
+=====  ===================================================================
+``0``  No issue at or above the ``--fail-on`` level.
+``1``  At least one issue at or above the ``--fail-on`` level.
+``2``  A usage error, or a deck that could not be read (or, with
+       ``--fix``, written).
+=====  ===================================================================
+
+``--fail-on`` is ``error`` (the default), ``warning`` or ``never``.
+Informational issues never fail a run.  A deck that cannot be read makes the
+run exit ``2`` even with ``--fail-on never``; the decks that could be read
+are reported all the same, and the reason goes to standard error.
+
+``--min-severity info|warning|error`` leaves the lower issues out of the
+report, and out of the exit status too.
+
+Machine-readable reports
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--format json`` writes one JSON document for the whole run::
+
+    power-pptx lint deck.pptx --format json > lint.json
+
+It holds a ``decks`` list, the total ``issue_count`` and ``counts`` by
+severity, and the ``min_severity``, ``fail_on`` and ``exit_code`` of the run.
+Each deck has its ``path``, its counts and a ``slides`` list in which every
+entry is that slide's :meth:`SlideLintReport.to_dict()
+<power_pptx.lint.SlideLintReport.to_dict>` plus ``index``, ``number``,
+``title`` and ``hidden``.  A deck that could not be read is just
+``{"path": ..., "error": ...}``.
+
+``--format sarif`` writes SARIF 2.1.0, the format GitHub code scanning
+uploads::
+
+    power-pptx lint build/*.pptx --format sarif > lint.sarif
+
+Each deck is one run, made by :func:`power_pptx.lint.lint_report_to_sarif`
+and tagged with the deck's path (in ``automationDetails.id`` and
+``properties.deck``) so that the runs of several decks stay apart.
+
+Fixing as well
+~~~~~~~~~~~~~~
+
+``--fix`` applies the safe automatic fixes of :meth:`Slide.tidy()
+<power_pptx.slide.Slide.tidy>` -- clamping off-slide shapes, shrinking
+overflowing text on render, restacking contradicted layers -- and then
+reports what is left; the exit status is judged on that too.  It needs to
+be told where to write the result, and never overwrites the input unless
+asked to::
+
+    power-pptx lint deck.pptx --fix --output tidied.pptx
+    power-pptx lint build/*.pptx --fix --output tidied/      # a directory
+    power-pptx lint deck.pptx --fix --in-place               # overwrite the deck
+
+``--output`` names a directory when several decks are given, when it ends
+with a path separator or when it is an existing directory; each deck keeps
+its file name there.  An ``--output`` that would land on one of the inputs
+is refused, as is a run that would write two decks of the same name to one
+directory -- before any deck is opened, so nothing is half done.
+``--in-place`` rewrites a deck only when a fix changed it.  A deck is written
+to a temporary file and moved into place, so an existing file is never left
+half-written.
