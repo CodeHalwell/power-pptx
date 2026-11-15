@@ -756,3 +756,375 @@ class DescribeBlockTriggerCounting:
 
         node_types = [nt for nt in _ctn_node_types(slide) if nt != "tmRoot"]
         assert node_types == ["withEffect", "afterEffect", "afterEffect"]
+
+
+# ---------------------------------------------------------------------------
+# Timing trees as PowerPoint writes them
+# ---------------------------------------------------------------------------
+
+
+def _powerpoint_effect(spid: int, ctn_id: int, node_type: str = "clickEffect") -> str:
+    """One fade-in effect on shape `spid`, as PowerPoint writes it."""
+    return (
+        f'<p:par><p:cTn id="{ctn_id}" presetID="10" presetClass="entr" presetSubtype="0"'
+        f' fill="hold" grpId="0" nodeType="{node_type}">'
+        '<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+        f'<p:set><p:cBhvr><p:cTn id="{ctn_id + 1}" dur="1" fill="hold">'
+        '<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>'
+        f'<p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>'
+        "<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>"
+        '<p:to><p:strVal val="visible"/></p:to></p:set>'
+        f'<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="{ctn_id + 2}" dur="500"/>'
+        f'<p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl></p:cBhvr></p:animEffect>'
+        "</p:childTnLst></p:cTn></p:par>"
+    )
+
+
+def _powerpoint_click_step(spid: int, ctn_id: int) -> str:
+    """A click step of the main sequence holding one batch with one effect on `spid`."""
+    return (
+        f'<p:par><p:cTn id="{ctn_id}" fill="hold">'
+        '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>'
+        f'<p:par><p:cTn id="{ctn_id + 1}" fill="hold">'
+        '<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+        + _powerpoint_effect(spid, ctn_id + 2)
+        + "</p:childTnLst></p:cTn></p:par>"
+        "</p:childTnLst></p:cTn></p:par>"
+    )
+
+
+def _powerpoint_timing(*spids: int, extra: str = "") -> str:
+    """A `p:timing` holding one click-triggered fade per shape id, as PowerPoint nests it.
+
+    The effects sit three levels down in the main sequence, and each animated
+    shape has its entry in the build list. `extra` is markup for further time
+    nodes directly under the root, after the main sequence.
+    """
+    steps = "".join(_powerpoint_click_step(spid, 3 + 5 * i) for i, spid in enumerate(spids))
+    main_children = "<p:childTnLst>%s</p:childTnLst>" % steps if steps else ""
+    builds = "".join('<p:bldP spid="%d" grpId="0" animBg="1"/>' % spid for spid in spids)
+    return (
+        '<p:timing xmlns:p="%s"><p:tnLst><p:par>'
+        '<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
+        '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq">'
+        "%s</p:cTn>"
+        '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>'
+        "</p:prevCondLst>"
+        '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>'
+        "</p:nextCondLst></p:seq>%s"
+        "</p:childTnLst></p:cTn></p:par></p:tnLst>%s</p:timing>"
+        % (P_NS, main_children, extra, "<p:bldLst>%s</p:bldLst>" % builds if builds else "")
+    )
+
+
+def _slide_with_shapes(count: int):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    shapes = [
+        slide.shapes.add_shape(1, Inches(1 + i), Inches(1), Inches(1), Inches(1))
+        for i in range(count)
+    ]
+    return slide, shapes
+
+
+def _animated_slide(count: int, animated: int | None = None, extra: str = ""):
+    """A slide of `count` shapes, the first `animated` of which PowerPoint animated."""
+    from power_pptx.oxml import parse_xml
+
+    slide, shapes = _slide_with_shapes(count)
+    spids = [shape.shape_id for shape in shapes[: count if animated is None else animated]]
+    slide._element._insert_timing(parse_xml(_powerpoint_timing(*spids, extra=extra)))
+    return slide, shapes
+
+
+def _timing(slide):
+    return slide._element.find(qn("p:timing"))
+
+
+def _targeted_ids(slide) -> list[int]:
+    """Shape id of every `p:spTgt` in the slide's timing tree, in document order."""
+    return [int(t.get("spid")) for t in slide._element.iter(qn("p:spTgt"))]
+
+
+def _build_ids(slide) -> list[int]:
+    return [int(b.get("spid")) for b in slide._element.iter(qn("p:bldP"))]
+
+
+def _main_sequence_steps(slide) -> list:
+    """The click-step `p:par` elements of the slide's main sequence."""
+    return slide._element.xpath(
+        "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:seq"
+        "/p:cTn[@nodeType='mainSeq']/p:childTnLst/p:par"
+    )
+
+
+def _start_delays(node) -> list[str]:
+    return [cond.get("delay") for cond in node.findall("p:cTn/p:stCondLst/p:cond", {"p": P_NS})]
+
+
+class DescribePowerPointAuthoredTiming:
+    """Effects nested in a main sequence are read, removed and purged like any other."""
+
+    def it_lists_the_effects_of_a_main_sequence(self):
+        slide, (a, b) = _animated_slide(2)
+
+        entries = slide.animations.list()
+
+        assert len(slide.animations) == 2
+        assert bool(slide.animations) is True
+        assert [e.shape_id for e in entries] == [a.shape_id, b.shape_id]
+        assert [(e.kind, e.preset, e.trigger) for e in entries] == [
+            ("entrance", "fade", Trigger.ON_CLICK)
+        ] * 2
+        assert [(e.duration, e.delay) for e in entries] == [(500, 0), (500, 0)]
+        assert entries[0].shape.shape_id == a.shape_id
+
+    def it_purges_the_effect_and_build_entry_of_a_deleted_shape(self):
+        slide, (a, b) = _animated_slide(2)
+
+        a.delete()
+
+        assert _targeted_ids(slide) == [b.shape_id, b.shape_id]
+        assert _build_ids(slide) == [b.shape_id]
+        assert [e.shape_id for e in slide.animations] == [b.shape_id]
+        # -- the click step that held nothing else went with the effect --
+        assert len(_main_sequence_steps(slide)) == 1
+
+    def it_drops_the_timing_tree_when_the_last_animated_shape_is_deleted(self):
+        slide, (a,) = _animated_slide(1)
+
+        a.delete()
+
+        assert _timing(slide) is None
+
+    def it_reports_how_many_timing_nodes_purge_orphans_removed(self):
+        slide, (a, b, c) = _animated_slide(3)
+        for shape in (a, c):
+            shape._element.getparent().remove(shape._element)
+
+        assert slide.animations.purge_orphans() == 2
+        assert _targeted_ids(slide) == [b.shape_id, b.shape_id]
+        assert _build_ids(slide) == [b.shape_id]
+        assert slide.animations.purge_orphans() == 0
+
+    def it_leaves_the_timing_alone_when_an_unanimated_shape_is_deleted(self):
+        slide, (a, b) = _animated_slide(2, animated=1)
+        before = _timing(slide).xml
+
+        b.delete()
+
+        assert _timing(slide).xml == before
+
+    def it_purges_only_the_effect_of_the_deleted_shape_from_a_shared_batch(self):
+        from power_pptx.oxml import parse_xml
+
+        slide, (a, b) = _animated_slide(2, animated=1)
+        batch = _main_sequence_steps(slide)[0].find("p:cTn/p:childTnLst/p:par", {"p": P_NS})
+        batch.find("p:cTn/p:childTnLst", {"p": P_NS}).append(
+            parse_xml(
+                _powerpoint_effect(b.shape_id, 20, "withEffect").replace(
+                    "<p:par>", '<p:par xmlns:p="%s">' % P_NS, 1
+                )
+            )
+        )
+        assert len(slide.animations) == 2
+
+        b.delete()
+
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert len(_main_sequence_steps(slide)) == 1
+
+    def it_clears_every_effect_of_a_main_sequence(self):
+        slide, _ = _animated_slide(3)
+
+        assert slide.animations.clear() == 3
+        assert len(slide.animations) == 0
+        assert _timing(slide) is None
+
+    def it_removes_a_single_entry_of_a_main_sequence(self):
+        slide, (a, b) = _animated_slide(2)
+
+        slide.animations.list()[0].remove()
+
+        assert [e.shape_id for e in slide.animations] == [b.shape_id]
+        assert _build_ids(slide) == [b.shape_id]
+        assert len(_main_sequence_steps(slide)) == 1
+
+    def it_exposes_the_click_step_an_effect_has_to_itself_as_its_element(self):
+        slide, _ = _animated_slide(2)
+
+        entry = slide.animations.list()[1]
+
+        assert entry.element is _main_sequence_steps(slide)[1]
+
+    def it_removes_a_sequence_triggered_by_clicking_a_deleted_shape(self):
+        slide, (a, b) = _slide_with_shapes(2)
+        interactive = (
+            '<p:seq concurrent="1" nextAc="seek"><p:cTn id="30" restart="whenNotActive"'
+            ' fill="hold" evtFilter="cancelBubble" nodeType="interactiveSeq">'
+            '<p:stCondLst><p:cond evt="onClick" delay="0">'
+            f'<p:tgtEl><p:spTgt spid="{b.shape_id}"/></p:tgtEl></p:cond></p:stCondLst>'
+            "<p:childTnLst>" + _powerpoint_click_step(a.shape_id, 31) + "</p:childTnLst></p:cTn>"
+            '<p:nextCondLst><p:cond evt="onClick" delay="0">'
+            f'<p:tgtEl><p:spTgt spid="{b.shape_id}"/></p:tgtEl></p:cond></p:nextCondLst></p:seq>'
+        )
+        from power_pptx.oxml import parse_xml
+
+        slide._element._insert_timing(
+            parse_xml(_powerpoint_timing(a.shape_id, extra=interactive))
+        )
+        assert len(slide.animations) == 2
+
+        # -- deleting the trigger takes the whole sequence, effect on `a` included --
+        b.delete()
+
+        assert slide._element.xpath("p:timing//p:seq/p:cTn/@nodeType") == ["mainSeq"]
+        assert [e.shape_id for e in slide.animations] == [a.shape_id]
+        assert b.shape_id not in _targeted_ids(slide)
+
+    def it_purges_the_copies_of_a_timing_tree_kept_in_alternate_content(self):
+        # PowerPoint wraps the timing in mc:AlternateContent when an effect uses
+        # a 2010+ feature, with the plain version of the same tree as fallback.
+        from lxml import etree
+
+        mc = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+        slide, (a, b) = _animated_slide(2)
+        timing = _timing(slide)
+        wrapper = etree.Element("{%s}AlternateContent" % mc, nsmap={"mc": mc})
+        timing.addprevious(wrapper)
+        etree.SubElement(wrapper, "{%s}Choice" % mc, Requires="p14").append(timing)
+        etree.SubElement(wrapper, "{%s}Fallback" % mc).append(
+            etree.fromstring(etree.tostring(timing))
+        )
+
+        a.delete()
+
+        assert _targeted_ids(slide) == [b.shape_id] * 4
+        assert _build_ids(slide) == [b.shape_id] * 2
+
+        b.delete()
+
+        assert list(slide._element.iter(qn("p:timing"))) == []
+        assert slide._element.find("{%s}AlternateContent" % mc) is None
+
+
+class DescribeAppendingToAMainSequence:
+    """A new effect on a PowerPoint-animated slide joins its main sequence."""
+
+    def it_adds_an_on_click_effect_as_a_new_click_step(self):
+        slide, (a, b) = _animated_slide(2, animated=1)
+
+        Entrance.fade(slide, b)
+
+        steps = _main_sequence_steps(slide)
+        assert len(steps) == 2
+        assert _start_delays(steps[1]) == ["indefinite"]
+        batches = steps[1].findall("p:cTn/p:childTnLst/p:par", {"p": P_NS})
+        assert [_start_delays(batch) for batch in batches] == [["0"]]
+        # -- nothing is left outside the main sequence --
+        root = slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*")
+        assert [child.tag for child in root] == [qn("p:seq")]
+        assert [(e.shape_id, e.trigger) for e in slide.animations] == [
+            (a.shape_id, Trigger.ON_CLICK),
+            (b.shape_id, Trigger.ON_CLICK),
+        ]
+
+    def it_lets_a_with_previous_effect_join_the_last_batch(self):
+        slide, (a, b) = _animated_slide(2, animated=1)
+
+        Entrance.fade(slide, b, trigger=Trigger.WITH_PREVIOUS)
+
+        steps = _main_sequence_steps(slide)
+        assert len(steps) == 1
+        batches = steps[0].findall("p:cTn/p:childTnLst/p:par", {"p": P_NS})
+        assert len(batches) == 1
+        effects = batches[0].findall("p:cTn/p:childTnLst/p:par/p:cTn", {"p": P_NS})
+        assert [ctn.get("nodeType") for ctn in effects] == ["clickEffect", "withEffect"]
+
+    def it_starts_an_after_previous_effect_once_the_last_batch_is_over(self):
+        slide, (a, b, c) = _animated_slide(3, animated=1)
+
+        Entrance.fade(slide, b, trigger=Trigger.AFTER_PREVIOUS, duration=700)
+        Entrance.fade(slide, c, trigger=Trigger.AFTER_PREVIOUS, delay=100)
+
+        steps = _main_sequence_steps(slide)
+        assert len(steps) == 1
+        batches = steps[0].findall("p:cTn/p:childTnLst/p:par", {"p": P_NS})
+        # -- the existing fade runs 500 ms; the one added after it 700 ms more --
+        assert [_start_delays(batch) for batch in batches] == [["0"], ["500"], ["1200"]]
+        assert [e.delay for e in slide.animations] == [0, 0, 100]
+
+    def it_sets_a_leading_effect_that_waits_for_no_click_off_with_the_sequence(self):
+        slide, (a,) = _animated_slide(1, animated=0)
+
+        Entrance.fade(slide, a, trigger=Trigger.AFTER_PREVIOUS)
+
+        (step,) = _main_sequence_steps(slide)
+        conds = step.findall("p:cTn/p:stCondLst/p:cond", {"p": P_NS})
+        assert [cond.get("delay") for cond in conds] == ["indefinite", "0"]
+        assert conds[1].get("evt") == "onBegin"
+        # -- "2" is the id of the main sequence's own time node --
+        assert conds[1].find(qn("p:tn")).get("val") == "2"
+
+    def it_gives_every_new_time_node_an_id_of_its_own(self):
+        slide, (a, b, c) = _animated_slide(3, animated=1)
+
+        Entrance.fade(slide, b)
+        Entrance.fade(slide, c, trigger=Trigger.WITH_PREVIOUS)
+
+        ids = [ctn.get("id") for ctn in slide._element.iter(qn("p:cTn"))]
+        assert len(ids) == len(set(ids))
+
+    def it_applies_easing_to_an_effect_added_to_the_main_sequence(self):
+        slide, (a, b) = _animated_slide(2, animated=1)
+
+        slide.animations.add_entrance("fade", b, easing="ease_in_out")
+
+        (ctn,) = [c for c in slide._element.iter(qn("p:cTn")) if c.get("accel") is not None]
+        assert (ctn.get("accel"), ctn.get("decel")) == ("30000", "30000")
+
+    def but_a_slide_without_a_main_sequence_keeps_its_effects_under_the_root(self):
+        slide, (a,) = _slide_with_shapes(1)
+
+        Entrance.fade(slide, a)
+
+        assert _main_sequence_steps(slide) == []
+        assert len(slide._element.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")) == 1
+
+
+class DescribeMediaNodeCleanup:
+    """The `p:video` node behind a movie's play controls goes when the movie does."""
+
+    def _add_movie(self, slide):
+        import os
+
+        movie_path = os.path.join(os.path.dirname(__file__), "test_files", "dummy.mp4")
+        return slide.shapes.add_movie(movie_path, Inches(1), Inches(3), Inches(3), Inches(2))
+
+    def it_removes_the_video_node_of_a_deleted_movie(self):
+        slide, (a,) = _slide_with_shapes(1)
+        movie = self._add_movie(slide)
+        Entrance.fade(slide, a)
+        assert len(list(slide._element.iter(qn("p:video")))) == 1
+
+        movie.delete()
+
+        assert list(slide._element.iter(qn("p:video"))) == []
+        assert set(_targeted_ids(slide)) == {a.shape_id}
+        assert len(slide.animations) == 1
+
+    def it_drops_the_timing_tree_a_deleted_movie_leaves_empty(self):
+        slide, _ = _slide_with_shapes(0)
+        movie = self._add_movie(slide)
+
+        movie.delete()
+
+        assert _timing(slide) is None
+
+    def but_clear_keeps_the_video_node_of_a_movie_still_on_the_slide(self):
+        slide, (a,) = _slide_with_shapes(1)
+        movie = self._add_movie(slide)
+        Entrance.fade(slide, a)
+
+        assert slide.animations.clear() == 1
+        assert _targeted_ids(slide) == [movie.shape_id]

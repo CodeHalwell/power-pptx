@@ -377,6 +377,195 @@ def _anim_rot_xml(ctn_id: int, spid: int, duration: int, angle_deg: float = 360.
     )
 
 
+# ---------------------------------------------------------------------------
+# Timing-tree helpers
+# ---------------------------------------------------------------------------
+#
+# PowerPoint nests every effect of a slide under its main sequence:
+#
+#     p:timing/p:tnLst/p:par (tmRoot)/p:cTn/p:childTnLst
+#       p:seq (mainSeq)/p:cTn/p:childTnLst
+#         p:par              one per click
+#           p:par            one per batch of effects that start together
+#             p:par          the effect: its p:cTn carries presetID/presetClass
+#               p:set, p:animEffect, …   its behaviours, each naming its target
+#       p:seq (interactiveSeq)   effects triggered by clicking a shape
+#       p:video, p:audio         media nodes
+#
+# whereas an effect this module adds to a slide that has no main sequence sits
+# one wrapper below the root.  Nothing below assumes a depth: an effect is any
+# `p:par` whose `p:cTn` carries a preset, wherever in the tree it is.
+
+_PAR = qn("p:par")
+_CTN = qn("p:cTn")
+_TIMING = qn("p:timing")
+_TN_LST = qn("p:tnLst")
+_CHILD_TN_LST = qn("p:childTnLst")
+_SUB_TN_LST = qn("p:subTnLst")
+_BLD_LST = qn("p:bldLst")
+_CONTAINERS = frozenset({_PAR, qn("p:seq"), qn("p:excl")})
+_TIME_NODE_LISTS = frozenset({_TN_LST, _CHILD_TN_LST, _SUB_TN_LST})
+# -- the elements that name a shape by id: the target of a behaviour, a media
+# -- node or a trigger condition (`p:spTgt`), an ink target, a sub-shape --
+_SHAPE_REFERENCES = (qn("p:spTgt"), qn("p:inkTgt"), qn("p:subSp"))
+_EFFECT_NODE_TYPES = frozenset(_NODE_TYPE_TO_TRIGGER)
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+def _shape_id(element: Any) -> Optional[int]:
+    """The shape id in the ``spid`` attribute of *element*, or |None| if it has no usable one."""
+    try:
+        return int(element.get("spid"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_effect(node: Any) -> bool:
+    """True when time node *node* is an animation effect, not a wrapper around some."""
+    if node.tag != _PAR:
+        return False
+    ctn = node.find(_CTN)
+    if ctn is None:
+        return False
+    return (
+        ctn.get("presetClass") is not None
+        or ctn.get("presetID") is not None
+        or ctn.get("nodeType") in _EFFECT_NODE_TYPES
+    )
+
+
+def _effects(timing: Any) -> list[Any]:
+    """The effect nodes of *timing* in document order, whatever their depth."""
+    if timing is None:
+        return []
+    return [par for tnLst in timing.findall(_TN_LST) for par in tnLst.iter(_PAR) if _is_effect(par)]
+
+
+def _child_pars(par: Any) -> list[Any]:
+    """The ``<p:par>`` nodes directly inside the container *par*."""
+    return par.findall("%s/%s/%s" % (_CTN, _CHILD_TN_LST, _PAR))
+
+
+def _entry_root(effect: Any) -> Any:
+    """The largest subtree holding *effect* and no other time node.
+
+    That is *effect* itself, or the outermost of the plain wrappers around it
+    (a click step, a batch) that have nothing else in them.
+    """
+    node = effect
+    while True:
+        lst = node.getparent()
+        if lst is None or lst.tag != _CHILD_TN_LST or len(lst) != 1:
+            return node
+        ctn = lst.getparent()
+        owner = None if ctn is None else ctn.getparent()
+        # -- a wrapper is a `p:par` with no role of its own; the root and the
+        # -- sequences have a `nodeType` (or are no `p:par` at all) --
+        if owner is None or owner.tag != _PAR or ctn.get("nodeType") is not None:
+            return node
+        node = owner
+
+
+def _remove_time_node(node: Any) -> None:
+    """Detach *node* from its timing tree, with every container this leaves childless.
+
+    A ``<p:childTnLst>`` must hold at least one time node, so a wrapper (or a
+    sequence) emptied by the removal goes too, and so on upward.  The root
+    node stays; :func:`_prune_empty_timing` deals with a tree left empty.
+    """
+    while True:
+        lst = node.getparent()
+        if lst is None:
+            return
+        lst.remove(node)
+        if len(lst) or lst.tag == _TN_LST:
+            return
+        ctn = lst.getparent()
+        if ctn is None:
+            return
+        owner = ctn.getparent()
+        if lst.tag == _SUB_TN_LST or owner is None or owner.tag not in _CONTAINERS:
+            # -- here the list is optional: its owner stands without one --
+            ctn.remove(lst)
+            return
+        holder = owner.getparent()
+        if holder is None or holder.tag == _TN_LST:
+            return  # -- `owner` is the root node --
+        node = owner
+
+
+def _owning_time_node(reference: Any) -> Any:
+    """The time node that cannot outlive the shape *reference* names, or |None|.
+
+    Within an effect that is the effect, all its behaviours included.  Outside
+    one it is the innermost time node holding the reference: a media node
+    (``<p:video>``, ``<p:audio>``), a lone behaviour, or the sequence or
+    container whose trigger condition names the shape.
+    """
+    node = None
+    for ancestor in reference.iterancestors():
+        parent = ancestor.getparent()
+        if parent is not None and parent.tag in _TIME_NODE_LISTS:
+            node = ancestor
+            break
+    if node is None:
+        return None
+    candidate = node
+    while candidate is not None and candidate.tag != _TIMING:
+        if _is_effect(candidate):
+            return candidate
+        candidate = candidate.getparent()
+    return node
+
+
+def _purge_dead_targets(timing: Any, live_ids: set[int]) -> int:
+    """Remove every time node of *timing* naming a shape not in *live_ids*; return how many."""
+    removed = 0
+    for tag in _SHAPE_REFERENCES:
+        for reference in list(timing.iter(tag)):
+            spid = _shape_id(reference)
+            if spid is None or spid in live_ids:
+                continue
+            if not any(ancestor is timing for ancestor in reference.iterancestors()):
+                continue  # -- went with a node removed earlier in this loop --
+            node = _owning_time_node(reference)
+            if node is not None:
+                _remove_time_node(node)
+                removed += 1
+    return removed
+
+
+def _prune_build_list(timing: Any, live_ids: Optional[set[int]] = None) -> int:
+    """Drop stale entries from the build list of *timing*; return how many.
+
+    With *live_ids*, an entry is stale when its shape is not among them.
+    Without, it is stale when no time node of *timing* targets its shape any
+    more.  A build list left empty is removed: it must hold an entry.
+    """
+    bldLst = timing.find(_BLD_LST)
+    if bldLst is None:
+        return 0
+    if live_ids is None:
+        live_ids = {
+            spid
+            for tnLst in timing.findall(_TN_LST)
+            for tag in _SHAPE_REFERENCES
+            for spid in (_shape_id(ref) for ref in tnLst.iter(tag))
+            if spid is not None
+        }
+    removed = 0
+    for build in list(bldLst):
+        if not isinstance(build.tag, str):
+            continue
+        spid = _shape_id(build)
+        if spid is not None and spid not in live_ids:
+            bldLst.remove(build)
+            removed += 1
+    if len(bldLst) == 0:
+        timing.remove(bldLst)
+    return removed
+
+
 def _prune_empty_timing(sld: Any) -> None:
     """Drop the slide's timing content once it holds no time nodes.
 
@@ -388,18 +577,97 @@ def _prune_empty_timing(sld: Any) -> None:
     element holding only extensions, and its content is not ours to drop.
     Timing trees that still carry time nodes (remaining effects, or a
     `p:video` node for a movie's play controls) are left untouched.
+
+    Every `p:timing` of the slide is looked at, including the copies
+    PowerPoint keeps in the branches of an `mc:AlternateContent` when its
+    effects use a newer feature; a wrapper left with nothing in any branch is
+    removed along with them.
     """
-    timing = sld.find(qn("p:timing"))
-    if timing is None:
-        return
-    if sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/*"):
-        return
     ext_lst_tag = qn("p:extLst")
-    for child in list(timing):
-        if child.tag != ext_lst_tag:
-            timing.remove(child)
-    if len(timing) == 0:
-        sld._remove_timing()
+    for timing in list(sld.iter(_TIMING)):
+        if timing.xpath("p:tnLst/p:par/p:cTn/p:childTnLst/*"):
+            continue
+        for child in list(timing):
+            if child.tag != ext_lst_tag:
+                timing.remove(child)
+        if len(timing):
+            continue
+        branch = timing.getparent()
+        if branch is None:
+            continue
+        branch.remove(timing)
+        wrapper = branch.getparent()
+        if (
+            wrapper is not None
+            and wrapper.tag == "{%s}AlternateContent" % _MC_NS
+            and not any(len(alternative) for alternative in wrapper)
+        ):
+            holder = wrapper.getparent()
+            if holder is not None:
+                holder.remove(wrapper)
+
+
+def _first_delay(ctn: Any) -> int:
+    """Milliseconds the first start condition of *ctn* waits, or 0 when it states none."""
+    cond = ctn.find("%s/%s" % (qn("p:stCondLst"), qn("p:cond")))
+    try:
+        return int(cond.get("delay"))
+    except (AttributeError, TypeError, ValueError):  # no condition, no delay, "indefinite"
+        return 0
+
+
+def _effect_span(effect: Any) -> int:
+    """Milliseconds from the start of its batch to the end of *effect*."""
+    ctn = effect.find(_CTN)
+    longest = 0
+    for inner in ctn.iter(_CTN):
+        try:
+            dur = int(inner.get("dur"))
+        except (TypeError, ValueError):  # absent or "indefinite"
+            continue
+        if dur <= 1:
+            continue  # -- the 1 ms of a visibility switch counts as instantaneous --
+        longest = max(longest, dur if inner is ctn else _first_delay(inner) + dur)
+    return _first_delay(ctn) + longest
+
+
+def _batch_end(batch: Any) -> int:
+    """Milliseconds from its click to the moment every effect of *batch* is over."""
+    return _first_delay(batch.find(_CTN)) + max(
+        (_effect_span(effect) for effect in _child_pars(batch)), default=0
+    )
+
+
+def _batch_par_xml(delay: int) -> str:
+    """XML for an empty batch `<p:par>` starting *delay* ms into its click step."""
+    return (
+        f"<p:par {_nsdecls_p()}>"
+        '<p:cTn id="0" fill="hold">'
+        f'<p:stCondLst><p:cond delay="{delay}"/></p:stCondLst>'
+        "<p:childTnLst/>"
+        "</p:cTn>"
+        "</p:par>"
+    )
+
+
+def _click_par_xml(auto_start_after: Optional[str]) -> str:
+    """XML for an empty click-step `<p:par>` of the main sequence.
+
+    It waits for a click, unless *auto_start_after* names the time node (the
+    main sequence itself) whose beginning sets it off unprompted: that is how
+    PowerPoint starts a leading "with previous" or "after previous" effect.
+    """
+    auto = ""
+    if auto_start_after is not None:
+        auto = f'<p:cond evt="onBegin" delay="0"><p:tn val="{auto_start_after}"/></p:cond>'
+    return (
+        f"<p:par {_nsdecls_p()}>"
+        '<p:cTn id="0" fill="hold">'
+        f'<p:stCondLst><p:cond delay="indefinite"/>{auto}</p:stCondLst>'
+        "<p:childTnLst/>"
+        "</p:cTn>"
+        "</p:par>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +682,13 @@ class SlideAnimations:
     append entrance, exit, and emphasis effects to the slide's timing tree.
     Existing animations (e.g. authored in PowerPoint) are left untouched;
     new effects are appended after them.
+
+    Effects authored in PowerPoint are listed alongside those added here:
+    iteration, ``len()``, :meth:`clear` and :meth:`purge_orphans` all work on
+    the whole timing tree, down through its main sequence.  On a slide that
+    has a main sequence a new effect is appended to it, in the click-step
+    structure PowerPoint uses there, so it takes its place after the existing
+    ones.
     """
 
     def __init__(self, slide: Slide):
@@ -440,20 +715,20 @@ class SlideAnimations:
     # -- introspection ------------------------------------------------------
 
     def __iter__(self) -> "Iterator[AnimationEntry]":
-        """Iterate over the slide's top-level animation entries.
+        """Iterate over the slide's animation effects.
 
-        Yields one :class:`AnimationEntry` per click-group ``<p:par>``,
-        in document order.  Effects authored inside PowerPoint as well
-        as those added via this API are reported.
+        Yields one :class:`AnimationEntry` per effect, in document order.
+        Effects authored inside PowerPoint as well as those added via this
+        API are reported, wherever they sit in the timing tree.
         """
-        for top_par in self._top_level_pars():
-            yield AnimationEntry(top_par, self._slide)
+        for effect in self._effects():
+            yield AnimationEntry(effect, self._slide)
 
     def __len__(self) -> int:
-        return len(self._top_level_pars())
+        return len(self._effects())
 
     def __bool__(self) -> bool:  # explicit so __len__ doesn't drive truthiness alone
-        return bool(self._top_level_pars())
+        return bool(self._effects())
 
     def list(self) -> "list[AnimationEntry]":
         """Return a list of :class:`AnimationEntry` views, in document order.
@@ -463,28 +738,34 @@ class SlideAnimations:
         return list(self)
 
     def clear(self) -> int:
-        """Remove every animation from the slide.
+        """Remove every animation effect from the slide.
 
-        Returns the number of top-level click-group entries removed.
+        Returns the number of effects removed.
         Unlike :meth:`purge_orphans`, this drops **all** entries — useful
         when iterating on animation design and you want to re-run the
         build without the previous run's effects piling up.
-        """
-        removed = 0
-        for top_par in list(self._top_level_pars()):
-            parent = top_par.getparent()
-            if parent is not None:
-                parent.remove(top_par)
-                removed += 1
-        _prune_empty_timing(self._slide._element)
-        return removed
 
-    def _top_level_pars(self) -> list[Any]:
-        """Return the top-level click-group ``<p:par>`` elements."""
-        sld = self._slide._element
-        return list(
-            sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
-        )
+        The wrappers and sequences the effects sat in go with them, as do
+        the build-list entries of the shapes that are no longer animated.
+        Media nodes (the play controls of a movie) are not effects and stay.
+        """
+        timing = self._timing
+        effects = _effects(timing)
+        for effect in effects:
+            _remove_time_node(effect)
+        if effects:
+            _prune_build_list(timing)
+            _prune_empty_timing(self._slide._element)
+        return len(effects)
+
+    @property
+    def _timing(self) -> Any:
+        """The slide's ``<p:timing>`` element, or |None| if it has none."""
+        return self._slide._element.find(_TIMING)
+
+    def _effects(self) -> list[Any]:
+        """Return the effect ``<p:par>`` elements of the slide, in document order."""
+        return _effects(self._timing)
 
     # -- public API ----------------------------------------------------------
 
@@ -1075,6 +1356,16 @@ class SlideAnimations:
             "</p:par>\n"
         ) % _nsdecls_p()
 
+        main_seq = self._main_sequence()
+        if main_seq is not None:
+            effect_elm = parse_xml(
+                effect_par.replace("<p:par>", "<p:par %s>" % _nsdecls_p(), 1).encode("utf-8")
+            )
+            if easing is not None:
+                _apply_easing(effect_elm, easing)
+            self._append_to_main_sequence(main_seq, effect_elm, trigger)
+            return
+
         group_elm = parse_xml(click_group.encode("utf-8"))
         # Fix IDs: assign proper sequential IDs to all p:cTn elements in our
         # new subtree now that we know which IDs are free.
@@ -1082,6 +1373,73 @@ class SlideAnimations:
         if easing is not None:
             _apply_easing(group_elm, easing)
         root_ctn.append(group_elm)
+
+    def _main_sequence(self) -> Any:
+        """The ``<p:cTn>`` of the slide's main sequence, or |None| if it has none.
+
+        PowerPoint keeps the effects of a slide in a ``<p:seq>`` directly
+        under the root time node, marked ``nodeType="mainSeq"``.
+        """
+        found = self._slide._element.xpath(
+            "p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:seq/p:cTn[@nodeType='mainSeq']"
+        )
+        return found[0] if found else None
+
+    def _append_to_main_sequence(
+        self, main_seq: Any, effect_elm: Any, trigger: PP_ANIM_TRIGGER
+    ) -> None:
+        """Add *effect_elm* at the end of the main sequence, the way PowerPoint files it.
+
+        The main sequence holds one ``<p:par>`` per click; each of those holds
+        one ``<p:par>`` per batch of effects that start together, placed on the
+        click's timeline by its start delay.  So an on-click effect opens a new
+        click step, a with-previous effect joins the last batch, and an
+        after-previous effect opens a new batch that starts when the last one
+        is over.  With nothing before it, an effect that does not wait for a
+        click goes in a step set off by the sequence itself beginning.
+        """
+        steps = main_seq.find(_CHILD_TN_LST)
+        if steps is None:
+            steps = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
+            sub_lst = main_seq.find(_SUB_TN_LST)
+            if sub_lst is None:
+                main_seq.append(steps)
+            else:
+                sub_lst.addprevious(steps)
+
+        clicks = steps.findall(_PAR)
+        click = clicks[-1] if clicks else None
+        batches = [] if click is None else _child_pars(click)
+
+        if trigger is PP_ANIM_TRIGGER.ON_CLICK or click is None:
+            auto_start = None
+            if trigger is not PP_ANIM_TRIGGER.ON_CLICK and (main_seq.get("id") or "").isdigit():
+                auto_start = main_seq.get("id")
+            new_node = click = parse_xml(_click_par_xml(auto_start))
+            batch = parse_xml(_batch_par_xml(0))
+            click.find(_CTN).find(_CHILD_TN_LST).append(batch)
+            parent = steps
+        elif trigger is PP_ANIM_TRIGGER.WITH_PREVIOUS and batches:
+            new_node, batch, parent = effect_elm, batches[-1], None
+        else:
+            # -- after the previous batch (or the first batch of a click step
+            # -- that, unusually, has none yet) --
+            delay = _batch_end(batches[-1]) if batches else 0
+            new_node = batch = parse_xml(_batch_par_xml(delay))
+            click_ctn = click.find(_CTN)
+            parent = click_ctn.find(_CHILD_TN_LST)
+            if parent is None:
+                parent = parse_xml("<p:childTnLst %s/>" % _nsdecls_p())
+                click_ctn.append(parent)
+
+        batch_lst = batch.find(_CTN).find(_CHILD_TN_LST)
+        if new_node is effect_elm:
+            self._assign_ids(effect_elm)
+            batch_lst.append(effect_elm)
+        else:
+            batch_lst.append(effect_elm)
+            self._assign_ids(new_node)
+            parent.append(new_node)
 
     def _get_or_create_root_ctn(self):
         """Return the `p:childTnLst` of the root timing container.
@@ -1158,19 +1516,24 @@ class SlideAnimations:
     # ---- orphan cleanup ----------------------------------------------------
 
     def purge_orphans(self) -> int:
-        """Remove animation entries whose target shape no longer exists.
+        """Remove every timing node whose target shape no longer exists.
 
-        Walks the slide's timing tree and removes any top-level click-group
-        ``<p:par>`` that contains a ``spid`` reference to a shape that's no
-        longer in the slide's shape tree.  Use this after deleting shapes
-        to clean up the timing tree (PowerPoint will silently "repair"
-        a deck with orphan timing references, but a clean tree avoids
-        that prompt).
+        Walks the whole timing tree, looking at each reference to a shape:
+        the target of an effect's behaviours, of a media node (the
+        ``<p:video>`` behind a movie's play controls), and of a trigger
+        condition.  An effect naming a missing shape is removed whole; so is
+        a media node, or a sequence that was triggered by clicking the shape.
+        Wrappers left empty go with them, and so do the build-list entries
+        (``<p:bldP>`` and friends) of missing shapes.  Use this after
+        deleting shapes to clean up the timing tree (PowerPoint will silently
+        "repair" a deck with orphan timing references, but a clean tree
+        avoids that prompt).
 
-        Returns the number of orphan ``<p:par>`` entries removed.
+        Returns the number of timing nodes removed.
 
         This is also called automatically when a shape is removed via
-        :meth:`BaseShape.delete`, but is exposed publicly for callers
+        :meth:`BaseShape.delete` or a group is dissolved via
+        :meth:`GroupShape.ungroup`, but is exposed publicly for callers
         that delete shapes by other means.
         """
         sld = self._slide._element
@@ -1182,27 +1545,18 @@ class SlideAnimations:
             except (TypeError, ValueError):
                 continue
 
-        # The click-group <p:par> elements live as children of the root
-        # timing's childTnLst: p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par.
-        root_pars = sld.xpath("p:timing/p:tnLst/p:par/p:cTn/p:childTnLst/p:par")
-
+        # PowerPoint keeps a second copy of the timing tree in the branches of
+        # an mc:AlternateContent when an effect uses a newer feature, so every
+        # `p:timing` under the slide is purged, not only its direct child.
         removed = 0
-        spTgt_tag = qn("p:spTgt")
-        for top_par in list(root_pars):
-            spTgts = list(top_par.iter(spTgt_tag))
-            for spTgt in spTgts:
-                spid_attr = spTgt.get("spid")
-                try:
-                    spid = int(spid_attr) if spid_attr is not None else None
-                except ValueError:
-                    continue
-                if spid is not None and spid not in live_ids:
-                    parent = top_par.getparent()
-                    if parent is not None:
-                        parent.remove(top_par)
-                        removed += 1
-                    break  # already removed; no need to check more spTgts
-        if removed:
+        changed = False
+        for timing in list(sld.iter(_TIMING)):
+            purged = _purge_dead_targets(timing, live_ids)
+            stale_builds = _prune_build_list(timing, live_ids)
+            removed += purged
+            if purged or stale_builds:
+                changed = True
+        if changed:
             _prune_empty_timing(sld)
         return removed
 
@@ -1251,9 +1605,12 @@ class AnimationEntry:
     * :attr:`shape` — looked up live from the slide's shape tree by id;
       may be ``None`` if the shape has been deleted (use
       :meth:`SlideAnimations.purge_orphans` to drop orphan entries).
+
+    An entry stands for one effect, whether this library added it or
+    PowerPoint did: the ``<p:par>`` whose ``<p:cTn>`` carries the preset.
     """
 
-    _par_element: Any  # the wrapping <p:par> click-group element
+    _par_element: Any  # the effect <p:par>, whose <p:cTn> carries the preset
     _slide: Any
 
     @property
@@ -1333,14 +1690,7 @@ class AnimationEntry:
         ctn = self._inner_effect_ctn()
         if ctn is None:
             return 0
-        cond = ctn.find(".//" + qn("p:stCondLst") + "/" + qn("p:cond"))
-        if cond is None:
-            return 0
-        delay = cond.get("delay")
-        try:
-            return int(delay) if delay is not None and delay != "indefinite" else 0
-        except ValueError:
-            return 0
+        return _first_delay(ctn)
 
     @property
     def shape(self) -> Any:
@@ -1367,15 +1717,28 @@ class AnimationEntry:
 
     @property
     def element(self) -> Any:
-        """The underlying ``<p:par>`` element.  Treat as read-only."""
-        return self._par_element
+        """The ``<p:par>`` element holding this effect and nothing else.
+
+        That is the effect together with the wrappers around it that it has
+        to itself (its click step, say), which is what :meth:`remove` takes
+        out.  Treat as read-only.
+        """
+        return _entry_root(self._par_element)
 
     def remove(self) -> None:
-        """Remove this animation entry from the slide."""
-        parent = self._par_element.getparent()
-        if parent is not None:
-            parent.remove(self._par_element)
-            _prune_empty_timing(self._slide._element)
+        """Remove this animation entry from the slide.
+
+        Wrappers the effect leaves empty are removed with it, and so is the
+        build-list entry of its shape once nothing animates that shape.
+        """
+        timing = None
+        for ancestor in self._par_element.iterancestors(_TIMING):
+            timing = ancestor
+        if timing is None:
+            return  # -- already removed --
+        _remove_time_node(self._par_element)
+        _prune_build_list(timing)
+        _prune_empty_timing(self._slide._element)
 
     # -- internal helpers --------------------------------------------------
 
@@ -1384,11 +1747,8 @@ class AnimationEntry:
         return ctn.get(name) if ctn is not None else None
 
     def _inner_effect_ctn(self) -> Any:
-        """Return the inner cTn carrying presetID/presetClass attributes."""
-        for ctn in self._par_element.iter(qn("p:cTn")):
-            if ctn.get("presetID") is not None:
-                return ctn
-        return None
+        """Return the effect's own cTn, which carries presetID/presetClass."""
+        return self._par_element.find(_CTN)
 
 
 # ---------------------------------------------------------------------------

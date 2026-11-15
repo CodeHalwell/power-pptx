@@ -215,6 +215,10 @@ class GroupShape(BaseShape):
         not move or resize visually. Z-order is preserved: the promoted shapes
         occupy the group's former slot. The (now empty) group element is removed.
 
+        Animations that targeted the group itself are removed, since the group
+        they would play on no longer exists; animations on its member shapes
+        are unaffected.
+
         Raises ``ValueError`` if the group is rotated or flipped — baking such a
         transform into each child is ambiguous and unsupported; reset rotation
         and flip to zero before ungrouping.
@@ -261,4 +265,11 @@ class GroupShape(BaseShape):
             promoted.append(self._parent._shape_factory(elm))  # pyright: ignore[reportAttributeAccessIssue]
 
         container.remove(grpSp)
+
+        # The group's own id is gone with it, so whatever in the timing tree
+        # still names that id (an effect on the group, its build entry) would
+        # be left pointing at nothing. Only slides have animations to purge.
+        slide = getattr(self.part, "slide", None)
+        if slide is not None:
+            slide.animations.purge_orphans()
         return promoted

@@ -192,6 +192,34 @@ class DescribeGroupShapeSurface(object):
         with pytest.raises(ValueError, match="rotated or flipped"):
             group.ungroup()
 
+    def it_purges_the_animations_of_a_group_it_ungroups(self, slide, group):
+        # The group's id disappears with it, so an effect that targeted the
+        # group would be left pointing at a shape that no longer exists.
+        from power_pptx.animation import Entrance
+
+        member = list(group.shapes)[0]
+        Entrance.fade(slide, group)
+        Entrance.fade(slide, member)
+        group_id = group.shape_id
+
+        group.ungroup()
+
+        targets = {int(spid) for spid in slide._element.xpath("p:timing//p:spTgt/@spid")}
+        live = {int(i) for i in slide._element.xpath("p:cSld/p:spTree//p:cNvPr/@id")}
+        assert group_id not in live
+        # -- the effect on the member shape, which is still there, is kept --
+        assert targets == {member.shape_id}
+        assert [entry.shape_id for entry in slide.animations] == [member.shape_id]
+
+    def it_drops_the_timing_tree_when_ungrouping_removes_its_only_animation(self, slide, group):
+        from power_pptx.animation import Entrance
+
+        Entrance.fade(slide, group)
+
+        group.ungroup()
+
+        assert slide._element.xpath("p:timing") == []
+
     def it_can_add_a_table_to_the_group(self, slide):
         group = slide.shapes.add_group_shape()
 
