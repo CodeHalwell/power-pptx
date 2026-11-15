@@ -214,48 +214,49 @@ class Picture(_BasePicture):
             return None
 
         my_box = BBox.from_shape(self)
-        candidates: list[tuple[int, BaseShape, BBox]] = []
+        # -- the smallest enclosing box; the first of equals in z-order --
+        smallest = min(
+            self._enclosing_shapes(slide, my_box, exclude_text),
+            key=lambda found: found[1].area,
+            default=None,
+        )
+        if smallest is None:
+            return None
+        container, container_box = smallest
+        if not shrink_around:
+            return container_box
+        return self._trim_around_content(slide, container, container_box, my_box)
+
+    def _enclosing_shapes(self, slide, my_box, exclude_text: bool):
+        """Generate `(shape, box)` for each shape on `slide` whose box encloses `my_box`.
+
+        Only shapes larger than the picture count, and, with `exclude_text`,
+        none that hold live text: those are content, not chrome.
+        """
         for shape in slide.shapes:
             if shape is self:
                 continue
-            try:
-                box = BBox.from_shape(shape)
-            except Exception:
+            box = _box_or_none(shape)
+            if box is None or box.area <= my_box.area:
                 continue
-            if box.area <= my_box.area:
+            if exclude_text and _holds_text(shape):
                 continue
-            # Skip if this shape is itself a placeholder for text we
-            # want to keep visible.
-            if exclude_text and getattr(shape, "has_text_frame", False):
-                tf = getattr(shape, "text_frame", None)
-                if tf is not None and tf.text.strip():
-                    continue
             if box.contains(my_box):
-                candidates.append((box.area, shape, box))
-        if not candidates:
-            return None
-        # Smallest enclosing box.
-        candidates.sort(key=lambda t: t[0])
-        _, _container, container_box = candidates[0]
-        if not shrink_around:
-            return container_box
+                yield shape, box
 
-        # Trim around other content shapes that sit inside the container.
-        # For each obstacle, try the four edge-pushes that would exclude
-        # it (top edge down past obstacle.bottom, bottom edge up past
-        # obstacle.top, etc.) and pick the smallest waste that still
-        # keeps the picture (``my_box``) inside the trimmed result.
+    def _trim_around_content(self, slide, container, container_box, my_box):
+        """Shrink `container_box` clear of the other shapes that sit inside it.
+
+        Each obstacle is cut away along whichever edge wastes least while
+        still keeping the picture (`my_box`) inside; see :func:`_exclude_obstacle`.
+        """
         trimmed = container_box
         for shape in slide.shapes:
-            if shape is self or shape is _container:
+            if shape is self or shape is container:
                 continue
-            try:
-                box = BBox.from_shape(shape)
-            except Exception:
-                continue
-            if not trimmed.contains(box):
-                continue
-            trimmed = _exclude_obstacle(trimmed, box, must_contain=my_box)
+            box = _box_or_none(shape)
+            if box is not None and trimmed.contains(box):
+                trimmed = _exclude_obstacle(trimmed, box, must_contain=my_box)
         return trimmed
 
     @property
@@ -318,6 +319,24 @@ class Picture(_BasePicture):
     def shape_type(self) -> MSO_SHAPE_TYPE:
         """Unconditionally `MSO_SHAPE_TYPE.PICTURE` in this case."""
         return MSO_SHAPE_TYPE.PICTURE
+
+
+def _box_or_none(shape):
+    """The :class:`~power_pptx.geometry.BBox` of `shape`, or |None| when it has no usable one."""
+    from power_pptx.geometry import BBox
+
+    try:
+        return BBox.from_shape(shape)
+    except Exception:
+        return None
+
+
+def _holds_text(shape) -> bool:
+    """True if `shape` has a text frame holding more than whitespace."""
+    if not getattr(shape, "has_text_frame", False):
+        return False
+    text_frame = getattr(shape, "text_frame", None)
+    return text_frame is not None and bool(text_frame.text.strip())
 
 
 def _exclude_obstacle(trimmed, obstacle, *, must_contain):
