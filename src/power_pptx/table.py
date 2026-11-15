@@ -286,28 +286,11 @@ class Table(object):
         if font_file is None:
             font_file = _resolve_font_file(font_family, bold, italic, strict)
 
-        per_cell_sizes: list[int] = []
-        for cell in self.iter_cells():
-            if cell.is_spanned or not cell.text.strip():
-                continue
-            try:
-                size = cell.text_frame._fit_size(  # pyright: ignore[reportPrivateUsage]
-                    max_font_pt, font_file
-                )
-            except Exception:
-                # If measurement fails for a populated cell, treat it as
-                # the worst case so the final uniform size remains safe
-                # for every populated cell. Skipping the cell would let
-                # ``target = min(...)`` stay artificially high and other
-                # cells could end up still overflowing.
-                per_cell_sizes.append(int(min_font_pt))
-                continue
-            if size is None:
-                # Text genuinely does not fit at any size in this cell;
-                # treat as ``min_font_pt``.
-                per_cell_sizes.append(int(min_font_pt))
-            else:
-                per_cell_sizes.append(int(size))
+        per_cell_sizes = [
+            _cell_fit_size(cell, max_font_pt, min_font_pt, font_file)
+            for cell in self.iter_cells()
+            if not cell.is_spanned and cell.text.strip()
+        ]
 
         target = min(per_cell_sizes) if per_cell_sizes else max_font_pt
         target = max(target, min_font_pt)
@@ -1186,6 +1169,29 @@ class _LineGroup(object):
             tcPr._remove_lnB()
             tcPr._remove_lnTlToBr()
             tcPr._remove_lnBlToTr()
+
+
+def _cell_fit_size(cell: _Cell, max_font_pt: int, min_font_pt: int, font_file: str | None) -> int:
+    """The best-fit size of `cell`'s text for `Table.fit_to_box`.
+
+    `min_font_pt` when the text does not fit at any size or cannot be measured.
+    """
+    try:
+        size = cell.text_frame._fit_size(  # pyright: ignore[reportPrivateUsage]
+            max_font_pt, font_file
+        )
+    except Exception:
+        # If measurement fails for a populated cell, treat it as
+        # the worst case so the final uniform size remains safe
+        # for every populated cell. Skipping the cell would let
+        # ``target = min(...)`` stay artificially high and other
+        # cells could end up still overflowing.
+        return int(min_font_pt)
+    if size is None:
+        # Text genuinely does not fit at any size in this cell;
+        # treat as ``min_font_pt``.
+        return int(min_font_pt)
+    return int(size)
 
 
 def _resolve_font_file(
