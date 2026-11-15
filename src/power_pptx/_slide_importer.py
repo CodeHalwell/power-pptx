@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from power_pptx.package import Package
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart
+    from power_pptx.presentation import Presentation
     from power_pptx.slide import Slide
 
 MergeMaster = Literal["dedupe", "clone"]
@@ -96,33 +97,106 @@ _IMPORTED_SLIDES: "weakref.WeakKeyDictionary[Any, Any]" = weakref.WeakKeyDiction
 
 
 def import_slide(
-    src_slide_part: SlidePart,
-    dst_prs_part: PresentationPart,
+    presentation: Presentation | PresentationPart | Slide | SlidePart | None = None,
+    slide: Slide | SlidePart | Presentation | PresentationPart | None = None,
     merge_master: MergeMaster = "dedupe",
+    *,
+    src_slide_part: SlidePart | None = None,
+    dst_prs_part: PresentationPart | None = None,
 ) -> Slide:
-    """Copy *src_slide_part* into *dst_prs_part* and return the new |Slide|.
+    """Copy *slide* into *presentation* and return the new |Slide|.
+
+    ::
+
+        from power_pptx.compose import import_slide
+
+        new_slide = import_slide(dst, src.slides[3], merge_master="dedupe")
+
+    This is the function form of :meth:`Presentation.import_slide()
+    <power_pptx.presentation.Presentation.import_slide>`.
 
     Parameters
     ----------
-    src_slide_part:
-        The :class:`~power_pptx.parts.slide.SlidePart` from the source presentation.
-    dst_prs_part:
-        The :class:`~power_pptx.parts.presentation.PresentationPart` of the target.
+    presentation:
+        The destination |Presentation| (or its
+        :class:`~power_pptx.parts.presentation.PresentationPart`).
+    slide:
+        The |Slide| to copy (or its :class:`~power_pptx.parts.slide.SlidePart`),
+        from any presentation, including the destination itself.
     merge_master:
         ``'dedupe'`` (default) or ``'clone'`` — controls master handling.
         Any other value raises :class:`ValueError`.
+
+    The two objects are told apart by type, so the original part-based call
+    ``import_slide(src_slide_part, dst_prs_part)`` (source first) and its
+    ``src_slide_part=`` / ``dst_prs_part=`` keywords keep working.
 
     Returns
     -------
     Slide
         The newly imported :class:`~power_pptx.slide.Slide` object.
     """
+    source_part, destination_part = _resolve_import_arguments(
+        presentation, slide, src_slide_part, dst_prs_part
+    )
+    return _import_slide_part(source_part, destination_part, merge_master)
+
+
+def _import_slide_part(
+    src_slide_part: SlidePart,
+    dst_prs_part: PresentationPart,
+    merge_master: MergeMaster = "dedupe",
+) -> Slide:
+    """Copy *src_slide_part* into the presentation of *dst_prs_part*; return the new |Slide|."""
     if merge_master not in _MERGE_MASTER_VALUES:
         raise ValueError(
             "merge_master must be 'dedupe' or 'clone', got %r" % (merge_master,)
         )
     importer = _SlideImporter(src_slide_part, dst_prs_part, merge_master)
     return importer.run()
+
+
+def _resolve_import_arguments(
+    first: object,
+    second: object,
+    src_slide_part: object,
+    dst_prs_part: object,
+) -> tuple[SlidePart, PresentationPart]:
+    """Return (source slide part, destination presentation part) from the call's arguments.
+
+    Accepts the proxy objects (|Presentation|, |Slide|) or their parts, in
+    either order, plus the two legacy keywords.
+    """
+    from power_pptx.parts.presentation import PresentationPart
+    from power_pptx.parts.slide import SlidePart
+    from power_pptx.presentation import Presentation
+    from power_pptx.slide import Slide
+
+    slide_part: SlidePart | None = None
+    prs_part: PresentationPart | None = None
+
+    for arg in (first, second, src_slide_part, dst_prs_part):
+        if arg is None:
+            continue
+        part = arg.part if isinstance(arg, (Presentation, Slide)) else arg
+        if isinstance(part, PresentationPart):
+            if prs_part is not None:
+                raise TypeError("import_slide() got more than one destination presentation")
+            prs_part = part
+        elif isinstance(part, SlidePart):
+            if slide_part is not None:
+                raise TypeError("import_slide() got more than one slide to import")
+            slide_part = part
+        else:
+            raise TypeError(
+                "import_slide() takes a Presentation and a Slide, got %s" % type(arg).__name__
+            )
+
+    if prs_part is None:
+        raise TypeError("import_slide() needs the destination Presentation")
+    if slide_part is None:
+        raise TypeError("import_slide() needs the Slide to import")
+    return slide_part, prs_part
 
 
 # ---------------------------------------------------------------------------

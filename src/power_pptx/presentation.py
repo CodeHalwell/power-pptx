@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import IO, TYPE_CHECKING, Literal, cast
 
 from power_pptx.section import Sections
@@ -254,6 +255,15 @@ class Presentation(PartElementProxy):
                 Always clone the source master, even if an identical one
                 already exists.
 
+            Any other value raises :class:`ValueError`.
+
+        Only *source_slide* is imported.  Pictures and media the
+        presentation already holds are reused rather than copied again.  A
+        "jump to slide" link on the slide (``click_action.target_slide``) is
+        kept when its target is already in this presentation — a same-deck
+        import, or a slide imported earlier into this object — and removed
+        otherwise; the linked slide itself is never brought along.
+
         Returns
         -------
         Slide
@@ -268,11 +278,11 @@ class Presentation(PartElementProxy):
         """
         from power_pptx._slide_importer import import_slide as _import_slide
 
-        return _import_slide(source_slide.part, self.part, merge_master=merge_master)
+        return _import_slide(self, source_slide, merge_master=merge_master)
 
     def apply_template(
         self,
-        template_path_or_stream: str | IO[bytes],
+        template_path_or_stream: str | os.PathLike[str] | IO[bytes] | Presentation,
     ) -> None:
         """Re-point every slide in this presentation at masters from *template_path_or_stream*.
 
@@ -280,7 +290,12 @@ class Presentation(PartElementProxy):
         the template.  Slide content (shapes, text, animations) is preserved.
 
         The template can be a ``.potx`` or any ``.pptx``/``.pptm`` file — the
-        master(s) inside are used regardless of the extension.
+        master(s) inside are used regardless of the extension.  The masters,
+        their layouts and themes, and the pictures those use are copied into
+        this presentation and replace its own.  |SlideMaster| and
+        |SlideLayout| objects obtained before the call belong to the replaced
+        masters; read :attr:`slide_masters` / :attr:`slide_layouts` again
+        afterwards.
 
         Layout matching (in priority order):
 
@@ -291,7 +306,15 @@ class Presentation(PartElementProxy):
         Parameters
         ----------
         template_path_or_stream:
-            Path to a ``.potx``/``.pptx`` file, or a file-like object.
+            Path to a ``.potx``/``.pptx`` file, a file-like object, or an
+            open |Presentation|.
+
+        Raises
+        ------
+        ValueError
+            If the template has no slide master, or this presentation has
+            slides and the template has no slide layout to put them on.
+            Nothing is changed in that case.
 
         Example::
 
@@ -300,10 +323,8 @@ class Presentation(PartElementProxy):
             prs.save("branded_deck.pptx")
         """
         from power_pptx._template_applier import apply_template as _apply_template
-        from power_pptx.api import Presentation as _Presentation
 
-        tpl = _Presentation(template_path_or_stream)
-        _apply_template(self.part, tpl.part)
+        _apply_template(self, template_path_or_stream)
 
     def set_transition(
         self,

@@ -362,6 +362,17 @@ class Describe_apply_template_master_wiring:
         assert _picture_blobs(reopened.slide_master.shapes) == [_RED_PNG]
         assert _all_text(reopened) == ["A", "B"]
 
+    def it_accepts_an_open_presentation_as_the_template(self):
+        deck = _make_deck("A")
+        template = Presentation(_branded_template())
+
+        deck.apply_template(template)
+
+        assert _picture_blobs(_round_trip(deck).slide_master.shapes) == [_RED_PNG]
+        # -- the template deck itself is left alone --
+        assert len(template.slide_masters) == 1
+        assert _picture_blobs(template.slide_master.shapes) == [_RED_PNG]
+
     def but_it_changes_nothing_when_the_template_has_no_layouts(self):
         deck = _make_deck("A")
         before = _as_stream(deck).getvalue()

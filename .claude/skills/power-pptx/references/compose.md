@@ -170,16 +170,28 @@ src = Presentation("source.pptx")
 dst = Presentation("destination.pptx")
 
 # Clone src.slides[3] into dst, including its layout reference.
-import_slide(dst, src.slides[3], merge_master="dedupe")
+new_slide = import_slide(dst, src.slides[3], merge_master="dedupe")
 ```
 
-Image-rename collisions, layout references, and master/theme parts are
-handled automatically. Two strategies for masters:
+The destination comes first; the slide is appended to it and returned.
+`dst.import_slide(src.slides[3])` is the same operation as a method.
 
-- `merge_master="dedupe"` (default-ish, recommended) reuses an
+Image-rename collisions, layout references, and master/theme parts are
+handled automatically. A picture or media file the destination already
+holds is reused rather than copied again. Two strategies for masters:
+
+- `merge_master="dedupe"` (the default, recommended) reuses an
   equivalent master in the destination if one matches.
 - `merge_master="clone"` always brings a fresh copy of the source
   master alongside.
+
+Any other value raises `ValueError`.
+
+Only the slide you name is imported. A "jump to slide" link on it
+(`shape.click_action.target_slide`) is kept when its target is already in
+the destination — a same-deck import, or a slide imported earlier into
+the same `Presentation` object — and removed otherwise, so import a
+link's target before the slide that links to it.
 
 ### Applying a template
 
@@ -188,9 +200,17 @@ apply_template(dst, "brand-template.potx")
 ```
 
 Re-points every slide's layout/master/theme at masters from the
-`.potx` (or `.pptx`). Slide content is preserved. Layout matching:
-name → type → first layout. Unreferenced old masters / layouts /
-themes are dropped from the saved package.
+`.potx` (or `.pptx`). The template can be a path, a file-like object or
+an open `Presentation`; `dst.apply_template(...)` is the method form.
+Slide content is preserved. Layout matching: name → type → first
+layout. The template's masters, layouts, themes and their pictures are
+copied in; the old masters / layouts / themes are dropped from the
+saved package.
+
+`SlideMaster` / `SlideLayout` objects fetched *before* the call belong
+to the replaced masters — read `dst.slide_layouts` again afterwards.
+A template with no slide master (or no layouts, when the deck has
+slides) raises `ValueError` and leaves the deck untouched.
 
 ## End-to-end pipeline
 

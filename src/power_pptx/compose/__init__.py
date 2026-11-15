@@ -14,10 +14,16 @@ deliberately just a tidy public surface so callers can do::
 
 without having to remember three different module paths.
 
-``Presentation.import_slide`` and ``Presentation.apply_template`` remain
-the recommended entry points for those two operations; the function-level
-re-exports here are useful when you have raw ``Part`` references or want
-to avoid binding the call to a particular ``Presentation`` instance.
+``import_slide`` and ``apply_template`` are the function forms of
+``Presentation.import_slide`` and ``Presentation.apply_template`` and
+take the destination presentation first::
+
+    import_slide(dst, src.slides[3], merge_master="dedupe")
+    apply_template(dst, "brand-template.potx")
+
+They accept the |Presentation| / |Slide| objects themselves or their
+underlying ``Part`` objects, and ``apply_template`` takes the template as a
+path, a file-like object or an open |Presentation|.
 """
 
 from __future__ import annotations

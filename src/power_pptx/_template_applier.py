@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import os
+from typing import IO, TYPE_CHECKING, Union
 
 from power_pptx._slide_importer import (
     _iter_master_layouts,  # pyright: ignore[reportPrivateUsage]
@@ -15,38 +16,107 @@ if TYPE_CHECKING:
     from power_pptx.opc.package import Part
     from power_pptx.parts.presentation import PresentationPart
     from power_pptx.parts.slide import SlideLayoutPart, SlideMasterPart, SlidePart
+    from power_pptx.presentation import Presentation
+
+    TemplateSource = Union[Presentation, PresentationPart, str, "os.PathLike[str]", IO[bytes]]
 
 
 def apply_template(
-    dst_prs_part: PresentationPart,
-    template_prs_part: PresentationPart,
+    presentation: Presentation | PresentationPart | None = None,
+    template: TemplateSource | None = None,
+    *,
+    dst_prs_part: PresentationPart | None = None,
+    template_prs_part: PresentationPart | None = None,
 ) -> None:
-    """Re-point every slide in *dst_prs_part* at the masters/layouts from *template_prs_part*.
+    """Re-point every slide in *presentation* at the masters/layouts from *template*.
+
+    ::
+
+        from power_pptx.compose import apply_template
+
+        apply_template(prs, "brand-template.potx")
+
+    This is the function form of :meth:`Presentation.apply_template()
+    <power_pptx.presentation.Presentation.apply_template>`.
 
     Existing slide content (shapes, text, animations) is preserved.
     Each slide's layout is matched to the closest layout in the template (by name, then by
     type, then fallback to the template's first layout).
 
     The template's masters, with their themes, layouts and the pictures those
-    use, are copied into the presentation and replace its own.  The old
+    use, are copied into *presentation* and replace its own.  The old
     master/layout/theme parts are no longer referenced, so they are left out
-    when the package is saved.
+    when the package is saved.  |SlideMaster| and |SlideLayout| objects
+    obtained *before* the call belong to the replaced masters; fetch them
+    again from ``prs.slide_masters`` / ``prs.slide_layouts`` afterwards.
 
     Parameters
     ----------
-    dst_prs_part:
-        The presentation to modify in place.
-    template_prs_part:
-        The template presentation whose masters/layouts/themes are to be applied.
+    presentation:
+        The |Presentation| to modify in place (or its
+        :class:`~power_pptx.parts.presentation.PresentationPart`).
+    template:
+        The template whose masters/layouts/themes are to be applied: a path
+        to a ``.potx`` / ``.pptx`` file, a file-like object, an open
+        |Presentation|, or a ``PresentationPart``.
+
+    The original part-based keywords ``dst_prs_part=`` and
+    ``template_prs_part=`` are still accepted.
 
     Raises
     ------
     ValueError
-        If the template has no slide master, or the presentation has slides
+        If the template has no slide master, or *presentation* has slides
         and the template has no slide layout to put them on.  Nothing is
         changed in that case.
     """
-    _TemplateApplier(dst_prs_part, template_prs_part).run()
+    if presentation is None:
+        presentation = dst_prs_part
+    elif dst_prs_part is not None:
+        raise TypeError("apply_template() got the presentation to modify twice")
+    if template is None:
+        template = template_prs_part
+    elif template_prs_part is not None:
+        raise TypeError("apply_template() got the template twice")
+    if presentation is None:
+        raise TypeError("apply_template() needs the Presentation to modify")
+    if template is None:
+        raise TypeError("apply_template() needs a template")
+
+    _TemplateApplier(_presentation_part(presentation), _template_part(template)).run()
+
+
+def _presentation_part(presentation: object) -> PresentationPart:
+    """Return the |PresentationPart| behind *presentation* (a proxy or the part itself)."""
+    from power_pptx.parts.presentation import PresentationPart
+    from power_pptx.presentation import Presentation
+
+    part = presentation.part if isinstance(presentation, Presentation) else presentation
+    if not isinstance(part, PresentationPart):
+        raise TypeError(
+            "apply_template() takes a Presentation to modify, got %s"
+            % type(presentation).__name__
+        )
+    return part
+
+
+def _template_part(template: object) -> PresentationPart:
+    """Return the |PresentationPart| of *template*, opening it when it is a path or stream."""
+    from power_pptx.parts.presentation import PresentationPart
+    from power_pptx.presentation import Presentation
+
+    if isinstance(template, Presentation):
+        return template.part
+    if isinstance(template, PresentationPart):
+        return template
+    if isinstance(template, (str, os.PathLike)) or hasattr(template, "read"):
+        from power_pptx.api import Presentation as open_presentation
+
+        return open_presentation(template).part  # type: ignore[arg-type]
+    raise TypeError(
+        "apply_template() takes a template path, file-like object or Presentation, got %s"
+        % type(template).__name__
+    )
 
 
 class _TemplateApplier:

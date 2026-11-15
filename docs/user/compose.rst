@@ -140,11 +140,32 @@ Cross-presentation operations
     dst = Presentation("destination.pptx")
 
     # Clone a slide with its layout reference, deduping the master.
-    import_slide(dst, src.slides[3], merge_master="dedupe")
+    new_slide = import_slide(dst, src.slides[3], merge_master="dedupe")
 
     # Re-point existing slides at masters/layouts from a .potx.
     apply_template(dst, "brand-template.potx")
 
+Both take the destination presentation first and are the function forms of
+:meth:`Presentation.import_slide() <power_pptx.presentation.Presentation.import_slide>`
+and :meth:`Presentation.apply_template()
+<power_pptx.presentation.Presentation.apply_template>`.
+
 ``merge_master="clone"`` keeps a fresh copy of the source master alongside
-existing masters; ``"dedupe"`` reuses an equivalent master in the
-destination when one is available.
+existing masters; ``"dedupe"`` (the default) reuses an equivalent master in
+the destination when one is available.  Any other value raises
+:class:`ValueError`.
+
+Only the slide you name is imported.  A picture or media file the
+destination already holds is reused rather than copied again.  A "jump to
+slide" link on the imported slide (``shape.click_action.target_slide``) is
+kept when its target is already in the destination — a same-deck import, or
+a slide imported earlier into the same |Presentation| object — and removed
+otherwise, so import a link's target before the slide that links to it.
+
+``apply_template`` accepts the template as a path, a file-like object or an
+open |Presentation|.  It copies the template's masters, layouts, themes and
+their pictures into the deck and drops the old ones; |SlideMaster| and
+|SlideLayout| objects fetched before the call belong to the replaced
+masters, so read ``dst.slide_layouts`` again afterwards.  A template with no
+slide master (or no layouts, when the deck has slides) raises
+:class:`ValueError` and leaves the deck untouched.

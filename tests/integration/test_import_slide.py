@@ -793,7 +793,7 @@ class Describe_import_slide_awkward_partnames:
         assert _numbered_partname("/ppt/charts/chart3.xml") == ("/ppt/charts/chart", ".xml")
         assert _numbered_partname("/ppt/media/my%20logo.png") == ("/ppt/media/my%20logo", ".png")
         assert _numbered_partname("/ppt/media/100%.png") == ("/ppt/media/100%", ".png")
-        assert _numbered_partname("/ppt/embeddings/oleObject12") == ("/ppt/embeddings/oleObject", "")
+        assert _numbered_partname("/ppt/embeddings/ole12") == ("/ppt/embeddings/ole", "")
         assert _numbered_partname("/ppt/v1.2/thing7.bin") == ("/ppt/v1.2/thing", ".bin")
 
 
