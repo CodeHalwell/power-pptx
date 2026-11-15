@@ -243,9 +243,7 @@ class DescribeAddStatusPill:
         assert isinstance(pill, StatusPill)
         assert pill.pill is not None
         assert pill.label is not None
-        assert (
-            pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
-        )
+        assert pill.label.text_frame.paragraphs[0].runs[0].text == "LIVE"
 
     def it_honours_explicit_accent(self, slide):
         pill = add_status_pill(
@@ -408,9 +406,7 @@ class DescribeAddKpiCardHeight:
 
 
 class DescribeAddKpiCardContrast:
-    @pytest.mark.parametrize(
-        "preset", ["modern_light", "modern_dark", "corporate_navy", "vibrant"]
-    )
+    @pytest.mark.parametrize("preset", ["modern_light", "modern_dark", "corporate_navy", "vibrant"])
     def it_keeps_card_text_readable_under_every_preset(self, slide, preset):
         card = _kpi(slide, Inches(1.9), DesignTokens.from_preset(preset))
 
@@ -429,8 +425,13 @@ class DescribeAddStatStripCapacity:
         # 60 items used to write negative card widths
         with pytest.raises(ValueError, match="60 items do not fit.*at most 12 fit"):
             add_stat_strip(
-                slide, left=Inches(0.5), top=Inches(1.5), width=Inches(12),
-                height=Inches(1.9), items=items, tokens=tokens,
+                slide,
+                left=Inches(0.5),
+                top=Inches(1.5),
+                width=Inches(12),
+                height=Inches(1.9),
+                items=items,
+                tokens=tokens,
             )
         assert slide._element.xml == before
 
@@ -438,8 +439,13 @@ class DescribeAddStatStripCapacity:
         items = [{"label": f"L{i}", "value": str(i)} for i in range(12)]
 
         strip = add_stat_strip(
-            slide, left=Inches(0.5), top=Inches(1.5), width=Inches(12),
-            height=Inches(1.9), items=items, tokens=tokens,
+            slide,
+            left=Inches(0.5),
+            top=Inches(1.5),
+            width=Inches(12),
+            height=Inches(1.9),
+            items=items,
+            tokens=tokens,
         )
 
         assert len(strip.cards) == 12
@@ -448,7 +454,11 @@ class DescribeAddStatStripCapacity:
     def it_rejects_items_with_the_wrong_keys(self, slide, tokens):
         with pytest.raises(ValueError) as exc:
             add_stat_strip(
-                slide, left=Inches(1), top=Inches(1), width=Inches(9), height=Inches(1.9),
+                slide,
+                left=Inches(1),
+                top=Inches(1),
+                width=Inches(9),
+                height=Inches(1.9),
                 items=[{"label": "ARR", "value": "$182M"}, {"name": "NDR", "val": "131%"}],
                 tokens=tokens,
             )
@@ -465,8 +475,13 @@ class DescribeAddStatStripCapacity:
         ]
 
         strip = add_stat_strip(
-            slide, left=Inches(1), top=Inches(1), width=Inches(6), height=Inches(1.9),
-            items=items, tokens=tokens,
+            slide,
+            left=Inches(1),
+            top=Inches(1),
+            width=Inches(6),
+            height=Inches(1.9),
+            items=items,
+            tokens=tokens,
         )
 
         sizes = {c.value_box.text_frame.paragraphs[0].runs[0].font.size for c in strip.cards}

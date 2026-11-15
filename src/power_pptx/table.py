@@ -80,15 +80,12 @@ def _resolve_selector(selector: _CellSelector, count: int, name: str) -> list[in
     return out
 
 
-def _apply_cell_margins(
-    cell: "_Cell", margin: "float | Length | Sequence[float | Length]"
-) -> None:
+def _apply_cell_margins(cell: "_Cell", margin: "float | Length | Sequence[float | Length]") -> None:
     """Set a cell's four insets from a scalar or ``(top, right, bottom, left)``."""
     if isinstance(margin, (tuple, list)):
         if len(margin) != 4:
             raise ValueError(
-                "margin tuple must have 4 elements (top, right, bottom, left); "
-                f"got {len(margin)}"
+                f"margin tuple must have 4 elements (top, right, bottom, left); got {len(margin)}"
             )
         top, right, bottom, left = (coerce_length(v) for v in margin)
     else:
@@ -284,9 +281,7 @@ class Table(object):
         from power_pptx.util import Pt
 
         if min_font_pt <= 0 or max_font_pt < min_font_pt:
-            raise ValueError(
-                "min_font_pt must be > 0 and max_font_pt must be >= min_font_pt"
-            )
+            raise ValueError("min_font_pt must be > 0 and max_font_pt must be >= min_font_pt")
 
         if font_file is None:
             font_file = _resolve_font_file(font_family, bold, italic, strict)
@@ -671,7 +666,7 @@ class _Cell(Subshape):
         `.is_merge_origin` before calling.
         """
         if not self.is_merge_origin:
-            raise ValueError("not a merge-origin cell; only a merge-origin cell can be sp" "lit")
+            raise ValueError("not a merge-origin cell; only a merge-origin cell can be split")
 
         tc_range = TcRange.from_merge_origin(self._tc)
 
@@ -1071,8 +1066,14 @@ class _Borders(object):
         (`"1F4E79"`), an `(r, g, b)` 3-tuple, or an |RGBColor|. Either argument
         may be |None| to leave that aspect alone.
         """
-        for edge in (self.left, self.right, self.top, self.bottom,
-                     self.diagonal_down, self.diagonal_up):
+        for edge in (
+            self.left,
+            self.right,
+            self.top,
+            self.bottom,
+            self.diagonal_down,
+            self.diagonal_up,
+        ):
             self._apply(edge, width, color)
 
     def outer(self, width: Length | None = None, color: _ColorLike | None = None) -> None:

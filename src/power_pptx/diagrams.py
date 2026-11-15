@@ -87,8 +87,7 @@ def _coerce_steps(steps: Sequence[Any]) -> list[_Step]:
             out.append(s)
         else:
             raise TypeError(
-                "steps must be strings, dicts, or _Step instances; got "
-                f"{type(s).__name__}"
+                f"steps must be strings, dicts, or _Step instances; got {type(s).__name__}"
             )
     if not out:
         raise ValueError("steps must be non-empty")
@@ -349,7 +348,11 @@ def _set_circle_label(
     tf.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
     tf.text = text
     _style_runs(
-        tf, font=font, size_pt=size_pt, color=color, bold=bold,
+        tf,
+        font=font,
+        size_pt=size_pt,
+        color=color,
+        bold=bold,
         align=PP_PARAGRAPH_ALIGNMENT.CENTER,
     )
 
@@ -379,8 +382,12 @@ def _add_step_node(
         node, step.label, font=font, size_pt=size_pt, color=step.text_color or text_color
     )
     _fit_circular_label(
-        node, diameter=diameter, font=font, max_size_pt=size_pt,
-        min_size_pt=min_size_pt, what=what,
+        node,
+        diameter=diameter,
+        font=font,
+        max_size_pt=size_pt,
+        min_size_pt=min_size_pt,
+        what=what,
     )
     return node
 
@@ -424,7 +431,11 @@ def _card(
         tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = margin
         tf.text = text
         _style_runs(
-            tf, font=font, size_pt=size_pt, color=text_color, bold=bool(bold),
+            tf,
+            font=font,
+            size_pt=size_pt,
+            color=text_color,
+            bold=bool(bold),
             align=PP_PARAGRAPH_ALIGNMENT.CENTER,
         )
         # Space-awareness: shrink the label so a long word never clips its card
@@ -563,7 +574,8 @@ def vertical_pipeline(
                 label = f"{label}\n{step.sublabel}"
             cards.append(
                 _card(
-                    slide, cb,
+                    slide,
+                    cb,
                     fill=step.fill or fill,
                     line=card_line,
                     text=label,
@@ -578,8 +590,11 @@ def vertical_pipeline(
             )
         for i in range(n - 1):
             arrow = slide.shapes.add_arrow(
-                cards[i], cards[i + 1],
-                head=arrow_head, color=accent, weight_pt=2.0,
+                cards[i],
+                cards[i + 1],
+                head=arrow_head,
+                color=accent,
+                weight_pt=2.0,
                 inset_pt=arrow_inset_pt,
             )
             arrows.append(arrow)
@@ -648,9 +663,23 @@ def hub_and_spoke(
     )
     with _atomic(slide):
         hub, spokes_built, arrows = _build_hub_and_spoke(
-            slide, coerced, centre, cx, cy, short, hub_box, hub_diameter, spoke_diameter, gap,
-            accent=accent, fill=fill, hub_fill=hub_fill, text_color=text_color,
-            hub_text_color=hub_text_color, font=font, size_pt=size_pt,
+            slide,
+            coerced,
+            centre,
+            cx,
+            cy,
+            short,
+            hub_box,
+            hub_diameter,
+            spoke_diameter,
+            gap,
+            accent=accent,
+            fill=fill,
+            hub_fill=hub_fill,
+            text_color=text_color,
+            hub_text_color=hub_text_color,
+            font=font,
+            size_pt=size_pt,
             min_size_pt=min_size_pt,
         )
     _tag_group(slide, "hub-and-spoke", [hub] + spokes_built + arrows)
@@ -683,12 +712,15 @@ def _build_hub_and_spoke(
     hub = slide.shapes.add_shape(MSO_SHAPE.OVAL, *hub_box)
     hub.fill_hex(hub_fill or accent)
     hub.line.fill.background()
-    _set_circle_label(
-        hub, centre, font=font, size_pt=size_pt, color=hub_text_color, bold=True
-    )
+    _set_circle_label(hub, centre, font=font, size_pt=size_pt, color=hub_text_color, bold=True)
     _fit_circular_label(
-        hub, diameter=hub_diameter, font=font, max_size_pt=size_pt,
-        min_size_pt=min_size_pt, bold=True, what="hub_and_spoke hub",
+        hub,
+        diameter=hub_diameter,
+        font=font,
+        max_size_pt=size_pt,
+        min_size_pt=min_size_pt,
+        bold=True,
+        what="hub_and_spoke hub",
     )
 
     # Place spokes evenly around the hub; each arrow stops a little short of
@@ -701,15 +733,28 @@ def _build_hub_and_spoke(
         angle = _ring_angle(i, n)
         spoke_centre = _ring_point((cx, cy), radius, angle)
         spoke = _add_step_node(
-            slide, step, spoke_centre, spoke_diameter, fill=fill, accent=accent,
-            text_color=text_color, font=font, size_pt=size_pt * 0.85,
-            min_size_pt=min_size_pt, what=f"hub_and_spoke ({n} spokes)",
+            slide,
+            step,
+            spoke_centre,
+            spoke_diameter,
+            fill=fill,
+            accent=accent,
+            text_color=text_color,
+            font=font,
+            size_pt=size_pt * 0.85,
+            min_size_pt=min_size_pt,
+            what=f"hub_and_spoke ({n} spokes)",
         )
         spokes_built.append(spoke)
         arrows.append(
             _add_radial_arrow(
-                slide, (cx, cy), hub_diameter / 2 + inset,
-                spoke_centre, spoke_diameter / 2 + inset, angle, accent,
+                slide,
+                (cx, cy),
+                hub_diameter / 2 + inset,
+                spoke_centre,
+                spoke_diameter / 2 + inset,
+                angle,
+                accent,
             )
         )
     return hub, spokes_built, arrows
@@ -786,9 +831,18 @@ def cycle(
 
     with _atomic(slide):
         cards, arrows = _build_cycle(
-            slide, coerced, cx, cy, radius, card_diameter,
-            accent=accent, fill=fill, text_color=text_color, font=font,
-            size_pt=size_pt, min_size_pt=min_size_pt,
+            slide,
+            coerced,
+            cx,
+            cy,
+            radius,
+            card_diameter,
+            accent=accent,
+            fill=fill,
+            text_color=text_color,
+            font=font,
+            size_pt=size_pt,
+            min_size_pt=min_size_pt,
         )
     _tag_group(slide, "cycle", cards + arrows)
     return CycleResult(cards=cards, arrows=arrows)
@@ -813,9 +867,17 @@ def _build_cycle(
     n = len(coerced)
     cards = [
         _add_step_node(
-            slide, step, _ring_point((cx, cy), radius, _ring_angle(i, n)), card_diameter,
-            fill=fill, accent=accent, text_color=text_color, font=font, size_pt=size_pt,
-            min_size_pt=min_size_pt, what=f"cycle ({n} steps)",
+            slide,
+            step,
+            _ring_point((cx, cy), radius, _ring_angle(i, n)),
+            card_diameter,
+            fill=fill,
+            accent=accent,
+            text_color=text_color,
+            font=font,
+            size_pt=size_pt,
+            min_size_pt=min_size_pt,
+            what=f"cycle ({n} steps)",
         )
         for i, step in enumerate(coerced)
     ]
@@ -824,7 +886,8 @@ def _build_cycle(
     for i in range(n):
         j = (i + 1) % n
         arrow = slide.shapes.add_arrow(
-            cards[i], cards[j],
+            cards[i],
+            cards[j],
             head="triangle",
             color=accent,
             weight_pt=1.5,
@@ -876,10 +939,20 @@ def decision_tree(
     """
     with _atomic(slide):
         return _decision_tree(
-            slide, bbox, root=root, branches=branches, accent=accent, fill=fill,
-            text_color=text_color, font=font, size_pt=size_pt, root_fill=root_fill,
-            root_text_color=root_text_color, leaf_fill=leaf_fill,
-            leaf_text_color=leaf_text_color, min_size_pt=min_size_pt,
+            slide,
+            bbox,
+            root=root,
+            branches=branches,
+            accent=accent,
+            fill=fill,
+            text_color=text_color,
+            font=font,
+            size_pt=size_pt,
+            root_fill=root_fill,
+            root_text_color=root_text_color,
+            leaf_fill=leaf_fill,
+            leaf_text_color=leaf_text_color,
+            min_size_pt=min_size_pt,
         )
 
 
@@ -939,8 +1012,14 @@ def _decision_tree(
     )
     coerced = _coerce_branches(branches)
     style = _TreeStyle(
-        accent=accent, fill=fill, text_color=text_color, leaf_fill=leaf_fill,
-        leaf_text_color=leaf_text_color, font=font, size_pt=size_pt, min_size_pt=min_size_pt,
+        accent=accent,
+        fill=fill,
+        text_color=text_color,
+        leaf_fill=leaf_fill,
+        leaf_text_color=leaf_text_color,
+        font=font,
+        size_pt=size_pt,
+        min_size_pt=min_size_pt,
     )
 
     n = len(coerced)
@@ -978,10 +1057,7 @@ def _coerce_branches(branches: Sequence[Any]) -> list[dict[str, Any]]:
         elif isinstance(b, dict):
             coerced.append({"label": b["label"], "children": b.get("children", [])})
         else:
-            raise TypeError(
-                "branches items must be str or dict; got "
-                f"{type(b).__name__}"
-            )
+            raise TypeError(f"branches items must be str or dict; got {type(b).__name__}")
     return coerced
 
 
@@ -1004,14 +1080,25 @@ def _add_tree_branch(
     else:
         label_box, children_box = col, None
     branch_card = _card(
-        slide, label_box, fill=style.fill, line=style.accent,
-        text=branch["label"], text_color=style.text_color,
-        font=style.font, size_pt=style.size_pt, bold=False, radius=0.04,
-        min_size_pt=style.min_size_pt, what=f"decision_tree ({n_branches} branches)",
+        slide,
+        label_box,
+        fill=style.fill,
+        line=style.accent,
+        text=branch["label"],
+        text_color=style.text_color,
+        font=style.font,
+        size_pt=style.size_pt,
+        bold=False,
+        radius=0.04,
+        min_size_pt=style.min_size_pt,
+        what=f"decision_tree ({n_branches} branches)",
     )
     arrow = slide.shapes.add_arrow(
-        root_card, branch_card,
-        head="triangle", color=style.accent, weight_pt=1.5,
+        root_card,
+        branch_card,
+        head="triangle",
+        color=style.accent,
+        weight_pt=1.5,
         inset_pt=4.0,
     )
     if children_box is None:
@@ -1051,7 +1138,9 @@ def _add_tree_children(
         slide.shapes.add_arrow(
             (Emu(rail_x), Emu(int(label_box.bottom))),
             (Emu(rail_x), Emu(last_cy)),
-            head=None, color=style.accent, weight_pt=1.0,
+            head=None,
+            color=style.accent,
+            weight_pt=1.0,
         )
     ]
     cards = []
@@ -1059,9 +1148,14 @@ def _add_tree_children(
         label = c if isinstance(c, str) else c.get("label", "")
         cards.append(
             _card(
-                slide, cb, fill=style.leaf_fill, line=None,
-                text=label, text_color=style.leaf_text_color,
-                font=style.font, size_pt=style.size_pt * 0.9,
+                slide,
+                cb,
+                fill=style.leaf_fill,
+                line=None,
+                text=label,
+                text_color=style.leaf_text_color,
+                font=style.font,
+                size_pt=style.size_pt * 0.9,
                 radius=0.04,
                 min_size_pt=style.min_size_pt,
                 what=f"decision_tree ({len(child_boxes)} children)",
@@ -1071,7 +1165,9 @@ def _add_tree_children(
             slide.shapes.add_arrow(
                 (Emu(rail_x), Emu(int(cb.cy))),
                 (Emu(int(cb.left) - int(Pt(1))), Emu(int(cb.cy))),
-                head="triangle", color=style.accent, weight_pt=1.0,
+                head="triangle",
+                color=style.accent,
+                weight_pt=1.0,
             )
         )
     return cards, arrows
@@ -1121,13 +1217,26 @@ def comparison_columns(
         )
 
         header = _card(
-            slide, header_box, fill=header_fill, line=None,
-            text=title, text_color=header_text_color,
-            font=font, size_pt=header_size_pt, bold=True, radius=0.05,
+            slide,
+            header_box,
+            fill=header_fill,
+            line=None,
+            text=title,
+            text_color=header_text_color,
+            font=font,
+            size_pt=header_size_pt,
+            bold=True,
+            radius=0.05,
         )
         body_card = _add_column_body(
-            slide, body_box, body, fill=body_fill, line=header_fill, text_color=text_color,
-            font=font, size_pt=body_size_pt,
+            slide,
+            body_box,
+            body,
+            fill=body_fill,
+            line=header_fill,
+            text_color=text_color,
+            font=font,
+            size_pt=body_size_pt,
         )
         built_headers.append(header)
         built_columns.append(body_card)

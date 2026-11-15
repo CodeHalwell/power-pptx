@@ -151,6 +151,7 @@ class _Context:
             raise _spec_error(where, f"file not found: {raw!r}{hint}")
         return raw if path == Path(raw) else str(path)
 
+
 # ---------------------------------------------------------------------------
 # Built-in layout aliases — map friendly names to the PowerPoint blank
 # template's named layouts (from SlideLayouts collection).
@@ -181,7 +182,12 @@ _LEGACY_CONTENT_KEYS = {
     "section": {"subtitle", "text"},
     "two_column": {"left", "right", "content_left", "content_right"},
     "comparison_layout": {
-        "left", "right", "content_left", "content_right", "left_heading", "right_heading"
+        "left",
+        "right",
+        "content_left",
+        "content_right",
+        "left_heading",
+        "right_heading",
     },
     "kpi_grid": {"kpis"},
 }
@@ -198,8 +204,12 @@ _LEGACY_PLACEHOLDERS: dict[str, dict[str, int]] = {
     # The Comparison layout pairs a heading (idx 1 / 3) with a content
     # placeholder (idx 2 / 4) on each side.
     "comparison_layout": {
-        "left_heading": 1, "left": 2, "content_left": 2,
-        "right_heading": 3, "right": 4, "content_right": 4,
+        "left_heading": 1,
+        "left": 2,
+        "content_left": 2,
+        "right_heading": 3,
+        "right": 4,
+        "content_right": 4,
     },
 }
 
@@ -207,9 +217,7 @@ _LEGACY_PLACEHOLDERS: dict[str, dict[str, int]] = {
 _LEGACY_LIST_KEYS = frozenset({"bullets", "left", "right", "content_left", "content_right"})
 
 # Pairs of keys that name the same placeholder; giving both is ambiguous.
-_LEGACY_SYNONYMS = (
-    ("subtitle", "text"), ("left", "content_left"), ("right", "content_right")
-)
+_LEGACY_SYNONYMS = (("subtitle", "text"), ("left", "content_left"), ("right", "content_right"))
 
 # Lowercase transition name → MSO_TRANSITION_TYPE member name ("random_bar" →
 # "RANDOM_BAR"). Derived from the enum so a new kind needs no edit here.
@@ -415,9 +423,7 @@ def from_yaml(
     try:
         import yaml  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - import guard
-        raise ImportError(
-            "from_yaml requires pyyaml; install with `pip install pyyaml`"
-        ) from exc
+        raise ImportError("from_yaml requires pyyaml; install with `pip install pyyaml`") from exc
     with open(path, encoding="utf-8") as f:
         spec = yaml.safe_load(f) or {}
     if not isinstance(spec, dict):
@@ -438,18 +444,19 @@ _VALID_LINT_VALUES = frozenset({"off", "warn", "raise"})
 # inline rather than imported lazily so the dispatcher fails closed if
 # a recipe gets renamed.
 _RECIPE_LAYOUTS: dict[str, tuple[str, frozenset[str]]] = {
-    "title_recipe":     ("title_slide",      frozenset({"title"})),
-    "bullets_recipe":   ("bullet_slide",     frozenset({"title", "bullets"})),
-    "kpi":              ("kpi_slide",        frozenset({"title", "kpis"})),
-    "quote":            ("quote_slide",      frozenset({"quote"})),
-    "image_hero":       ("image_hero_slide", frozenset({"title", "image"})),
-    "section_divider":  ("section_divider",  frozenset({"title"})),
-    "chart":            ("chart_slide",      frozenset({"title", "categories", "series"})),
-    "table":            ("table_slide",      frozenset({"title", "columns", "rows"})),
-    "code":             ("code_slide",       frozenset({"title", "code"})),
-    "timeline":         ("timeline_slide",   frozenset({"title", "milestones"})),
+    "title_recipe": ("title_slide", frozenset({"title"})),
+    "bullets_recipe": ("bullet_slide", frozenset({"title", "bullets"})),
+    "kpi": ("kpi_slide", frozenset({"title", "kpis"})),
+    "quote": ("quote_slide", frozenset({"quote"})),
+    "image_hero": ("image_hero_slide", frozenset({"title", "image"})),
+    "section_divider": ("section_divider", frozenset({"title"})),
+    "chart": ("chart_slide", frozenset({"title", "categories", "series"})),
+    "table": ("table_slide", frozenset({"title", "columns", "rows"})),
+    "code": ("code_slide", frozenset({"title", "code"})),
+    "timeline": ("timeline_slide", frozenset({"title", "milestones"})),
     "comparison": (
-        "comparison_slide", frozenset({"title", "left_heading", "right_heading", "rows"})
+        "comparison_slide",
+        frozenset({"title", "left_heading", "right_heading", "rows"}),
     ),
     "figure": ("figure_slide", frozenset({"title", "figure"})),
 }
@@ -541,9 +548,7 @@ def _open_template(template: Any, ctx: _Context) -> Any:
     try:
         return Presentation(source)
     except Exception as exc:
-        raise _spec_error(
-            "template", f"cannot open {template!r} as a presentation: {exc}"
-        ) from exc
+        raise _spec_error("template", f"cannot open {template!r} as a presentation: {exc}") from exc
 
 
 def _resolve_layout(prs: Any, layout_name: str) -> Any:
@@ -646,16 +651,12 @@ def _slide_failure(where: str, slide_spec: Mapping[str, Any], exc: Exception) ->
     key = _SOURCE_KEYS.get(layout.lower()) if isinstance(layout, str) else None
     if key and slide_spec.get(key) is not None:
         if isinstance(exc, OSError):
-            return _spec_error(
-                f"{where}.{key}", f"cannot read {_describe(slide_spec[key])}: {exc}"
-            )
+            return _spec_error(f"{where}.{key}", f"cannot read {_describe(slide_spec[key])}: {exc}")
         if isinstance(exc, (ValueError, RuntimeError)):
             return _spec_error(f"{where}.{key}", str(exc))
     if isinstance(exc, ValueError):
         return _spec_error(where, str(exc))
-    return _spec_error(
-        where, f"layout {layout!r} could not be built ({type(exc).__name__}: {exc})"
-    )
+    return _spec_error(where, f"layout {layout!r} could not be built ({type(exc).__name__}: {exc})")
 
 
 def _build_slide(
@@ -851,8 +852,7 @@ def _progress(value: Any, path: str) -> tuple[int, int]:
         )
     raise _spec_error(
         path,
-        "expected [current, total] — two whole numbers such as [3, 7]; "
-        f"got {_describe(value)}",
+        f"expected [current, total] — two whole numbers such as [3, 7]; got {_describe(value)}",
     )
 
 
@@ -990,9 +990,7 @@ def _image_source(value: Any, path: str, ctx: _Context) -> Any:
 
 def _figure_source(value: Any, path: str, ctx: _Context) -> Any:
     """Validate a ``figure`` value: markup, a path to an existing file, or a figure object."""
-    if isinstance(value, os.PathLike) or (
-        isinstance(value, str) and not _looks_like_markup(value)
-    ):
+    if isinstance(value, os.PathLike) or (isinstance(value, str) and not _looks_like_markup(value)):
         return ctx.resolve_file(value, path, hint=_FIGURE_HINT)
     if (
         isinstance(value, (str, bytes, bytearray))
@@ -1075,8 +1073,17 @@ _COMPARISON_ROW_EXAMPLE = '{"left": "Before", "right": "After"}'
 _KEY_VALIDATORS: dict[str, Callable[[Any, str], Any]] = {
     **dict.fromkeys(
         (
-            "title", "subtitle", "caption", "eyebrow", "quote", "attribution", "code",
-            "language", "left_heading", "right_heading", "chart_type",
+            "title",
+            "subtitle",
+            "caption",
+            "eyebrow",
+            "quote",
+            "attribution",
+            "code",
+            "language",
+            "left_heading",
+            "right_heading",
+            "chart_type",
         ),
         _text,
     ),
@@ -1146,8 +1153,7 @@ def _add_recipe_slide(
     if missing:
         raise _spec_error(
             where,
-            f"layout {layout_name!r} requires keys "
-            f"{sorted(required)}; missing {sorted(missing)}",
+            f"layout {layout_name!r} requires keys {sorted(required)}; missing {sorted(missing)}",
         )
 
     given = {k: v for k, v in slide_spec.items() if k not in _RECIPE_NEVER_KWARGS}
@@ -1262,10 +1268,7 @@ def _add_legacy_slide(
     layout = _resolve_layout(prs, layout_name)
     # Named standard layouts accept the same fields as their aliases.
     legacy_name = next(
-        (
-            alias for alias, name in _LAYOUT_ALIASES.items()
-            if name.lower() == layout.name.lower()
-        ),
+        (alias for alias, name in _LAYOUT_ALIASES.items() if name.lower() == layout.name.lower()),
         layout_name,
     )
     if layout_name == "kpi_grid":
@@ -1297,9 +1300,7 @@ def _add_legacy_slide(
     return slide
 
 
-def _set_title(
-    slide: Any, title: Any, *, where: str = "slide", label: str = "this layout"
-) -> None:
+def _set_title(slide: Any, title: Any, *, where: str = "slide", label: str = "this layout") -> None:
     """Put *title* in the slide's title placeholder; never drop it silently."""
     if title is None:
         return
@@ -1560,8 +1561,7 @@ def _check_shape_keys(entry: Any, where: str) -> None:
     """Reject a ``shapes`` entry that is not a mapping, or that has an unknown key."""
     if not isinstance(entry, Mapping):
         raise SpecError(
-            f"{where}: each 'shapes' entry must be a mapping; got "
-            f"{type(entry).__name__!r}",
+            f"{where}: each 'shapes' entry must be a mapping; got {type(entry).__name__!r}",
             path=where,
         )
 
@@ -1598,8 +1598,7 @@ def _shape_box(entry: Mapping[str, Any], name: Optional[str], where: str) -> tup
     missing = [k for k in _REQUIRED_SHAPE_KEYS if k not in entry]
     if missing:
         raise SpecError(
-            f"{where}: shape entries require keys "
-            f"{list(_REQUIRED_SHAPE_KEYS)}; missing {missing}",
+            f"{where}: shape entries require keys {list(_REQUIRED_SHAPE_KEYS)}; missing {missing}",
             path=where,
         )
     # Sizes cannot be negative and nothing can be larger, or further
@@ -1648,9 +1647,7 @@ def _apply_lint_intent(shape: Any, entry: Mapping[str, Any], where: str) -> None
         try:
             setattr(shape, field, entry[field])
         except (TypeError, ValueError) as exc:
-            raise SpecError(
-                f"{where}: {field!r}: {exc}", path=f"{where}.{field}"
-            ) from exc
+            raise SpecError(f"{where}: {field!r}: {exc}", path=f"{where}.{field}") from exc
 
 
 def _resolve_autoshape(kind: str, *, where: str) -> Any:
@@ -1734,8 +1731,7 @@ def _check_overlap_ref(ref: Any, own_name: Any, where: str) -> None:
     """Reject a reference that is not a shape name, or that names its own shape."""
     if not isinstance(ref, str) or not ref.strip():
         raise SpecError(
-            f"{where}: 'allow_overlap_with' entries must be non-empty "
-            f"shape names; got {ref!r}",
+            f"{where}: 'allow_overlap_with' entries must be non-empty shape names; got {ref!r}",
             path=f"{where}.allow_overlap_with",
         )
     if ref == own_name:
@@ -2045,8 +2041,7 @@ def _token_sections(spec: Any, where: str) -> dict[str, Mapping[str, Any]]:
 
     if not isinstance(spec, Mapping):
         hint = (
-            f' — for a preset write {{"preset": {spec!r}}}, for a brand file '
-            f'{{"yaml": {spec!r}}}'
+            f' — for a preset write {{"preset": {spec!r}}}, for a brand file {{"yaml": {spec!r}}}'
             if isinstance(spec, str)
             else ""
         )
@@ -2122,13 +2117,13 @@ def _token_error(where: str, exc: Exception) -> SpecError:
 # Named aspect-ratio shorthands → (width_in, height_in) in inches.
 # Matches PowerPoint's built-in "Page Setup" presets.
 _SLIDE_SIZE_PRESETS: dict[str, tuple[float, float]] = {
-    "16:9":         (13.333, 7.5),
-    "widescreen":   (13.333, 7.5),
-    "4:3":          (10.0, 7.5),
-    "standard":     (10.0, 7.5),
-    "16:10":        (13.333, 8.333),
-    "a4":           (11.69, 8.27),
-    "letter":       (11.0, 8.5),
+    "16:9": (13.333, 7.5),
+    "widescreen": (13.333, 7.5),
+    "4:3": (10.0, 7.5),
+    "standard": (10.0, 7.5),
+    "16:10": (13.333, 8.333),
+    "a4": (11.69, 8.27),
+    "letter": (11.0, 8.5),
 }
 
 # PowerPoint's own slide-size limits, in inches.  Nothing on a slide can
@@ -2180,8 +2175,7 @@ def _as_length(value: Any, what: str, path: str) -> Any:
         )
     if not isinstance(value, (int, float)):
         raise SpecError(
-            f"{what} must be a number (inches) or Length; "
-            f"got {type(value).__name__!r}: {value!r}",
+            f"{what} must be a number (inches) or Length; got {type(value).__name__!r}: {value!r}",
             path=path,
         )
     if not math.isfinite(value):
@@ -2361,8 +2355,7 @@ def _interpolate(value: Any, vars_: Mapping[str, Any], path: str = "") -> Any:
         return _interpolate_text(value, vars_, path)
     if isinstance(value, dict):
         return {
-            k: _interpolate(v, vars_, f"{path}.{k}" if path else str(k))
-            for k, v in value.items()
+            k: _interpolate(v, vars_, f"{path}.{k}" if path else str(k)) for k, v in value.items()
         }
     if isinstance(value, list):
         return [_interpolate(v, vars_, f"{path}[{i}]") for i, v in enumerate(value)]

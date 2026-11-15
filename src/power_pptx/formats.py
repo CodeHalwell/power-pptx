@@ -132,8 +132,6 @@ def date(pattern: str = "YYYY-MM-DD") -> str:
         raise TypeError(f"pattern must be str; got {type(pattern).__name__}")
     out = pattern
     # Apply replacements longest-first so YYYY isn't shadowed by YY.
-    for src, dst in sorted(
-        _DATE_TOKEN_MAP.items(), key=lambda kv: -len(kv[0])
-    ):
+    for src, dst in sorted(_DATE_TOKEN_MAP.items(), key=lambda kv: -len(kv[0])):
         out = out.replace(src, dst)
     return out

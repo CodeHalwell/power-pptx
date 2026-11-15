@@ -186,8 +186,7 @@ class DataLabels(object):
     def collision_strategy(self, value):
         if value not in ("auto", "shrink", "compact"):
             raise ValueError(
-                "collision_strategy must be 'auto', 'shrink', or 'compact'; "
-                f"got {value!r}"
+                f"collision_strategy must be 'auto', 'shrink', or 'compact'; got {value!r}"
             )
 
         # Step 1 — typography. Always shrink labels.

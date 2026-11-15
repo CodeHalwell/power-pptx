@@ -34,8 +34,7 @@ def _coerce_emu(value):
     # not a unit-conversion case we want to silently accept.
     if isinstance(value, (str, bytes, bytearray)):
         raise TypeError(
-            f"Expected int, float, or Emu-derived length; got "
-            f"{type(value).__name__}: {value!r}"
+            f"Expected int, float, or Emu-derived length; got {type(value).__name__}: {value!r}"
         )
     if isinstance(value, float):
         try:
@@ -43,15 +42,12 @@ def _coerce_emu(value):
         except (OverflowError, ValueError) as exc:
             # NaN → ValueError, ±inf → OverflowError. Normalise to
             # TypeError so callers get a single, informative exception.
-            raise TypeError(
-                f"Cannot coerce non-finite float to EMU: {value!r}"
-            ) from exc
+            raise TypeError(f"Cannot coerce non-finite float to EMU: {value!r}") from exc
     try:
         return int(round(float(value)))
     except (TypeError, ValueError, OverflowError):
         raise TypeError(
-            f"Expected int, float, or Emu-derived length; got "
-            f"{type(value).__name__}: {value!r}"
+            f"Expected int, float, or Emu-derived length; got {type(value).__name__}: {value!r}"
         )
 
 

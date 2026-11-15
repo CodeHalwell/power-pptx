@@ -29,21 +29,24 @@ def slide():
 class DescribeHorizontalPipeline:
     def it_creates_one_card_per_step(self, slide):
         result = horizontal_pipeline(
-            slide, BBox.from_inches(0, 0, 8, 1.5),
+            slide,
+            BBox.from_inches(0, 0, 8, 1.5),
             steps=["A", "B", "C", "D"],
         )
         assert len(result.cards) == 4
 
     def it_creates_n_minus_one_arrows(self, slide):
         result = horizontal_pipeline(
-            slide, BBox.from_inches(0, 0, 8, 1.5),
+            slide,
+            BBox.from_inches(0, 0, 8, 1.5),
             steps=["A", "B", "C"],
         )
         assert len(result.arrows) == 2
 
     def it_accepts_dict_steps_with_per_step_colors(self, slide):
         result = horizontal_pipeline(
-            slide, BBox.from_inches(0, 0, 8, 1.5),
+            slide,
+            BBox.from_inches(0, 0, 8, 1.5),
             steps=[{"label": "A", "fill": "#FF0000"}, {"label": "B"}],
         )
         assert len(result.cards) == 2
@@ -56,7 +59,8 @@ class DescribeHorizontalPipeline:
 class DescribeVerticalPipeline:
     def it_stacks_cards_vertically(self, slide):
         result = vertical_pipeline(
-            slide, BBox.from_inches(0, 0, 4, 6),
+            slide,
+            BBox.from_inches(0, 0, 4, 6),
             steps=["A", "B", "C"],
         )
         assert len(result.cards) == 3
@@ -67,7 +71,8 @@ class DescribeVerticalPipeline:
 class DescribeHubAndSpoke:
     def it_creates_hub_plus_n_spokes(self, slide):
         result = hub_and_spoke(
-            slide, BBox.from_inches(0, 0, 8, 6),
+            slide,
+            BBox.from_inches(0, 0, 8, 6),
             centre="Core",
             spokes=["A", "B", "C", "D"],
         )
@@ -79,7 +84,8 @@ class DescribeHubAndSpoke:
 class DescribeCycle:
     def it_creates_a_loop_with_n_arrows(self, slide):
         result = cycle(
-            slide, BBox.from_inches(0, 0, 8, 6),
+            slide,
+            BBox.from_inches(0, 0, 8, 6),
             steps=["Observe", "Orient", "Decide", "Act"],
         )
         assert len(result.cards) == 4
@@ -90,7 +96,8 @@ class DescribeCycle:
         # A label longer than the circle can show at the requested size must
         # be shrunk by the fit_text pre-flight rather than wrapped/clipped.
         result = cycle(
-            slide, BBox.from_inches(3, 2, 4, 2.5),
+            slide,
+            BBox.from_inches(3, 2, 4, 2.5),
             steps=["Retrieval", "Ingest", "Model", "Observe"],
             size_pt=14.0,
         )
@@ -108,7 +115,8 @@ class DescribeCycle:
 class DescribeHubAndSpokeFit:
     def it_fits_long_spoke_labels(self, slide):
         result = hub_and_spoke(
-            slide, BBox.from_inches(3, 1.5, 5, 4),
+            slide,
+            BBox.from_inches(3, 1.5, 5, 4),
             centre="Retrieval",
             spokes=["Retrieval", "Ingest", "Observe", "Model"],
             size_pt=14.0,
@@ -123,7 +131,8 @@ class DescribeHubAndSpokeFit:
 class DescribeDecisionTree:
     def it_creates_a_root_plus_branches(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(0, 0, 8, 6),
+            slide,
+            BBox.from_inches(0, 0, 8, 6),
             root="Q?",
             branches=["Yes", "No"],
         )
@@ -133,7 +142,8 @@ class DescribeDecisionTree:
 
     def it_supports_one_level_of_children(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(0, 0, 8, 6),
+            slide,
+            BBox.from_inches(0, 0, 8, 6),
             root="Q?",
             branches=[
                 {"label": "Yes", "children": ["a", "b"]},
@@ -150,10 +160,12 @@ class DescribeDecisionTree:
         from power_pptx._color import coerce_color
 
         result = decision_tree(
-            slide, BBox.from_inches(0, 0, 11, 5),
+            slide,
+            BBox.from_inches(0, 0, 11, 5),
             root="Request",
             branches=[{"label": "Cache miss", "children": ["Compute", "Store"]}],
-            fill="#141A23", text_color="#E6EDF3",
+            fill="#141A23",
+            text_color="#E6EDF3",
         )
         leaves = [b for b in result.branches if b.text_frame.text in ("Compute", "Store")]
         assert len(leaves) == 2
@@ -166,11 +178,14 @@ class DescribeDecisionTree:
         from power_pptx._color import coerce_color
 
         result = decision_tree(
-            slide, BBox.from_inches(0, 0, 11, 5),
+            slide,
+            BBox.from_inches(0, 0, 11, 5),
             root="Request",
             branches=[{"label": "Branch", "children": ["Leaf"]}],
-            fill="#141A23", text_color="#E6EDF3",
-            leaf_fill="#222C3A", leaf_text_color="#FFD166",
+            fill="#141A23",
+            text_color="#E6EDF3",
+            leaf_fill="#222C3A",
+            leaf_text_color="#FFD166",
         )
         leaf = next(b for b in result.branches if b.text_frame.text == "Leaf")
         assert leaf.fill.fore_color.rgb == coerce_color("#222C3A")
@@ -180,7 +195,8 @@ class DescribeDecisionTree:
 class DescribeComparisonColumns:
     def it_creates_header_and_body_per_column(self, slide):
         result = comparison_columns(
-            slide, BBox.from_inches(0, 0, 8, 4),
+            slide,
+            BBox.from_inches(0, 0, 8, 4),
             columns=[
                 {"title": "X", "body": "a"},
                 {"title": "Y", "body": ["a", "b"]},
@@ -218,7 +234,11 @@ def _fits_inscribed_square(node, font, bold=False):
     size = tf.paragraphs[0].runs[0].font.size
     try:
         measured = measure_text(
-            tf.text, Emu(width), size_pt=int(size.pt), font_family=font, bold=bold,
+            tf.text,
+            Emu(width),
+            size_pt=int(size.pt),
+            font_family=font,
+            bold=bold,
             line_spacing=1.0,
         )
     except ValueError:  # a word is wider than the text area: it would be split
@@ -231,8 +251,11 @@ class DescribeCircularLabelFit:
 
     def it_fits_hub_and_spoke_labels_without_breaking_words(self, slide, outfit):
         result = hub_and_spoke(
-            slide, BBox.from_inches(7, 1, 6, 5.5), centre="Platform",
-            spokes=["Retrieval", "Ranking", "Serving", "Monitoring"], font=outfit,
+            slide,
+            BBox.from_inches(7, 1, 6, 5.5),
+            centre="Platform",
+            spokes=["Retrieval", "Ranking", "Serving", "Monitoring"],
+            font=outfit,
         )
 
         # used to render "Platfor/m", "Retri/eval", "Ranki/ng", "Monito/ring"
@@ -242,7 +265,9 @@ class DescribeCircularLabelFit:
 
     def it_fits_cycle_labels_without_breaking_words(self, slide, outfit):
         result = cycle(
-            slide, BBox.from_inches(0.5, 1, 6, 5.5), ["Plan", "Build", "Measure", "Learn"],
+            slide,
+            BBox.from_inches(0.5, 1, 6, 5.5),
+            ["Plan", "Build", "Measure", "Learn"],
             font=outfit,
         )
 
@@ -271,8 +296,10 @@ class DescribeCircularLabelFit:
         message = r"cycle \(4 steps\): the label 'Internationalisation'"
         with pytest.raises(ValueError, match=message):
             cycle(
-                slide, BBox.from_inches(0, 0, 3, 2),
-                ["Plan", "Internationalisation", "Check", "Act"], font=outfit,
+                slide,
+                BBox.from_inches(0, 0, 3, 2),
+                ["Plan", "Internationalisation", "Check", "Act"],
+                font=outfit,
             )
         assert slide._element.xml == before  # nothing half-built is left behind
 
@@ -281,15 +308,21 @@ class DescribeCircularLabelFit:
 
         with pytest.raises(ValueError, match="hub_and_spoke hub: the label"):
             hub_and_spoke(
-                slide, BBox.from_inches(0, 0, 2, 2),
-                centre="Internationalisation", spokes=["A", "B"], font=outfit,
+                slide,
+                BBox.from_inches(0, 0, 2, 2),
+                centre="Internationalisation",
+                spokes=["A", "B"],
+                font=outfit,
             )
         assert slide._element.xml == before
 
     def it_lets_the_caller_lower_the_minimum(self, slide, outfit):
         result = cycle(
-            slide, BBox.from_inches(0, 0, 3, 2),
-            ["Plan", "Internationalisation", "Check", "Act"], font=outfit, min_size_pt=1,
+            slide,
+            BBox.from_inches(0, 0, 3, 2),
+            ["Plan", "Internationalisation", "Check", "Act"],
+            font=outfit,
+            min_size_pt=1,
         )
 
         size = result.cards[1].text_frame.paragraphs[0].runs[0].font.size
@@ -400,7 +433,9 @@ def _overlaps(first, second, tolerance=2):
 class DescribeDecisionTreeRouting:
     def it_routes_child_arrows_clear_of_every_child_card(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(1, 1, 11, 5.5), root="Is it urgent?",
+            slide,
+            BBox.from_inches(1, 1, 11, 5.5),
+            root="Is it urgent?",
             branches=[
                 {"label": "Yes", "children": ["Page on-call", "Open incident", "Notify exec"]},
                 {"label": "No", "children": ["Backlog", "Triage weekly", "Close"]},
@@ -415,8 +450,10 @@ class DescribeDecisionTreeRouting:
         assert len(leaves) == 6
         for arrow in result.arrows:
             segment = (
-                min(arrow.begin_x, arrow.end_x), min(arrow.begin_y, arrow.end_y),
-                max(arrow.begin_x, arrow.end_x), max(arrow.begin_y, arrow.end_y),
+                min(arrow.begin_x, arrow.end_x),
+                min(arrow.begin_y, arrow.end_y),
+                max(arrow.begin_x, arrow.end_x),
+                max(arrow.begin_y, arrow.end_y),
             )
             # a zero-thickness line still "overlaps" a card it passes through
             segment = (segment[0] - 1, segment[1] - 1, segment[2] + 1, segment[3] + 1)
@@ -426,7 +463,9 @@ class DescribeDecisionTreeRouting:
 
     def it_links_each_child_with_a_rail_and_a_short_arrow(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+            slide,
+            BBox.from_inches(1, 1, 11, 5.5),
+            root="Q?",
             branches=[{"label": "Yes", "children": ["a", "b", "c"]}, "No"],
         )
 
@@ -446,7 +485,9 @@ class DescribeDecisionTreeRouting:
 
         with pytest.raises(ValueError, match=r"decision_tree \(30 children\)"):
             decision_tree(
-                slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+                slide,
+                BBox.from_inches(1, 1, 11, 5.5),
+                root="Q?",
                 branches=[{"label": "B", "children": [f"leaf {j}" for j in range(30)]}],
             )
         assert slide._element.xml == before
@@ -470,7 +511,9 @@ class DescribeDecisionTreeInputs:
 
     def it_reads_child_labels_from_text_or_a_dict(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+            slide,
+            BBox.from_inches(1, 1, 11, 5.5),
+            root="Q?",
             branches=[{"label": "B", "children": ["text", {"label": "dict"}, {"other": 1}]}],
         )
 
@@ -478,7 +521,9 @@ class DescribeDecisionTreeInputs:
 
     def it_gives_a_childless_branch_its_whole_column(self, slide):
         result = decision_tree(
-            slide, BBox.from_inches(1, 1, 11, 5.5), root="Q?",
+            slide,
+            BBox.from_inches(1, 1, 11, 5.5),
+            root="Q?",
             branches=[{"label": "A"}, {"label": "B", "children": ["c"]}],
         )
 
@@ -495,9 +540,14 @@ class DescribeHubAndSpokeStyling:
         from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
 
         result = hub_and_spoke(
-            slide, BBox.from_inches(0, 0, 8, 6), centre="Core",
+            slide,
+            BBox.from_inches(0, 0, 8, 6),
+            centre="Core",
             spokes=["A", {"label": "B", "fill": "#EEEEEE", "text_color": "#112233"}],
-            font=outfit, accent="#0B5CFF", fill="#FFFFFF", text_color="#0D0D0D",
+            font=outfit,
+            accent="#0B5CFF",
+            fill="#FFFFFF",
+            text_color="#0D0D0D",
             hub_text_color="#FAFAFA",
         )
 
@@ -507,12 +557,14 @@ class DescribeHubAndSpokeStyling:
         assert hub_run.font.color.rgb == coerce_color("#FAFAFA")
         a, b = result.spokes
         assert [s.fill.fore_color.rgb for s in (a, b)] == [
-            coerce_color("#FFFFFF"), coerce_color("#EEEEEE")
+            coerce_color("#FFFFFF"),
+            coerce_color("#EEEEEE"),
         ]
         assert [s.line.color.rgb for s in (a, b)] == [coerce_color("#0B5CFF")] * 2
         runs = [s.text_frame.paragraphs[0].runs[0] for s in (a, b)]
         assert [r.font.color.rgb for r in runs] == [
-            coerce_color("#0D0D0D"), coerce_color("#112233")
+            coerce_color("#0D0D0D"),
+            coerce_color("#112233"),
         ]
         assert {r.font.name for r in runs} == {"Outfit"}
         for node in (result.hub, a, b):
@@ -542,7 +594,8 @@ class DescribeComparisonColumnsInputs:
 
     def it_takes_a_bare_string_as_a_title_over_an_empty_body(self, slide):
         result = comparison_columns(
-            slide, BBox.from_inches(0, 0, 8, 4),
+            slide,
+            BBox.from_inches(0, 0, 8, 4),
             columns=["Only a title", {"title": "T", "body": ["a", "b"]}, {"body": "c"}],
         )
 
@@ -560,7 +613,9 @@ class DescribeComparisonColumnsInputs:
 
     def it_names_the_body_font_when_one_is_given(self, slide, outfit):
         result = comparison_columns(
-            slide, BBox.from_inches(0, 0, 8, 4), columns=[{"title": "T", "body": "text"}],
+            slide,
+            BBox.from_inches(0, 0, 8, 4),
+            columns=[{"title": "T", "body": "text"}],
             font=outfit,
         )
 
@@ -575,7 +630,9 @@ class DescribeComparisonColumnsInputs:
         monkeypatch.setattr(TextFrame, "fit_text", fail)
 
         result = comparison_columns(
-            slide, BBox.from_inches(0, 0, 8, 4), columns=[{"title": "T", "body": "text"}],
+            slide,
+            BBox.from_inches(0, 0, 8, 4),
+            columns=[{"title": "T", "body": "text"}],
             body_size_pt=12,
         )
 

@@ -149,9 +149,7 @@ def _import_slide_part(
 ) -> Slide:
     """Copy *src_slide_part* into the presentation of *dst_prs_part*; return the new |Slide|."""
     if merge_master not in _MERGE_MASTER_VALUES:
-        raise ValueError(
-            "merge_master must be 'dedupe' or 'clone', got %r" % (merge_master,)
-        )
+        raise ValueError("merge_master must be 'dedupe' or 'clone', got %r" % (merge_master,))
     importer = _SlideImporter(src_slide_part, dst_prs_part, merge_master)
     return importer.run()
 
@@ -281,9 +279,7 @@ class _PartCopier:
         dropped: set[str] = set()
         for rel in src_part.rels.values():
             if rel.is_external:
-                id_map[rel.rId] = dst_part.relate_to(
-                    rel.target_ref, rel.reltype, is_external=True
-                )
+                id_map[rel.rId] = dst_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
                 continue
             if rel.reltype in _MASTER_HIERARCHY_RELTYPES:
                 continue

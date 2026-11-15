@@ -30,9 +30,7 @@ from power_pptx.text import clear_registered_fonts, register_font_dir
 from power_pptx.util import Inches, Pt
 from power_pptx.validation import iter_schema_violations
 
-_TEST_IMAGE = os.path.join(
-    os.path.dirname(__file__), "..", "test_files", "monty-truth.png"
-)
+_TEST_IMAGE = os.path.join(os.path.dirname(__file__), "..", "test_files", "monty-truth.png")
 
 
 @pytest.fixture
@@ -82,12 +80,7 @@ def _runs(slide):
 
 
 def _paragraph_texts(slide):
-    return [
-        p.text
-        for sh in slide.shapes
-        if sh.has_text_frame
-        for p in sh.text_frame.paragraphs
-    ]
+    return [p.text for sh in slide.shapes if sh.has_text_frame for p in sh.text_frame.paragraphs]
 
 
 class DescribeTitleSlide:
@@ -261,9 +254,7 @@ class DescribeKpiSlide:
             kpis=[{"label": "ARR", "value": "$182M"}],
             tokens=tokens,
         )
-        card = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        )
+        card = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE)
         assert card.shadow.blur_radius == Pt(8)
         assert card.shadow.distance == Pt(2)
 
@@ -309,20 +300,12 @@ class DescribeImageHeroSlide:
         assert pics[0].height == prs.slide_height
 
     def it_renders_the_caption_when_provided(self, prs):
-        slide = image_hero_slide(
-            prs, title="T", image=_TEST_IMAGE, caption="A short caption"
-        )
+        slide = image_hero_slide(prs, title="T", image=_TEST_IMAGE, caption="A short caption")
         assert any("A short caption" in t for t in _paragraph_texts(slide))
 
     def it_uses_the_token_primary_color_for_the_band(self, prs, tokens):
-        slide = image_hero_slide(
-            prs, title="T", image=_TEST_IMAGE, tokens=tokens
-        )
-        bands = [
-            s
-            for s in slide.shapes
-            if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        slide = image_hero_slide(prs, title="T", image=_TEST_IMAGE, tokens=tokens)
+        bands = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert bands
         assert bands[0].fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
 
@@ -340,9 +323,7 @@ class DescribeSectionDivider:
     def it_renders_progress_dots(self, prs):
         slide = section_divider(prs, title="X", progress=(3, 7))
         # 1 backdrop rectangle + 7 dots = 8 auto-shapes
-        autoshapes = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        autoshapes = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert len(autoshapes) == 1 + 7
 
     def it_rejects_invalid_progress(self, prs):
@@ -353,30 +334,32 @@ class DescribeSectionDivider:
 class DescribeChartSlide:
     def it_appends_a_slide_with_a_chart(self, prs):
         slide = chart_slide(
-            prs, title="Revenue", chart_type="line",
+            prs,
+            title="Revenue",
+            chart_type="line",
             categories=["Q1", "Q2", "Q3"],
             series=[{"name": "Rev", "values": [10, 20, 30]}],
         )
-        graphic_frames = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART
-        ]
+        graphic_frames = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART]
         assert len(graphic_frames) == 1
 
     def it_supports_known_chart_types(self, prs):
         for kind in ("line", "bar", "column", "pie", "area"):
             slide = chart_slide(
-                prs, title="x", chart_type=kind,
+                prs,
+                title="x",
+                chart_type=kind,
                 categories=["A", "B"],
                 series=[{"name": "S", "values": [1, 2]}],
             )
-            assert any(
-                s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes
-            )
+            assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in slide.shapes)
 
     def it_rejects_unknown_chart_types(self, prs):
         with pytest.raises(ValueError, match="Unknown chart_type"):
             chart_slide(
-                prs, title="x", chart_type="radar",
+                prs,
+                title="x",
+                chart_type="radar",
                 categories=["A"],
                 series=[{"name": "S", "values": [1]}],
             )
@@ -385,13 +368,12 @@ class DescribeChartSlide:
 class DescribeTableSlide:
     def it_appends_a_slide_with_a_table(self, prs):
         slide = table_slide(
-            prs, title="T",
+            prs,
+            title="T",
             columns=["A", "B"],
             rows=[["1", "2"], ["3", "4"]],
         )
-        tables = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ]
+        tables = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE]
         assert len(tables) == 1
         # 2 data rows + 1 header = 3 rows
         assert len(tables[0].table.rows) == 3
@@ -399,13 +381,13 @@ class DescribeTableSlide:
 
     def it_uses_token_palette_for_header(self, prs, tokens):
         slide = table_slide(
-            prs, title="T",
-            columns=["A"], rows=[["1"]],
+            prs,
+            title="T",
+            columns=["A"],
+            rows=[["1"]],
             tokens=tokens,
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         header_cell = table.cell(0, 0)
         assert header_cell.fill.fore_color.rgb == RGBColor(0x3C, 0x2F, 0x80)
 
@@ -449,7 +431,8 @@ class DescribeCodeSlide:
 class DescribeTimelineSlide:
     def it_renders_one_marker_per_milestone(self, prs):
         slide = timeline_slide(
-            prs, title="T",
+            prs,
+            title="T",
             milestones=[
                 {"date": "Q1", "label": "Spec", "done": True},
                 {"date": "Q2", "label": "Build"},
@@ -457,26 +440,23 @@ class DescribeTimelineSlide:
             ],
         )
         # 1 rail + 3 dots = 4 auto-shapes
-        autoshapes = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-        ]
+        autoshapes = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
         assert len(autoshapes) == 4
 
     def it_tints_done_milestones_with_positive_color(self, prs, tokens):
         slide = timeline_slide(
-            prs, title="T",
+            prs,
+            title="T",
             milestones=[{"date": "Q1", "label": "Spec", "done": True}],
             tokens=tokens,
         )
         # Find the milestone dot (small oval).
         ovals = [
-            s for s in slide.shapes
+            s
+            for s in slide.shapes
             if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.height < 914400
         ]
-        assert any(
-            o.fill.fore_color.rgb == RGBColor(0x00, 0x85, 0x3E)
-            for o in ovals
-        )
+        assert any(o.fill.fore_color.rgb == RGBColor(0x00, 0x85, 0x3E) for o in ovals)
 
     def it_rejects_empty_milestones(self, prs):
         with pytest.raises(ValueError, match="at least one"):
@@ -486,8 +466,10 @@ class DescribeTimelineSlide:
 class DescribeComparisonSlide:
     def it_renders_left_and_right_columns_with_matched_rows(self, prs):
         slide = comparison_slide(
-            prs, title="X",
-            left_heading="Old", right_heading="New",
+            prs,
+            title="X",
+            left_heading="Old",
+            right_heading="New",
             rows=[
                 {"left": "L1", "right": "R1"},
                 {"left": "L2", "right": "R2"},
@@ -503,61 +485,57 @@ class DescribeChartSlidePolish:
 
     def it_disables_the_legend_when_asked(self, prs):
         chart_slide(
-            prs, title="x", chart_type="line",
+            prs,
+            title="x",
+            chart_type="line",
             categories=["A", "B"],
             series=[{"name": "S", "values": [1, 2]}],
             legend=False,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         assert gframe.chart.has_legend is False
 
     def it_smooths_a_line_chart(self, prs):
         chart_slide(
-            prs, title="x", chart_type="line",
+            prs,
+            title="x",
+            chart_type="line",
             categories=["A", "B"],
             series=[{"name": "S", "values": [1, 2]}],
             smooth=True,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         assert all(s.smooth for s in gframe.chart.series)
 
     def it_applies_a_named_palette(self, prs):
         chart_slide(
-            prs, title="x", chart_type="column",
+            prs,
+            title="x",
+            chart_type="column",
             categories=["A", "B"],
-            series=[{"name": "S1", "values": [1, 2]},
-                    {"name": "S2", "values": [3, 4]}],
+            series=[{"name": "S1", "values": [1, 2]}, {"name": "S2", "values": [3, 4]}],
             chart_palette="modern",
         )
         # Palette application is best-effort but mustn't blow up.
-        assert any(
-            s.shape_type == MSO_SHAPE_TYPE.CHART for s in prs.slides[-1].shapes
-        )
+        assert any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in prs.slides[-1].shapes)
 
     def it_derives_a_chart_palette_from_tokens(self, prs, tokens):
         # No explicit chart_palette → recipe walks tokens.palette and
         # paints every series.
         chart_slide(
-            prs, title="x", chart_type="column",
+            prs,
+            title="x",
+            chart_type="column",
             categories=["A", "B"],
-            series=[{"name": "S1", "values": [1, 2]},
-                    {"name": "S2", "values": [3, 4]}],
+            series=[{"name": "S1", "values": [1, 2]}, {"name": "S2", "values": [3, 4]}],
             tokens=tokens,
         )
-        gframe = next(
-            s for s in prs.slides[-1].shapes
-            if s.shape_type == MSO_SHAPE_TYPE.CHART
-        )
+        gframe = next(s for s in prs.slides[-1].shapes if s.shape_type == MSO_SHAPE_TYPE.CHART)
         # Verify each series has a solid spPr fill (i.e. palette was
         # actually applied — the default chart style leaves the spPr
         # absent and series pull their colours from the theme).
         from power_pptx.enum.dml import MSO_FILL_TYPE
+
         fills = [s.format.fill.type for s in gframe.chart.series]
         assert all(f == MSO_FILL_TYPE.SOLID for f in fills)
 
@@ -567,14 +545,13 @@ class DescribeTableSlidePolish:
 
     def it_applies_explicit_column_width_fractions(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["A", "B", "C"],
             rows=[["1", "2", "3"]],
             widths=[0.5, 0.25, 0.25],
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         cols = list(table.columns)
         # Col 0 should be ~2x wider than col 1.
         ratio = int(cols[0].width) / int(cols[1].width)
@@ -582,27 +559,25 @@ class DescribeTableSlidePolish:
 
     def it_right_aligns_numeric_columns(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["Region", "Revenue"],
             rows=[["NA", "$10"]],
             aligns=["left", "right"],
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         revenue_para = table.cell(1, 1).text_frame.paragraphs[0]
         assert revenue_para.alignment == PP_ALIGN.RIGHT
 
     def it_renders_a_totals_row(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["Region", "Q1", "Q2"],
             rows=[["NA", "10", "20"], ["EU", "5", "15"]],
             totals={"label": "Total", "values": [15, 35]},
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         # Header + 2 data rows + 1 totals row = 4 rows.
         assert len(table.rows) == 4
         footer = table.cell(3, 0).text_frame.text
@@ -612,21 +587,21 @@ class DescribeTableSlidePolish:
 
     def it_accepts_explicit_totals_row(self, prs):
         slide = table_slide(
-            prs, title="t",
+            prs,
+            title="t",
             columns=["A", "B"],
             rows=[["1", "2"]],
             totals={"row": ["Sum", "X"]},
         )
-        table = next(
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE
-        ).table
+        table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
         assert "Sum" in table.cell(2, 0).text_frame.text
         assert "X" in table.cell(2, 1).text_frame.text
 
     def it_rejects_a_misshapen_explicit_totals_row(self, prs):
         with pytest.raises(ValueError, match="totals.row"):
             table_slide(
-                prs, title="t",
+                prs,
+                title="t",
                 columns=["A", "B"],
                 rows=[["1", "2"]],
                 totals={"row": ["only-one"]},
@@ -635,8 +610,10 @@ class DescribeTableSlidePolish:
     def it_rejects_unknown_align(self, prs):
         with pytest.raises(ValueError, match="align"):
             table_slide(
-                prs, title="t",
-                columns=["A"], rows=[["1"]],
+                prs,
+                title="t",
+                columns=["A"],
+                rows=[["1"]],
                 aligns=["middle"],
             )
 
@@ -659,13 +636,13 @@ class DescribeIsMarkupString:
     def it_recognises_html_documents(self):
         from power_pptx.design.recipes import _is_markup_string
 
-        assert _is_markup_string('<html><body>...</body></html>') is True
+        assert _is_markup_string("<html><body>...</body></html>") is True
 
     def it_rejects_filesystem_paths(self):
         from power_pptx.design.recipes import _is_markup_string
 
-        assert _is_markup_string('/tmp/foo.png') is False
-        assert _is_markup_string('charts/foo.svg') is False
+        assert _is_markup_string("/tmp/foo.png") is False
+        assert _is_markup_string("charts/foo.svg") is False
 
     def it_rejects_non_string_inputs(self):
         from power_pptx.design.recipes import _is_markup_string
@@ -925,9 +902,16 @@ class DescribeCodeSlideFit:
 
 
 def _milestones(n, long=False):
-    labels = ["Private alpha with design partners", "Public beta",
-              "General availability and pricing launch", "EU region",
-              "SOC 2 Type II", "Marketplace", "Mobile apps", "Enterprise tier"]
+    labels = [
+        "Private alpha with design partners",
+        "Public beta",
+        "General availability and pricing launch",
+        "EU region",
+        "SOC 2 Type II",
+        "Marketplace",
+        "Mobile apps",
+        "Enterprise tier",
+    ]
     return [
         {"date": f"Q{i % 4 + 1} 2026", "label": labels[i] if long else f"Phase {i + 1}"}
         for i in range(n)
@@ -957,7 +941,9 @@ class DescribeTimelineSlideLayout:
         if wide:
             _wide(prs)
         slide = timeline_slide(
-            prs, title="Roadmap", milestones=_milestones(n, long),
+            prs,
+            title="Roadmap",
+            milestones=_milestones(n, long),
             tokens=DesignTokens.from_preset("modern_light"),
         )
 
@@ -1063,9 +1049,7 @@ class DescribeRecipeCapacity:
     def it_writes_valid_positive_sizes_at_the_most_comparison_rows(self, prs):
         rows = [{"left": f"l{i}", "right": f"r{i}"} for i in range(21)]
 
-        slide = comparison_slide(
-            prs, title="t", left_heading="A", right_heading="B", rows=rows
-        )
+        slide = comparison_slide(prs, title="t", left_heading="A", right_heading="B", rows=rows)
 
         assert all(s.width > 0 and s.height > 0 for s in slide.shapes)
         assert max(s.top + s.height for s in slide.shapes) <= prs.slide_height
@@ -1141,27 +1125,26 @@ class DescribeBakedFit:
 
         slide = kpi_slide(prs, title="t", kpis=kpis, tokens=outfit_tokens)
 
-        value_sizes = {
-            r.font.size
-            for r in _runs(slide)
-            if r.text.startswith("$")
-        }
+        value_sizes = {r.font.size for r in _runs(slide) if r.text.startswith("$")}
         # "$0M" fits larger than "$259M"; the row uses the smaller for all
         assert len(value_sizes) == 1
         assert Pt(9) <= value_sizes.pop() < Pt(32)
 
     def it_sets_one_row_size_across_a_comparison(self, prs, outfit_tokens):
-        rows = [{"left": f"Old way number {i} which is slow", "right": f"New {i}"}
-                for i in range(16)]
+        rows = [
+            {"left": f"Old way number {i} which is slow", "right": f"New {i}"} for i in range(16)
+        ]
 
         slide = comparison_slide(
-            prs, title="t", left_heading="Before", right_heading="After", rows=rows,
+            prs,
+            title="t",
+            left_heading="Before",
+            right_heading="After",
+            rows=rows,
             tokens=outfit_tokens,
         )
 
-        row_sizes = {
-            r.font.size for r in _runs(slide) if r.text.startswith(("Old way", "New "))
-        }
+        row_sizes = {r.font.size for r in _runs(slide) if r.text.startswith(("Old way", "New "))}
         assert len(row_sizes) == 1
         assert Pt(9) <= row_sizes.pop() < Pt(16)
 
@@ -1169,7 +1152,10 @@ class DescribeBakedFit:
         rows = [[f"Region {i}", f"${i}M", "ok"] for i in range(18)]
 
         slide = table_slide(
-            prs, title="t", columns=["Region", "Revenue", "Note"], rows=rows,
+            prs,
+            title="t",
+            columns=["Region", "Revenue", "Note"],
+            rows=rows,
             tokens=outfit_tokens,
         )
 
@@ -1195,7 +1181,11 @@ class DescribeBakedFit:
         rows = [["A", long_note], ["B", "ok"], ["C", "ok"], ["D", "ok"], ["E", "ok"]]
 
         slide = table_slide(
-            prs, title="t", columns=["Key", "Note"], rows=rows, widths=[3, 1],
+            prs,
+            title="t",
+            columns=["Key", "Note"],
+            rows=rows,
+            widths=[3, 1],
             tokens=outfit_tokens,
         )
 
@@ -1209,7 +1199,10 @@ class DescribeTableSlideWidths:
 
     def _widths(self, prs, widths, n_cols=3):
         slide = table_slide(
-            prs, title="t", columns=list("ABCDE")[:n_cols], rows=[["1"] * n_cols],
+            prs,
+            title="t",
+            columns=list("ABCDE")[:n_cols],
+            rows=[["1"] * n_cols],
             widths=widths,
         )
         table = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.TABLE).table
@@ -1258,7 +1251,9 @@ class DescribeTableSlideWidths:
         assert cols[0] == Inches(2)
         assert cols[1:] == pytest.approx([rest * 2 / 3, rest / 3], abs=2)
         assert self._widths(prs, [Inches(1), Inches(2), Inches(3)]) == [
-            Inches(1), Inches(2), Inches(3)
+            Inches(1),
+            Inches(2),
+            Inches(3),
         ]
 
     @pytest.mark.parametrize(
@@ -1412,9 +1407,9 @@ class DescribeFigureSlideFailure:
     @pytest.mark.parametrize(
         ("figure", "options", "error"),
         [
-            (12345, {}, TypeError),                                   # no adapter takes it
-            ("no/such/figure.png", {}, FileNotFoundError),            # a missing path
-            (b"\x00\x01 not an image", {}, OSError),                  # unreadable bytes
+            (12345, {}, TypeError),  # no adapter takes it
+            ("no/such/figure.png", {}, FileNotFoundError),  # a missing path
+            (b"\x00\x01 not an image", {}, OSError),  # unreadable bytes
             (_PlotlyLike(), {"plotly_options": {"backend": "nope"}}, ValueError),
             (_PlotlyLike(), {"plotly_options": {"dpi": 300}}, TypeError),
         ],
@@ -1473,7 +1468,8 @@ class DescribeItemValidation:
     def it_rejects_milestones_with_the_wrong_keys(self, prs):
         with pytest.raises(ValueError, match=r"timeline_slide: milestones\[1\].*'when'"):
             timeline_slide(
-                prs, title="t",
+                prs,
+                title="t",
                 milestones=[{"date": "Q1", "label": "A"}, {"when": "Q2", "title": "B"}],
             )
         assert len(prs.slides) == 0
@@ -1481,7 +1477,10 @@ class DescribeItemValidation:
     def it_rejects_comparison_rows_with_the_wrong_keys(self, prs):
         with pytest.raises(ValueError, match=r"comparison_slide: rows\[0\].*'after'.*'before'"):
             comparison_slide(
-                prs, title="t", left_heading="A", right_heading="B",
+                prs,
+                title="t",
+                left_heading="A",
+                right_heading="B",
                 rows=[{"before": "slow", "after": "fast"}],
             )
         assert len(prs.slides) == 0
@@ -1489,7 +1488,9 @@ class DescribeItemValidation:
     def it_rejects_chart_series_with_the_wrong_keys(self, prs):
         with pytest.raises(ValueError) as exc:
             chart_slide(
-                prs, title="t", categories=["Q1", "Q2"],
+                prs,
+                title="t",
+                categories=["Q1", "Q2"],
                 series=[{"label": "ARR", "data": [1, 2]}],
             )
 
@@ -1508,9 +1509,7 @@ class DescribeItemValidation:
         from power_pptx.compose import from_spec
 
         with pytest.raises(ValueError, match=r"slides\[0\]: kpi_slide: kpis\[0\]"):
-            from_spec(
-                {"slides": [{"layout": "kpi", "title": "T", "kpis": [{"name": "ARR"}]}]}
-            )
+            from_spec({"slides": [{"layout": "kpi", "title": "T", "kpis": [{"name": "ARR"}]}]})
 
     def it_rejects_a_bare_string_of_bullets(self, prs):
         with pytest.raises(ValueError, match="bullets must be a list of strings"):
@@ -1518,7 +1517,9 @@ class DescribeItemValidation:
 
     def it_charts_none_values_as_gaps(self, prs):
         slide = chart_slide(
-            prs, title="t", categories=["Q1", "Q2", "Q3"],
+            prs,
+            title="t",
+            categories=["Q1", "Q2", "Q3"],
             series=[{"name": "ARR", "values": [1, None, 3]}],  # used to raise TypeError
         )
 
@@ -1528,9 +1529,7 @@ class DescribeItemValidation:
 
     def it_rejects_non_numeric_chart_values(self, prs):
         with pytest.raises(ValueError, match=r"series\[0\] 'values' must be numbers or None"):
-            chart_slide(
-                prs, title="t", categories=["Q1"], series=[{"name": "A", "values": ["x"]}]
-            )
+            chart_slide(prs, title="t", categories=["Q1"], series=[{"name": "A", "values": ["x"]}])
 
     def it_does_not_document_a_chart_type_it_rejects(self):
         assert "scatter" in chart_slide.__doc__  # explained, not offered
@@ -1546,8 +1545,10 @@ def _text_on(slide, surface_shape):
         if not shape.has_text_frame:
             continue
         inside = (
-            shape.left >= left and shape.top >= top
-            and shape.left + shape.width <= right and shape.top + shape.height <= bottom
+            shape.left >= left
+            and shape.top >= top
+            and shape.left + shape.width <= right
+            and shape.top + shape.height <= bottom
         )
         if inside:
             runs += [r for p in shape.text_frame.paragraphs for r in p.runs if r.text]
@@ -1562,7 +1563,9 @@ class DescribePresetContrast:
         tokens = DesignTokens.from_preset(preset)
 
         slide = kpi_slide(
-            prs, title="Metrics", tokens=tokens,
+            prs,
+            title="Metrics",
+            tokens=tokens,
             kpis=[
                 {"label": "ARR", "value": "$182M", "delta": 0.27},
                 {"label": "Churn", "value": "2%", "delta": -0.03},
@@ -1594,8 +1597,12 @@ class DescribePresetContrast:
         tokens = DesignTokens.from_preset(preset)
 
         slide = comparison_slide(
-            prs, title="Cmp", left_heading="Before", right_heading="After",
-            rows=[{"left": "slow", "right": "fast"}], tokens=tokens,
+            prs,
+            title="Cmp",
+            left_heading="Before",
+            right_heading="After",
+            rows=[{"left": "slow", "right": "fast"}],
+            tokens=tokens,
         )
 
         bands = [s for s in _autoshapes(slide) if s.text_frame.text in ("Before", "After")]
@@ -1610,7 +1617,11 @@ class DescribePresetContrast:
         tokens = DesignTokens.from_preset(preset)
 
         slide = table_slide(
-            prs, title="T", columns=["a", "b"], rows=[[1, 2], [3, 4]], tokens=tokens,
+            prs,
+            title="T",
+            columns=["a", "b"],
+            rows=[[1, 2], [3, 4]],
+            tokens=tokens,
             totals={"label": "Total", "values": [6]},
         )
 
@@ -1666,23 +1677,37 @@ class DescribeRecipeDeckRoundTrip:
         title_slide(prs, title="Q4 Review", subtitle="April 2026", tokens=tokens)
         bullet_slide(prs, title="Highlights", bullets=["One", "Two"], tokens=tokens)
         kpi_slide(
-            prs, title="KPIs", tokens=tokens,
+            prs,
+            title="KPIs",
+            tokens=tokens,
             kpis=[{"label": "ARR", "value": "$182M", "delta": 0.27}],
         )
         table_slide(
-            prs, title="Table", columns=["a", "b"], rows=[[1, 2]], widths=[2, 1],
-            totals={"label": "Total", "values": [2]}, tokens=tokens,
+            prs,
+            title="Table",
+            columns=["a", "b"],
+            rows=[[1, 2]],
+            widths=[2, 1],
+            totals={"label": "Total", "values": [2]},
+            tokens=tokens,
         )
         code_slide(prs, title="Code", code="x = 1\n" * 80, language="python", tokens=tokens)
         timeline_slide(prs, title="Roadmap", milestones=_milestones(5), tokens=tokens)
         comparison_slide(
-            prs, title="Cmp", left_heading="A", right_heading="B",
-            rows=[{"left": "l", "right": "r"}], tokens=tokens,
+            prs,
+            title="Cmp",
+            left_heading="A",
+            right_heading="B",
+            rows=[{"left": "l", "right": "r"}],
+            tokens=tokens,
         )
         section_divider(prs, title="Part two", progress=(2, 5), tokens=tokens)
         chart_slide(
-            prs, title="Chart", categories=["Q1", "Q2"],
-            series=[{"name": "ARR", "values": [1, None]}], tokens=tokens,
+            prs,
+            title="Chart",
+            categories=["Q1", "Q2"],
+            series=[{"name": "ARR", "values": [1, None]}],
+            tokens=tokens,
         )
         return prs
 
@@ -1717,16 +1742,12 @@ _SVG = (
 class DescribeChartSlideInputs:
     """`chart_slide` validates series values and degrades gracefully on styling."""
 
-    @pytest.mark.parametrize(
-        ("values", "kind"), [("123", "str"), (5, "int"), ({"a": 1}, "dict")]
-    )
+    @pytest.mark.parametrize(("values", "kind"), [("123", "str"), (5, "int"), ({"a": 1}, "dict")])
     def it_rejects_series_values_that_are_not_a_list(self, prs, values, kind):
         with pytest.raises(
             ValueError, match=rf"series\[0\] 'values' must be a list of numbers, got {kind}$"
         ):
-            chart_slide(
-                prs, title="t", categories=["a"], series=[{"name": "s", "values": values}]
-            )
+            chart_slide(prs, title="t", categories=["a"], series=[{"name": "s", "values": values}])
         assert len(prs.slides) == 0
 
     def it_rejects_series_values_that_are_not_numbers(self, prs):
@@ -1735,28 +1756,35 @@ class DescribeChartSlideInputs:
             match=r"series\[1\] 'values' must be numbers or None: could not convert",
         ):
             chart_slide(
-                prs, title="t", categories=["a", "b"],
+                prs,
+                title="t",
+                categories=["a", "b"],
                 series=[{"name": "s", "values": [1, 2]}, {"name": "u", "values": [1, "x"]}],
             )
         assert len(prs.slides) == 0
 
     def it_colours_pie_slices_by_category(self, prs):
         slide = chart_slide(
-            prs, title="t", chart_type="pie", categories=["a", "b", "c"],
+            prs,
+            title="t",
+            chart_type="pie",
+            categories=["a", "b", "c"],
             series=[{"name": "s", "values": [1, 2, 3]}],
             chart_palette=["#FF0000", "#00FF00", "#0000FF"],
         )
 
         points = _chart(slide).plots[0].series[0].points
-        assert [str(p.format.fill.fore_color.rgb) for p in points] == [
-            "FF0000", "00FF00", "0000FF"
-        ]
+        assert [str(p.format.fill.fore_color.rgb) for p in points] == ["FF0000", "00FF00", "0000FF"]
 
     @pytest.mark.parametrize("chart_type", ["column", "doughnut"])
     def it_keeps_the_default_colours_when_the_palette_is_unknown(self, prs, chart_type):
         slide = chart_slide(
-            prs, title="t", chart_type=chart_type, categories=["a", "b"],
-            series=[{"name": "s", "values": [1, 2]}], chart_palette="no-such-palette",
+            prs,
+            title="t",
+            chart_type=chart_type,
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            chart_palette="no-such-palette",
         )
 
         series = _chart(slide).plots[0].series[0]
@@ -1766,20 +1794,32 @@ class DescribeChartSlideInputs:
     @pytest.mark.parametrize("data_labels", [True, False])
     def it_turns_data_labels_on_for_every_plot_only_when_asked(self, prs, data_labels):
         slide = chart_slide(
-            prs, title="t", chart_type="column", categories=["a", "b"],
-            series=[{"name": "s", "values": [1, 2]}], data_labels=data_labels,
+            prs,
+            title="t",
+            chart_type="column",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            data_labels=data_labels,
         )
 
         assert [p.has_data_labels for p in _chart(slide).plots] == [data_labels]
 
     def it_smooths_line_marker_charts_but_leaves_other_types_alone(self, prs):
         line = chart_slide(
-            prs, title="t", chart_type="line_markers", categories=["a", "b"],
-            series=[{"name": "s", "values": [1, 2]}], smooth=True,
+            prs,
+            title="t",
+            chart_type="line_markers",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            smooth=True,
         )
         area = chart_slide(
-            prs, title="t", chart_type="area", categories=["a", "b"],
-            series=[{"name": "s", "values": [1, 2]}], smooth=True,
+            prs,
+            title="t",
+            chart_type="area",
+            categories=["a", "b"],
+            series=[{"name": "s", "values": [1, 2]}],
+            smooth=True,
         )
 
         assert [s.smooth for s in _chart(line).series] == [True]
@@ -1820,8 +1860,12 @@ class DescribeTableSlideInputs:
             ValueError, match="10 rows do not fit on the slide at the 9pt minimum; 8 fit"
         ):
             table_slide(
-                prs, title="t", columns=["Key", "Note"], rows=[["A", long_note]] * 10,
-                widths=[3, 1], tokens=outfit_tokens,
+                prs,
+                title="t",
+                columns=["Key", "Note"],
+                rows=[["A", long_note]] * 10,
+                widths=[3, 1],
+                tokens=outfit_tokens,
             )
         assert len(prs.slides) == 0
 
@@ -1850,13 +1894,18 @@ class DescribeTableSlideInputs:
 
     def it_aligns_columns_past_the_end_of_aligns_to_the_left(self, prs):
         slide = table_slide(
-            prs, title="t", columns=["a", "b", "c"], rows=[[1, 2, 3]],
+            prs,
+            title="t",
+            columns=["a", "b", "c"],
+            rows=[[1, 2, 3]],
             aligns=[PP_ALIGN.RIGHT, "Center"],
         )
 
         table = _table(slide)
         assert [table.cell(1, c).text_frame.paragraphs[0].alignment for c in range(3)] == [
-            PP_ALIGN.RIGHT, PP_ALIGN.CENTER, PP_ALIGN.LEFT
+            PP_ALIGN.RIGHT,
+            PP_ALIGN.CENTER,
+            PP_ALIGN.LEFT,
         ]
 
 
@@ -1876,7 +1925,9 @@ class DescribeCodeSlideHighlighting:
         lines = _pygments_highlight("const a = `x\ny`;\n", "javascript", dark=False)
 
         assert [[text for text, _ in line] for line in lines] == [
-            ["const", " ", "a", " ", "=", " ", "`", "x"], ["y", "`", ";"], []
+            ["const", " ", "a", " ", "=", " ", "`", "x"],
+            ["y", "`", ";"],
+            [],
         ]
         template = RGBColor(0xA3, 0x15, 0x15)  # light-panel string colour
         assert lines[0][-1] == ("x", template)
@@ -1894,8 +1945,13 @@ class DescribeCodeSlideHighlighting:
         # String.Single has no entry of its own and takes String's colour;
         # an operator maps to None, the plain-text colour.
         assert lines[0] == [
-            ("s", None), (" ", None), ("=", None), (" ", None),
-            ("'", string), ("a", string), ("'", string),
+            ("s", None),
+            (" ", None),
+            ("=", None),
+            (" ", None),
+            ("'", string),
+            ("a", string),
+            ("'", string),
         ]
 
     @pytest.mark.parametrize("language", [None, "", "no-such-language"])
@@ -1939,7 +1995,9 @@ class DescribeTimelineSlideLabels:
 
     def it_sets_every_label_to_the_size_the_longest_needs(self, prs, outfit_tokens):
         slide = timeline_slide(
-            prs, title="t", tokens=outfit_tokens,
+            prs,
+            title="t",
+            tokens=outfit_tokens,
             milestones=[
                 {"date": "Q1", "label": "Alpha"},
                 {"date": "Q2", "label": self._LONG * 4},
@@ -1949,7 +2007,9 @@ class DescribeTimelineSlideLabels:
 
         runs = self._label_runs(slide)
         assert [[text[:5] for text, _ in box] for box in runs] == [
-            ["Q1", "Alpha"], ["Q2", "Gener"], ["GA"]
+            ["Q1", "Alpha"],
+            ["Q2", "Gener"],
+            ["GA"],
         ]
         # -- body is 16pt; the long label needs 13pt at the 1.2 em line pitch
         # -- PowerPoint and LibreOffice give a shape --
@@ -1961,7 +2021,9 @@ class DescribeTimelineSlideLabels:
 
     def it_sets_the_minimum_and_autofit_when_a_label_cannot_fit(self, prs, outfit_tokens):
         slide = timeline_slide(
-            prs, title="t", tokens=outfit_tokens,
+            prs,
+            title="t",
+            tokens=outfit_tokens,
             milestones=[{"date": "Q1", "label": self._LONG * 10}, {"label": "Beta"}],
         )
 
@@ -1979,29 +2041,34 @@ class DescribeTimelineSlideLabels:
 
         assert len(_autoshapes(slide)) == 4  # rail + three markers
         assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
-            ["a"], ["c"]
+            ["a"],
+            ["c"],
         ]
 
     def it_leaves_out_an_empty_date(self, prs):
         slide = timeline_slide(
-            prs, title="t",
+            prs,
+            title="t",
             milestones=[{"label": "a", "date": None}, {"label": "b", "date": ""}],
         )
 
         assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
-            ["a"], ["b"]
+            ["a"],
+            ["b"],
         ]
 
     def it_shows_a_falsy_label_or_date_as_written(self, prs):
         # ``{"label": 0}`` used to draw a marker with no label at all.
         slide = timeline_slide(
-            prs, title="t",
+            prs,
+            title="t",
             milestones=[{"label": 0}, {"label": False, "date": 0}, {"label": None}],
         )
 
         assert len(_autoshapes(slide)) == 4  # rail + three markers
         assert [[p.text for p in b.text_frame.paragraphs] for b in _text_boxes(slide)[1:]] == [
-            ["0"], ["0", "False"]
+            ["0"],
+            ["0", "False"],
         ]
 
 

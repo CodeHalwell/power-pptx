@@ -1105,9 +1105,7 @@ class DescribeGradientAtomicity:
             (("#FF0000", "#0000FF"), {"angle": float("inf")}, ValueError),
         ],
     )
-    def it_leaves_the_fill_untouched_when_linear_gradient_rejects_a_value(
-        self, args, kwargs, exc
-    ):
+    def it_leaves_the_fill_untouched_when_linear_gradient_rejects_a_value(self, args, kwargs, exc):
         # ...including the fill *type*: the shape below is solid, and must
         # still be solid, not a half-built gradient.
         shape = _rect()

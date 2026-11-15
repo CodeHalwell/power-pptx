@@ -85,8 +85,9 @@ def _slide_with(*elements):
     prs = Presentation()
     prs.slide_width, prs.slide_height = Emu(1280 * _PX), Emu(720 * _PX)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_layers(slide, _capture(*elements), slide_width=prs.slide_width,
-               slide_height=prs.slide_height)
+    add_layers(
+        slide, _capture(*elements), slide_width=prs.slide_width, slide_height=prs.slide_height
+    )
     return slide
 
 
@@ -288,10 +289,18 @@ class DescribeNativeTable:
     def it_maps_css_alignment_and_fills_onto_the_cell(self):
         rows = [
             [
-                _cell("a", 100.0, align="center", verticalAlign="middle",
-                      fill="rgba(255, 0, 0, 0.5)"),
-                _cell("b", 100.0, align="start", verticalAlign="baseline",
-                      fill="transparent", weight="700", italic=True),
+                _cell(
+                    "a", 100.0, align="center", verticalAlign="middle", fill="rgba(255, 0, 0, 0.5)"
+                ),
+                _cell(
+                    "b",
+                    100.0,
+                    align="start",
+                    verticalAlign="baseline",
+                    fill="transparent",
+                    weight="700",
+                    italic=True,
+                ),
             ]
         ]
         table = _slide_with(_table(rows, [40.0], width=200.0)).shapes[0].table

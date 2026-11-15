@@ -89,9 +89,7 @@ def _presentation_element(prs_part: PresentationPart) -> CT_Presentation:
 def _relationship_ids(part: Part, target: Part) -> set[str]:
     """The ids of *part*'s internal relationships whose target is *target*."""
     return {
-        rel.rId
-        for rel in part.rels.values()
-        if not rel.is_external and rel.target_part is target
+        rel.rId for rel in part.rels.values() if not rel.is_external and rel.target_part is target
     }
 
 

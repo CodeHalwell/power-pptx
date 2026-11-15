@@ -33,7 +33,12 @@ class Describe_compose_package:
 
     def it_advertises_all_composition_entry_points(self):
         assert set(compose.__all__) == {
-            "from_spec", "from_yaml", "from_html", "import_slide", "apply_template", "SpecError"
+            "from_spec",
+            "from_yaml",
+            "from_html",
+            "import_slide",
+            "apply_template",
+            "SpecError",
         }
 
     def it_reexports_the_spec_error(self):

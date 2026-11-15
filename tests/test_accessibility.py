@@ -102,9 +102,7 @@ class DescribeAltText:
 class DescribeAuditAccessibility:
     def it_flags_a_picture_missing_alt_text_as_error(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        pic = slide.shapes.add_picture(
-            _IMAGE, Inches(1), Inches(1), Inches(2), Inches(2)
-        )
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
         pic.alt_text = ""  # clear the filename auto-fill
         report = audit_accessibility(prs)
         alt_issues = [i for i in report.issues if i.code == "MissingAltText"]
@@ -125,9 +123,7 @@ class DescribeAuditAccessibility:
 
     def it_does_not_flag_a_picture_with_alt_text(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        pic = slide.shapes.add_picture(
-            _IMAGE, Inches(1), Inches(1), Inches(2), Inches(2)
-        )
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
         pic.alt_text = "The Python Powered logo."
         report = audit_accessibility(prs)
         assert not any(i.code == "MissingAltText" for i in report.issues)
@@ -160,9 +156,7 @@ class DescribeAuditAccessibility:
         slide = prs.slides.add_slide(prs.slide_layouts[0])
         if slide.shapes.title is not None:
             slide.shapes.title.text = "All good"
-        pic = slide.shapes.add_picture(
-            _IMAGE, Inches(1), Inches(3), Inches(2), Inches(2)
-        )
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(3), Inches(2), Inches(2))
         pic.alt_text = "Logo."
         report = audit_accessibility(prs)
         assert report.issues == []
@@ -176,9 +170,7 @@ class DescribeAuditAccessibility:
 
     def it_renders_markdown(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        pic = slide.shapes.add_picture(
-            _IMAGE, Inches(1), Inches(1), Inches(2), Inches(2)
-        )
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
         pic.alt_text = ""
         md = audit_accessibility(prs).markdown()
         assert "Accessibility report" in md
@@ -193,9 +185,7 @@ class DescribeAuditAccessibility:
 
     def it_to_dict_is_json_serializable(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        pic = slide.shapes.add_picture(
-            _IMAGE, Inches(1), Inches(1), Inches(2), Inches(2)
-        )
+        pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(1), Inches(2), Inches(2))
         pic.alt_text = ""
         report = audit_accessibility(prs)
         d = report.to_dict()
@@ -220,9 +210,7 @@ class DescribeAuditAccessibility:
 
         issues = [i for i in audit_accessibility(prs).issues if i.code == "MissingAltText"]
 
-        assert [(i.shape, i.severity) for i in issues] == [
-            (pic.name, AccessibilitySeverity.ERROR)
-        ]
+        assert [(i.shape, i.severity) for i in issues] == [(pic.name, AccessibilitySeverity.ERROR)]
         assert "file name" in issues[0].message
 
     @pytest.mark.parametrize(
@@ -246,9 +234,7 @@ class DescribeAuditAccessibility:
 
         issues = [i for i in audit_accessibility(prs).issues if i.code == "MissingAltText"]
 
-        assert [(i.shape, i.severity) for i in issues] == [
-            (pic.name, AccessibilitySeverity.ERROR)
-        ]
+        assert [(i.shape, i.severity) for i in issues] == [(pic.name, AccessibilitySeverity.ERROR)]
 
     def it_judges_text_on_a_dark_card_as_lint_does(self, prs):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -288,14 +274,10 @@ def foreign_deck():
     coloured.text = "coloured"
     coloured.font.color.rgb = RGBColor(0x77, 0x77, 0x77)
     # Pure geometry with no <p:txBody>, as other producers write it.
-    bare = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(6), Inches(3), Inches(2), Inches(1)
-    )
+    bare = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(3), Inches(2), Inches(1))
     bare._element.remove(bare._element.txBody)
     group = slide.shapes.add_group_shape()
-    inner = group.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(1), Inches(5), Inches(1), Inches(1)
-    )
+    inner = group.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(5), Inches(1), Inches(1))
     inner._element.remove(inner._element.txBody)
     table = slide.shapes.add_table(2, 2, Inches(6), Inches(5), Inches(3), Inches(1)).table
     table.cell(0, 0).text = "cell"
@@ -331,9 +313,7 @@ def _deck_with_alt_text() -> Presentation:
     pic = slide.shapes.add_picture(_IMAGE, Inches(1), Inches(3), Inches(2), Inches(2))
     pic.alt_text = "The Python Powered logo."
     pic.title_text = "Logo"
-    shape = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(4), Inches(3), Inches(2), Inches(1)
-    )
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(4), Inches(3), Inches(2), Inches(1))
     shape.alt_text = "A decorative rectangle."
     return prs
 

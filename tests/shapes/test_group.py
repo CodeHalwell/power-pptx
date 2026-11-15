@@ -218,7 +218,10 @@ class DescribeGroupShapeSurface(object):
 
         members = list(outer.shapes)
         assert [s.name for s in members] == [
-            "Rectangle 2", "Oval 4", "Oval 5", "Rectangle 6",
+            "Rectangle 2",
+            "Oval 4",
+            "Oval 5",
+            "Rectangle 6",
         ]
         assert [s.shape_id for s in promoted] == [5, 6]
         assert [(int(s.left), int(s.top), int(s.width), int(s.height)) for s in promoted] == [
@@ -294,7 +297,10 @@ class DescribeGroupShapeSurface(object):
 
         movie = group.shapes.add_movie(
             absjoin(test_file_dir, "dummy.mp4"),
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             poster_frame_image=absjoin(test_file_dir, "monty-truth.png"),
             mime_type="video/mp4",
         )

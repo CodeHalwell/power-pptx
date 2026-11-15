@@ -226,7 +226,9 @@ class DescribeNotesSlidePart(object):
         assert notes_master is notes_master_
 
     def it_provides_access_to_its_notes_slide(self, request, notes_slide_):
-        NotesSlide_ = class_mock(request, "power_pptx.parts.slide.NotesSlide", return_value=notes_slide_)
+        NotesSlide_ = class_mock(
+            request, "power_pptx.parts.slide.NotesSlide", return_value=notes_slide_
+        )
         notes = element("p:notes")
         notes_slide_part = NotesSlidePart(None, None, None, notes)
 

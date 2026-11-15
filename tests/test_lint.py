@@ -396,14 +396,10 @@ class DescribeShapeLintSkip:
         tb.text_frame.paragraphs[0].text = "tiny"
         tb.text_frame.paragraphs[0].runs[0].font.size = Pt(7)
         # Baseline: warning fires.
-        assert any(
-            i.code == "MinFontSize" for i in slide.lint().issues
-        )
+        assert any(i.code == "MinFontSize" for i in slide.lint().issues)
         # Opt-out silences it.
         tb.lint_skip = {"MinFontSize"}
-        assert not any(
-            i.code == "MinFontSize" for i in slide.lint().issues
-        )
+        assert not any(i.code == "MinFontSize" for i in slide.lint().issues)
 
     def it_keeps_collisions_when_only_one_shape_opts_out(self):
         # Cross-shape issues only drop when *both* shapes opt out.
@@ -444,24 +440,18 @@ class DescribeOffGridDrift:
         _, slide = _new_blank_slide()
         # Four shapes at exactly Inches(6).
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
         # One drift offender ~0.07" off the column — must exceed the
         # tight tolerance (0.05" after IMPROVEMENT_PLAN.md item 10) but
         # stay under the loose tolerance (0.10").
-        drift = slide.shapes.add_shape(
-            1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5)
-        )
+        drift = slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
         return slide, drift
 
     def it_flags_a_shape_off_a_dominant_column(self):
         slide, drift = self._column_with_drift()
         issues = [i for i in slide.lint().issues if isinstance(i, OffGridDrift)]
         # Shape proxies compare by underlying element, not identity.
-        assert any(
-            i.shapes[0] == drift and i.axis == "left" for i in issues
-        )
+        assert any(i.shapes[0] == drift and i.axis == "left" for i in issues)
 
     def it_does_not_flag_small_drift_within_tight_tolerance(self):
         # Regression for IMPROVEMENT_PLAN.md item 10: a drift of ~0.033"
@@ -470,16 +460,10 @@ class DescribeOffGridDrift:
         # on basically every section header.
         _, slide = _new_blank_slide()
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(0.6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
+            slide.shapes.add_shape(1, Inches(0.6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
         # 0.02" off the column — well inside the new 0.05" tolerance.
-        slide.shapes.add_shape(
-            1, Inches(0.62), Inches(5), Inches(1), Inches(0.5)
-        )
-        assert [
-            i for i in slide.lint().issues if isinstance(i, OffGridDrift)
-        ] == []
+        slide.shapes.add_shape(1, Inches(0.62), Inches(5), Inches(1), Inches(0.5))
+        assert [i for i in slide.lint().issues if isinstance(i, OffGridDrift)] == []
 
     def it_does_not_flag_shapes_when_there_are_no_3plus_clusters(self):
         _, slide = _new_blank_slide()
@@ -496,9 +480,7 @@ class DescribeOffGridDrift:
         assert any("Snapped" in f for f in fixes)
         assert int(drift.left) == int(Inches(6))
         # And the issue is gone on a fresh lint pass.
-        assert [
-            i for i in slide.lint().issues if isinstance(i, OffGridDrift)
-        ] == []
+        assert [i for i in slide.lint().issues if isinstance(i, OffGridDrift)] == []
         assert before != int(drift.left)
 
     def it_refreshes_report_issues_after_auto_fix(self):
@@ -543,14 +525,9 @@ class DescribeSetParagraphDefaults:
         tf.set_paragraph_defaults(font_name="Inter", size=Pt(14), color="#222222")
 
         # Theme colour preserved on run 0.
-        assert (
-            tf.paragraphs[0].runs[0].font.color.theme_color
-            == MSO_THEME_COLOR.ACCENT_1
-        )
+        assert tf.paragraphs[0].runs[0].font.color.theme_color == MSO_THEME_COLOR.ACCENT_1
         # Default colour applied on the unset run.
-        assert tf.paragraphs[1].runs[0].font.color.rgb == RGBColor(
-            0x22, 0x22, 0x22
-        )
+        assert tf.paragraphs[1].runs[0].font.color.rgb == RGBColor(0x22, 0x22, 0x22)
         # And the font name was filled in everywhere.
         assert tf.paragraphs[0].runs[0].font.name == "Inter"
         assert tf.paragraphs[1].runs[0].font.name == "Inter"
@@ -601,9 +578,7 @@ class DescribeAutoFixTextOverflow:
         assert any("TEXT_TO_FIT_SHAPE" in f for f in fixes)
         assert box.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         # And the issue is gone after the fix.
-        assert [
-            i for i in report.issues if isinstance(i, TextOverflow)
-        ] == []
+        assert [i for i in report.issues if isinstance(i, TextOverflow)] == []
 
     def it_skips_frames_that_already_set_auto_size(self):
         from power_pptx.enum.text import MSO_AUTO_SIZE
@@ -684,9 +659,7 @@ class DescribeZOrderAnomaly:
         big.fill.solid()
         big.fill.fore_color.rgb = RGBColor(0, 0, 255)
         issues = [i for i in slide.lint().issues if isinstance(i, ZOrderAnomaly)]
-        assert any(
-            i.shapes[0] == big and i.shapes[1] == small for i in issues
-        )
+        assert any(i.shapes[0] == big and i.shapes[1] == small for i in issues)
 
     def it_does_not_flag_when_container_is_drawn_first(self):
         _, slide = _new_blank_slide()
@@ -721,10 +694,7 @@ class DescribeMasterPlaceholderCollision:
             layout_title.width,
             layout_title.height,
         )
-        issues = [
-            i for i in slide.lint().issues
-            if isinstance(i, MasterPlaceholderCollision)
-        ]
+        issues = [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)]
         assert len(issues) == 1
         assert issues[0].placeholder_idx == 0
 
@@ -732,10 +702,7 @@ class DescribeMasterPlaceholderCollision:
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         # Slide already inherits the title; no extra textbox added.
-        assert [
-            i for i in slide.lint().issues
-            if isinstance(i, MasterPlaceholderCollision)
-        ] == []
+        assert [i for i in slide.lint().issues if isinstance(i, MasterPlaceholderCollision)] == []
 
 
 class DescribeReportSummary:
@@ -818,9 +785,7 @@ class DescribeEffectBleedGeometry:
         # raw bbox and stays quiet.
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)  # 1" blur
         off = [i for i in slide.lint().issues if isinstance(i, OffSlide)]
         assert off == []
@@ -828,9 +793,7 @@ class DescribeEffectBleedGeometry:
     def it_fires_OffSlideShadow_when_bleed_enabled(self):
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)
         report = slide.lint(include_effect_bleed=True)
         bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
@@ -883,9 +846,7 @@ class DescribeEffectBleedGeometry:
         # beyond the … edge" wording, since the raw bbox is on-slide.
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
-        s = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        s = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         s.shadow.blur_radius = Emu(914400)
         report = slide.lint(include_effect_bleed=True)
         bleed = [i for i in report.issues if isinstance(i, OffSlideShadow)]
@@ -918,20 +879,14 @@ class DescribeEffectBleedGeometry:
         _, slide = _new_blank_slide()
         slide_w, _slide_h = self._slide_dims(slide)
         # Bleed-only OffSlide on shape A.
-        a = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(0.5), Inches(2), Inches(2)
-        )
+        a = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(0.5), Inches(2), Inches(2))
         a.shadow.blur_radius = Emu(914400)
         # Off-grid drift offender (auto-fixable) so a fix actually fires
         # and triggers the refresh.  (It used to sit 30000 EMU off the
         # column, inside the tight tolerance, so no fix fired at all.)
         for i in range(4):
-            slide.shapes.add_shape(
-                1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5)
-            )
-        slide.shapes.add_shape(
-            1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5)
-        )
+            slide.shapes.add_shape(1, Inches(6), Inches(0.5 + i * 1.0), Inches(1), Inches(0.5))
+        slide.shapes.add_shape(1, Inches(6) + 64000, Inches(5), Inches(1), Inches(0.5))
 
         report = slide.lint(include_effect_bleed=True)
         assert any(isinstance(i, OffSlideShadow) for i in report.issues)
@@ -944,14 +899,10 @@ class DescribeEffectBleedGeometry:
         _, slide = _new_blank_slide()
         slide_w, slide_h = self._slide_dims(slide)
         # Shape A: bleed-only OffSlide (raw bbox inside, shadow past edge).
-        a = slide.shapes.add_shape(
-            1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2)
-        )
+        a = slide.shapes.add_shape(1, slide_w - Inches(2), Inches(1), Inches(2), Inches(2))
         a.shadow.blur_radius = Emu(914400)
         # Shape B: real OffSlide (raw bbox already past the bottom edge).
-        slide.shapes.add_shape(
-            1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2)
-        )
+        slide.shapes.add_shape(1, Inches(1), slide_h - Inches(1), Inches(2), Inches(2))
         # Skip the bleed-only variant on the bleed shape.
         a.lint_skip = {"OffSlideShadow"}
         report = slide.lint(include_effect_bleed=True)
@@ -1146,10 +1097,7 @@ class DescribeSarifExport:
         assert off_slide["level"] == "error"
         assert off_slide["message"]["text"]
         # Locations name the offending shape.
-        names = [
-            loc["logicalLocations"][0]["name"]
-            for loc in off_slide["locations"]
-        ]
+        names = [loc["logicalLocations"][0]["name"] for loc in off_slide["locations"]]
         assert "Rectangle 1" in names
 
     def it_derives_rules_from_the_issue_codes(self):
@@ -1159,9 +1107,7 @@ class DescribeSarifExport:
 
         rules = report.to_sarif()["runs"][0]["tool"]["driver"]["rules"]
         rule_ids = {r["id"] for r in rules}
-        result_rule_ids = {
-            r["ruleId"] for r in report.to_sarif()["runs"][0]["results"]
-        }
+        result_rule_ids = {r["ruleId"] for r in report.to_sarif()["runs"][0]["results"]}
         # Every result references a declared rule.
         assert result_rule_ids <= rule_ids
 
@@ -1246,9 +1192,7 @@ class DescribeBaselineDiff:
         new_issues = current.diff(baseline)
         # Only the new shape's issues appear; the pre-existing one does not.
         assert new_issues
-        new_shape_names = {
-            s.name for issue in new_issues for s in issue.shapes
-        }
+        new_shape_names = {s.name for issue in new_issues for s in issue.shapes}
         assert new_shape_names == {"second-off-slide"}
 
     def it_ignores_issues_that_only_moved(self):
@@ -2113,9 +2057,7 @@ class DescribeCrossSlideOverlapAllowance:
 
         s1, p, _, _, _ = self._two_slides()
         group = s1.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(1), Inches(1), Inches(1), Inches(1)
-        )
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
 
         p.allow_overlap_with(inner)
 
@@ -2154,9 +2096,7 @@ class DescribeAllowanceCleanupOnDelete:
         from power_pptx.util import Inches
 
         _, slide, a, b = self._overlapping_pair()
-        other = slide.shapes.add_textbox(
-            Inches(6), Inches(1), Inches(1), Inches(1)
-        )
+        other = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(1), Inches(1))
         a.allow_overlap_with(other)
 
         b.delete()
@@ -2168,9 +2108,7 @@ class DescribeAllowanceCleanupOnDelete:
 
         _, slide, _, b = self._overlapping_pair()
         group = slide.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(1), Inches(1), Inches(1), Inches(1)
-        )
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(1), Inches(1))
         inner.allow_overlap_with(b)
 
         b.delete()
@@ -2193,9 +2131,7 @@ class DescribeAllowanceCleanupOnDelete:
         slide = Presentation(buf).slides[0]
 
         # The allocator recycles the freed id for the next shape added.
-        newcomer = slide.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        newcomer = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         assert newcomer.shape_id == deleted_id
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
@@ -2217,9 +2153,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(2))
         group = slide.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        inner = group.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         a.allow_overlap_with(inner)
         return prs, slide, a, group, inner
 
@@ -2240,9 +2174,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         a = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
         outer = slide.shapes.add_group_shape()
         middle = outer.shapes.add_group_shape()
-        deep = middle.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(2), Inches(1)
-        )
+        deep = middle.shapes.add_textbox(Inches(2), Inches(1), Inches(2), Inches(1))
         a.allow_overlap_with(deep)
 
         outer.delete()
@@ -2253,9 +2185,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         from power_pptx.util import Inches
 
         _, slide, a, group, _ = self._slide_with_grouped_shape()
-        survivor = slide.shapes.add_textbox(
-            Inches(6), Inches(1), Inches(1), Inches(1)
-        )
+        survivor = slide.shapes.add_textbox(Inches(6), Inches(1), Inches(1), Inches(1))
         a.allow_overlap_with(survivor)
 
         group.delete()
@@ -2280,9 +2210,7 @@ class DescribeAllowanceCleanupOnGroupDelete:
         # Burn the group's own freed id first so the next shape lands on
         # the member id that used to be allowed.
         slide.shapes.add_textbox(Inches(7), Inches(4), Inches(0.5), Inches(0.5))
-        newcomer = slide.shapes.add_textbox(
-            Inches(2), Inches(1), Inches(3), Inches(2)
-        )
+        newcomer = slide.shapes.add_textbox(Inches(2), Inches(1), Inches(3), Inches(2))
         assert newcomer.shape_id == stale_id
 
         codes = [i.code for i in slide.lint().issues if i.code == "ShapeCollision"]
@@ -2995,9 +2923,7 @@ class DescribeTextOverflowOnAutoSizeFrames:
         assert issues[0].severity == LintSeverity.WARNING
         assert issues[0].auto_size == "TEXT_TO_FIT_SHAPE"
 
-    def it_does_not_fail_lint_on_save_for_an_overflow_the_renderer_repairs(
-        self, outfit, tmp_path
-    ):
+    def it_does_not_fail_lint_on_save_for_an_overflow_the_renderer_repairs(self, outfit, tmp_path):
         prs, slide = _new_blank_slide()
         box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.5))
         box.text_frame.word_wrap = True
@@ -3143,7 +3069,9 @@ def _off_slide_sides(slide):
 
 
 def _inches(shape):
-    return tuple(round(int(v) / 914400, 3) for v in (shape.left, shape.top, shape.width, shape.height))
+    return tuple(
+        round(int(v) / 914400, 3) for v in (shape.left, shape.top, shape.width, shape.height)
+    )
 
 
 class DescribeRotatedGeometry:

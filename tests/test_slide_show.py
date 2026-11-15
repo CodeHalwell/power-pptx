@@ -373,9 +373,7 @@ class DescribeSlideShowSettings_tidiness(object):
         assert sorted(part_names(blob)) == sorted(part_names(without_presprops()))
 
     @pytest.mark.parametrize(("name", "_value", "default"), SETTINGS, ids=SETTING_IDS)
-    def and_it_adds_no_part_for_a_value_the_deck_already_has(
-        self, bare_prs, name, _value, default
-    ):
+    def and_it_adds_no_part_for_a_value_the_deck_already_has(self, bare_prs, name, _value, default):
         setattr(bare_prs.slide_show, name, default)
         assert PRESPROPS not in part_names(saved(bare_prs))
 

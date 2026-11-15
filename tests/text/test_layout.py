@@ -333,9 +333,10 @@ class DescribeTextFitterFitting(object):
         text = "one\ntwo\nthree"
 
         assert TextFitter.best_fit_font_size(text, (Pt(500), Pt(36)), 40, None, line_spacing=2) == 5
-        assert TextFitter.best_fit_font_size(
-            text, (Pt(500), Pt(36)), 40, None, line_spacing=Pt(12)
-        ) == 12
+        assert (
+            TextFitter.best_fit_font_size(text, (Pt(500), Pt(36)), 40, None, line_spacing=Pt(12))
+            == 12
+        )
 
     def it_adds_the_space_between_paragraphs(self):
         formats = [ParagraphFormat(space_after=Pt(6)), ParagraphFormat(space_before=Pt(6))]

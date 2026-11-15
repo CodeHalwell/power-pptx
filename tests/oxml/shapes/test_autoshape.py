@@ -254,11 +254,7 @@ class DescribeCT_Shape(object):
             "</p:sp>\n" % (nsdecls("a", "p"), "%d", "%s", "%s", "%s")
         )
         txBody_snippet = (
-            "  <p:txBody>\n"
-            "    <a:bodyPr/>\n"
-            "    <a:lstStyle/>\n"
-            "    <a:p/>\n"
-            "  </p:txBody>\n"
+            "  <p:txBody>\n    <a:bodyPr/>\n    <a:lstStyle/>\n    <a:p/>\n  </p:txBody>\n"
         )
         txBody_str = txBody_snippet if id_ in (2, 4, 8) else ""
         expected_values = (id_, name, expected_attrs, txBody_str)

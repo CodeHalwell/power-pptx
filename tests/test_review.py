@@ -168,7 +168,6 @@ class DescribeReviewPresentationReuse:
         assert (reused / "presentation.pptx").read_bytes() != b"from before"
         assert (reused / "notes.txt").read_bytes() == b"from before"
 
-
     def but_it_never_removes_the_references_it_was_given(self, reused):
         # -- an earlier run's pages handed back in as this run's references --
         references = reused / "slides"
@@ -548,9 +547,7 @@ class DescribeReviewPresentationReferences:
         references.mkdir()
         _png(references / "a.png", "#FFFFFF")
 
-        report = review_presentation(
-            _deck(), out_dir=tmp_path / "review", reference_dir=references
-        )
+        report = review_presentation(_deck(), out_dir=tmp_path / "review", reference_dir=references)
 
         assert report.manifest["errors"] == []
         assert report.manifest["comparisons"][0]["within_tolerance"] is None
@@ -812,9 +809,7 @@ class DescribeReviewCliConsoleEncoding:
 
 
 class DescribeReviewCliBatch:
-    def it_reviews_each_input_into_its_own_folder_and_indexes_them(
-        self, tmp_path, reviews, capsys
-    ):
+    def it_reviews_each_input_into_its_own_folder_and_indexes_them(self, tmp_path, reviews, capsys):
         reviews["failing"] = {"second"}
         reviews["raising"] = {"third": RuntimeError("cannot <read> it")}
         inputs = [tmp_path / "first.pptx", tmp_path / "second.pptx", tmp_path / "third.pptx"]

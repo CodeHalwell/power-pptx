@@ -39,8 +39,15 @@ _SLIDES = [
     {
         "layout": "blank",
         "shapes": [
-            {"name": "card", "shape": "rounded_rectangle",
-             "left": -0.25, "top": 1, "width": 4, "height": 2, "text": "Card"},
+            {
+                "name": "card",
+                "shape": "rounded_rectangle",
+                "left": -0.25,
+                "top": 1,
+                "width": 4,
+                "height": 2,
+                "text": "Card",
+            },
         ],
     },
 ]
@@ -61,11 +68,15 @@ class DescribeFromSpecRoundTrip:
         reopened = Presentation(io.BytesIO(buf.getvalue()))
         title, again = prs.slides[1].shapes.title, reopened.slides[1].shapes.title
         assert (again.left, again.top, again.width, again.height) == (
-            title.left, title.top, title.width, title.height,
+            title.left,
+            title.top,
+            title.width,
+            title.height,
         )
         # The placeholder inherits from the rescaled layout: it now spans the wide slide.
         assert again.left + again.width > reopened.slide_width * 0.9
         body = next(p for p in reopened.slides[1].placeholders if p.placeholder_format.idx == 1)
         assert [(p.text, p.level) for p in body.text_frame.paragraphs] == [
-            ("One", 0), ("Nested", 1),
+            ("One", 0),
+            ("Nested", 1),
         ]

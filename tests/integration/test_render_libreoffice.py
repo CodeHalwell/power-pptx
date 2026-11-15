@@ -89,9 +89,7 @@ def _colour_deck():
     prs = Presentation()
     for rgb in SLIDE_COLOURS:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
-        cover = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height
-        )
+        cover = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
         cover.fill.solid()
         cover.fill.fore_color.rgb = RGBColor(*rgb)
         cover.line.fill.background()

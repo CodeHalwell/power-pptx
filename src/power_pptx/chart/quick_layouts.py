@@ -207,8 +207,7 @@ _KEY_HINTS = {
         "value-axis settings are flat keys: 'has_value_axis_title', "
         "'value_axis_title_text', 'has_major_gridlines', 'has_minor_gridlines'"
     ),
-    "legend": "legend settings are flat keys: 'has_legend', 'legend_position', "
-    "'legend_in_layout'",
+    "legend": "legend settings are flat keys: 'has_legend', 'legend_position', 'legend_in_layout'",
     "title": "use 'has_title' and 'title_text'",
     "tick_labels": "tick labels are not part of a quick layout; set "
     "chart.value_axis.tick_labels directly",
@@ -245,12 +244,8 @@ def _resolve_layout(layout) -> dict[str, Any]:
         try:
             return dict(QUICK_LAYOUTS[layout])
         except KeyError:
-            raise ValueError(
-                "unknown quick layout %r; choose from %r" % (layout, layout_names())
-            )
-    raise TypeError(
-        "layout must be a name or spec mapping, got %s" % type(layout).__name__
-    )
+            raise ValueError("unknown quick layout %r; choose from %r" % (layout, layout_names()))
+    raise TypeError("layout must be a name or spec mapping, got %s" % type(layout).__name__)
 
 
 def _apply_title(chart, spec: Mapping[str, Any]) -> None:
@@ -300,13 +295,11 @@ def _coerce_legend_position(value: Any) -> XL_LEGEND_POSITION:
             return XL_LEGEND_POSITION(value)
         except ValueError:
             raise ValueError(
-                "legend_position int %r is not a valid XL_LEGEND_POSITION "
-                "value" % value
+                "legend_position int %r is not a valid XL_LEGEND_POSITION value" % value
             ) from None
     raise TypeError(
         "legend_position must be an XL_LEGEND_POSITION member, int value, "
-        "or string name (one of %s); got %r"
-        % (sorted(_LEGEND_POSITION_NAMES), value)
+        "or string name (one of %s); got %r" % (sorted(_LEGEND_POSITION_NAMES), value)
     )
 
 

@@ -134,9 +134,7 @@ def _deck_gradients():
     prs = Presentation()
     slide = _blank_slide(prs)
     for i, angle in enumerate((0, 90, 180, 270, -90, 360, 359.9999999)):
-        _rect(slide, col=i % 3, row=i // 3).fill.linear_gradient(
-            "#FF0000", "#0000FF", angle=angle
-        )
+        _rect(slide, col=i % 3, row=i // 3).fill.linear_gradient("#FF0000", "#0000FF", angle=angle)
 
     # -- a rejected stop or angle must leave a valid fill behind, not an
     # -- `<a:gs/>` with neither position nor colour

@@ -328,9 +328,7 @@ def _place_cells(rows):
                 c += 1
             placed = _GridCell(r, c, cell)
             occupied.update(
-                (rr, cc)
-                for rr in range(r, placed.last_row)
-                for cc in range(c, placed.last_column)
+                (rr, cc) for rr in range(r, placed.last_row) for cc in range(c, placed.last_column)
             )
             cells.append(placed)
             column_count = max(column_count, placed.last_column)
@@ -380,9 +378,7 @@ def _shared_borders(cells):
     shared = {}
     for placed in cells:
         style = placed.cell["style"]
-        for keys, width, color in zip(
-            placed.edge_keys(), style["border"], style["borderColors"]
-        ):
+        for keys, width, color in zip(placed.edge_keys(), style["border"], style["borderColors"]):
             for key in keys:
                 if width >= shared.get(key, (0, "transparent"))[0]:
                     shared[key] = (width, color)

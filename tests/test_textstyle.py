@@ -42,9 +42,7 @@ class DescribeApplyTextStyle:
         assert "<a:rPr/>" in tf._txBody.xml
 
     def it_styles_every_run_of_every_paragraph(self, tf):
-        apply_text_style(
-            tf, font="Arial", size_pt=11, bold=True, italic=False, color="#1F2937"
-        )
+        apply_text_style(tf, font="Arial", size_pt=11, bold=True, italic=False, color="#1F2937")
 
         fonts = _fonts(tf)
         assert len(fonts) == 3
@@ -82,7 +80,12 @@ class DescribeApplyTextStyle:
     @pytest.mark.parametrize("paragraph_defaults", [True, False])
     def it_writes_paragraph_defaults_only_when_asked(self, tf, paragraph_defaults):
         apply_text_style(
-            tf, font="Arial", size_pt=12, bold=False, italic=True, color=(1, 2, 3),
+            tf,
+            font="Arial",
+            size_pt=12,
+            bold=False,
+            italic=True,
+            color=(1, 2, 3),
             paragraph_defaults=paragraph_defaults,
         )
 
@@ -90,7 +93,10 @@ class DescribeApplyTextStyle:
             font = paragraph.font
             if paragraph_defaults:
                 assert (font.name, font.size, font.bold, font.italic) == (
-                    "Arial", Pt(12), False, True
+                    "Arial",
+                    Pt(12),
+                    False,
+                    True,
                 )
                 assert font.color.rgb == RGBColor(1, 2, 3)
             else:

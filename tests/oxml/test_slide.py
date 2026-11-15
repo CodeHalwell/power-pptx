@@ -40,7 +40,8 @@ def _sld(transition_xml: str = ""):
     return parse_xml(
         '<p:sld xmlns:a="%(a)s" xmlns:p="%(p)s" xmlns:p14="%(p14)s">'
         "<p:cSld><p:spTree/></p:cSld>"
-        "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>" % _NS
+        "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>"
+        % _NS
         + transition_xml
         + "<p:timing/></p:sld>"
     )

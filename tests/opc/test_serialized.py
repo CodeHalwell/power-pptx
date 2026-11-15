@@ -365,9 +365,7 @@ class Describe_ZipPkgReader:
             zip_pkg_reader[PackURI("/ppt/foobar.xml")]
         assert str(e.value) == "\"no member '/ppt/foobar.xml' in package\""
 
-    def it_indexes_the_package_members_on_first_access_to_help(
-        self, zip_pkg_reader: _ZipPkgReader
-    ):
+    def it_indexes_the_package_members_on_first_access_to_help(self, zip_pkg_reader: _ZipPkgReader):
         members = zip_pkg_reader._members
         assert len(members) == 38
         assert "/ppt/presentation.xml" in members
@@ -507,9 +505,7 @@ class Describe_ZipPkgWriter:
         with zipfile.ZipFile(path) as z:
             assert z.read("part/name.xml") == b"blob"
 
-    def but_it_leaves_the_destination_untouched_when_the_context_exits_on_an_error(
-        self, tmp_path
-    ):
+    def but_it_leaves_the_destination_untouched_when_the_context_exits_on_an_error(self, tmp_path):
         path = tmp_path / "prs.pptx"
         path.write_bytes(b"previous contents")
         missing = tmp_path / "new.pptx"

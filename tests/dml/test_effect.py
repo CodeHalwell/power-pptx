@@ -561,16 +561,12 @@ class DescribeShadowFormatClear(object):
         # EG_EffectProperties choice, so a sibling list would be schema-invalid
         # and would leave the DAG's own shadow rendering.
         shadow = ShadowFormat(
-            element(
-                "p:spPr/a:effectDag/(a:cont/(a:outerShdw,a:glow{rad=50800}),a:innerShdw)"
-            )
+            element("p:spPr/a:effectDag/(a:cont/(a:outerShdw,a:glow{rad=50800}),a:innerShdw)")
         )
 
         shadow.clear()
 
-        assert shadow._element.xml == xml(
-            "p:spPr/a:effectDag/a:cont/a:glow{rad=50800}"
-        )
+        assert shadow._element.xml == xml("p:spPr/a:effectDag/a:cont/a:glow{rad=50800}")
         assert shadow._element.effectLst is None
 
     def it_leaves_a_shape_without_a_style_element_alone(self):
@@ -683,9 +679,7 @@ class DescribeEffectSettersAreAtomic(object):
             ("ReflectionFormat", "direction", "down", TypeError),
         ],
     )
-    def it_leaves_the_shape_untouched_when_the_value_is_rejected(
-        self, cls_name, prop, bad, exc
-    ):
+    def it_leaves_the_shape_untouched_when_the_value_is_rejected(self, cls_name, prop, bad, exc):
         spPr, proxy = _effect(cls_name)
 
         with pytest.raises(exc):
@@ -851,9 +845,7 @@ class DescribeEffectClearingRestoresInheritance(object):
 
         preset.color = None
 
-        assert _same_xml(
-            spPr, "p:spPr/a:effectLst/a:prstShdw{prst=shdw5}/a:srgbClr{val=000000}"
-        )
+        assert _same_xml(spPr, "p:spPr/a:effectLst/a:prstShdw{prst=shdw5}/a:srgbClr{val=000000}")
 
     def it_keeps_the_effectLst_while_another_effect_lives_in_it(self):
         from power_pptx.dml.effect import SoftEdgeFormat
@@ -958,9 +950,7 @@ class DescribeFloatEffectLengthsInASavedDeck(object):
         assert sp.line.width == Emu(19050)
         assert sp.three_d.bevel_top.width == Emu(38100)
         # -- no attribute anywhere under spPr holds a fractional number --
-        assert not [
-            v for el in sp._element.spPr.iter() for v in el.attrib.values() if "." in v
-        ]
+        assert not [v for el in sp._element.spPr.iter() for v in el.attrib.values() if "." in v]
 
     def it_leaves_no_residue_from_rejected_or_cleared_assignments(self):
         shapes = _deck_with_float_effects().slides[0].shapes

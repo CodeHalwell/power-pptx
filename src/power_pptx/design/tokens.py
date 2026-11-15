@@ -198,17 +198,14 @@ class DesignTokens:
         are points; see the module docstring.
         """
         if not isinstance(spec, Mapping):
-            raise TypeError(
-                f"design tokens must be a mapping; got {type(spec).__name__}"
-            )
+            raise TypeError(f"design tokens must be a mapping; got {type(spec).__name__}")
         for key in spec:
             if key in _SECTIONS or not isinstance(key, str):
                 continue
             hint = _did_you_mean(key, _SECTIONS, cutoff=0.8)
             if hint:
                 raise ValueError(
-                    f"unknown token section {key!r}{hint}. "
-                    f"Sections: {list(_SECTIONS)}"
+                    f"unknown token section {key!r}{hint}. Sections: {list(_SECTIONS)}"
                 )
         palette = {
             name: _coerce_color(value, f"palette.{name}")
@@ -267,15 +264,11 @@ class DesignTokens:
                 if isinstance(name, str)
                 else ""
             )
-            raise ValueError(
-                f"Unknown preset {name!r}{hint}; choose from {sorted(_PRESETS)}"
-            )
+            raise ValueError(f"Unknown preset {name!r}{hint}; choose from {sorted(_PRESETS)}")
         return cls.from_dict(spec)
 
     @classmethod
-    def from_seed(
-        cls, seed: ColorSpec, harmony: str = "complementary"
-    ) -> "DesignTokens":
+    def from_seed(cls, seed: ColorSpec, harmony: str = "complementary") -> "DesignTokens":
         """Generate a full palette from a single *seed* color.
 
         Uses HSL color-wheel harmony math to derive a coherent set of
@@ -307,9 +300,7 @@ class DesignTokens:
 
         valid = ("complementary", "analogous", "triadic", "monochromatic")
         if harmony not in valid:
-            raise ValueError(
-                f"unknown harmony {harmony!r}; choose from {list(valid)}"
-            )
+            raise ValueError(f"unknown harmony {harmony!r}; choose from {list(valid)}")
 
         seed_rgb = _coerce_color(seed)
         h, light, s = colorsys.rgb_to_hls(
@@ -317,9 +308,7 @@ class DesignTokens:
         )
 
         def from_hsl(hue: float, lightness: float, sat: float) -> RGBColor:
-            r, g, b = colorsys.hls_to_rgb(
-                hue % 1.0, _clamp01(lightness), _clamp01(sat)
-            )
+            r, g, b = colorsys.hls_to_rgb(hue % 1.0, _clamp01(lightness), _clamp01(sat))
             return RGBColor(round(r * 255), round(g * 255), round(b * 255))
 
         def shift(deg: float, lightness: float, sat: float) -> RGBColor:
@@ -355,9 +344,7 @@ class DesignTokens:
         # Foreground over the primary: white over a dark seed, near-black
         # over a light one.
         on_primary = (
-            RGBColor(0xFF, 0xFF, 0xFF)
-            if _luminance(primary) < 0.5
-            else RGBColor(0x10, 0x10, 0x10)
+            RGBColor(0xFF, 0xFF, 0xFF) if _luminance(primary) < 0.5 else RGBColor(0x10, 0x10, 0x10)
         )
 
         # Semantic colors are hue-anchored (green / red) so meaning stays
@@ -401,9 +388,7 @@ class DesignTokens:
         """
         valid = ("deuteranopia", "protanopia", "tritanopia")
         if kind not in valid:
-            raise ValueError(
-                f"unknown kind {kind!r}; choose from {list(valid)}"
-            )
+            raise ValueError(f"unknown kind {kind!r}; choose from {list(valid)}")
 
         names = sorted(self.palette)
         confusable: list[tuple[str, str]] = []
@@ -415,9 +400,7 @@ class DesignTokens:
                 # they're "confusable" by being the same color, not the CVD.
                 if normal < 24.0:
                     continue
-                sim = _rgb_distance(
-                    _simulate_cvd(ra, kind), _simulate_cvd(rb, kind)
-                )
+                sim = _rgb_distance(_simulate_cvd(ra, kind), _simulate_cvd(rb, kind))
                 # Flag the pair when the deficiency *collapses* their
                 # separation: the simulated distance drops to under half
                 # the normal-vision distance and is itself small in
@@ -443,15 +426,12 @@ class DesignTokens:
             import yaml  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - import guard
             raise ImportError(
-                "DesignTokens.from_yaml requires pyyaml; install with "
-                "`pip install pyyaml`"
+                "DesignTokens.from_yaml requires pyyaml; install with `pip install pyyaml`"
             ) from exc
         with open(path, encoding="utf-8") as f:
             spec = yaml.safe_load(f) or {}
         if not isinstance(spec, Mapping):
-            raise ValueError(
-                f"YAML at {path!r} did not parse to a mapping"
-            )
+            raise ValueError(f"YAML at {path!r} did not parse to a mapping")
         return cls.from_dict(spec)
 
     @classmethod
@@ -520,9 +500,7 @@ class DesignTokens:
     # Convenience
     # ------------------------------------------------------------------
 
-    def with_overrides(
-        self, overrides: Mapping[str, Any]
-    ) -> "DesignTokens":
+    def with_overrides(self, overrides: Mapping[str, Any]) -> "DesignTokens":
         """Return a new :class:`DesignTokens` with *overrides* layered on.
 
         Two equivalent input shapes are accepted:
@@ -618,9 +596,7 @@ class DesignTokens:
 # ---------------------------------------------------------------------------
 
 
-def _flatten_overrides(
-    overrides: Mapping[str, Any], _prefix: str = ""
-) -> dict[str, Any]:
+def _flatten_overrides(overrides: Mapping[str, Any], _prefix: str = "") -> dict[str, Any]:
     """Flatten a nested-dict override spec into dotted-key form.
 
     Dotted-key inputs round-trip unchanged.  Nested dicts are walked
@@ -685,14 +661,10 @@ def _apply_override(bins: Mapping[str, MutableMapping[str, Any]], key: str, valu
     category = parts[0]
     target = bins.get(category)
     if target is None:
-        raise ValueError(
-            f"unknown override category {category!r}; choose "
-            f"from {sorted(bins)}"
-        )
+        raise ValueError(f"unknown override category {category!r}; choose from {sorted(bins)}")
     if len(parts) > 3:
         raise ValueError(
-            f"override key {key!r} is too deep; expected "
-            "'category.slot' or 'category.slot.field'"
+            f"override key {key!r} is too deep; expected 'category.slot' or 'category.slot.field'"
         )
     if len(parts) == 2:
         target[parts[1]] = _SLOT_COERCERS[category](value, key)
@@ -713,18 +685,13 @@ def _with_override_field(
     """
     if category == "typography":
         base = (
-            existing
-            if isinstance(existing, TypographyToken)
-            else TypographyToken(family="Calibri")
+            existing if isinstance(existing, TypographyToken) else TypographyToken(family="Calibri")
         )
         return _typography_with_field(base, field_name, value, key)
     if category == "shadows":
         base = existing if isinstance(existing, ShadowToken) else ShadowToken()
         return _shadow_with_field(base, field_name, value, key)
-    raise ValueError(
-        f"sub-field override {key!r} only supported on "
-        "typography and shadows"
-    )
+    raise ValueError(f"sub-field override {key!r} only supported on typography and shadows")
 
 
 def _clamp01(x: float) -> float:
@@ -740,9 +707,7 @@ def _luminance(rgb: RGBColor) -> float:
 def _rgb_distance(a: RGBColor, b: RGBColor) -> float:
     """Euclidean distance between two colors in sRGB space (0..~441)."""
     return (
-        (int(a[0]) - int(b[0])) ** 2
-        + (int(a[1]) - int(b[1])) ** 2
-        + (int(a[2]) - int(b[2])) ** 2
+        (int(a[0]) - int(b[0])) ** 2 + (int(a[1]) - int(b[1])) ** 2 + (int(a[2]) - int(b[2])) ** 2
     ) ** 0.5
 
 
@@ -795,8 +760,7 @@ def _section(spec: Mapping[str, Any], name: str) -> Mapping[str, Any]:
         return {}
     if not isinstance(value, Mapping):
         raise ValueError(
-            f"{name}: expected a mapping of token names to values; "
-            f"got {type(value).__name__}"
+            f"{name}: expected a mapping of token names to values; got {type(value).__name__}"
         )
     return value
 
@@ -812,9 +776,7 @@ def _reject_unknown_keys(
     described = "; ".join(
         f"{k!r}{_did_you_mean(k, known) if isinstance(k, str) else ''}" for k in unknown
     )
-    raise ValueError(
-        f"{path}: unknown {what} key(s) {described}. Valid keys: {sorted(known)}"
-    )
+    raise ValueError(f"{path}: unknown {what} key(s) {described}. Valid keys: {sorted(known)}")
 
 
 def _coerce_color(value: Any, path: str = "") -> RGBColor:
@@ -824,9 +786,7 @@ def _coerce_color(value: Any, path: str = "") -> RGBColor:
     if isinstance(value, str):
         s = value.strip().lstrip("#")
         if len(s) != 6:
-            raise ValueError(
-                f"{where}hex color string must be 6 hex digits, got {value!r}"
-            )
+            raise ValueError(f"{where}hex color string must be 6 hex digits, got {value!r}")
         try:
             return RGBColor(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
         except ValueError:
@@ -842,8 +802,7 @@ def _coerce_color(value: Any, path: str = "") -> RGBColor:
                 f"{where}color components must be integers in 0-255, got {value!r}"
             ) from exc
     raise TypeError(
-        f"{where}cannot coerce {value!r} to RGBColor; "
-        "expected RGBColor, hex string, or 3-tuple"
+        f"{where}cannot coerce {value!r} to RGBColor; expected RGBColor, hex string, or 3-tuple"
     )
 
 
@@ -864,8 +823,7 @@ def _coerce_length(value: Any, path: str = "") -> Length:
         )
     if not math.isfinite(value) or value < 0:
         raise ValueError(
-            f"{where}a length must be a finite, non-negative number of points; "
-            f"got {value!r}"
+            f"{where}a length must be a finite, non-negative number of points; got {value!r}"
         )
     if isinstance(value, int) and value >= _EMU_INT_THRESHOLD:
         # Backward compatibility: every bare integer used to be EMU.
@@ -909,8 +867,7 @@ def _coerce_typography_field(field_name: str, value: Any, path: str) -> Any:
     if field_name == "family":
         if not isinstance(value, str) or not value:
             raise ValueError(
-                f"{path}: typography token requires a non-empty 'family' string; "
-                f"got {value!r}"
+                f"{path}: typography token requires a non-empty 'family' string; got {value!r}"
             )
         return value
     if value is None:
@@ -945,9 +902,7 @@ def _typography_from_value(value: Any, path: str) -> TypographyToken:
     if isinstance(value, Mapping):
         _reject_unknown_keys(value, _TYPOGRAPHY_FIELDS, path, "typography")
         if "family" not in value:
-            raise ValueError(
-                f"{path}: typography token requires a non-empty 'family' string"
-            )
+            raise ValueError(f"{path}: typography token requires a non-empty 'family' string")
         return TypographyToken(
             **{
                 name: _coerce_typography_field(name, value[name], f"{path}.{name}")
@@ -955,9 +910,7 @@ def _typography_from_value(value: Any, path: str) -> TypographyToken:
                 if name in value
             }
         )
-    raise TypeError(
-        f"{path}: cannot build TypographyToken from {type(value).__name__}"
-    )
+    raise TypeError(f"{path}: cannot build TypographyToken from {type(value).__name__}")
 
 
 def _shadow_from_value(value: Any, path: str) -> ShadowToken:
@@ -965,18 +918,12 @@ def _shadow_from_value(value: Any, path: str) -> ShadowToken:
     if isinstance(value, ShadowToken):
         return value
     if not isinstance(value, Mapping):
-        raise TypeError(
-            f"{path}: cannot build ShadowToken from {type(value).__name__}"
-        )
-    _reject_unknown_keys(
-        value, (*_SHADOW_FIELDS, *_SHADOW_ALIASES), path, "shadow"
-    )
+        raise TypeError(f"{path}: cannot build ShadowToken from {type(value).__name__}")
+    _reject_unknown_keys(value, (*_SHADOW_FIELDS, *_SHADOW_ALIASES), path, "shadow")
     fields: dict[str, Any] = {}
     for alias, name in _SHADOW_ALIASES.items():
         if alias in value and name in value:
-            raise ValueError(
-                f"{path}: {alias!r} and {name!r} are the same field; give only one"
-            )
+            raise ValueError(f"{path}: {alias!r} and {name!r} are the same field; give only one")
     for key, raw in value.items():
         name = _SHADOW_ALIASES.get(key, key)
         fields[name] = _coerce_shadow_field(name, raw, f"{path}.{key}")
@@ -1033,9 +980,7 @@ def _shadow_with_field(
             f"{_did_you_mean(field_name, (*fields, *_SHADOW_ALIASES))}; "
             f"choose from {sorted(fields)}"
         )
-    fields[canonical] = _coerce_shadow_field(
-        canonical, value, path or f"shadows.{field_name}"
-    )
+    fields[canonical] = _coerce_shadow_field(canonical, value, path or f"shadows.{field_name}")
     return ShadowToken(**fields)
 
 
@@ -1047,121 +992,121 @@ def _shadow_with_field(
 _PRESETS: Mapping[str, Mapping[str, Any]] = {
     "modern_light": {
         "palette": {
-            "primary":   "#3B5BDB",
-            "neutral":   "#1F2933",
-            "muted":     "#7B8794",
-            "surface":   "#F5F7FA",
+            "primary": "#3B5BDB",
+            "neutral": "#1F2933",
+            "muted": "#7B8794",
+            "surface": "#F5F7FA",
             "on_primary": "#FFFFFF",
-            "lt1":       "#FFFFFF",
-            "lt2":       "#E4E7EB",
-            "positive":  "#0CA678",
-            "negative":  "#E03131",
-            "success":   "#0CA678",
-            "danger":    "#E03131",
+            "lt1": "#FFFFFF",
+            "lt2": "#E4E7EB",
+            "positive": "#0CA678",
+            "negative": "#E03131",
+            "success": "#0CA678",
+            "danger": "#E03131",
         },
         "typography": {
             "heading": {"family": "Inter", "size": Pt(32), "bold": True},
-            "body":    {"family": "Inter", "size": Pt(16)},
+            "body": {"family": "Inter", "size": Pt(16)},
         },
-        "radii":    {"sm": Pt(4), "md": Pt(8), "lg": Pt(16)},
+        "radii": {"sm": Pt(4), "md": Pt(8), "lg": Pt(16)},
         "spacings": {"xs": Pt(4), "sm": Pt(8), "md": Pt(16), "lg": Pt(32)},
         "shadows": {
             "card": {
                 "blur_radius": Pt(8),
-                "distance":    Pt(2),
-                "direction":   90.0,
-                "color":       "#000000",
-                "alpha":       0.18,
+                "distance": Pt(2),
+                "direction": 90.0,
+                "color": "#000000",
+                "alpha": 0.18,
             },
         },
     },
     "modern_dark": {
         "palette": {
-            "primary":   "#7C5CFF",
-            "neutral":   "#E4E7EB",
-            "muted":     "#7B8794",
-            "surface":   "#1F2933",
+            "primary": "#7C5CFF",
+            "neutral": "#E4E7EB",
+            "muted": "#7B8794",
+            "surface": "#1F2933",
             "on_primary": "#0B0F19",
-            "lt1":       "#323F4B",
-            "lt2":       "#3E4C59",
-            "positive":  "#3DD68C",
-            "negative":  "#FF6B6B",
-            "success":   "#3DD68C",
-            "danger":    "#FF6B6B",
+            "lt1": "#323F4B",
+            "lt2": "#3E4C59",
+            "positive": "#3DD68C",
+            "negative": "#FF6B6B",
+            "success": "#3DD68C",
+            "danger": "#FF6B6B",
         },
         "typography": {
             "heading": {"family": "Inter", "size": Pt(32), "bold": True},
-            "body":    {"family": "Inter", "size": Pt(16)},
+            "body": {"family": "Inter", "size": Pt(16)},
         },
-        "radii":    {"sm": Pt(4), "md": Pt(8), "lg": Pt(16)},
+        "radii": {"sm": Pt(4), "md": Pt(8), "lg": Pt(16)},
         "spacings": {"xs": Pt(4), "sm": Pt(8), "md": Pt(16), "lg": Pt(32)},
         "shadows": {
             "card": {
                 "blur_radius": Pt(12),
-                "distance":    Pt(3),
-                "direction":   90.0,
-                "color":       "#000000",
-                "alpha":       0.45,
+                "distance": Pt(3),
+                "direction": 90.0,
+                "color": "#000000",
+                "alpha": 0.45,
             },
         },
     },
     "corporate_navy": {
         "palette": {
-            "primary":   "#0B2545",
-            "neutral":   "#13315C",
-            "muted":     "#8DA9C4",
-            "surface":   "#EEF4ED",
+            "primary": "#0B2545",
+            "neutral": "#13315C",
+            "muted": "#8DA9C4",
+            "surface": "#EEF4ED",
             "on_primary": "#FFFFFF",
-            "lt1":       "#FFFFFF",
-            "lt2":       "#D6DDE0",
-            "positive":  "#247B7B",
-            "negative":  "#A23B3B",
-            "success":   "#247B7B",
-            "danger":    "#A23B3B",
+            "lt1": "#FFFFFF",
+            "lt2": "#D6DDE0",
+            "positive": "#247B7B",
+            "negative": "#A23B3B",
+            "success": "#247B7B",
+            "danger": "#A23B3B",
         },
         "typography": {
             "heading": {"family": "Source Serif Pro", "size": Pt(34), "bold": True},
-            "body":    {"family": "Source Sans Pro", "size": Pt(16)},
+            "body": {"family": "Source Sans Pro", "size": Pt(16)},
         },
-        "radii":    {"sm": Pt(2), "md": Pt(4), "lg": Pt(8)},
+        "radii": {"sm": Pt(2), "md": Pt(4), "lg": Pt(8)},
         "spacings": {"xs": Pt(4), "sm": Pt(8), "md": Pt(16), "lg": Pt(32)},
         "shadows": {
             "card": {
                 "blur_radius": Pt(6),
-                "distance":    Pt(1),
-                "direction":   90.0,
-                "color":       "#000000",
-                "alpha":       0.12,
+                "distance": Pt(1),
+                "direction": 90.0,
+                "color": "#000000",
+                "alpha": 0.12,
             },
         },
     },
     "vibrant": {
         "palette": {
-            "primary":   "#FF3366",
-            "neutral":   "#22223B",
-            "muted":     "#9A8C98",
-            "surface":   "#FFF8F0",
+            "primary": "#FF3366",
+            "neutral": "#22223B",
+            "muted": "#9A8C98",
+            "surface": "#FFF8F0",
             "on_primary": "#FFFFFF",
-            "lt1":       "#FFFFFF",
-            "lt2":       "#FFE5D9",
-            "positive":  "#06D6A0",
-            "negative":  "#EF233C",
-            "success":   "#06D6A0",
-            "danger":    "#EF233C",
+            "lt1": "#FFFFFF",
+            "lt2": "#FFE5D9",
+            "positive": "#06D6A0",
+            "negative": "#EF233C",
+            "success": "#06D6A0",
+            "danger": "#EF233C",
         },
         "typography": {
             "heading": {"family": "Poppins", "size": Pt(36), "bold": True},
-            "body":    {"family": "Poppins", "size": Pt(16)},
+            "body": {"family": "Poppins", "size": Pt(16)},
         },
-        "radii":    {"sm": Pt(6), "md": Pt(12), "lg": Pt(24)},
+        "radii": {"sm": Pt(6), "md": Pt(12), "lg": Pt(24)},
         "spacings": {"xs": Pt(4), "sm": Pt(8), "md": Pt(16), "lg": Pt(32)},
         "shadows": {
             "card": {
                 "blur_radius": Pt(14),
-                "distance":    Pt(4),
-                "direction":   90.0,
-                "color":       "#000000",
-                "alpha":       0.20,
+                "distance": Pt(4),
+                "direction": 90.0,
+                "color": "#000000",
+                "alpha": 0.20,
             },
         },
     },

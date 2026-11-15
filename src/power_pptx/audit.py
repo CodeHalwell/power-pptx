@@ -59,12 +59,34 @@ __all__ = ["AuditReport", "audit"]
 _COMMON_FONTS = frozenset(
     name.lower()
     for name in (
-        "Arial", "Calibri", "Helvetica", "Times New Roman", "Cambria",
-        "Verdana", "Tahoma", "Georgia", "Courier New", "Consolas",
-        "Segoe UI", "Trebuchet MS", "Garamond", "Impact", "Comic Sans MS",
-        "Lucida Console", "Palatino", "Palatino Linotype", "Symbol",
-        "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings",
-        "Inter", "Roboto", "Open Sans", "Lato", "Noto Sans",
+        "Arial",
+        "Calibri",
+        "Helvetica",
+        "Times New Roman",
+        "Cambria",
+        "Verdana",
+        "Tahoma",
+        "Georgia",
+        "Courier New",
+        "Consolas",
+        "Segoe UI",
+        "Trebuchet MS",
+        "Garamond",
+        "Impact",
+        "Comic Sans MS",
+        "Lucida Console",
+        "Palatino",
+        "Palatino Linotype",
+        "Symbol",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Webdings",
+        "Inter",
+        "Roboto",
+        "Open Sans",
+        "Lato",
+        "Noto Sans",
     )
 )
 
@@ -86,8 +108,7 @@ class AuditReport:
         from power_pptx.lint import LintSeverity
 
         return bool(self.broken_pictures) or any(
-            issue.severity == LintSeverity.ERROR
-            for _idx, issue in self.lint_issues
+            issue.severity == LintSeverity.ERROR for _idx, issue in self.lint_issues
         )
 
     def markdown(self) -> str:
@@ -154,16 +175,12 @@ class AuditReport:
         return {
             "total_slides": self.total_slides,
             "has_errors": self.has_errors,
-            "lint_issues": [
-                {"slide": idx, **issue.to_dict()} for idx, issue in self.lint_issues
-            ],
+            "lint_issues": [{"slide": idx, **issue.to_dict()} for idx, issue in self.lint_issues],
             "broken_pictures": [
                 {"slide": idx, "shape": shape.name} for idx, shape in self.broken_pictures
             ],
             "empty_slides": list(self.empty_slides),
-            "font_warnings": [
-                {"slide": idx, "font": font} for idx, font in self.font_warnings
-            ],
+            "font_warnings": [{"slide": idx, "font": font} for idx, font in self.font_warnings],
             "size_warnings": [
                 {"slide": idx, "shape": name, "bytes": size_bytes}
                 for idx, name, size_bytes in self.size_warnings

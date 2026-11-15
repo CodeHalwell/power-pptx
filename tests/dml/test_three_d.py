@@ -275,8 +275,14 @@ class DescribeThreeDFormat:
         td.bevel_top.preset = BevelPreset.SOFT_ROUND
         td.extrusion_height = Pt(6)
         scene3d = spPr.scene3d
-        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}camera")) == 1
-        assert len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}lightRig")) == 1
+        assert (
+            len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}camera"))
+            == 1
+        )
+        assert (
+            len(scene3d.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}lightRig"))
+            == 1
+        )
 
     # ------------------------------------------------------------------
     # contour_width / contour_color

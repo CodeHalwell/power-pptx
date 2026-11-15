@@ -644,9 +644,7 @@ class DescribeLintCommandFix(object):
         assert status == 0
         assert _severities(target / "error.pptx") == ["warning"]
 
-    def it_writes_through_a_symbolic_link_rather_than_replacing_it(
-        self, run, error_deck, tmp_path
-    ):
+    def it_writes_through_a_symbolic_link_rather_than_replacing_it(self, run, error_deck, tmp_path):
         if os.name == "nt":
             pytest.skip("symbolic links need privileges on Windows")
         link = tmp_path / "link.pptx"

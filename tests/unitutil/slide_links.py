@@ -110,8 +110,7 @@ def add_outline_view_entries(prs: Presentation, slides) -> None:
     part = view_props_part(prs)
     viewPr = parse_xml(part.blob)
     entries = "".join(
-        '<p:sld r:id="%s" collapse="1"/>' % part.relate_to(slide.part, RT.SLIDE)
-        for slide in slides
+        '<p:sld r:id="%s" collapse="1"/>' % part.relate_to(slide.part, RT.SLIDE) for slide in slides
     )
     viewPr.find(qn("p:notesTextViewPr")).addprevious(
         parse_xml(
@@ -129,8 +128,7 @@ def outline_view_slides(prs: Presentation) -> list:
     part = view_props_part(prs)
     r_id = qn("r:id")
     return [
-        part.related_part(sld.get(r_id)).slide
-        for sld in parse_xml(part.blob).iter(qn("p:sld"))
+        part.related_part(sld.get(r_id)).slide for sld in parse_xml(part.blob).iter(qn("p:sld"))
     ]
 
 

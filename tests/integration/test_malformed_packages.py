@@ -44,9 +44,10 @@ def _rewrite(
 ) -> bytes:
     """Return `deck` with members edited, dropped and/or added."""
     out = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(deck)) as zin, zipfile.ZipFile(
-        out, "w", zipfile.ZIP_DEFLATED
-    ) as zout:
+    with (
+        zipfile.ZipFile(io.BytesIO(deck)) as zin,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout,
+    ):
         for name in zin.namelist():
             if name in drop:
                 continue
@@ -190,9 +191,10 @@ class DescribeOpeningAMalformedPackage:
     def it_reports_a_member_that_cannot_be_decompressed(self):
         deck = _deck()
         stored = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(deck)) as zin, zipfile.ZipFile(
-            stored, "w", zipfile.ZIP_STORED
-        ) as zout:
+        with (
+            zipfile.ZipFile(io.BytesIO(deck)) as zin,
+            zipfile.ZipFile(stored, "w", zipfile.ZIP_STORED) as zout,
+        ):
             for name in zin.namelist():
                 zout.writestr(name, zin.read(name))
         damaged = stored.getvalue().replace(b"<p:presentation ", b"<p:presentatiom ", 1)
@@ -265,9 +267,7 @@ class DescribeOpeningAnOddButReadablePackage:
 
         prs = Presentation(io.BytesIO(_rewrite(_deck(), edit=link_chain, add=tuple(extra))))
 
-        chain = [
-            p for p in prs.part.package.iter_parts() if p.partname.startswith("/ppt/chain/")
-        ]
+        chain = [p for p in prs.part.package.iter_parts() if p.partname.startswith("/ppt/chain/")]
         assert len(chain) == depth
         assert len(prs.slides) == 1
         saved = io.BytesIO()
@@ -275,9 +275,10 @@ class DescribeOpeningAnOddButReadablePackage:
         with zipfile.ZipFile(saved) as z:
             assert "ppt/chain/c%d.xml" % (depth - 1) in z.namelist()
         reopened = Presentation(io.BytesIO(saved.getvalue()))
-        assert sum(
-            p.partname.startswith("/ppt/chain/") for p in reopened.part.package.iter_parts()
-        ) == depth
+        assert (
+            sum(p.partname.startswith("/ppt/chain/") for p in reopened.part.package.iter_parts())
+            == depth
+        )
 
     @pytest.mark.parametrize("target_mode", ["external", "EXTERNAL", "External"])
     def it_reads_TargetMode_without_regard_to_case(self, target_mode):

@@ -152,7 +152,9 @@ class Describe_BaseMaster(object):
 
     @pytest.fixture
     def MasterPlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.MasterPlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.MasterPlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def MasterShapes_(self, request, shapes_):
@@ -270,7 +272,9 @@ class DescribeNotesSlide(object):
 
     @pytest.fixture
     def NotesSlidePlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.NotesSlidePlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.NotesSlidePlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def NotesSlideShapes_(self, request, shapes_):
@@ -566,7 +570,10 @@ class DescribeSlideTransition(object):
         assert transition.advance_on_click is None
         assert transition.advance_after is None
         # reads must be non-mutating
-        assert sld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}transition") is None
+        assert (
+            sld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}transition")
+            is None
+        )
 
     @pytest.mark.parametrize(
         ("transition_cxml", "expected"),
@@ -631,8 +638,7 @@ class DescribeSlideTransition(object):
         t_elm = sld.transition
         assert t_elm is not None
         assert (
-            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade")
-            is None
+            t_elm.find("{http://schemas.openxmlformats.org/presentationml/2006/main}fade") is None
         )
 
     def it_clears_the_transition_when_kind_is_set_to_None(self):
@@ -655,7 +661,7 @@ class DescribeSlideTransition(object):
 
     def it_maps_legacy_spd_attribute_to_milliseconds(self):
         sld = element("p:sld/p:cSld")
-        sld.append(element('p:transition{spd=med}'))
+        sld.append(element("p:transition{spd=med}"))
         transition = SlideTransition(sld)
         assert transition.duration == 750
 
@@ -1523,7 +1529,9 @@ class DescribeSlideLayout(object):
 
     @pytest.fixture
     def LayoutPlaceholders_(self, request, placeholders_):
-        return class_mock(request, "power_pptx.slide.LayoutPlaceholders", return_value=placeholders_)
+        return class_mock(
+            request, "power_pptx.slide.LayoutPlaceholders", return_value=placeholders_
+        )
 
     @pytest.fixture
     def LayoutShapes_(self, request, shapes_):

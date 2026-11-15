@@ -142,8 +142,7 @@ class Trendline(object):
         order = int(value)
         if not 2 <= order <= 6:
             raise ValueError(
-                "polynomial trendline order must be in the range 2-6 "
-                "(ST_Order); got %r" % (value,)
+                "polynomial trendline order must be in the range 2-6 (ST_Order); got %r" % (value,)
             )
         self._trendline.get_or_add_order().val = order
 

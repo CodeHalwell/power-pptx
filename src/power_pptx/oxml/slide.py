@@ -50,7 +50,7 @@ class CT_Background(BaseOxmlElement):
 
     def add_noFill_bgPr(self):
         """Return a new `p:bgPr` element with noFill properties."""
-        xml = "<p:bgPr %s>\n" "  <a:noFill/>\n" "  <a:effectLst/>\n" "</p:bgPr>" % nsdecls("a", "p")
+        xml = "<p:bgPr %s>\n  <a:noFill/>\n  <a:effectLst/>\n</p:bgPr>" % nsdecls("a", "p")
         bgPr = cast(CT_BackgroundProperties, parse_xml(xml))
         self._insert_bgPr(bgPr)
         return bgPr
@@ -555,8 +555,7 @@ def _wrapped_kind_is_sound(transition: Any) -> bool:
 def _holds_extension_content(transition: Any) -> bool:
     """True when *transition* has an extension attribute or a child outside the ``p:`` namespace."""
     return _has_extension_attr(transition) or any(
-        isinstance(child.tag, str) and _namespace_uri(child.tag) != _P_URI
-        for child in transition
+        isinstance(child.tag, str) and _namespace_uri(child.tag) != _P_URI for child in transition
     )
 
 

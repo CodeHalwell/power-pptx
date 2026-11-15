@@ -120,9 +120,7 @@ def title_slide(
     margin = Inches(1.0)
     title_top = Length(int(slide_h * 0.38))
     title_h = Inches(1.6)
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -136,9 +134,7 @@ def title_slide(
     if subtitle:
         sub_top = Length(title_top + title_h + Inches(0.1))
         sub_h = Inches(0.8)
-        sub_box = slide.shapes.add_textbox(
-            margin, sub_top, Length(slide_w - 2 * margin), sub_h
-        )
+        sub_box = slide.shapes.add_textbox(margin, sub_top, Length(slide_w - 2 * margin), sub_h)
         _fill_text_frame(
             sub_box.text_frame,
             subtitle,
@@ -176,9 +172,7 @@ def bullet_slide(
       lines.
     """
     if isinstance(bullets, (str, bytes)):
-        raise ValueError(
-            "bullet_slide: bullets must be a list of strings, not a single string"
-        )
+        raise ValueError("bullet_slide: bullets must be a list of strings, not a single string")
     slide_w, slide_h = _slide_dims(prs)
     margin = Inches(0.6)
     title_top = Inches(0.5)
@@ -198,9 +192,7 @@ def bullet_slide(
     slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -211,9 +203,7 @@ def bullet_slide(
         shrink_to_fit=True,
     )
 
-    body_box = slide.shapes.add_textbox(
-        margin, body_top, Length(slide_w - 2 * margin), body_h
-    )
+    body_box = slide.shapes.add_textbox(margin, body_top, Length(slide_w - 2 * margin), body_h)
     body_color = _palette(tokens, ("neutral",))
     tf = body_box.text_frame
     tf.word_wrap = True
@@ -263,9 +253,7 @@ def _fit_bullets(
 
     def heights(size: int) -> list[float]:
         line_h = _line_height_pt(size, font_file)
-        return [
-            _line_count(text, width, size, font_file) * line_h + gap(size) for text in texts
-        ]
+        return [_line_count(text, width, size, font_file) * line_h + gap(size) for text in texts]
 
     floor = min(top, _MIN_FONT_PT)
     # A list too long for one line per bullet at the floor cannot fit at
@@ -347,9 +335,7 @@ def kpi_slide(
 
     title_top = Inches(0.5)
     title_h = Inches(0.9)
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -540,9 +526,7 @@ def quote_slide(
     margin = Inches(1.2)
     quote_h = Inches(3.5)
     quote_top = Length((slide_h - quote_h) // 2)
-    box = slide.shapes.add_textbox(
-        margin, quote_top, Length(slide_w - 2 * margin), quote_h
-    )
+    box = slide.shapes.add_textbox(margin, quote_top, Length(slide_w - 2 * margin), quote_h)
     _fill_text_frame(
         box.text_frame,
         f"“{quote}”",
@@ -607,9 +591,7 @@ def image_hero_slide(
 
     band_h = Inches(1.6 if caption else 1.2)
     band_top = Length(slide_h - band_h)
-    band = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Emu(0), band_top, slide_w, band_h
-    )
+    band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(0), band_top, slide_w, band_h)
     band.line.fill.background()
     band_color = _palette(tokens, ("primary", "neutral")) or RGBColor(0, 0, 0)
     band.fill.solid()
@@ -619,8 +601,10 @@ def image_hero_slide(
 
     margin = Inches(0.6)
     title_box = slide.shapes.add_textbox(
-        margin, Length(band_top + Inches(0.2)),
-        Length(slide_w - 2 * margin), Inches(0.8),
+        margin,
+        Length(band_top + Inches(0.2)),
+        Length(slide_w - 2 * margin),
+        Inches(0.8),
     )
     _fill_text_frame(
         title_box.text_frame,
@@ -634,8 +618,10 @@ def image_hero_slide(
 
     if caption:
         cap_box = slide.shapes.add_textbox(
-            margin, Length(band_top + Inches(1.0)),
-            Length(slide_w - 2 * margin), Inches(0.5),
+            margin,
+            Length(band_top + Inches(1.0)),
+            Length(slide_w - 2 * margin),
+            Inches(0.5),
         )
         _fill_text_frame(
             cap_box.text_frame,
@@ -762,9 +748,7 @@ def _progress_counts(progress: Optional[tuple[int, int]], row_w: int) -> tuple[i
         return 0, 0
     current, total = int(progress[0]), int(progress[1])
     if total < 1 or current < 1 or current > total:
-        raise ValueError(
-            f"progress must be (1≤current≤total, total≥1); got {progress!r}"
-        )
+        raise ValueError(f"progress must be (1≤current≤total, total≥1); got {progress!r}")
     fits = int((row_w + _PROGRESS_DOT_GAP) // (_PROGRESS_DOT_D + _PROGRESS_DOT_GAP))
     if total > fits:
         raise ValueError(
@@ -853,19 +837,16 @@ def chart_slide(
     from power_pptx.enum.chart import XL_CHART_TYPE
 
     chart_map = {
-        "line":          XL_CHART_TYPE.LINE,
-        "line_markers":  XL_CHART_TYPE.LINE_MARKERS,
-        "bar":           XL_CHART_TYPE.BAR_CLUSTERED,
-        "column":        XL_CHART_TYPE.COLUMN_CLUSTERED,
-        "pie":           XL_CHART_TYPE.PIE,
-        "doughnut":      XL_CHART_TYPE.DOUGHNUT,
-        "area":          XL_CHART_TYPE.AREA,
+        "line": XL_CHART_TYPE.LINE,
+        "line_markers": XL_CHART_TYPE.LINE_MARKERS,
+        "bar": XL_CHART_TYPE.BAR_CLUSTERED,
+        "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
+        "pie": XL_CHART_TYPE.PIE,
+        "doughnut": XL_CHART_TYPE.DOUGHNUT,
+        "area": XL_CHART_TYPE.AREA,
     }
     if chart_type not in chart_map:
-        raise ValueError(
-            f"Unknown chart_type {chart_type!r}; "
-            f"choose from {sorted(chart_map)}"
-        )
+        raise ValueError(f"Unknown chart_type {chart_type!r}; choose from {sorted(chart_map)}")
 
     _check_items("chart_slide", "series", series, ("name", "values"))
     chart_data = _category_chart_data(categories, series)
@@ -877,9 +858,7 @@ def chart_slide(
     margin = Inches(0.6)
     title_top = Inches(0.5)
     title_h = Inches(0.9)
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -921,9 +900,7 @@ def chart_slide(
     return slide
 
 
-def _category_chart_data(
-    categories: Sequence[str], series: Sequence[Mapping[str, Any]]
-) -> Any:
+def _category_chart_data(categories: Sequence[str], series: Sequence[Mapping[str, Any]]) -> Any:
     """Return ``CategoryChartData`` for *series*, each a ``{"name", "values"}`` mapping."""
     from power_pptx.chart.data import CategoryChartData
 
@@ -1081,9 +1058,7 @@ def table_slide(
     slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -1094,22 +1069,30 @@ def table_slide(
         shrink_to_fit=True,
     )
 
-    gframe = slide.shapes.add_table(
-        n_rows, n_cols, margin, table_top, table_w, table_h
-    )
+    gframe = slide.shapes.add_table(n_rows, n_cols, margin, table_top, table_w, table_h)
     table = gframe.table
     _size_table(table, col_widths if widths is not None else None, row_heights)
 
     colours = _TableColours.from_tokens(tokens)
     _fill_table_row(
-        table, 0, header_cells, header_token, colours.header_text, align_map,
+        table,
+        0,
+        header_cells,
+        header_token,
+        colours.header_text,
+        align_map,
         fill=colours.header_fill,
     )
     _fill_table_body(table, body_rows, cell_token, colours, align_map, banded=banded)
     # Totals row (footer): tinted band + bold text in the primary palette.
     if totals_cells is not None:
         _fill_table_row(
-            table, n_rows - 1, totals_cells, totals_token, colours.totals_text, align_map,
+            table,
+            n_rows - 1,
+            totals_cells,
+            totals_token,
+            colours.totals_text,
+            align_map,
             fill=colours.band_fill,
         )
 
@@ -1131,9 +1114,7 @@ def _table_body_rows(rows: Sequence[Sequence[Any]], n_cols: int) -> list[list[st
                 f"got {type(row).__name__}"
             )
         if len(row) > n_cols:
-            raise ValueError(
-                f"table_slide: rows[{r}] has {len(row)} values for {n_cols} columns"
-            )
+            raise ValueError(f"table_slide: rows[{r}] has {len(row)} values for {n_cols} columns")
         body_rows.append([str(row[c]) if c < len(row) else "" for c in range(n_cols)])
     return body_rows
 
@@ -1454,9 +1435,7 @@ def code_slide(
     slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -1787,9 +1766,7 @@ def timeline_slide(
 
     title_top = Inches(0.5)
     title_h = Inches(0.9)
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -1808,8 +1785,13 @@ def timeline_slide(
     rail_left, rail_right = _timeline_rail_span(positions, slide_w, margin)
     rail_color = _palette(tokens, ("muted", "lt1")) or RGBColor(0xBB, 0xBB, 0xBB)
     rail = _add_plain_shape(
-        slide, MSO_SHAPE.RECTANGLE, rail_left, Length(rail_y - rail_h // 2),
-        Length(rail_right - rail_left), rail_h, rail_color,
+        slide,
+        MSO_SHAPE.RECTANGLE,
+        rail_left,
+        Length(rail_y - rail_h // 2),
+        Length(rail_right - rail_left),
+        rail_h,
+        rail_color,
     )
 
     dot_d = Inches(0.28)
@@ -1817,10 +1799,7 @@ def timeline_slide(
     date_token = _typography(tokens, "body", default_size=Pt(11), default_bold=True)
     body_color = _palette(tokens, ("neutral",)) or RGBColor(0x22, 0x22, 0x22)
     pending_color = rail_color
-    done_color = (
-        _palette(tokens, ("positive", "success"))
-        or RGBColor(0x00, 0x8A, 0x3C)
-    )
+    done_color = _palette(tokens, ("positive", "success")) or RGBColor(0x00, 0x8A, 0x3C)
 
     # One text box per milestone (date paragraph, then label), above or
     # below the rail.
@@ -1852,8 +1831,13 @@ def timeline_slide(
         dot_color = done_color if ms.get("done") else pending_color
         dots.append(
             _add_plain_shape(
-                slide, MSO_SHAPE.OVAL, Length(cx - dot_d // 2), Length(rail_y - dot_d // 2),
-                dot_d, dot_d, dot_color,
+                slide,
+                MSO_SHAPE.OVAL,
+                Length(cx - dot_d // 2),
+                Length(rail_y - dot_d // 2),
+                dot_d,
+                dot_d,
+                dot_color,
             )
         )
         if lines[i]:
@@ -2005,9 +1989,7 @@ def _add_milestone_label(
 ) -> None:
     """Add milestone *index*'s label box, centred on *cx*, one paragraph per line."""
     top, height, anchor = bands.place(index)
-    box = slide.shapes.add_textbox(
-        Length(cx - bands.width // 2), top, Length(bands.width), height
-    )
+    box = slide.shapes.add_textbox(Length(cx - bands.width // 2), top, Length(bands.width), height)
     tf = box.text_frame
     tf.word_wrap = True
     tf.vertical_anchor = anchor
@@ -2085,9 +2067,7 @@ def comparison_slide(
     slide = _add_blank(prs)
     _apply_background(slide, prs, tokens)
 
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
+    title_box = slide.shapes.add_textbox(margin, title_top, Length(slide_w - 2 * margin), title_h)
     _fill_text_frame(
         title_box.text_frame,
         title,
@@ -2124,9 +2104,7 @@ def comparison_slide(
     row_boxes: list[Any] = []
     for col_left, heading, key in columns:
         # Heading band.
-        band = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE, col_left, col_top, col_w, head_h
-        )
+        band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, col_left, col_top, col_w, head_h)
         band.fill.solid()
         band.fill.fore_color.rgb = head_color
         band.line.fill.background()
@@ -2145,9 +2123,7 @@ def comparison_slide(
             r_top = Length(col_top + head_h + i * row_h)
             banded = i % 2 == 0
             if banded:
-                tile = slide.shapes.add_shape(
-                    MSO_SHAPE.RECTANGLE, col_left, r_top, col_w, row_h
-                )
+                tile = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, col_left, r_top, col_w, row_h)
                 tile.fill.solid()
                 tile.fill.fore_color.rgb = band_color
                 tile.line.fill.background()
@@ -2278,15 +2254,21 @@ def figure_slide(
         fig_w = Length(slide_w - 2 * margin)
 
         _embed_figure(
-            slide, figure, margin, fig_top, fig_w, fig_h, figure_format,
-            html_options, plotly_options, fit,
+            slide,
+            figure,
+            margin,
+            fig_top,
+            fig_w,
+            fig_h,
+            figure_format,
+            html_options,
+            plotly_options,
+            fit,
         )
 
         if caption:
             cap_top = Length(slide_h - Inches(0.5) - cap_h)
-            cap_box = slide.shapes.add_textbox(
-                margin, cap_top, fig_w, cap_h
-            )
+            cap_box = slide.shapes.add_textbox(margin, cap_top, fig_w, cap_h)
             _fill_text_frame(
                 cap_box.text_frame,
                 caption,
@@ -2386,9 +2368,7 @@ def _read_file_like(figure: Any) -> Any:
     A file-like object (``io.BytesIO``, an open file) is read so its
     content can be treated like raw bytes.
     """
-    if isinstance(figure, (bytes, bytearray, str)) or not callable(
-        getattr(figure, "read", None)
-    ):
+    if isinstance(figure, (bytes, bytearray, str)) or not callable(getattr(figure, "read", None)):
         return figure
     data = figure.read()
     if isinstance(data, str):
@@ -2523,9 +2503,7 @@ def _add_blank(prs: "Presentation") -> "Slide":
     blank = layouts.get_by_name("Blank")
     if blank is not None:
         return prs.slides.add_slide(blank)
-    emptiest = min(
-        layouts, key=lambda layout: sum(1 for _ in layout.iter_cloneable_placeholders())
-    )
+    emptiest = min(layouts, key=lambda layout: sum(1 for _ in layout.iter_cloneable_placeholders()))
     slide = prs.slides.add_slide(emptiest)
     for placeholder in list(slide.placeholders):
         placeholder._element.getparent().remove(placeholder._element)
@@ -2547,9 +2525,7 @@ def _removed_on_failure(prs: "Presentation", slide: "Slide") -> Iterator[None]:
         raise
 
 
-def _apply_background(
-    slide: "Slide", prs: "Presentation", tokens: Optional[DesignTokens]
-) -> None:
+def _apply_background(slide: "Slide", prs: "Presentation", tokens: Optional[DesignTokens]) -> None:
     """Lay down a full-bleed ``palette["background"]`` rectangle behind a recipe.
 
     No-op unless the token set defines a ``background`` palette slot, so the
@@ -2596,9 +2572,7 @@ def _slide_dims(prs: "Presentation") -> tuple[Length, Length]:
     return width, height
 
 
-def _palette(
-    tokens: Optional[DesignTokens], names: Sequence[str]
-) -> Optional[RGBColor]:
+def _palette(tokens: Optional[DesignTokens], names: Sequence[str]) -> Optional[RGBColor]:
     if tokens is None:
         return None
     for name in names:
@@ -2644,9 +2618,7 @@ def _legible(
 def _legible(
     surface: Optional[RGBColor], /, *candidates: Optional[RGBColor]
 ) -> Optional[RGBColor]: ...
-def _legible(
-    surface: Optional[RGBColor], /, *candidates: Optional[RGBColor]
-) -> Optional[RGBColor]:
+def _legible(surface: Optional[RGBColor], /, *candidates: Optional[RGBColor]) -> Optional[RGBColor]:
     """Return a text colour that reads on *surface* at 4.5:1 or better.
 
     The palette roles a recipe uses are not guaranteed to contrast with
@@ -3054,22 +3026,22 @@ def _pygments_highlight(
     # consequence was code reading as ``optimiser zero_grad``.
     themed: dict[Any, Optional[tuple[str, str]]] = {
         #                           dark panel  light panel
-        Token.Keyword:            ("#C586C0", "#AF00DB"),
-        Token.Keyword.Constant:   ("#569CD6", "#0000FF"),
-        Token.Keyword.Namespace:  ("#C586C0", "#AF00DB"),
-        Token.Name.Function:      ("#DCDCAA", "#795E26"),
-        Token.Name.Class:         ("#4EC9B0", "#267F99"),
-        Token.Name.Builtin:       ("#4EC9B0", "#267F99"),
-        Token.Name.Decorator:     ("#DCDCAA", "#795E26"),
-        Token.String:             ("#CE9178", "#A31515"),
-        Token.String.Doc:         ("#608B4E", "#008000"),
-        Token.Number:             ("#B5CEA8", "#098658"),
-        Token.Comment:            ("#6A9955", "#008000"),
-        Token.Comment.Single:     ("#6A9955", "#008000"),
-        Token.Comment.Multiline:  ("#6A9955", "#008000"),
-        Token.Operator:           None,
-        Token.Punctuation:        None,
-        Token.Text:               None,
+        Token.Keyword: ("#C586C0", "#AF00DB"),
+        Token.Keyword.Constant: ("#569CD6", "#0000FF"),
+        Token.Keyword.Namespace: ("#C586C0", "#AF00DB"),
+        Token.Name.Function: ("#DCDCAA", "#795E26"),
+        Token.Name.Class: ("#4EC9B0", "#267F99"),
+        Token.Name.Builtin: ("#4EC9B0", "#267F99"),
+        Token.Name.Decorator: ("#DCDCAA", "#795E26"),
+        Token.String: ("#CE9178", "#A31515"),
+        Token.String.Doc: ("#608B4E", "#008000"),
+        Token.Number: ("#B5CEA8", "#098658"),
+        Token.Comment: ("#6A9955", "#008000"),
+        Token.Comment.Single: ("#6A9955", "#008000"),
+        Token.Comment.Multiline: ("#6A9955", "#008000"),
+        Token.Operator: None,
+        Token.Punctuation: None,
+        Token.Text: None,
     }
     column = 0 if dark else 1
     color_map: dict[Any, Optional[RGBColor]] = {
@@ -3120,15 +3092,13 @@ def _runs_by_line(runs: Iterable[tuple[str, Optional[RGBColor]]]) -> list[_CodeR
 
 
 _ALIGN_MAP: dict[str, PP_ALIGN] = {
-    "left":   PP_ALIGN.LEFT,
+    "left": PP_ALIGN.LEFT,
     "center": PP_ALIGN.CENTER,
-    "right":  PP_ALIGN.RIGHT,
+    "right": PP_ALIGN.RIGHT,
 }
 
 
-def _coerce_aligns(
-    aligns: Optional[Sequence[str]], n_cols: int
-) -> list[PP_ALIGN]:
+def _coerce_aligns(aligns: Optional[Sequence[str]], n_cols: int) -> list[PP_ALIGN]:
     if aligns is None:
         return [PP_ALIGN.LEFT] * n_cols
     out: list[PP_ALIGN] = []
@@ -3142,9 +3112,7 @@ def _coerce_aligns(
             continue
         key = str(a).lower()
         if key not in _ALIGN_MAP:
-            raise ValueError(
-                f"align[{i}] must be one of {sorted(_ALIGN_MAP)}, got {a!r}"
-            )
+            raise ValueError(f"align[{i}] must be one of {sorted(_ALIGN_MAP)}, got {a!r}")
         out.append(_ALIGN_MAP[key])
     return out
 
@@ -3172,17 +3140,13 @@ def _column_widths(
     if isinstance(widths, (str, bytes)) or not isinstance(widths, Sequence):
         raise ValueError("table_slide: widths must be a list of numbers or Length values")
     if len(widths) > n_cols:
-        raise ValueError(
-            f"table_slide: widths has {len(widths)} entries for {n_cols} columns"
-        )
+        raise ValueError(f"table_slide: widths has {len(widths)} entries for {n_cols} columns")
     fixed, weights = _split_widths(widths)
 
     unspecified = n_cols - len(widths)
     remaining = table_w - sum(fixed.values())
     if (weights or unspecified) and remaining <= 0:
-        raise ValueError(
-            "table_slide: the fixed widths leave no room for the other columns"
-        )
+        raise ValueError("table_slide: the fixed widths leave no room for the other columns")
     flexible = _flexible_widths(weights, remaining, len(widths), n_cols)
     # Put the rounding remainder in the last flexible column so the
     # columns add up to the table width exactly.
@@ -3253,16 +3217,12 @@ def _flexible_widths(
     return out
 
 
-def _coerce_totals_row(
-    totals: Mapping[str, Any], n_cols: int
-) -> list[Any]:
+def _coerce_totals_row(totals: Mapping[str, Any], n_cols: int) -> list[Any]:
     """Resolve a totals-row spec into a per-column list of cell values."""
     if "row" in totals:
         row = list(totals["row"])
         if len(row) != n_cols:
-            raise ValueError(
-                f"totals.row must have {n_cols} entries, got {len(row)}"
-            )
+            raise ValueError(f"totals.row must have {n_cols} entries, got {len(row)}")
         return row
     label = totals.get("label", "Total")
     values = list(totals.get("values", []))
@@ -3282,10 +3242,18 @@ def _coerce_totals_row(
 
 _TOKEN_CHART_SLOTS: tuple[str, ...] = (
     "primary",
-    "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
-    "secondary", "tertiary",
-    "positive", "negative",
-    "muted", "neutral",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "secondary",
+    "tertiary",
+    "positive",
+    "negative",
+    "muted",
+    "neutral",
 )
 
 

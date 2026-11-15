@@ -62,8 +62,12 @@ class DescribeAddPlotlyFigure:
         fig = _FakePlotlyFigure()
         before = len(list(slide.shapes))
         add_plotly_figure(
-            slide, fig,
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            fig,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             format="png",
         )
         # Exactly one new shape — the embedded picture.
@@ -98,16 +102,17 @@ class DescribeAddPlotlyFigure:
 
     def it_wraps_kaleido_failures_in_FigureBackendUnavailable(self, slide):
         broken = MagicMock()
-        broken.to_image.side_effect = RuntimeError(
-            "kaleido binary not found"
-        )
+        broken.to_image.side_effect = RuntimeError("kaleido binary not found")
         with pytest.raises(FigureBackendUnavailable, match="kaleido"):
             add_plotly_figure(
-                slide, broken,
-                Inches(1), Inches(1), Inches(4), Inches(3),
+                slide,
+                broken,
+                Inches(1),
+                Inches(1),
+                Inches(4),
+                Inches(3),
                 format="png",
             )
-
 
     @pytest.mark.parametrize(
         ("options", "match"),
@@ -166,9 +171,12 @@ class DescribeAddPlotlyFigureBackends:
                 add_plotly_figure(slide, _FakePlotlyFigure(), 0, 0)
 
     def it_reports_both_failures_when_the_fallback_fails_too(self, slide):
-        with patch("power_pptx.design.figures._plotly_to_blob", _unavailable), patch(
-            "power_pptx.design.figures._plotly_browser_capture",
-            _browser_raises(ValueError("no browser")),
+        with (
+            patch("power_pptx.design.figures._plotly_to_blob", _unavailable),
+            patch(
+                "power_pptx.design.figures._plotly_browser_capture",
+                _browser_raises(ValueError("no browser")),
+            ),
         ):
             with pytest.raises(
                 FigureBackendUnavailable,
@@ -180,9 +188,7 @@ class DescribeAddPlotlyFigureBackends:
         "exc", [TypeError("type"), ValueError("value"), FigureBackendUnavailable("missing")]
     )
     def it_lets_browser_usage_errors_through(self, slide, exc):
-        with patch(
-            "power_pptx.design.figures._plotly_browser_capture", _browser_raises(exc)
-        ):
+        with patch("power_pptx.design.figures._plotly_browser_capture", _browser_raises(exc)):
             with pytest.raises(type(exc)) as error:
                 add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="browser")
         assert error.value is exc
@@ -199,9 +205,7 @@ class DescribeAddPlotlyFigureBackends:
 
     def it_rejects_an_export_that_is_not_an_svg_data_url(self, slide):
         capture = HtmlCapture(_TINY_PNG, "", "", exported="data:image/png;base64,AAAA")
-        with patch(
-            "power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)
-        ):
+        with patch("power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)):
             with pytest.raises(FigureBackendUnavailable, match="did not return an SVG data URL"):
                 add_plotly_figure(slide, _HtmlPlotlyFigure(), 0, 0, backend="browser")
 
@@ -221,8 +225,17 @@ class DescribeAddPlotlyFigureBackends:
         fake = _browser_returns(capture)
         with patch("power_pptx.design.figures._plotly_browser_capture", fake):
             picture = add_plotly_figure(
-                slide, _HtmlPlotlyFigure(), Inches(1), Inches(1), width, height,
-                backend="browser", scale=3, width_px=300, timeout_ms=500, allow_network=False,
+                slide,
+                _HtmlPlotlyFigure(),
+                Inches(1),
+                Inches(1),
+                width,
+                height,
+                backend="browser",
+                scale=3,
+                width_px=300,
+                timeout_ms=500,
+                allow_network=False,
             )
         assert (picture.width, picture.height) == expected
         assert "svgBlip" in picture.element.xml
@@ -240,9 +253,7 @@ class DescribeAddPlotlyFigureBackends:
         png = io.BytesIO()
         Image.new("RGB", (600, 300)).save(png, format="PNG")
         capture = HtmlCapture(png.getvalue(), "", "")
-        with patch(
-            "power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)
-        ):
+        with patch("power_pptx.design.figures._plotly_browser_capture", _browser_returns(capture)):
             picture = add_plotly_figure(
                 slide, _HtmlPlotlyFigure(), Inches(1), Inches(1), backend="browser", format="png"
             )
@@ -272,7 +283,12 @@ class DescribeAddMatplotlibFigure:
         fig = _FakeMatplotlibFigure()
         before = len(list(slide.shapes))
         add_matplotlib_figure(
-            slide, fig, Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            fig,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             format="png",
         )
         after = list(slide.shapes)
@@ -290,8 +306,12 @@ class DescribeAddSvgFigure:
         # Bypass cairosvg by passing png_fallback explicitly.
         before = len(list(slide.shapes))
         add_svg_figure(
-            slide, _STUB_SVG,
-            Inches(1), Inches(1), Inches(4), Inches(3),
+            slide,
+            _STUB_SVG,
+            Inches(1),
+            Inches(1),
+            Inches(4),
+            Inches(3),
             png_fallback=_TINY_PNG,
         )
         after = list(slide.shapes)
@@ -326,18 +346,14 @@ class DescribeFigureSlideDispatch:
         prs = Presentation()
         fig = _FakePlotlyFigure()
         slide = figure_slide(prs, title="Plot", figure=fig, figure_format="png")
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_dispatches_a_matplotlib_figure(self):
         prs = Presentation()
         fig = _FakeMatplotlibFigure()
         slide = figure_slide(prs, title="Plot", figure=fig, figure_format="png")
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_dispatches_inline_svg_bytes(self):
@@ -346,26 +362,25 @@ class DescribeFigureSlideDispatch:
         # through figure_slide; instead, this path needs cairosvg.
         # Mock the rasteriser so we don't depend on cairosvg.
         with patch(
-            "power_pptx._svg.rasterize_svg", return_value=_TINY_PNG,
+            "power_pptx._svg.rasterize_svg",
+            return_value=_TINY_PNG,
         ):
             slide = figure_slide(prs, title="SVG", figure=_STUB_SVG)
-        pictures = [
-            s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE
-        ]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         assert len(pictures) == 1
 
     def it_renders_a_caption_when_provided(self):
         prs = Presentation()
         fig = _FakePlotlyFigure()
         slide = figure_slide(
-            prs, title="Plot", figure=fig, figure_format="png",
+            prs,
+            title="Plot",
+            figure=fig,
+            figure_format="png",
             caption="Source: internal data",
         )
         texts = [
-            p.text
-            for sh in slide.shapes
-            if sh.has_text_frame
-            for p in sh.text_frame.paragraphs
+            p.text for sh in slide.shapes if sh.has_text_frame for p in sh.text_frame.paragraphs
         ]
         assert any("Source" in t for t in texts)
 

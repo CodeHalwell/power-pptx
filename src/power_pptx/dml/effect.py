@@ -97,11 +97,7 @@ def _validated_rgb(value):
 
 def _is_default_effect_color(clr) -> bool:
     """True if `clr` is exactly the colour `_ensure_effect_color()` inserts."""
-    return (
-        clr.tag == qn("a:srgbClr")
-        and len(clr) == 0
-        and dict(clr.attrib) == {"val": "000000"}
-    )
+    return clr.tag == qn("a:srgbClr") and len(clr) == 0 and dict(clr.attrib) == {"val": "000000"}
 
 
 def _remove_effect(effect) -> None:

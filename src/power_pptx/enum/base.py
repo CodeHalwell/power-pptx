@@ -112,9 +112,7 @@ class BaseXmlEnum(int, enum.Enum, metaclass=_DeprecatingEnumMeta):
             aliases = getattr(cls, "__xml_read_aliases__", None)
             if aliases and xml_value in aliases:
                 canonical = aliases[xml_value]
-                member = next(
-                    (m for m in cls if m.xml_value == canonical), None
-                )
+                member = next((m for m in cls if m.xml_value == canonical), None)
 
         if member is None:
             raise ValueError(f"{cls.__name__} has no XML mapping for {repr(xml_value)}")

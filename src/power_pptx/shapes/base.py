@@ -449,9 +449,7 @@ class BaseShape(object):
         try:
             slide = self.part.slide  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise ValueError(
-                "shape.animate() requires the shape to be on a slide"
-            ) from exc
+            raise ValueError("shape.animate() requires the shape to be on a slide") from exc
 
         trigger_map = {
             "on_click": PP_ANIM_TRIGGER.ON_CLICK,
@@ -459,9 +457,7 @@ class BaseShape(object):
             "after_previous": PP_ANIM_TRIGGER.AFTER_PREVIOUS,
         }
         if trigger not in trigger_map:
-            raise ValueError(
-                f"trigger must be one of {sorted(trigger_map)}; got {trigger!r}"
-            )
+            raise ValueError(f"trigger must be one of {sorted(trigger_map)}; got {trigger!r}")
         trig = trigger_map[trigger]
 
         # The preset tables are the list of what exists; looking a name up as
@@ -533,10 +529,7 @@ class BaseShape(object):
         codes: set[str] = set()
         for raw in value:
             if not isinstance(raw, str):
-                raise TypeError(
-                    "lint_skip codes must be strings; got "
-                    f"{type(raw).__name__}"
-                )
+                raise TypeError(f"lint_skip codes must be strings; got {type(raw).__name__}")
             code = raw.strip()
             if not code:
                 raise ValueError("lint_skip codes must be non-empty strings")
@@ -582,9 +575,7 @@ class BaseShape(object):
         for other in shapes:
             other_id = self._require_shape_id(other)
             if other_id == self.shape_id:
-                raise ValueError(
-                    "a shape cannot be given an overlap allowance with itself"
-                )
+                raise ValueError("a shape cannot be given an overlap allowance with itself")
             ids.add(other_id)
         _write_lint_allow(cNvPr, ids)
 
@@ -672,8 +663,7 @@ class BaseShape(object):
             value = ()
         if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
             raise TypeError(
-                "overlap_allowances must be an iterable of shape ids; got "
-                f"{type(value).__name__}"
+                f"overlap_allowances must be an iterable of shape ids; got {type(value).__name__}"
             )
         ids: set[int] = set()
         for raw in value:
@@ -755,9 +745,7 @@ class BaseShape(object):
         if value is None:
             return None
         if not isinstance(value, str):
-            raise TypeError(
-                f"{attr} must be a string or None; got {type(value).__name__}"
-            )
+            raise TypeError(f"{attr} must be a string or None; got {type(value).__name__}")
         value = value.strip()
         return value or None
 
@@ -929,16 +917,12 @@ class BaseShape(object):
             try:
                 self.fill.background()  # type: ignore[attr-defined]
             except AttributeError as exc:
-                raise AttributeError(
-                    f"{type(self).__name__} does not support fill"
-                ) from exc
+                raise AttributeError(f"{type(self).__name__} does not support fill") from exc
             return self
         try:
             fill = self.fill  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise AttributeError(
-                f"{type(self).__name__} does not support fill"
-            ) from exc
+            raise AttributeError(f"{type(self).__name__} does not support fill") from exc
         fill.solid()
         fill.fore_color.rgb = coerce_color(hex_color)
         return self
@@ -966,9 +950,7 @@ class BaseShape(object):
         try:
             line = self.line  # type: ignore[attr-defined]
         except AttributeError as exc:
-            raise AttributeError(
-                f"{type(self).__name__} does not support line"
-            ) from exc
+            raise AttributeError(f"{type(self).__name__} does not support line") from exc
         if hex_color is None:
             line.fill.background()
         else:
@@ -997,9 +979,7 @@ class BaseShape(object):
         Raises :class:`ValueError` if the shape has no text frame.
         """
         if not getattr(self, "has_text_frame", False):
-            raise ValueError(
-                f"shape {self.name!r} has no text frame; can't replace text"
-            )
+            raise ValueError(f"shape {self.name!r} has no text frame; can't replace text")
         tf = self.text_frame  # type: ignore[attr-defined]
         pPr_template, rPr_template = _first_paragraph_formatting(tf)
 

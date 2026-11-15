@@ -127,9 +127,7 @@ class DescribePresentation(object):
         for slide_ in slides_:
             assert slide_.transition.kind == MSO_TRANSITION_TYPE.FADE
 
-    def it_treats_an_explicit_NONE_transition_as_a_per_slide_override(
-        self, set_transition_fixture
-    ):
+    def it_treats_an_explicit_NONE_transition_as_a_per_slide_override(self, set_transition_fixture):
         # Regression for Copilot review on PR #27: an explicit
         # ``<p:transition/>`` element reads back as
         # ``MSO_TRANSITION_TYPE.NONE``, which is meaningfully different
@@ -168,9 +166,7 @@ class DescribePresentation(object):
             for name, value in timing.items():
                 assert getattr(slide_.transition, name) == value
 
-    def it_applies_a_kind_after_a_timing_setting_was_set_and_cleared(
-        self, set_transition_fixture
-    ):
+    def it_applies_a_kind_after_a_timing_setting_was_set_and_cleared(self, set_transition_fixture):
         prs, slides_, _kind = set_transition_fixture
         prs.set_transition(advance_on_click=True)
         prs.set_transition(advance_on_click=None)
@@ -349,7 +345,9 @@ class DescribePresentation(object):
 
     @pytest.fixture
     def SlideMasters_(self, request, slide_masters_):
-        return class_mock(request, "power_pptx.presentation.SlideMasters", return_value=slide_masters_)
+        return class_mock(
+            request, "power_pptx.presentation.SlideMasters", return_value=slide_masters_
+        )
 
     @pytest.fixture
     def slide_master_(self, request):

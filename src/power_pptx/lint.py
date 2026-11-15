@@ -301,9 +301,7 @@ class ShapeCollision(LintIssue):
             message=(
                 f"Shapes '{shape_a.name}' and '{shape_b.name}' overlap "
                 f"({intersection_pct:.0%} of the smaller shape's area) "
-                f"[kind={kind}, score={score:.2f}]"
-                + group_suffix
-                + hint_suffix
+                f"[kind={kind}, score={score:.2f}]" + group_suffix + hint_suffix
             ),
             shapes=(shape_a, shape_b),
         )
@@ -367,8 +365,7 @@ class ShapeCollisionShadow(ShapeCollision):
             f"Shapes '{shape_a.name}' and '{shape_b.name}': shadow bleed "
             f"regions overlap ({intersection_pct:.0%} of the smaller "
             f"shape's area), though the raw bboxes do not "
-            f"[kind={kind}, score={score:.2f}]"
-            + group_suffix
+            f"[kind={kind}, score={score:.2f}]" + group_suffix
         )
 
 
@@ -408,7 +405,7 @@ class OffGridDrift(LintIssue):
             code="OffGridDrift",
             message=(
                 f"Shape '{shape.name}': {axis} edge is {drift_in:.3f}\" "
-                f"off the dominant grid line at {grid_emu / 914400.0:.3f}\"."
+                f'off the dominant grid line at {grid_emu / 914400.0:.3f}".'
             ),
             shapes=(shape,),
         )
@@ -524,7 +521,7 @@ class InvalidGeometry(LintIssue):
             code="InvalidGeometry",
             message=(
                 f"Shape '{shape.name}' has a negative {dimension} "
-                f"({value_emu / 914400:.2f}\"); PowerPoint reports the file as needing "
+                f'({value_emu / 914400:.2f}"); PowerPoint reports the file as needing '
                 f"repair. Give it a positive size."
             ),
             shapes=(shape,),
@@ -737,9 +734,7 @@ class SlideLintReport:
         """
         baseline_fps = set(baseline.fingerprints())
         return [
-            issue
-            for issue, fp in zip(self._issues, self.fingerprints())
-            if fp not in baseline_fps
+            issue for issue, fp in zip(self._issues, self.fingerprints()) if fp not in baseline_fps
         ]
 
     def diff_detail(self, baseline: "SlideLintReport") -> dict[str, list[LintIssue]]:
@@ -755,16 +750,8 @@ class SlideLintReport:
         base_fps = baseline.fingerprints()
         self_fp_set = set(self_fps)
         base_fp_set = set(base_fps)
-        added = [
-            issue
-            for issue, fp in zip(self._issues, self_fps)
-            if fp not in base_fp_set
-        ]
-        fixed = [
-            issue
-            for issue, fp in zip(baseline.issues, base_fps)
-            if fp not in self_fp_set
-        ]
+        added = [issue for issue, fp in zip(self._issues, self_fps) if fp not in base_fp_set]
+        fixed = [issue for issue, fp in zip(baseline.issues, base_fps) if fp not in self_fp_set]
         return {"added": added, "fixed": fixed}
 
     def to_sarif(self, *, slide_index: int | None = None) -> dict[str, object]:
@@ -791,9 +778,7 @@ class SlideLintReport:
         """
         return _build_sarif([(slide_index, self._issues)])
 
-    def to_sarif_json(
-        self, *, slide_index: int | None = None, indent: int | None = 2
-    ) -> str:
+    def to_sarif_json(self, *, slide_index: int | None = None, indent: int | None = 2) -> str:
         """Return :meth:`to_sarif` serialized as a JSON string."""
         import json
 
@@ -843,8 +828,7 @@ def _issue_fingerprint(issue: LintIssue) -> str:
 #: GitHub and other consumers validate the document.
 _SARIF_VERSION = "2.1.0"
 _SARIF_SCHEMA = (
-    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
-    "Schemata/sarif-schema-2.1.0.json"
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
 )
 _SARIF_TOOL_NAME = "power-pptx-lint"
 
@@ -872,9 +856,7 @@ _RULE_DESCRIPTIONS: dict[str, str] = {
     "MasterPlaceholderCollision": (
         "A shape sits at the position of an inheritable layout placeholder."
     ),
-    "LayerOrderViolation": (
-        "A shape declares it sits above a layer but is drawn below it."
-    ),
+    "LayerOrderViolation": ("A shape declares it sits above a layer but is drawn below it."),
     "RaggedEdge": "A filled panel ends above the bottom edge its neighbouring panels share.",
     "InvalidGeometry": "A shape's stored width or height is negative.",
 }
@@ -918,17 +900,13 @@ def _sarif_result(issue: LintIssue, slide_index: int | None) -> dict[str, object
             locations.append(location)
     else:
         # No shape attached (rare) — still anchor the result to the slide.
-        locations.append(
-            {"physicalLocation": {"artifactLocation": {"uri": artifact_uri}}}
-        )
+        locations.append({"physicalLocation": {"artifactLocation": {"uri": artifact_uri}}})
 
     if slide_index is not None:
         for location in locations:
             logical = location.setdefault("logicalLocations", [])
             assert isinstance(logical, list)
-            logical.append(
-                {"fullyQualifiedName": f"slide[{slide_index}]", "kind": "slide"}
-            )
+            logical.append({"fullyQualifiedName": f"slide[{slide_index}]", "kind": "slide"})
 
     result: dict[str, object] = {
         "ruleId": issue.code,
@@ -1563,9 +1541,7 @@ def _ref_width(text: str, font_file: str | None) -> int:
     from power_pptx.text.measurement import measure_text
 
     try:
-        return int(
-            measure_text(text, Emu(10**12), size_pt=_REF_SIZE_PT, font_file=font_file).width
-        )
+        return int(measure_text(text, Emu(10**12), size_pt=_REF_SIZE_PT, font_file=font_file).width)
     except Exception:
         # An unreadable font file must not take the whole lint run down;
         # half an em per character is the engine-free estimate of last resort.
@@ -3183,8 +3159,7 @@ class _AutoFixer:
         # fixes a real run would apply.
         self._restacked.add(id(above_el))
         fix = (
-            f"Restacked '{above.name}' above '{below.name}' to honour "
-            f"layer_above={issue.layer!r}."
+            f"Restacked '{above.name}' above '{below.name}' to honour layer_above={issue.layer!r}."
         )
         if not self._dry_run:
             # ``addnext`` moves the element rather than copying it, so this
@@ -3650,9 +3625,7 @@ def _classify_collision(
 
     # "incidental": one shape fully contains the other and they aren't
     # the same size — the card-on-panel pattern.
-    fully_contained = (
-        _bbox_contains(bbox_a, bbox_b) or _bbox_contains(bbox_b, bbox_a)
-    )
+    fully_contained = _bbox_contains(bbox_a, bbox_b) or _bbox_contains(bbox_b, bbox_a)
     if fully_contained and size_ratio < 0.9:
         # Full containment + small size_ratio → very low score.
         score = 0.5 * size_ratio + 0.1 * (1.0 - overlap_pct)
@@ -3960,11 +3933,7 @@ def _check_off_grid_drift(infos: Sequence[_ShapeInfo]) -> list[LintIssue]:
     """
     issues: list[LintIssue] = []
     # Alignment is about where shapes were placed, so the stored frame.
-    placed = [
-        info
-        for info in infos
-        if not info.malformed and info.rotation in (0.0, 180.0)
-    ]
+    placed = [info for info in infos if not info.malformed and info.rotation in (0.0, 180.0)]
     if len(placed) < _GRID_MIN_CLUSTER + 1:
         return issues
 

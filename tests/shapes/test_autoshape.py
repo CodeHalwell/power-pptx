@@ -483,7 +483,9 @@ class DescribeShape(object):
 
     @pytest.fixture
     def TextFrame_(self, request, text_frame_):
-        return class_mock(request, "power_pptx.shapes.autoshape.TextFrame", return_value=text_frame_)
+        return class_mock(
+            request, "power_pptx.shapes.autoshape.TextFrame", return_value=text_frame_
+        )
 
     @pytest.fixture
     def text_frame_(self, request):

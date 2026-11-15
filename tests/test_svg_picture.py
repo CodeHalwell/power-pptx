@@ -40,16 +40,19 @@ def _new_slide():
 
 
 class DescribeLooksLikeSvg:
-    @pytest.mark.parametrize("blob", [
-        b'<html><body><svg width="10" height="10"></svg></body></html>',
-        b'<svg xmlns="http://www.w3.org/2000/svg"><broken></svg>',
-        b'<not-svg xmlns="http://www.w3.org/2000/svg"/>',
-    ])
+    @pytest.mark.parametrize(
+        "blob",
+        [
+            b'<html><body><svg width="10" height="10"></svg></body></html>',
+            b'<svg xmlns="http://www.w3.org/2000/svg"><broken></svg>',
+            b'<not-svg xmlns="http://www.w3.org/2000/svg"/>',
+        ],
+    )
     def it_rejects_html_and_malformed_svg(self, blob):
         assert not looks_like_svg(blob)
 
     def it_recognises_prefixed_svg_after_a_long_comment(self):
-        blob = b'<!--' + b'comment ' * 100 + b'--><s:svg xmlns:s="http://www.w3.org/2000/svg"/>'
+        blob = b"<!--" + b"comment " * 100 + b'--><s:svg xmlns:s="http://www.w3.org/2000/svg"/>'
         assert looks_like_svg(blob)
 
     def it_recognises_an_svg_blob(self):
@@ -66,7 +69,11 @@ class DescribeAddSvgPicture:
     def it_accepts_inline_unicode_svg(self):
         _prs, slide = _new_slide()
         pic = slide.shapes.add_svg_picture(
-            SVG_DOC.decode("utf-8"), Inches(1), Inches(1), Inches(2), Inches(2),
+            SVG_DOC.decode("utf-8"),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(2),
             png_fallback=TINY_PNG,
         )
         assert "svgBlip" in pic.element.xml

@@ -94,8 +94,7 @@ def _presentation_part(presentation: object) -> PresentationPart:
     part = presentation.part if isinstance(presentation, Presentation) else presentation
     if not isinstance(part, PresentationPart):
         raise TypeError(
-            "apply_template() takes a Presentation to modify, got %s"
-            % type(presentation).__name__
+            "apply_template() takes a Presentation to modify, got %s" % type(presentation).__name__
         )
     return part
 

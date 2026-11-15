@@ -12,9 +12,7 @@ from power_pptx.util import Inches
 def _shape():
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    sp = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
-    )
+    sp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1))
     return prs, slide, sp
 
 

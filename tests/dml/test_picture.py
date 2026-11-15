@@ -72,9 +72,7 @@ class DescribePictureEffectsDuotone:
 
         effects.set_duotone("222222", "DDDDDD")
 
-        assert blip.xml == xml(
-            _BLIP + "/a:duotone/(a:srgbClr{val=222222},a:srgbClr{val=DDDDDD})"
-        )
+        assert blip.xml == xml(_BLIP + "/a:duotone/(a:srgbClr{val=222222},a:srgbClr{val=DDDDDD})")
 
     def but_it_keeps_the_existing_duotone_when_the_new_one_is_rejected(self):
         blip, effects = _effects()

@@ -57,7 +57,9 @@ def _deck_effects_and_3d() -> bytes:
 
     prs = Presentation()
     s = _blank_slide(prs)
-    sh = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5))
+    sh = s.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(3), Inches(1.5)
+    )
     sh.fill.solid()
     sh.fill.fore_color.rgb = RGBColor(0x33, 0xA7, 0xFF)
     # geometry-only shadow + glow (must still carry a colour child)
@@ -165,9 +167,14 @@ def _deck_chart_types() -> bytes:
     cat.add_series("S1", (1, 2, 3))
     cat.add_series("S2", (3, 2, 1))
     for ct in (
-        XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.COLUMN_STACKED,
-        XL_CHART_TYPE.BAR_CLUSTERED, XL_CHART_TYPE.LINE, XL_CHART_TYPE.LINE_MARKERS,
-        XL_CHART_TYPE.AREA, XL_CHART_TYPE.AREA_STACKED, XL_CHART_TYPE.RADAR,
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        XL_CHART_TYPE.COLUMN_STACKED,
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        XL_CHART_TYPE.LINE,
+        XL_CHART_TYPE.LINE_MARKERS,
+        XL_CHART_TYPE.AREA,
+        XL_CHART_TYPE.AREA_STACKED,
+        XL_CHART_TYPE.RADAR,
         XL_CHART_TYPE.RADAR_MARKERS,
     ):
         s.shapes.add_chart(ct, Inches(0.5), Inches(0.5), Inches(3), Inches(2), cat)
@@ -263,9 +270,7 @@ def _deck_embedded_font() -> bytes:
 
     from power_pptx.theme import embed_font
 
-    ttf = os.path.join(
-        os.path.dirname(__file__), "..", "test_files", "calibriz.ttf"
-    )
+    ttf = os.path.join(os.path.dirname(__file__), "..", "test_files", "calibriz.ttf")
     if not os.path.isfile(ttf):
         pytest.skip("calibriz.ttf fixture is unavailable")
 
@@ -580,12 +585,15 @@ def _deck_svg_embedding() -> bytes:
     prs = Presentation()
     fallback = io.BytesIO()
     Image.new("RGB", (200, 100), "#214b44").save(fallback, format="PNG")
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">'
-           '<rect width="200" height="100" fill="#214b44"/></svg>')
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">'
+        '<rect width="200" height="100" fill="#214b44"/></svg>'
+    )
     for _ in range(2):
         slide = _blank_slide(prs)
-        slide.shapes.add_svg_picture(svg, Inches(1), Inches(1), Inches(4), Inches(2),
-                                     png_fallback=fallback.getvalue())
+        slide.shapes.add_svg_picture(
+            svg, Inches(1), Inches(1), Inches(4), Inches(2), png_fallback=fallback.getvalue()
+        )
     return _saved(prs)
 
 
@@ -733,9 +741,7 @@ class DescribeGeneratedDeckSchemaValidity:
             image_part = scratch.part.related_part(pic._element.blip_rId)
             pic_el = deepcopy(pic._element)
             pic_el.blipFill.blip.rEmbed = owner.part.relate_to(image_part, RT.IMAGE)
-            pic_el.nvPicPr.cNvPr.id = 1 + max(
-                int(v) for v in owner._element.xpath("//p:cNvPr/@id")
-            )
+            pic_el.nvPicPr.cNvPr.id = 1 + max(int(v) for v in owner._element.xpath("//p:cNvPr/@id"))
             owner.shapes._spTree.append(pic_el)
             sldIdLst = prs.slides._sldIdLst
             prs.part.drop_rel(sldIdLst[-1].rId)
@@ -817,11 +823,7 @@ class DescribeGeneratedDeckSchemaValidity:
         data = _deck_ole_objects()
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             doc = etree.fromstring(zf.read("ppt/slides/slide1.xml"))
-        ids = [
-            el.get("id")
-            for el in doc.iter()
-            if etree.QName(el).localname == "cNvPr"
-        ]
+        ids = [el.get("id") for el in doc.iter() if etree.QName(el).localname == "cNvPr"]
         assert "0" not in ids, ids
         assert len(ids) == len(set(ids)), "duplicate shape ids: %s" % ids
 
@@ -889,8 +891,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "_rels/.rels" and "docProps/core.xml" in msg
-            for part, msg in violations
+            part == "_rels/.rels" and "docProps/core.xml" in msg for part, msg in violations
         ), violations
 
     def it_detects_a_duplicate_zip_member_name(self):
@@ -914,8 +915,7 @@ class DescribeGeneratedDeckSchemaValidity:
 
         violations = list(iter_schema_violations(buf.getvalue()))
         assert any(
-            part == "ppt/slides/slide1.xml" and "more than once" in msg
-            for part, msg in violations
+            part == "ppt/slides/slide1.xml" and "more than once" in msg for part, msg in violations
         ), violations
 
     def it_detects_an_orphan_slide_part(self):
@@ -979,9 +979,10 @@ def _rewritten(blob: bytes, edits) -> bytes:
     import zipfile
 
     out = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(blob)) as zin, zipfile.ZipFile(
-        out, "w", zipfile.ZIP_DEFLATED
-    ) as zout:
+    with (
+        zipfile.ZipFile(io.BytesIO(blob)) as zin,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout,
+    ):
         for name in zin.namelist():
             data = zin.read(name)
             zout.writestr(name, edits[name](data) if name in edits else data)
@@ -1088,9 +1089,7 @@ class DescribeIdListReferences:
             assert _REL_TYPES.encode() in data
             return data.replace(_REL_TYPES.encode(), strict)
 
-        blob = _rewritten(
-            _deck_blank(), {self.MASTER_RELS: edit, self.PRESENTATION_RELS: edit}
-        )
+        blob = _rewritten(_deck_blank(), {self.MASTER_RELS: edit, self.PRESENTATION_RELS: edit})
 
         assert list(iter_schema_violations(blob)) == []
 

@@ -268,9 +268,7 @@ class SlideTransition(object):
             self.clear()
             return
         if not isinstance(value, MSO_TRANSITION_TYPE):
-            raise TypeError(
-                "kind must be a MSO_TRANSITION_TYPE member or None, got %r" % (value,)
-            )
+            raise TypeError("kind must be a MSO_TRANSITION_TYPE member or None, got %r" % (value,))
         transition = self._sld.get_or_add_transition()
         # remove any pre-existing kind child
         existing = transition.kind_element
@@ -520,14 +518,9 @@ class Slide(_BaseSlide):
         already appear as a ``lint_group`` tag on this slide.
         """
         if not shapes:
-            raise ValueError(
-                "lint_group_overlaps requires at least one shape; got 0"
-            )
+            raise ValueError("lint_group_overlaps requires at least one shape; got 0")
         if name is None:
-            existing = {
-                getattr(s, "lint_group", None)
-                for s in self.shapes
-            } - {None, ""}
+            existing = {getattr(s, "lint_group", None) for s in self.shapes} - {None, ""}
             n = 1
             while f"design-group-{n}" in existing:
                 n += 1
@@ -760,8 +753,7 @@ class Slide(_BaseSlide):
             except Exception:
                 continue
             if not include_decorative and (
-                int(box.width) >= threshold_w
-                and int(box.height) >= threshold_h
+                int(box.width) >= threshold_w and int(box.height) >= threshold_h
             ):
                 continue
             union_box = box if union_box is None else union_box.union(box)
@@ -787,10 +779,7 @@ class Slide(_BaseSlide):
         for c in cells:
             if merged:
                 last = merged[-1]
-                if (
-                    int(last.top) == int(c.top)
-                    and int(last.right) == int(c.left)
-                ):
+                if int(last.top) == int(c.top) and int(last.right) == int(c.left):
                     merged[-1] = last.union(c)
                     continue
             merged.append(c)
@@ -807,8 +796,7 @@ class Slide(_BaseSlide):
         if isinstance(near, BBox):
             return near
         raise TypeError(
-            "find_empty_region(near=...) must be a BaseShape or BBox; "
-            f"got {type(near).__name__}"
+            f"find_empty_region(near=...) must be a BaseShape or BBox; got {type(near).__name__}"
         )
 
     @staticmethod
@@ -853,9 +841,7 @@ class Slide(_BaseSlide):
         merged = self._merge_row_runs(free)
 
         candidates = [
-            m for m in merged
-            if int(m.width) >= int(min_width)
-            and int(m.height) >= int(min_height)
+            m for m in merged if int(m.width) >= int(min_width) and int(m.height) >= int(min_height)
         ]
         if not candidates:
             return None
@@ -994,15 +980,21 @@ class Slide(_BaseSlide):
             return
         if value == "dark":
             self.set_clr_map_override(
-                bg1="dk1", tx1="lt1", bg2="dk2", tx2="lt2",
-                accent1="accent1", accent2="accent2", accent3="accent3",
-                accent4="accent4", accent5="accent5", accent6="accent6",
-                hlink="hlink", folHlink="folHlink",
+                bg1="dk1",
+                tx1="lt1",
+                bg2="dk2",
+                tx2="lt2",
+                accent1="accent1",
+                accent2="accent2",
+                accent3="accent3",
+                accent4="accent4",
+                accent5="accent5",
+                accent6="accent6",
+                hlink="hlink",
+                folHlink="folHlink",
             )
             return
-        raise ValueError(
-            f"color_variant must be 'light', 'dark', or None; got {value!r}"
-        )
+        raise ValueError(f"color_variant must be 'light', 'dark', or None; got {value!r}")
 
     def set_clr_map_override(self, *, masterClrMapping: bool = False, **mapping: str) -> None:
         """Set this slide's ``<p:clrMapOvr>`` element directly.

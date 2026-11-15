@@ -54,9 +54,7 @@ def _deck_with_every_chart_type():
         data.categories = ["A", "B", "C"]
         data.add_series("S1", (1.0, 2.0, 3.0))
         data.add_series("S2", (1.5, 1.8, 2.2))
-        slide.shapes.add_chart(
-            chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data
-        )
+        slide.shapes.add_chart(chart_type, Inches(1), Inches(1), Inches(6), Inches(4), data)
     return prs
 
 
@@ -101,8 +99,7 @@ class DescribeEndParaRPrLang:
         for filename, body in _walk_xml_parts(deck_blob):
             for match in with_attrs.finditer(body):
                 assert b"lang=" in match.group(0), (
-                    f"{filename} emitted <a:endParaRPr> without lang: "
-                    f"{match.group(0)!r}"
+                    f"{filename} emitted <a:endParaRPr> without lang: {match.group(0)!r}"
                 )
 
 
@@ -118,9 +115,7 @@ class DescribeStrictHookList:
         # Smoke check that the deck has the parts we think it does;
         # if zero charts were registered, the more-targeted tests
         # above would pass vacuously.
-        chart_parts = [
-            f for f, _ in _walk_xml_parts(deck_blob) if "/charts/chart" in f
-        ]
+        chart_parts = [f for f, _ in _walk_xml_parts(deck_blob) if "/charts/chart" in f]
         assert len(chart_parts) >= 11
 
 
@@ -173,8 +168,7 @@ def _assert_endParaRPr_has_lang(filename: str, tree: etree._Element) -> None:
     """Rule 2 — every <a:endParaRPr> must carry lang."""
     for endpr in tree.iter(f"{A}endParaRPr"):
         assert endpr.get("lang"), (
-            f"{filename}: <a:endParaRPr> missing lang attribute "
-            f"(would trigger PowerPoint Repair?)"
+            f"{filename}: <a:endParaRPr> missing lang attribute (would trigger PowerPoint Repair?)"
         )
 
 
@@ -217,7 +211,11 @@ class DescribeIssue0FamilyRegressions:
         data.add_series("S", (1, 2))
         chart = slide.shapes.add_chart(
             XL_CHART_TYPE.BAR_CLUSTERED,
-            Inches(1), Inches(1), Inches(5), Inches(4), data,
+            Inches(1),
+            Inches(1),
+            Inches(5),
+            Inches(4),
+            data,
         ).chart
         chart.plots[0].has_data_labels = True
         chart.plots[0].data_labels.show_value = True
@@ -257,16 +255,20 @@ class DescribeIssue0FamilyRegressions:
         # Direct property-setter path — `shape.width = float_value`
         # would have written a float-valued `cx` attribute pre-fix.
         from power_pptx.enum.shapes import MSO_SHAPE
+
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         shape = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(1), Inches(1), Inches(2), Inches(1),
+            Inches(1),
+            Inches(1),
+            Inches(2),
+            Inches(1),
         )
         shape.left = Inches(0.5) + 0.1  # produces a float
         shape.top = Inches(0.5) + 0.1
-        shape.width = (Inches(4.0) + 0.5)  # produces a float
-        shape.height = (Inches(2.0) + 0.5)
+        shape.width = Inches(4.0) + 0.5  # produces a float
+        shape.height = Inches(2.0) + 0.5
         buf = io.BytesIO()
         prs.save(buf)
         assert_powerpoint_strict_compliance(buf.getvalue())

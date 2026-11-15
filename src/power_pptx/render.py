@@ -290,10 +290,7 @@ def _run_soffice_pdf(
 
 def _pdf_rasteriser_available() -> bool:
     """True when a PDF can be split into PNGs here (``pdftoppm`` or ``pypdfium2``)."""
-    return (
-        shutil.which("pdftoppm") is not None
-        or importlib.util.find_spec("pypdfium2") is not None
-    )
+    return shutil.which("pdftoppm") is not None or importlib.util.find_spec("pypdfium2") is not None
 
 
 def _output_name(slide_index: int, slide_count: int) -> str:
@@ -337,9 +334,7 @@ def _pages_by_slide(
     )
 
 
-def _select_pages(
-    pages: Dict[int, Path], indexes: Iterable[int], slide_count: int
-) -> List[Path]:
+def _select_pages(pages: Dict[int, Path], indexes: Iterable[int], slide_count: int) -> List[Path]:
     """Return the page for each 0-based slide index in *indexes*, in that order."""
     selected = []
     for index in indexes:
@@ -417,9 +412,7 @@ def render_slide_thumbnails(
     or a LibreOffice version that doesn't ship the PNG filter).
     """
     if strategy not in ("auto", "png", "pdf"):
-        raise ValueError(
-            f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}"
-        )
+        raise ValueError(f"strategy must be 'auto', 'png', or 'pdf'; got {strategy!r}")
 
     bin_path = _resolve_binary(soffice_bin)
 
@@ -477,9 +470,7 @@ def render_slide_thumbnails(
             return [p.read_bytes() for p in png_paths]
 
         output_dir = (
-            Path(out_dir)
-            if out_dir is not None
-            else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
+            Path(out_dir) if out_dir is not None else Path(tempfile.mkdtemp(prefix="pptx-thumbs-"))
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         paths = []
@@ -552,10 +543,7 @@ def _render_via_pdf(
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
 
-    pdfs = [
-        p for p in work_dir.glob("*.pdf")
-        if p.name not in preexisting_pdfs
-    ]
+    pdfs = [p for p in work_dir.glob("*.pdf") if p.name not in preexisting_pdfs]
     if not pdfs:
         raise ThumbnailRendererError(
             "soffice --convert-to pdf produced no PDF output; "
@@ -620,15 +608,11 @@ def _pdf_to_pngs_via_pdftoppm(
             "pdftoppm exited with status %d: %s"
             % (result.returncode, (result.stderr or b"").decode("utf-8", "replace"))
         )
-    pages = sorted(
-        out_dir.glob(prefix + "-*.png"), key=_natural_sort_key
-    )
+    pages = sorted(out_dir.glob(prefix + "-*.png"), key=_natural_sort_key)
     return pages
 
 
-def _pdf_to_pngs_via_pypdfium2(
-    pdf_path: Path, out_dir: Path, *, dpi: int
-) -> List[Path]:
+def _pdf_to_pngs_via_pypdfium2(pdf_path: Path, out_dir: Path, *, dpi: int) -> List[Path]:
     import pypdfium2 as pdfium  # type: ignore[import-not-found]
 
     scale = float(dpi) / 72.0  # pypdfium2 uses 1.0 == 72 DPI

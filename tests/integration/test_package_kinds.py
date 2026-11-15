@@ -42,9 +42,10 @@ def _retyped(deck: bytes, main_content_type: str) -> bytes:
     .pptx: one attribute value in `[Content_Types].xml`.
     """
     out = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(deck)) as zin, zipfile.ZipFile(
-        out, "w", zipfile.ZIP_DEFLATED
-    ) as zout:
+    with (
+        zipfile.ZipFile(io.BytesIO(deck)) as zin,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout,
+    ):
         for name in zin.namelist():
             data = zin.read(name)
             if name == "[Content_Types].xml":

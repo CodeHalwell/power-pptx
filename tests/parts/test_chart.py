@@ -93,7 +93,7 @@ class DescribeChartWorkbook(object):
         [
             (
                 "c:chartSpace{r:a=b}",
-                "c:chartSpace{r:a=b}/c:externalData{r:id=rId" "42}/c:autoUpdate{val=0}",
+                "c:chartSpace{r:a=b}/c:externalData{r:id=rId42}/c:autoUpdate{val=0}",
             ),
             (
                 "c:chartSpace/c:externalData{r:id=rId66}",

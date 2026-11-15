@@ -175,9 +175,7 @@ def _sections_after_placing(
         if slide_id in anchored:
             continue
         before = final[new_ids[i - 1]] if i > 0 else None
-        after = next(
-            (final[later] for later in new_ids[i + 1 :] if later in anchored), None
-        )
+        after = next((final[later] for later in new_ids[i + 1 :] if later in anchored), None)
         final[slide_id] = _landing_section(owner.get(slide_id), before, after)
     return final
 
@@ -253,9 +251,7 @@ def _longest_increasing_run(new_ids: list[int], old_position: dict[int, int]) ->
     return run
 
 
-def _write_members(
-    sections: list[CT_Section], new_ids: list[int], section_of: dict
-) -> None:
+def _write_members(sections: list[CT_Section], new_ids: list[int], section_of: dict) -> None:
     """Rewrite each section's member list from `section_of`, in deck order."""
     for section in sections:
         sldIdLst = section.get_or_add_sldIdLst()

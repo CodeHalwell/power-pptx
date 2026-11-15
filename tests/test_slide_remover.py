@@ -216,7 +216,7 @@ class DescribeSlideIdEntries:
 class DescribeRemoveReferences:
     def it_removes_slide_list_entries_and_hyperlinks_naming_the_ids(self):
         element = parse_xml(
-            "<p:custShowLst %s><p:custShow name=\"s\" id=\"0\"><p:sldLst>"
+            '<p:custShowLst %s><p:custShow name="s" id="0"><p:sldLst>'
             '<p:sld r:id="rId2"/><p:sld r:id="rId3"/><p:sld r:id="rId4"/>'
             "</p:sldLst></p:custShow></p:custShowLst>" % nsdecls("p", "r")
         )
@@ -236,9 +236,7 @@ class DescribeRemoveReferences:
         assert len(element) == 0
 
     def it_leaves_everything_else_alone(self):
-        element = parse_xml(
-            "<p:sldLst %s><p:sld r:id=\"rId2\"/></p:sldLst>" % nsdecls("p", "r")
-        )
+        element = parse_xml('<p:sldLst %s><p:sld r:id="rId2"/></p:sldLst>' % nsdecls("p", "r"))
         before = etree.tostring(element)
 
         _remove_references(element, {"rId9"})

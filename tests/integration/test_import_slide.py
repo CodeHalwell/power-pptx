@@ -47,9 +47,7 @@ def _deck_with_a_picture_on_its_blank_layout() -> Presentation:
 
     src = Presentation()
     slide = src.slides.add_slide(src.slide_layouts[6])
-    pic = slide.shapes.add_picture(
-        io.BytesIO(_PNG), Inches(8), Inches(6), Inches(1), Inches(1)
-    )
+    pic = slide.shapes.add_picture(io.BytesIO(_PNG), Inches(8), Inches(6), Inches(1), Inches(1))
     layout = src.slide_layouts[6]
     image_part = slide.part.related_part(pic._element.blip_rId)
     rId = layout.part.relate_to(image_part, RT.IMAGE)
@@ -75,8 +73,7 @@ def _dangling_layout_embeds(package) -> list[tuple[str, str]]:
     dangling = []
     with zipfile.ZipFile(package) as z:
         layout_names = [
-            n for n in z.namelist()
-            if re.match(r"ppt/slideLayouts/slideLayout\d+\.xml$", n)
+            n for n in z.namelist() if re.match(r"ppt/slideLayouts/slideLayout\d+\.xml$", n)
         ]
         for name in layout_names:
             xml_text = z.read(name).decode()
@@ -296,8 +293,9 @@ class Describe_import_slide_dedupe:
         assert len(entries) == n_layout_rels
         for entry in entries:
             target = master_part.related_part(entry.rId)
-            assert "slideLayout" in str(target.partname), (
-                "sldLayoutId %s resolves to %s" % (entry.rId, target.partname)
+            assert "slideLayout" in str(target.partname), "sldLayoutId %s resolves to %s" % (
+                entry.rId,
+                target.partname,
             )
 
         # ids stay unique across every master's layout list + master ids
@@ -350,7 +348,9 @@ class Describe_import_slide_partnames:
             names = [i.filename for i in z.infolist()]
 
         # Partnames must be unique
-        assert len(names) == len(set(names)), f"Duplicate partnames: {[n for n in names if names.count(n) > 1]}"
+        assert len(names) == len(set(names)), (
+            f"Duplicate partnames: {[n for n in names if names.count(n) > 1]}"
+        )
 
     def it_gives_the_imported_slide_a_unique_slide_id(self):
         src = _make_prs_with_text("X")
@@ -404,8 +404,7 @@ class Describe_import_slide_notes:
         dst.save(buf)
         with zipfile.ZipFile(buf) as z:
             slide_parts = [
-                n for n in z.namelist()
-                if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+                n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")
             ]
         assert len(slide_parts) == len(dst.slides)
 
@@ -480,8 +479,7 @@ class Describe_import_slide_relationship_remap:
         buf.seek(0)
         with zipfile.ZipFile(buf) as z:
             slide_parts = [
-                n for n in z.namelist()
-                if n.startswith("ppt/slides/slide") and n.endswith(".xml")
+                n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")
             ]
             idx = len(slide_parts)
             sx = z.read("ppt/slides/slide%d.xml" % idx).decode()
@@ -492,8 +490,9 @@ class Describe_import_slide_relationship_remap:
         assert embeds, "imported slide should still reference an image"
         for rid in embeds:
             assert rid in relmap, "r:embed=%r is dangling" % rid
-            assert "media/" in relmap[rid], (
-                "r:embed=%r points at %r, not an image" % (rid, relmap[rid])
+            assert "media/" in relmap[rid], "r:embed=%r points at %r, not an image" % (
+                rid,
+                relmap[rid],
             )
 
 
@@ -528,12 +527,12 @@ def _linked_source() -> Presentation:
     button = a.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
     button.text_frame.text = "Go to appendix"
     button.click_action.target_slide = b
-    b.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1)).text_frame.text = (
-        "CONFIDENTIAL salary table"
-    )
-    c.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1)).text_frame.text = (
-        "Public summary"
-    )
+    b.shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text_frame.text = "CONFIDENTIAL salary table"
+    c.shapes.add_textbox(
+        Inches(1), Inches(1), Inches(2), Inches(1)
+    ).text_frame.text = "Public summary"
     return src
 
 
@@ -574,9 +573,7 @@ class Describe_import_slide_links_to_other_slides:
         assert button.click_action.target_slide is None
         assert button.click_action.hyperlink.address is None
         assert imported.part._element.xpath("//a:hlinkClick") == []
-        assert not any(
-            rel.reltype.endswith("/slide") for rel in imported.part.rels.values()
-        )
+        assert not any(rel.reltype.endswith("/slide") for rel in imported.part.rels.values())
         # -- the source deck is untouched --
         assert src.slides[0].shapes[0].click_action.target_slide == src.slides[1]
 
@@ -790,9 +787,10 @@ class Describe_import_slide_awkward_partnames:
             io.BytesIO(_PNG), Inches(1), Inches(1)
         )
         renamed = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(_saved_bytes(deck))) as zin, zipfile.ZipFile(
-            renamed, "w", zipfile.ZIP_DEFLATED
-        ) as zout:
+        with (
+            zipfile.ZipFile(io.BytesIO(_saved_bytes(deck))) as zin,
+            zipfile.ZipFile(renamed, "w", zipfile.ZIP_DEFLATED) as zout,
+        ):
             for name in zin.namelist():
                 data = zin.read(name)
                 if name == "ppt/media/image1.png":

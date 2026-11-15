@@ -46,9 +46,7 @@ def _validated_stop_position(position: Any) -> float:
     """
     value = float(position)
     if not 0.0 <= value <= 1.0:
-        raise ValueError(
-            "gradient stop position must be in range 0.0 to 1.0, got %r" % (position,)
-        )
+        raise ValueError("gradient stop position must be in range 0.0 to 1.0, got %r" % (position,))
     return value
 
 
@@ -57,11 +55,7 @@ def _looks_like_color_value(value: Any) -> bool:
     if isinstance(value, (str, RGBColor)):
         return True
     # 3-tuple of ints is an RGB triple, not a (color, position) pair.
-    return (
-        isinstance(value, tuple)
-        and len(value) == 3
-        and all(isinstance(v, int) for v in value)
-    )
+    return isinstance(value, tuple) and len(value) == 3 and all(isinstance(v, int) for v in value)
 
 
 def _normalize_stop_input(stops: Any):
@@ -89,9 +83,7 @@ def _normalize_stop_input(stops: Any):
     # with (color, position).  Treat any item that's a 3-int-tuple as a
     # bare RGB triple regardless.
     if any(
-        isinstance(item, tuple)
-        and len(item) == 3
-        and all(isinstance(v, int) for v in item)
+        isinstance(item, tuple) and len(item) == 3 and all(isinstance(v, int) for v in item)
         for item in seq
     ):
         pair_form = False
@@ -188,13 +180,10 @@ class FillFormat(object):
         """
         if kind not in self._GRADIENT_KINDS:
             raise ValueError(
-                "gradient kind must be one of %r; got %r"
-                % (self._GRADIENT_KINDS, kind)
+                "gradient kind must be one of %r; got %r" % (self._GRADIENT_KINDS, kind)
             )
         if angle is not None and kind != "linear":
-            raise ValueError(
-                "angle= is only valid for kind='linear'; got kind=%r" % kind
-            )
+            raise ValueError("angle= is only valid for kind='linear'; got kind=%r" % kind)
         if angle is not None:
             angle = _validated_angle(angle)
         gradFill = self._xPr.get_or_change_to_gradFill()
@@ -416,7 +405,7 @@ class _Fill(object):
     @property
     def fore_color(self):
         """Raise TypeError for types that do not override this property."""
-        tmpl = "fill type %s has no foreground color, call .solid() or .pattern" "ed() first"
+        tmpl = "fill type %s has no foreground color, call .solid() or .patterned() first"
         raise TypeError(tmpl % self.__class__.__name__)
 
     @property
@@ -613,8 +602,7 @@ class _GradientStops(Sequence):
         gs_children = self._gs_children
         if len(gs_children) - 1 < self._MIN_STOP_COUNT:
             raise ValueError(
-                "a gradient must have at least %d stops; cannot delete"
-                % self._MIN_STOP_COUNT
+                "a gradient must have at least %d stops; cannot delete" % self._MIN_STOP_COUNT
             )
         target = gs_children[idx]
         self._gsLst.remove(target)
@@ -672,9 +660,7 @@ class _GradientStops(Sequence):
         """
         stops = list(stops)
         if len(stops) < self._MIN_STOP_COUNT:
-            raise ValueError(
-                "a gradient must have at least %d stops" % self._MIN_STOP_COUNT
-            )
+            raise ValueError("a gradient must have at least %d stops" % self._MIN_STOP_COUNT)
 
         # Pre-validate every entry so a failure (bad color, malformed tuple,
         # out-of-range position) raises *before* we touch the existing stops.
