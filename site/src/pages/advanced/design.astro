@@ -10,17 +10,21 @@ tokens = DesignTokens.from_dict({
         "ink": "#0D0D0D",
     },
     "typography": {
-        "heading": {"family": "Inter", "size": 44.0, "bold": True},
-        "body":    {"family": "Inter", "size": 18.0},
+        "heading": {"family": "Inter", "size": 44, "bold": True},
+        "body":    {"family": "Inter", "size": 18},
     },
-    "shadows": {"card": {"blur": 18.0, "distance": 4.0, "alpha": 0.18}},
-    "radii": {"card": 8.0},          # bare floats are points; ints are EMU
-    "spacings": {"sm": 8.0, "md": 16.0},
+    "shadows": {"card": {"blur": 18, "distance": 4, "alpha": 0.18}},   # blur = blur_radius
+    "radii": {"card": 8},            # bare numbers are points
+    "spacings": {"sm": 8, "md": 16},
 })
 
 # ...or from YAML (needs pyyaml) or extracted from an existing .pptx
 tokens_from_yaml = DesignTokens.from_yaml("brand.yaml")
-tokens_from_deck = DesignTokens.from_pptx("brand-deck.pptx")   # accent1..6, fonts`;
+tokens_from_deck = DesignTokens.from_pptx("brand-deck.pptx")   # accent1..6, fonts
+# from_pptx also takes a pathlib.Path, an open binary file or a Presentation
+
+# Per-call tweaks: dotted paths or nested dicts, same unit rule
+tokens = tokens.with_overrides({"typography.heading.size": 40})`;
 
 const snippet1 = `from power_pptx import Presentation, BBox
 from power_pptx.enum.shapes import MSO_SHAPE
@@ -65,6 +69,28 @@ kpi_slide(prs, title="KPIs",
           tokens=tokens)
 quote_slide(prs, quote="Ship it.", attribution="The team", tokens=tokens)
 image_hero_slide(prs, title="Big news", image="hero.png", tokens=tokens)`;
+
+const snippet3b = `from power_pptx.design.recipes import (
+    code_slide, figure_slide, table_slide,
+)
+
+# Bare numbers are relative weights: [2, 1, 1] == [50, 25, 25] == [0.5, 0.25, 0.25]
+table_slide(prs, title="Pipeline", columns=["Region", "Owner", "Notes"],
+            rows=[["EMEA", "Priya", "Recovered"], ["AMER", "Sam", "Slipped"]],
+            widths=[2, 1, 1], tokens=tokens)
+
+# Keeps the figure's aspect ratio; fit="cover" crops, fit="stretch" distorts
+figure_slide(prs, title="Adoption", figure="chart.png", fit="contain", tokens=tokens)
+
+# Fitted 14pt down to 9pt; longer code is cut with "... (+N more lines)"
+code_slide(prs, title="CI step", code=source, language="python",
+           overflow="truncate",        # or "raise"
+           font="JetBrains Mono", tokens=tokens)
+
+kpi_slide(prs, title="Too many",
+          kpis=[{"label": f"K{i}", "value": "1"} for i in range(10)])
+# ValueError: kpi_slide: 10 KPIs do not fit in one row on a slide this wide;
+#   at most 9 fit. Split them across slides.`;
 
 const snippet4 = `from power_pptx import (
     add_kpi_card, add_progress_bar, add_gauge,
@@ -130,8 +156,22 @@ add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
   <h2 id="tokens">DesignTokens</h2>
   <Code code={snippet0} />
   <p>
-    <strong>Gotcha:</strong> bare-int sizes in typography are interpreted as EMU, not points — use
-    floats (<code>44.0</code>) or <code>Pt(44)</code>.
+    <strong>Units.</strong> Every length — typography <code>size</code>, <code>radii</code>,
+    <code>spacings</code>, shadow <code>blur_radius</code> (alias <code>blur</code>) and
+    <code>distance</code> — is either a <code>Length</code> (<code>Pt(8)</code>,
+    <code>Emu(101600)</code>), kept exactly, or a bare number read as <strong>points</strong>;
+    <code>36</code> and <code>36.0</code> are the same, so a brand file from JSON or YAML behaves
+    like the dict. For compatibility, a bare integer of 12700 or more is still read as EMU. Palette
+    colours take hex strings, <code>RGBColor</code> or <code>[r, g, b]</code> lists.
+  </p>
+  <p>
+    <strong>Keys are checked.</strong> A typography token takes <code>family</code>,
+    <code>size</code>, <code>bold</code>, <code>italic</code> and <code>color</code>; a shadow
+    token <code>blur_radius</code> / <code>blur</code>, <code>distance</code>,
+    <code>direction</code>, <code>color</code> and <code>alpha</code>. Anything else, and a
+    near-miss of a section name (<code>"palete"</code>), raises <code>ValueError</code> naming the
+    token and the closest valid key. Other top-level keys are ignored, so a brand file can carry
+    its own data.
   </p>
 
   <h2 id="style">The shape.style facade</h2>
@@ -148,7 +188,33 @@ add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
   <Code code={snippet3} />
   <p>
     Recipes use the Blank layout, so <code>slide.shapes.title</code> is <code>None</code> — address
-    shapes by index.
+    shapes by index. On a template with no layout named "Blank" they take the layout with the
+    fewest placeholders and remove those, so a recipe slide always starts empty. The module also
+    has <code>section_divider</code>, <code>chart_slide</code>, <code>table_slide</code>,
+    <code>code_slide</code>, <code>timeline_slide</code>, <code>comparison_slide</code> and
+    <code>figure_slide</code>.
+  </p>
+  <Code code={snippet3b} />
+  <p>
+    <strong>Recipes fit their content and fail loudly.</strong> Where the text is known at build
+    time, the fitting size is measured and written into the slide — an autofit flag alone does
+    nothing in PowerPoint until the text is edited — and never below 9pt. Content that cannot fit
+    at that size raises <code>ValueError</code> saying how much does fit, instead of writing an
+    overflowing or unreadable slide: more than 9 KPIs in a row (12 on a 16:9 slide), more than 15
+    timeline milestones (21), more than 21 comparison rows. Item dicts are validated too:
+    <code>kpis</code> need <code>label</code> and <code>value</code> (optional
+    <code>delta</code> / <code>delta_text</code>), <code>milestones</code>, comparison
+    <code>rows</code> and chart <code>series</code> take exactly their documented keys, and a typo
+    raises with a did-you-mean hint. A recipe that fails — a figure that cannot be embedded, an
+    unknown alignment — leaves no half-built slide behind.
+  </p>
+  <p>
+    Text in the recipes meets 4.5:1 contrast on the surface it sits on: a palette role that does
+    not is darkened or lightened, keeping its hue. <code>code_slide</code> writes one installed
+    monospace family (or the <code>font=</code> you pass) and picks text and syntax colours from
+    the panel's brightness, so it reads with or without tokens. <code>timeline_slide</code> keeps
+    labels on the slide and clear of the rail, and <code>chart_slide</code> takes
+    <code>None</code> values as gaps.
   </p>
 
   <h2 id="components">Shape-level building blocks</h2>
@@ -157,6 +223,11 @@ add_svg_figure(slide, "diagram.svg", Inches(6), Inches(1), Inches(3))
     tweaks:
   </p>
   <Code code={snippet4} />
+  <p>
+    The KPI card lays its value, label and delta out for a 1.9" card and scales them down on a
+    shorter one, raising <code>ValueError</code> below 0.95". <code>add_stat_strip</code> needs at
+    least 0.75" of width per item and validates item keys the way <code>kpi_slide</code> does.
+  </p>
 
   <h2 id="figures">Figure adapters</h2>
   <Code code={snippet5} />
