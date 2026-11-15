@@ -274,52 +274,7 @@ def main(argv: list[str]) -> int:
     print("\n" + "=" * 72)
     print("STRESS-TEST HARNESS REPORT")
     print("=" * 72)
-    bugs = 0
-    for r in results:
-        status = "CLEAN" if r.clean else "ISSUES"
-        print(f"\n[{status}] {r.name}  ({r.n_slides} slides)")
-        if r.build_crash:
-            bugs += 1
-            print("  ✗ BUILD CRASHED:")
-            print("    " + r.build_crash.replace("\n", "\n    "))
-            continue
-        if r.lint_crash:
-            bugs += 1
-            print("  ✗ LINT CRASHED:")
-            print("    " + r.lint_crash.replace("\n", "\n    "))
-        if r.lint_errors:
-            print(f"  ⚠ {len(r.lint_errors)} lint error-issue(s):")
-            for e in r.lint_errors[:8]:
-                print(f"      - {e}")
-            if len(r.lint_errors) > 8:
-                print(f"      ... +{len(r.lint_errors) - 8} more")
-        if r.roundtrip_crash:
-            bugs += 1
-            print("  ✗ ROUND-TRIP CRASHED:")
-            print("    " + r.roundtrip_crash.replace("\n", "\n    "))
-        if r.roundtrip_parts:
-            bugs += 1
-            print(f"  ✗ ROUND-TRIP CHANGED {len(r.roundtrip_parts)} part(s):")
-            for p in r.roundtrip_parts:
-                print(f"      - {p}")
-        if r.reopen_crash:
-            bugs += 1
-            print("  ✗ REOPEN/SAVE CRASHED:")
-            print("    " + r.reopen_crash.replace("\n", "\n    "))
-        if r.schema_crash:
-            bugs += 1
-            print("  ✗ SCHEMA VALIDATION CRASHED:")
-            print("    " + r.schema_crash.replace("\n", "\n    "))
-        if r.schema_violations:
-            bugs += 1
-            print(f"  ✗ ISO-29500 SCHEMA: {len(r.schema_violations)} distinct violation(s):")
-            for v in r.schema_violations[:8]:
-                print(f"      - {v}")
-            if len(r.schema_violations) > 8:
-                print(f"      ... +{len(r.schema_violations) - 8} more")
-        if r.render_crash:
-            print("  ⚠ RENDER FAILED:")
-            print("    " + r.render_crash.replace("\n", "\n    "))
+    bugs = sum(_report_deck(r) for r in results)
 
     clean = sum(1 for r in results if r.clean)
     print("\n" + "=" * 72)
@@ -329,6 +284,54 @@ def main(argv: list[str]) -> int:
     # Non-zero exit on any hard bug signal so the harness is usable as a CI /
     # scripted gate, not just a printed report.
     return 1 if bugs else 0
+
+
+def _report_deck(r: DeckResult) -> int:
+    """Print one deck's section of the report; return its hard bug signal count.
+
+    Lint error-issues and render failures are printed as warnings (⚠) but are
+    not hard bug signals; every ✗ line is.
+    """
+    status = "CLEAN" if r.clean else "ISSUES"
+    print(f"\n[{status}] {r.name}  ({r.n_slides} slides)")
+    if r.build_crash:
+        return _report_crash("  ✗ BUILD CRASHED:", r.build_crash)
+    bugs = _report_crash("  ✗ LINT CRASHED:", r.lint_crash)
+    _report_items(f"  ⚠ {len(r.lint_errors)} lint error-issue(s):", r.lint_errors, limit=8)
+    bugs += _report_crash("  ✗ ROUND-TRIP CRASHED:", r.roundtrip_crash)
+    bugs += _report_items(
+        f"  ✗ ROUND-TRIP CHANGED {len(r.roundtrip_parts)} part(s):", r.roundtrip_parts
+    )
+    bugs += _report_crash("  ✗ REOPEN/SAVE CRASHED:", r.reopen_crash)
+    bugs += _report_crash("  ✗ SCHEMA VALIDATION CRASHED:", r.schema_crash)
+    bugs += _report_items(
+        f"  ✗ ISO-29500 SCHEMA: {len(r.schema_violations)} distinct violation(s):",
+        r.schema_violations,
+        limit=8,
+    )
+    _report_crash("  ⚠ RENDER FAILED:", r.render_crash)
+    return bugs
+
+
+def _report_crash(heading: str, tb: str | None) -> int:
+    """Print *heading* and the indented traceback when there is one; return 1 if so."""
+    if not tb:
+        return 0
+    print(heading)
+    print("    " + tb.replace("\n", "\n    "))
+    return 1
+
+
+def _report_items(heading: str, items: list[str], limit: int | None = None) -> int:
+    """Print *heading* and up to *limit* bullet items when there are any; return 1 if so."""
+    if not items:
+        return 0
+    print(heading)
+    for item in items[:limit]:
+        print(f"      - {item}")
+    if limit is not None and len(items) > limit:
+        print(f"      ... +{len(items) - limit} more")
+    return 1
 
 
 if __name__ == "__main__":
