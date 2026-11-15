@@ -355,6 +355,15 @@ class DescribePictureEnclosingContainer:
         # -- the outer card does not lie inside the inner one, so trims nothing --
         assert picture.enclosing_container() == _bbox(1, 1, 6, 5)
 
+    def it_does_not_trim_its_card_around_a_zero_width_picture(self, slide):
+        # -- `slide.shapes` makes new proxies, so the picture and its card used
+        # -- to escape an identity check and be trimmed around as obstacles --
+        _add_rect(slide, 1, 1, 6, 4)
+        picture = _add_picture(slide, 3, 2, 2, 1)
+        picture.width = 0
+
+        assert picture.enclosing_container() == _bbox(1, 1, 6, 4)
+
     def it_skips_an_enclosing_shape_that_holds_text_unless_told_not_to(self, slide):
         card = slide.shapes.add_textbox(*_bbox(1, 1, 6, 5))
         card.text_frame.text = "label"

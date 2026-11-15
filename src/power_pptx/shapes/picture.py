@@ -233,8 +233,9 @@ class Picture(_BasePicture):
         Only shapes larger than the picture count, and, with `exclude_text`,
         none that hold live text: those are content, not chrome.
         """
+        # -- `slide.shapes` makes new proxies on every pass, so compare by element (==) --
         for shape in slide.shapes:
-            if shape is self:
+            if shape == self:
                 continue
             box = _box_or_none(shape)
             if box is None or box.area <= my_box.area:
@@ -252,7 +253,7 @@ class Picture(_BasePicture):
         """
         trimmed = container_box
         for shape in slide.shapes:
-            if shape is self or shape is container:
+            if shape == self or shape == container:
                 continue
             box = _box_or_none(shape)
             if box is not None and trimmed.contains(box):
