@@ -173,6 +173,19 @@ jobs:
       - name: Acceptance tests with behave
         run: .venv/bin/behave --stop
 
+  docs:
+    # Build the Sphinx documentation with warnings as errors, as Read the
+    # Docs is configured to.  The build had been failing there unnoticed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-docs.txt
+      - name: Build the documentation
+        run: python -m sphinx -b html -W --keep-going docs "$RUNNER_TEMP/docs-html"
+
   examples-lint:
     # Static-check examples/ for unused imports / undefined names so
     # PR review bots don't have to chase the same nits across every
