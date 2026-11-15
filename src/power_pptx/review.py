@@ -287,51 +287,26 @@ def review_presentation(
     """
     from power_pptx import Presentation
 
-    if reference_dir is not None and reference_html is not None:
-        raise ValueError("Choose reference_dir or reference_html")
-    if font_policy not in {"warn", "error", "ignore"}:
-        raise ValueError("font_policy must be warn, error, or ignore")
-    if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi <= 0 or timeout <= 0:
-        raise ValueError("dpi and timeout must be positive")
-    if max_mean_error is not None and (
-        not math.isfinite(max_mean_error) or not 0 <= max_mean_error <= 1
-    ):
-        raise ValueError("max_mean_error must be between 0 and 1")
-    if font_dirs:
-        from power_pptx.text.fonts import register_font_dir
-
-        for directory in font_dirs:
-            register_font_dir(directory)
+    _check_options(
+        reference_dir=reference_dir,
+        reference_html=reference_html,
+        font_policy=font_policy,
+        dpi=dpi,
+        timeout=timeout,
+        max_mean_error=max_mean_error,
+    )
+    _register_font_dirs(font_dirs)
     out = Path(out_dir).resolve()
-    if (
-        isinstance(source, (str, Path))
-        and Path(source).resolve() == (out / "presentation.pptx").resolve()
-    ):
-        raise ValueError("Review output cannot overwrite its input presentation")
-    if reference_dir is not None and not Path(reference_dir).is_dir():
-        raise ValueError("reference_dir must be an existing directory")
+    _check_paths(source, out, reference_dir)
     # -- remembered because `reference_dir` is repointed for HTML references --
     given_reference_dir = reference_dir
     data = presentation_bytes(source)
     validation = validate_presentation(
         data, check_schema=check_schema, check_fonts=font_policy != "ignore"
     )
-    errors = list(validation.errors)
-    if validation.schema_violations:
-        errors.append("OOXML schema/package validation failed")
-    if validation.roundtrip_changed_parts:
-        errors.append("Save/reopen round-trip changed package parts")
-    if validation.audit.get("has_errors"):
-        errors.append("Deck audit found errors")
-    if validation.audit.get("empty_slides"):
-        errors.append("Deck contains empty slides")
-    if font_policy == "error" and validation.missing_fonts:
-        errors.append("Missing native fonts: " + ", ".join(validation.missing_fonts))
-    if fail_on_warnings and (
-        validation.missing_fonts
-        or any(i["severity"] != "error" for i in validation.audit.get("lint_issues", []))
-    ):
-        errors.append("Warnings are configured to fail this review")
+    errors = _validation_errors(
+        validation, font_policy=font_policy, fail_on_warnings=fail_on_warnings
+    )
     manifest = {
         "title": "Slide review",
         "slide_count": validation.slide_count,
@@ -365,21 +340,14 @@ def review_presentation(
             manifest["slides"] = [p.relative_to(stage).as_posix() for p in images]
             manifest["contact_sheets"] = _contact_sheets(images, stage)
             if reference_html is not None:
-                from power_pptx.design._html import capture_html
-
-                refs = stage / "browser-reference"
-                refs.mkdir()
-                captures = capture_html(
+                reference_dir = _capture_html_references(
                     reference_html,
+                    stage,
                     selector=selector,
-                    multiple=True,
                     viewport=viewport,
                     browser_path=browser_path,
                     wait_for_function=wait_for_function,
                 )
-                for i, capture in enumerate(captures):
-                    (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
-                reference_dir = refs
             if reference_dir is not None:
                 manifest["comparisons"] = _compare(images, reference_dir, stage, max_mean_error)
                 if any(item["within_tolerance"] is False for item in manifest["comparisons"]):
@@ -401,6 +369,95 @@ def review_presentation(
         _clear_previous_run(out, keep=given_reference_dir)
         shutil.copytree(stage, out, dirs_exist_ok=True)
     return ReviewReport(out, manifest)
+
+
+def _check_options(*, reference_dir, reference_html, font_policy, dpi, timeout, max_mean_error):
+    """Raise |ValueError| for the first option of a review that is not valid."""
+    if reference_dir is not None and reference_html is not None:
+        raise ValueError("Choose reference_dir or reference_html")
+    if font_policy not in {"warn", "error", "ignore"}:
+        raise ValueError("font_policy must be warn, error, or ignore")
+    if not _is_positive_int(dpi) or timeout <= 0:
+        raise ValueError("dpi and timeout must be positive")
+    if max_mean_error is not None and not _is_fraction(max_mean_error):
+        raise ValueError("max_mean_error must be between 0 and 1")
+
+
+def _is_positive_int(value):
+    """True for an int above zero; `True` is a bool, not a resolution."""
+    return not isinstance(value, bool) and isinstance(value, int) and value > 0
+
+
+def _is_fraction(value):
+    """True for a finite number from 0 to 1."""
+    return math.isfinite(value) and 0 <= value <= 1
+
+
+def _register_font_dirs(font_dirs):
+    """Register *font_dirs* for the font checks (and so for LibreOffice too)."""
+    if not font_dirs:
+        return
+    from power_pptx.text.fonts import register_font_dir
+
+    for directory in font_dirs:
+        register_font_dir(directory)
+
+
+def _check_paths(source, out, reference_dir):
+    """Raise |ValueError| when the review would overwrite *source*, or has no references."""
+    if (
+        isinstance(source, (str, Path))
+        and Path(source).resolve() == (out / "presentation.pptx").resolve()
+    ):
+        raise ValueError("Review output cannot overwrite its input presentation")
+    if reference_dir is not None and not Path(reference_dir).is_dir():
+        raise ValueError("reference_dir must be an existing directory")
+
+
+def _validation_errors(validation, *, font_policy, fail_on_warnings):
+    """Return the review errors that *validation* calls for, in the order they are listed."""
+    errors = list(validation.errors)
+    if validation.schema_violations:
+        errors.append("OOXML schema/package validation failed")
+    if validation.roundtrip_changed_parts:
+        errors.append("Save/reopen round-trip changed package parts")
+    if validation.audit.get("has_errors"):
+        errors.append("Deck audit found errors")
+    if validation.audit.get("empty_slides"):
+        errors.append("Deck contains empty slides")
+    if font_policy == "error" and validation.missing_fonts:
+        errors.append("Missing native fonts: " + ", ".join(validation.missing_fonts))
+    if fail_on_warnings and _has_warnings(validation):
+        errors.append("Warnings are configured to fail this review")
+    return errors
+
+
+def _has_warnings(validation):
+    """True when *validation* found a missing font or a lint issue that is not an error."""
+    return bool(validation.missing_fonts) or any(
+        issue["severity"] != "error" for issue in validation.audit.get("lint_issues", [])
+    )
+
+
+def _capture_html_references(
+    reference_html, stage, *, selector, viewport, browser_path, wait_for_function
+):
+    """Capture each slide of *reference_html* in a browser; return the folder of PNGs."""
+    from power_pptx.design._html import capture_html
+
+    refs = stage / "browser-reference"
+    refs.mkdir()
+    captures = capture_html(
+        reference_html,
+        selector=selector,
+        multiple=True,
+        viewport=viewport,
+        browser_path=browser_path,
+        wait_for_function=wait_for_function,
+    )
+    for i, capture in enumerate(captures):
+        (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
+    return refs
 
 
 def main(argv=None):
