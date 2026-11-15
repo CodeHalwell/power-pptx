@@ -121,8 +121,8 @@ Changed
   drift unless asked to, matching ``tidy()``. ``audit()`` reports each
   uncommon font once per slide.
 * Recipes and diagrams raise ``ValueError`` for content that cannot fit at a
-  readable size (for example more than 9 KPIs in a row, 21 comparison rows,
-  or a diagram label below 6pt) instead of writing a broken or unreadable
+  readable size (for example more than 9 KPIs in a row or 21 comparison
+  rows, or a diagram label below 6pt) instead of writing a broken or unreadable
   slide, and ``kpis`` items need both ``label`` and ``value``.
 * ``table_slide(widths=[...])`` treats bare numbers as relative weights; large
   numbers used to be read as EMU. ``figure_slide`` keeps a figure's aspect
@@ -168,6 +168,9 @@ Fixed
 * ``Picture.enclosing_container()`` no longer trims a zero-width or
   zero-height picture's card around the picture itself.
 * Adding many shapes to one group is about three times faster.
+* Placeholder ``left``, ``top``, ``width`` and ``height`` accept lengths
+  computed with float arithmetic, as every other shape does, and a rejected
+  value no longer leaves the placeholder's other dimension changed.
 * A same-deck ``import_slide`` of a slide on the second of two identical
   masters keeps that master.
 
@@ -228,6 +231,8 @@ Fixed
   case-insensitive and match other-language names, changing
   ``POWER_PPTX_FONT_DIRS`` takes effect immediately, and
   ``register_font_family`` no longer adds whole folders to the search.
+* A font file that cannot be opened raises an ``OSError`` that names the
+  file, instead of Pillow's bare "cannot open resource".
 
 **Packages, import and templates**
 
