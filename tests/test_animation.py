@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from power_pptx import Presentation
-from power_pptx.animation import Emphasis, Entrance, MotionPath, Trigger
+from power_pptx.animation import Emphasis, Entrance, Exit, MotionPath, Trigger
 from power_pptx.oxml.ns import qn
 from power_pptx.util import Inches
 
@@ -1661,3 +1661,49 @@ class DescribePresetIdentity:
             for a in slide._element.iter(qn("p:anim"))
         ]
         assert targets == ["0", "0", "1", "1"]
+
+
+class DescribeExitTiming:
+    """An exit hides its shape once it has played, not before."""
+
+    def _hide_delays(self, slide):
+        delays = []
+        for set_ in slide._element.iter(qn("p:set")):
+            if set_.find("p:to/p:strVal", {"p": P_NS}).get("val") != "hidden":
+                continue
+            cond = set_.find("p:cBhvr/p:cTn/p:stCondLst/p:cond", {"p": P_NS})
+            delays.append(None if cond is None else cond.get("delay"))
+        return delays
+
+    @pytest.mark.parametrize(
+        "preset", ["fade", "fly_out", "float_out", "wipe", "zoom", "wheel", "random_bars"]
+    )
+    def it_hides_the_shape_in_the_last_millisecond_of_its_exit(self, slide_with_shape, preset):
+        # Hidden at the start, as it used to be, the shape vanished at once
+        # and the fade, wipe or flight had nothing to show.
+        slide, shape = slide_with_shape
+
+        slide.animations.add_exit(preset, shape, duration=800)
+
+        assert self._hide_delays(slide) == ["799"]
+
+    def but_disappear_hides_the_shape_at_once(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        Exit.disappear(slide, shape)
+
+        assert self._hide_delays(slide) == [None]
+
+    def and_an_exit_that_takes_no_time_hides_the_shape_at_once(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        Exit.fade(slide, shape, duration=0)
+
+        assert self._hide_delays(slide) == [None]
+
+    def it_does_not_count_the_hiding_step_in_the_effect_duration(self, slide_with_shape):
+        slide, shape = slide_with_shape
+
+        Exit.fade(slide, shape, duration=800)
+
+        assert slide.animations.list()[0].duration == 800

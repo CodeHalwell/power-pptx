@@ -340,13 +340,19 @@ def _nsdecls_p() -> str:
     return nsdecls("p")
 
 
-def _visibility_set_xml(ctn_id: int, spid: int, visible: bool) -> str:
-    """Return XML for a `<p:set>` that shows or hides a shape."""
+def _visibility_set_xml(ctn_id: int, spid: int, visible: bool, delay: int = 0) -> str:
+    """Return XML for a `<p:set>` that shows or hides a shape *delay* ms into its effect."""
     val = "visible" if visible else "hidden"
+    ctn = f'<p:cTn id="{ctn_id}" dur="1" fill="hold"/>'
+    if delay:
+        ctn = (
+            f'<p:cTn id="{ctn_id}" dur="1" fill="hold">'
+            f'<p:stCondLst><p:cond delay="{delay}"/></p:stCondLst></p:cTn>'
+        )
     return (
         "<p:set>\n"
         "  <p:cBhvr>\n"
-        f'    <p:cTn id="{ctn_id}" dur="1" fill="hold"/>\n'
+        f"    {ctn}\n"
         f'    <p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>\n'
         "    <p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>\n"
         "  </p:cBhvr>\n"
@@ -1266,13 +1272,18 @@ class SlideAnimations:
         if preset == "disappear":
             return _visibility_set_xml(ids[0], spid, visible=False)
 
+        # The shape is hidden once its exit has played, in the last millisecond
+        # of it: hidden from the start, there would be nothing to see fade,
+        # wipe or fly away.
+        hide_at = max(duration - 1, 0)
+
         if preset == "fly_out":
             path = _FLY_PATHS_OUT.get(direction, _FLY_PATHS_OUT["bottom"])
-            vis_xml = _visibility_set_xml(ids[1], spid, visible=False)
+            vis_xml = _visibility_set_xml(ids[1], spid, visible=False, delay=hide_at)
             return _anim_motion_xml(ids[0], spid, duration, path) + vis_xml
 
         if preset == "float_out":
-            vis_xml = _visibility_set_xml(ids[2], spid, visible=False)
+            vis_xml = _visibility_set_xml(ids[2], spid, visible=False, delay=hide_at)
             return (
                 _anim_effect_xml(ids[0], spid, duration, "fade", "out")
                 + _anim_motion_xml(ids[1], spid, duration, "M 0 0 L 0 0.25 E")
@@ -1280,11 +1291,11 @@ class SlideAnimations:
             )
 
         if preset == "zoom":
-            vis_xml = _visibility_set_xml(ids[2], spid, visible=False)
+            vis_xml = _visibility_set_xml(ids[2], spid, visible=False, delay=hide_at)
             return _zoom_xml(ids[:2], spid, duration, entering=False) + vis_xml
 
         filter_str = _EFFECT_FILTER.get(preset, "fade")
-        vis_xml = _visibility_set_xml(ids[1], spid, visible=False)
+        vis_xml = _visibility_set_xml(ids[1], spid, visible=False, delay=hide_at)
         # For exit: animEffect first, then hide
         return _anim_effect_xml(ids[0], spid, duration, filter_str, "out") + vis_xml
 
