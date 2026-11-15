@@ -101,7 +101,7 @@ def _reversed_children(data):
 class DescribeUntrustedInput:
     """A package that declares XML entities is reported, never expanded."""
 
-    def it_reports_entity_references_instead_of_failing_on_them(self):
+    def it_reports_a_dtd_and_the_refused_load_instead_of_raising(self):
         def add_entity(name, data):
             if name == "ppt/slides/slide1.xml":
                 declaration, root = data.split(b"?>", 1)
@@ -120,12 +120,12 @@ class DescribeUntrustedInput:
             part == "ppt/slides/slide1.xml" and "declares a DTD" in message
             for part, message in report.schema_violations
         )
-        # -- the checks after the schema pass still ran: canonicalising a part
-        # -- that holds an entity reference used to raise AttributeError --
-        assert report.errors == []
-        assert report.roundtrip_checked
-        assert report.slide_count == 1
-        assert report.audit
+        # -- the package reader refuses a DTD outright, so the deck is never
+        # -- opened; that is recorded as an error rather than raised --
+        assert len(report.errors) == 1
+        assert report.errors[0].startswith("InvalidPackageError:")
+        assert "contains a DTD" in report.errors[0]
+        assert not report.roundtrip_checked
 
 
 class DescribeRoundtripChanges:
