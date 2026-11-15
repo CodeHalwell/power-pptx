@@ -22,12 +22,22 @@ as ``fit_text`` and checks the auto-size frames it used to skip; the text
 engine wraps where PowerPoint and LibreOffice wrap; opening, importing and
 templating packages no longer corrupts or leaks content; ``from_spec`` rejects
 malformed input with located errors and has a safe mode for untrusted specs.
-Adds slide-show settings (issue #53), slide-size limits (issue #56),
-``Slide.hidden`` and a ``power-pptx lint`` command.
+Adds slide removal and duplication, slide-show settings (issue #53),
+slide-size limits (issue #56), ``Slide.hidden`` and a ``power-pptx lint``
+command.
 
 Added
 .....
 
+* ``Slides.remove(slide)`` deletes a slide. It also takes the slide out of
+  its section, any custom show and the outline view, and unlinks every shape
+  or text run that jumped to it (the text stays). The slide's notes, charts
+  and media no other slide uses are no longer saved, so the file has no
+  orphan slide or dangling reference.
+* ``Slides.duplicate(slide, index=None)`` adds an independent copy of a
+  slide, after it or at ``index``, and returns it. The copy has its own
+  notes, charts, workbooks and creation id, shares pictures and media, keeps
+  its links and layout, and joins the section of the slide before it.
 * ``Presentation.slide_show`` holds the *Set Up Slide Show* settings:
   ``loop`` (loop continuously until Esc), ``show_type`` (``"speaker"``,
   ``"window"``, ``"kiosk"`` or a ``PP_SLIDE_SHOW_TYPE`` member),
@@ -103,6 +113,9 @@ Added
 Changed
 .......
 
+* ``SpecError.path`` gives the location for errors in a ``shapes`` entry
+  (``"slides[0].shapes[1]"``, or its ``.name`` / ``.shape`` key) instead of
+  an empty string.
 * Overflow on auto-size frames and table rows is reported as a WARNING;
   fixed-size frames remain ERROR. ``report.auto_fix()`` no longer snaps grid
   drift unless asked to, matching ``tidy()``. ``audit()`` reports each
@@ -147,6 +160,17 @@ Changed
 Fixed
 .....
 
+**Core library**
+
+* Copying, deep-copying or pickling a length kept its class but converted
+  its value again: ``copy.deepcopy(Inches(1))`` was 836127360000 EMU. Any deep
+  copy of a component tree or design token is now correct.
+* ``Picture.enclosing_container()`` no longer trims a zero-width or
+  zero-height picture's card around the picture itself.
+* Adding many shapes to one group is about three times faster.
+* A same-deck ``import_slide`` of a slide on the second of two identical
+  masters keeps that master.
+
 **Linting and space-aware authoring**
 
 * ``TextOverflow`` measures text with the same font metrics as ``fit_text``:
@@ -179,6 +203,10 @@ Fixed
   writes) as missing, checks pictures in placeholders and judges contrast as
   the linter does. ``audit()`` resolves theme font references such as
   ``+mn-lt`` and checks paragraph and table-cell fonts.
+* ``TextOverflow`` breaks lines where ``fit_text`` does (after hyphens,
+  dashes and URL slashes, and between East Asian characters by their
+  rules), so frames ``fit_text`` sized for such text are no longer flagged
+  and frames too short for it are no longer missed.
 
 **Text engine and tables**
 
@@ -235,6 +263,8 @@ Fixed
   reports parts that declare a DTD, and tolerates comments in slide XML.
 * Section ids are reproducible under ``SOURCE_DATE_EPOCH``, and a review
   that reuses an output directory removes its previous output first.
+* ``power-pptx review`` works on a console that is not UTF-8; its summary
+  line used to make a finished review count as failed and then crash.
 
 **Specs, tokens and HTML**
 
@@ -273,6 +303,10 @@ Fixed
   short cards; recipes on templates without a "Blank" layout no longer leave
   empty placeholders; ``UP_DOWN_ARROW`` adjustments no longer write a
   duplicate guide; ``chart_slide`` accepts ``None`` values as gaps.
+* ``figure_slide`` and ``table_slide`` no longer leave a half-built slide in
+  the deck when a figure cannot be embedded or an alignment is unknown.
+* ``timeline_slide`` shows a milestone label or date of ``0`` instead of an
+  empty marker.
 
 **Animation, transitions and SmartArt**
 
@@ -290,6 +324,8 @@ Fixed
   ``ValueError`` for any malformed path and writes quadratic curves as
   cubics; ``MotionPath.custom`` adds a missing closing ``E`` and cannot
   inject markup.
+* A motion path of nothing but commas and spaces raises ``ValueError`` like
+  any other malformed path, instead of ``IndexError``.
 * Float durations and delays are rounded instead of producing invalid XML,
   and out-of-range times and spin angles raise.
 * Wipe, wheel, random-bars and zoom effects play (their filters were not
@@ -340,6 +376,9 @@ Development
   examples parse and import only names that exist.
 * The docs site's dependencies have no known advisories, and the Sphinx build
   passes with warnings treated as errors.
+* Every function in the library, its tests and its examples has a cognitive
+  complexity of 15 or less, and CI keeps it that way with ``complexipy``.
+  Ruff's lint rules and formatter now pass across ``src`` and ``tests``.
 
 
 2.14.0 (2026-10-19)
