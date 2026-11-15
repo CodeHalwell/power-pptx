@@ -157,6 +157,15 @@ class DescribePackageWriter:
         # -- nothing was written --
         assert stream.getvalue() == b""
 
+    def and_it_treats_names_differing_only_in_case_as_the_same(self, relationships_: Mock):
+        parts = [
+            Part(PackURI("/ppt/media/Image1.png"), CT.PNG, None, b"a"),
+            Part(PackURI("/ppt/media/image1.PNG"), CT.PNG, None, b"b"),
+        ]
+
+        with pytest.raises(ValueError, match="more than one part is named"):
+            PackageWriter.write(io.BytesIO(), relationships_, parts)
+
     def it_can_write_a_content_types_stream(
         self, request: FixtureRequest, phys_writer_: Mock, relationships_: Mock, part_: Mock
     ):

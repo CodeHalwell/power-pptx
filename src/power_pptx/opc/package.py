@@ -213,23 +213,26 @@ def _resolve_partname_collisions(parts: Sequence[Part]) -> None:
     The first part to claim a name keeps it. A later part with the same name is renamed to the
     first free numbered sibling (`/ppt/slides/slide2.xml` -> `/ppt/slides/slide7.xml`).
     Relationships refer to part objects, not names, so they follow the rename.
+
+    Names are compared without regard to case, as OPC requires: `/ppt/media/Image1.png` and
+    `/ppt/media/image1.png` are different zip members but the same part name to PowerPoint.
     """
     seen: Set[str] = set()
     colliding: list[Part] = []
     for part in parts:
-        partname = part.partname
-        if partname in seen:
+        key = part.partname.lower()
+        if key in seen:
             colliding.append(part)
         else:
-            seen.add(partname)
+            seen.add(key)
 
     for part in colliding:
         prefix, suffix = numbered_partname_pieces(part.partname)
         n = 1
-        while "%s%d%s" % (prefix, n, suffix) in seen:
+        while ("%s%d%s" % (prefix, n, suffix)).lower() in seen:
             n += 1
         part.partname = PackURI("%s%d%s" % (prefix, n, suffix))
-        seen.add(part.partname)
+        seen.add(part.partname.lower())
 
 
 def _is_external(rel: CT_Relationship) -> bool:

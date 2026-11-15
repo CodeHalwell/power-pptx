@@ -121,16 +121,17 @@ class PackageWriter:
         produce a zip with a duplicated member: PowerPoint rejects such a file and the second
         part silently replaces the first on the next load. `OpcPackage.save()` renames colliding
         parts before it gets here; this is the last line of defence for any other caller, and it
-        runs before anything is written.
+        runs before anything is written. Names differing only in case count as the same name, as
+        they do for OPC.
         """
         seen: set[str] = set()
         for part in self._parts:
             partname = part.partname
-            if partname in seen:
+            if partname.lower() in seen:
                 raise ValueError(
                     "cannot write package: more than one part is named '%s'" % partname
                 )
-            seen.add(partname)
+            seen.add(partname.lower())
 
     def _write_content_types_stream(self, phys_writer: _PhysPkgWriter) -> None:
         """Write `[Content_Types].xml` part to the physical package.

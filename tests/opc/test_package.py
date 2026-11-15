@@ -270,6 +270,10 @@ class DescribeOpcPackage:
             Part(PackURI("/ppt/media/my%20logo.png"), CT.PNG, None),
             Part(PackURI("/ppt/slides/slide2.xml"), CT.PML_SLIDE, None),
             Part(PackURI("/ppt/slides/slide3.xml"), CT.PML_SLIDE, None),
+            # -- OPC part names are case-insensitive: these two are one name to PowerPoint --
+            Part(PackURI("/ppt/media/Image1.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/image1.png"), CT.PNG, None),
+            Part(PackURI("/ppt/media/image2.png"), CT.PNG, None),
         ]
         _rels_prop_.return_value = relationships_
         method_mock(request, OpcPackage, "iter_parts", return_value=iter(parts))
@@ -288,6 +292,9 @@ class DescribeOpcPackage:
             "/ppt/media/my%20logo1.png",
             "/ppt/slides/slide5.xml",
             "/ppt/slides/slide3.xml",
+            "/ppt/media/Image1.png",
+            "/ppt/media/image3.png",
+            "/ppt/media/image2.png",
         ]
         assert all(isinstance(partname, PackURI) for partname in partnames)
 
