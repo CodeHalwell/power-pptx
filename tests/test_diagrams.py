@@ -450,3 +450,29 @@ class DescribeDecisionTreeRouting:
                 branches=[{"label": "B", "children": [f"leaf {j}" for j in range(30)]}],
             )
         assert slide._element.xml == before
+
+
+class DescribeDiagramDeckRoundTrip:
+    def _deck(self):
+        prs = Presentation()
+        region = BBox.from_inches(0.5, 0.5, 9, 6.5)
+        for build in (
+            lambda s: cycle(s, region, [f"Step {i}" for i in range(12)]),
+            lambda s: hub_and_spoke(s, region, centre="Platform", spokes=["A", "B", "C"]),
+            lambda s: decision_tree(
+                s, region, root="Q?", branches=[{"label": "Yes", "children": ["a", "b"]}, "No"]
+            ),
+        ):
+            build(prs.slides.add_slide(prs.slide_layouts[6]))
+        return prs
+
+    def it_round_trips_and_validates(self):
+        import io
+
+        from power_pptx.validation import iter_schema_violations
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(self._deck)
+        buf = io.BytesIO()
+        self._deck().save(buf)
+        assert list(iter_schema_violations(buf.getvalue())) == []

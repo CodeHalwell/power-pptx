@@ -1599,3 +1599,41 @@ class DescribeBlankLayoutFallback:
         slide = title_slide(prs, title="x")
 
         assert slide.slide_layout.name == "Blank"
+
+
+class DescribeRecipeDeckRoundTrip:
+    """Every recipe's new XML survives save -> open -> save and validates."""
+
+    def _deck(self):
+        prs = _wide(Presentation())
+        tokens = DesignTokens.from_preset("modern_light")
+        title_slide(prs, title="Q4 Review", subtitle="April 2026", tokens=tokens)
+        bullet_slide(prs, title="Highlights", bullets=["One", "Two"], tokens=tokens)
+        kpi_slide(
+            prs, title="KPIs", tokens=tokens,
+            kpis=[{"label": "ARR", "value": "$182M", "delta": 0.27}],
+        )
+        table_slide(
+            prs, title="Table", columns=["a", "b"], rows=[[1, 2]], widths=[2, 1],
+            totals={"label": "Total", "values": [2]}, tokens=tokens,
+        )
+        code_slide(prs, title="Code", code="x = 1\n" * 80, language="python", tokens=tokens)
+        timeline_slide(prs, title="Roadmap", milestones=_milestones(5), tokens=tokens)
+        comparison_slide(
+            prs, title="Cmp", left_heading="A", right_heading="B",
+            rows=[{"left": "l", "right": "r"}], tokens=tokens,
+        )
+        section_divider(prs, title="Part two", progress=(2, 5), tokens=tokens)
+        chart_slide(
+            prs, title="Chart", categories=["Q1", "Q2"],
+            series=[{"name": "ARR", "values": [1, None]}], tokens=tokens,
+        )
+        return prs
+
+    def it_round_trips(self):
+        from tests.integration.round_trip import assert_round_trip
+
+        assert_round_trip(self._deck)
+
+    def it_validates_against_the_schema(self):
+        assert _schema_violations(self._deck()) == []
