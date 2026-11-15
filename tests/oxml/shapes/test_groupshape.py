@@ -6,7 +6,7 @@ import pytest
 
 from power_pptx.oxml.shapes.autoshape import CT_Shape
 from power_pptx.oxml.shapes.graphfrm import CT_GraphicalObjectFrame
-from power_pptx.oxml.shapes.groupshape import CT_GroupShape
+from power_pptx.oxml.shapes.groupshape import CT_GroupShape, _arrivals_fit, _remember_end
 from power_pptx.oxml.shapes.picture import CT_Picture
 
 from ...unitutil.cxml import element, xml
@@ -436,6 +436,22 @@ class DescribeCT_GroupShapeIdAllocation:
         spTree.remove(last._element)
         assert _add_rect(slide.shapes).shape_id > reserved + 1 > last_id
 
+    def it_notices_ids_already_in_a_group_it_has_not_added_to_yet(self):
+        prs, slide = _slide_with_shapes(1)
+        group = slide.shapes.add_group_shape()
+        group._element.append(_foreign_shape(400))
+
+        assert _add_rect(group.shapes).shape_id == 401
+
+    def it_rescans_when_it_has_no_record_of_the_container_ends(self):
+        prs, slide = _slide_with_shapes(2)
+        spTree = slide.shapes._spTree
+        middle = slide.shapes[0]._element
+        middle.addnext(_foreign_shape(600))  # -- in the middle: not seen locally
+        del spTree.getroottree().getroot()._pptx_shape_id_ends
+
+        assert _add_rect(slide.shapes).shape_id == 601
+
     def but_it_still_rescans_after_invalidate_shape_id_cache(self):
         prs, slide = _slide_with_shapes(4)
         spTree = slide.shapes._spTree
@@ -490,3 +506,97 @@ class DescribeCT_GroupShapeIdAllocation:
             _add_rect(group.shapes)
 
         assert calls == {"rescan": 0, "inspect": 1}  # -- the new group, once
+
+
+def _shape_tree(*ids, ext_lst=False):
+    """A `p:spTree` holding a foreign shape for each of `ids`, then maybe a `p:extLst`."""
+    spTree = element("p:spTree/(p:nvGrpSpPr,p:grpSpPr)")
+    for id_ in ids:
+        spTree.append(_foreign_shape(id_))
+    if ext_lst:
+        spTree.append(element("p:extLst"))
+    return spTree
+
+
+class Describe_arrivals_fit:
+    """`_arrivals_fit()` says False (unchanged), True (changed, fits) or None (distrust)."""
+
+    @pytest.mark.parametrize("from_end", [False, True])
+    def it_reports_an_end_that_has_not_changed(self, from_end):
+        spTree = _shape_tree(2, 3, 4, 5)
+        remembered = _remember_end(spTree, from_end)
+
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is False
+
+    def it_reports_arrivals_at_either_end_with_lower_ids_as_a_change(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        spTree.insert(2, _foreign_shape(1))
+        spTree.append(_foreign_shape(3))
+
+        assert _arrivals_fit(spTree, head, False, 5) is True
+        assert _arrivals_fit(spTree, tail, True, 5) is True
+
+    def it_distrusts_an_arrival_with_a_higher_id(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        spTree.insert(2, _foreign_shape(9))
+        spTree.append(_foreign_shape(9))
+
+        assert _arrivals_fit(spTree, head, False, 5) is None
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    @pytest.mark.parametrize(("arrivals", "expected"), [(8, True), (9, None)])
+    def it_follows_only_so_many_arrivals_one_by_one(self, arrivals, expected):
+        spTree = _shape_tree(2, 3, 4, 5)
+        tail = _remember_end(spTree, True)
+        for _ in range(arrivals):
+            spTree.append(_foreign_shape(1))
+
+        assert _arrivals_fit(spTree, tail, True, 5) is expected
+
+    def it_distrusts_an_end_whose_remembered_shapes_are_all_gone(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        tail = _remember_end(spTree, True)
+        for sp in list(spTree)[-3:]:
+            spTree.remove(sp)
+
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    def it_reports_a_change_when_only_the_outermost_shapes_are_gone(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head, tail = _remember_end(spTree, False), _remember_end(spTree, True)
+        shapes = list(spTree)[2:]
+        spTree.remove(shapes[0])
+        spTree.remove(shapes[-1])
+
+        assert _arrivals_fit(spTree, head, False, 5) is True
+        assert _arrivals_fit(spTree, tail, True, 5) is True
+
+    @pytest.mark.parametrize("from_end", [False, True])
+    def it_examines_every_shape_of_a_container_that_held_none(self, from_end):
+        spTree = _shape_tree(ext_lst=True)
+        remembered = _remember_end(spTree, from_end)
+
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is False
+
+        spTree.insert(2, _foreign_shape(4))
+        spTree.insert(2, _foreign_shape(3))
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is True
+
+        spTree.insert(3, _foreign_shape(9))
+        assert _arrivals_fit(spTree, remembered, from_end, 5) is None
+
+    def it_looks_past_an_extLst_at_the_end(self):
+        spTree = _shape_tree(2, 3, 4, 5, ext_lst=True)
+        tail = _remember_end(spTree, True)
+        spTree.append(_foreign_shape(9))  # -- after the extLst
+
+        assert _arrivals_fit(spTree, tail, True, 5) is None
+
+    def but_not_past_the_grpSpPr_at_the_start(self):
+        spTree = _shape_tree(2, 3, 4, 5)
+        head = _remember_end(spTree, False)
+        spTree.insert(0, _foreign_shape(9))  # -- before the nvGrpSpPr
+
+        assert _arrivals_fit(spTree, head, False, 5) is False
