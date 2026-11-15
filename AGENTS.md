@@ -169,7 +169,9 @@ make docs                            # Sphinx HTML into docs/.build/html
 
 A PR must keep all of these green:
 
-1. **build** — `pytest` (with coverage) + `behave` across Python 3.9–3.13.
+1. **build** — `pytest` (with coverage) + `behave` across Python 3.9–3.14.
+   **lowest-deps** runs both suites on Python 3.9 with exactly the minimum
+   dependency versions `pyproject.toml` declares.
 2. **examples-lint** — `pyflakes examples/` (no unused imports / undefined names).
 3. **examples-build** — `python examples/real_world/build_all.py` smoke-builds
    all ten real-world decks end-to-end (proves the public surface didn't regress).
@@ -183,9 +185,13 @@ A PR must keep all of these green:
 7. **modern-gallery** — builds, validates, round-trips, and renders all 32
    modern example slides, then uploads previews and the manifest for review.
 8. **render-integration** — exercises the real LibreOffice/Poppler pipeline.
+9. **docs** — builds the Sphinx documentation with warnings treated as errors,
+   as Read the Docs does.
 
 Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
-`qodana_code_quality.yml`.
+`pages.yml` (builds and deploys `site/` to GitHub Pages when it changes on
+`master`), `qodana_code_quality.yml`. Dependabot proposes grouped updates for
+the Actions, Python tooling and site dependencies.
 
 ## Conventions
 
