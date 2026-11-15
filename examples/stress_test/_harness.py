@@ -154,35 +154,11 @@ def _short_tb() -> str:
 
 def check_deck(name: str, render: bool = False) -> DeckResult:
     res = DeckResult(name=name)
-    path = HERE / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-        prs = module.build()
-        res.build_ok = True
-        res.n_slides = len(prs.slides)
-    except Exception:
-        res.build_crash = _short_tb()
+    prs = _build(name, res)
+    if prs is None:
         return res
-
-    # 2. lint
-    try:
-        for i, slide in enumerate(prs.slides):
-            report = slide.lint()
-            report.auto_fix()
-            for issue in slide.lint().issues:
-                if issue.severity is LintSeverity.ERROR:
-                    res.lint_errors.append(f"slide {i + 1}: {issue}")
-    except Exception:
-        res.lint_crash = _short_tb()
-
-    # 3. round-trip
-    try:
-        diff = round_trip_diff(prs)
-        res.roundtrip_parts = sorted(diff)
-    except Exception:
-        res.roundtrip_crash = _short_tb()
+    _check_lint(prs, res)
+    _check_round_trip(prs, res)
 
     # save (always, so artifacts exist + reopen check is meaningful)
     OUT.mkdir(exist_ok=True)
@@ -193,41 +169,90 @@ def check_deck(name: str, render: bool = False) -> DeckResult:
         res.reopen_crash = "save failed:\n" + _short_tb()
         return res
 
-    # 4. reopen
+    _check_reopen(out_path, res)
+    if _SCHEMA:
+        _check_schema(out_path, res)
+    if render:
+        _render_pdf(out_path, res)
+    return res
+
+
+def _build(name: str, res: DeckResult):
+    """1. Import the deck script and run its ``build()``; ``None`` if it crashed."""
+    path = HERE / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        prs = module.build()
+        res.build_ok = True
+        res.n_slides = len(prs.slides)
+    except Exception:
+        res.build_crash = _short_tb()
+        return None
+    return prs
+
+
+def _check_lint(prs, res: DeckResult) -> None:
+    """2. Lint and auto-fix every slide, then record the residual errors."""
+    try:
+        for i, slide in enumerate(prs.slides):
+            report = slide.lint()
+            report.auto_fix()
+            for issue in slide.lint().issues:
+                if issue.severity is LintSeverity.ERROR:
+                    res.lint_errors.append(f"slide {i + 1}: {issue}")
+    except Exception:
+        res.lint_crash = _short_tb()
+
+
+def _check_round_trip(prs, res: DeckResult) -> None:
+    """3. Save → reopen → save must leave every part unchanged."""
+    try:
+        diff = round_trip_diff(prs)
+        res.roundtrip_parts = sorted(diff)
+    except Exception:
+        res.roundtrip_crash = _short_tb()
+
+
+def _check_reopen(out_path: Path, res: DeckResult) -> None:
+    """4. The saved file must open again."""
     try:
         Presentation(out_path)
     except Exception:
         res.reopen_crash = _short_tb()
 
-    # 5. ISO-29500 schema validation (deduplicated, part :: message)
-    if _SCHEMA:
-        try:
-            seen = set()
-            for part, msg in iter_schema_violations(out_path):
-                short = msg.strip().splitlines()[0][:160]
-                key = (part.rsplit("/", 1)[-1], short)
-                if key in seen:
-                    continue
-                seen.add(key)
-                res.schema_violations.append(f"{key[0]} :: {short}")
-        except Exception:
-            res.schema_crash = _short_tb()
 
-    # 6. optional render
-    if render:
-        import shutil
-        import subprocess
+def _check_schema(out_path: Path, res: DeckResult) -> None:
+    """5. ISO-29500 schema validation (deduplicated, part :: message)."""
+    try:
+        seen = set()
+        for part, msg in iter_schema_violations(out_path):
+            short = msg.strip().splitlines()[0][:160]
+            key = (part.rsplit("/", 1)[-1], short)
+            if key in seen:
+                continue
+            seen.add(key)
+            res.schema_violations.append(f"{key[0]} :: {short}")
+    except Exception:
+        res.schema_crash = _short_tb()
 
-        if shutil.which("soffice"):
-            try:
-                subprocess.run(
-                    ["soffice", "--headless", "--convert-to", "pdf",
-                     "--outdir", str(OUT), str(out_path)],
-                    capture_output=True, timeout=120, check=True,
-                )
-            except Exception:
-                res.render_crash = _short_tb()
-    return res
+
+def _render_pdf(out_path: Path, res: DeckResult) -> None:
+    """6. Optional: convert the deck to PDF with LibreOffice, when it is installed."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("soffice"):
+        return
+    try:
+        subprocess.run(
+            ["soffice", "--headless", "--convert-to", "pdf",
+             "--outdir", str(OUT), str(out_path)],
+            capture_output=True, timeout=120, check=True,
+        )
+    except Exception:
+        res.render_crash = _short_tb()
 
 
 def discover() -> list[str]:
