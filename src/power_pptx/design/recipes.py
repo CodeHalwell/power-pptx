@@ -2951,7 +2951,7 @@ def _resolve_delta(kpi: Mapping[str, Any]) -> tuple[Optional[str], int]:
 
 def _pygments_highlight(
     code: str, language: Optional[str], *, dark: bool = True
-) -> Optional[list[list[tuple[str, Optional[RGBColor]]]]]:
+) -> Optional[list[_CodeRuns]]:
     """Return per-line lists of ``(text, RGBColor)`` runs, or ``None``.
 
     *dark* selects the highlight set: the dark-panel colours (light,
@@ -3008,48 +3008,51 @@ def _pygments_highlight(
         Token.Punctuation:        None,
         Token.Text:               None,
     }
-    color_map: dict[Any, Optional[str]] = {
-        tok: (None if pair is None else pair[0 if dark else 1]) for tok, pair in themed.items()
+    column = 0 if dark else 1
+    color_map: dict[Any, Optional[RGBColor]] = {
+        tok: (None if pair is None else RGBColor.from_hex(pair[column]))
+        for tok, pair in themed.items()
     }
-
-    def _color_for(tok_type: Any) -> Optional[RGBColor]:
-        # Pygments token types are hierarchical: walk up to the nearest
-        # mapped ancestor so e.g. ``Token.String.Single`` reuses the
-        # ``Token.String`` color.  A mapped entry of ``None`` means
-        # "use the fallback colour" — explicit no-color rather than
-        # falling further up the hierarchy.
-        t = tok_type
-        while t is not None:
-            if t in color_map:
-                hex_str = color_map[t]
-                if hex_str is None:
-                    return None
-                hex_str = hex_str.lstrip("#")
-                return RGBColor(
-                    int(hex_str[0:2], 16),
-                    int(hex_str[2:4], 16),
-                    int(hex_str[4:6], 16),
-                )
-            t = getattr(t, "parent", None)
-        return None
 
     try:
         tokens = list(lex(code, lexer))
     except Exception:
         return None
 
-    lines: list[list[tuple[str, Optional[RGBColor]]]] = [[]]
-    for tok_type, value in tokens:
-        rgb = _color_for(tok_type)
-        # Pygments emits newlines as their own runs / inside strings;
-        # split here so we honour them as paragraph breaks rather than
-        # rendering literal newline characters in a single-line run.
-        chunks = value.split("\n")
-        for j, chunk in enumerate(chunks):
+    return _runs_by_line((value, _token_color(tok_type, color_map)) for tok_type, value in tokens)
+
+
+def _token_color(tok_type: Any, color_map: Mapping[Any, Optional[RGBColor]]) -> Optional[RGBColor]:
+    """Colour of the nearest mapped ancestor of Pygments token type *tok_type*.
+
+    Pygments token types are hierarchical: walk up to the nearest mapped
+    ancestor so e.g. ``Token.String.Single`` reuses the ``Token.String``
+    color.  A mapped entry of ``None`` means "use the fallback colour" —
+    explicit no-color rather than falling further up the hierarchy.
+    """
+    t = tok_type
+    while t is not None:
+        if t in color_map:
+            return color_map[t]
+        t = getattr(t, "parent", None)
+    return None
+
+
+def _runs_by_line(runs: Iterable[tuple[str, Optional[RGBColor]]]) -> list[_CodeRuns]:
+    """Group ``(text, colour)`` runs into lines, breaking each run at its newlines.
+
+    Pygments emits newlines as their own runs / inside strings; split
+    here so we honour them as paragraph breaks rather than rendering
+    literal newline characters in a single-line run.  Empty pieces are
+    dropped.
+    """
+    lines: list[_CodeRuns] = [[]]
+    for text, rgb in runs:
+        for j, chunk in enumerate(text.split("\n")):
+            if j:
+                lines.append([])
             if chunk:
                 lines[-1].append((chunk, rgb))
-            if j < len(chunks) - 1:
-                lines.append([])
     return lines
 
 
