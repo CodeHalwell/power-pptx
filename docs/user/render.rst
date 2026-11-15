@@ -53,7 +53,15 @@ Set the ``POWER_PPTX_SOFFICE`` environment variable to override the
 binary path globally; without it or ``soffice_bin=``, the first ``soffice``
 on ``$PATH`` is used, or else the first ``libreoffice``.
 ``return_bytes=True`` returns each image as raw PNG bytes instead of
-writing files.
+writing files.  ``timeout`` (seconds, default 120) applies to each external
+process, the LibreOffice export and then the PDF split; one that overruns is
+stopped along with every process it started.
+
+LibreOffice draws text with the fonts it can find.  Folders registered with
+:func:`power_pptx.text.register_font_dir` (or named in
+``POWER_PPTX_FONT_DIRS``) are passed to it automatically, and
+``font_dirs=[...]`` adds more for one call, so thumbnails use the faces the
+deck was measured with instead of substitutes.
 
 Hidden slides are rendered like any other, so ``slide_indexes=[n]`` always
 means ``prs.slides[n]``. This needs LibreOffice 7.4 or later; an older
@@ -65,8 +73,9 @@ Errors
 
 Two exceptions surface failure modes:
 
-* :class:`power_pptx.render.ThumbnailRendererUnavailable` — ``soffice`` is not
-  on ``$PATH``.  The error message includes an install hint.
+* :class:`power_pptx.render.ThumbnailRendererUnavailable` — no LibreOffice
+  binary was found (neither ``soffice`` nor ``libreoffice`` on ``$PATH``, or
+  the one named does not exist).  The error message includes an install hint.
 * :class:`power_pptx.render.ThumbnailRendererError` — conversion failed (the
   underlying ``soffice`` invocation produced no PNG, exited non-zero,
   or timed out).

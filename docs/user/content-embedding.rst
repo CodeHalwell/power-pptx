@@ -57,7 +57,7 @@ Untrusted HTML
 
 Capturing HTML runs it, with the process's network access. For markup from
 a model or a user, pass ``allow_network=False`` to ``from_html``,
-``add_html_figure``, ``add_plotly_figure`` or ``capture_html``. The page may
+``add_html_figure`` or ``add_plotly_figure``. The page may
 then load only ``data:`` / ``blob:`` URLs and its own document directory;
 any other request is blocked and the capture raises :class:`ValueError`
 listing the blocked URLs. ``from_spec(spec, safe=True)`` applies this to

@@ -194,8 +194,13 @@ No test checkout is needed. Missing fonts warn by default; ``--font-policy error
 fails on them. Theme/implicit font availability is outside this inventory.
 ``--font-dir assets/fonts`` (repeatable) registers a font folder for these checks
 and hands it to LibreOffice, so previews use the real face instead of a fallback.
-``--fail-on-warnings`` also gates audit warnings. Failures return a nonzero exit
-and keep available diagnostics; batches continue and create aggregate navigation.
+``--fail-on-warnings`` also gates audit warnings. ``--mode capture|hybrid`` and
+``--selector`` (default ``[data-slide]``) control how HTML inputs become slides,
+``--dpi`` (default 120) the PNG resolution, and ``--soffice-bin`` /
+``--browser-path`` name the LibreOffice and Chromium programs to run.
+The command exits 0 when every input passes, 1 when any fails, and 2 for a
+usage error. A failed review keeps the diagnostics it has; a batch continues
+past it and creates aggregate navigation.
 Reusing an output directory replaces the previous review: its slide PNGs,
 contact sheets, PDF and reference/difference images are removed first, and
 files the review does not write are left alone.
