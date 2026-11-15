@@ -92,7 +92,12 @@ Typography constraints
 ``text_frame.fit_text`` accepts ``min_size``, ``max_lines``,
 ``preserve_breaks``, and ``line_spacing``. A failed fit leaves formatting
 unchanged. ``preserve_breaks=True`` forbids additional wrapping, preserving
-authored lines and blank lines. ``power_pptx.text.measure_text`` returns
+authored lines and blank lines. The fit measures the formatting the frame keeps:
+paragraph line spacing and the space between paragraphs, capitals and letter
+spacing, including what a placeholder inherits from its layout and master.
+Lines break where PowerPoint and LibreOffice break them: at spaces, after
+hyphens and long-path slashes, and between Chinese, Japanese and Korean
+characters. ``power_pptx.text.measure_text`` returns
 read-only measured lines, dimensions, size, font path, and fallback status.
 Use installed fonts with ``strict=True``; metric files do not embed fonts in
 the presentation. See the text API reference for complete signatures.

@@ -142,7 +142,12 @@ metrics = measure_text("A short heading", Inches(6), size_pt=28,
 it forbids additional wrapping. `max_lines` sets the total visual line budget.
 An unsatisfiable fit raises before changing formatting. `measure_text` is
 read-only and returns `lines`, dimensions, chosen size, font path, and fallback
-status. Measure with the actual bold/italic style. Whole words must fit.
+status. Measure with the actual bold/italic style. Lines break as renderers
+break them (spaces, hyphens, long-path slashes, between CJK characters). A
+word wider than `width` raises unless `break_long_words=True`, which splits it
+at the edge as a renderer does. `line_spacing` is the paragraph's own spacing
+(default `1.2`, as `TextBlock` writes; `None` for single-spaced text, or a
+length such as `Pt(20)`); pass `in_table=True` for text in a table cell.
 
 ## Explicit HTML annotations
 

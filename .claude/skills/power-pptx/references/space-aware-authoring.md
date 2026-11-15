@@ -44,8 +44,33 @@ it applied.
 
 Measurement preserves paragraph breaks (`\n`), soft line breaks (`\v`),
 and empty lines. Whitespace-only frames are safe to fit. The linter counts
-these breaks too. Custom paragraph spacing and font substitution can still
-differ between renderers, so inspect a thumbnail for final layout review.
+these breaks too.
+
+What is measured is what will be drawn:
+
+* **Line breaks** fall where PowerPoint and LibreOffice put them: at
+  spaces, after hyphens and the slashes of long paths and URLs, and
+  between Chinese, Japanese and Korean characters (never before `、。」）`
+  or a small kana, never after `「（`). Japanese without spaces wraps to
+  several lines at a readable size instead of shrinking to fit one line.
+* **Long words** are kept whole by choosing a smaller size when one from
+  `min_size` up allows it; otherwise they are split at the edge of the box,
+  as the renderers split them. Set `min_size` to keep a long token (a hash,
+  an unbroken URL) readable rather than tiny.
+* **Formatting left in place** is measured: each paragraph's line
+  spacing, the space between paragraphs, runs in `all_caps` / `small_caps`,
+  and letter spacing — whether set on the paragraphs and runs, in the
+  frame's list style, or inherited by a placeholder from its layout and
+  master. A single-spaced line is 1.2 × the point size.
+* `fit_text(line_spacing=...)` (a multiple such as `1.2`, or `Pt(28)`)
+  replaces the paragraphs' spacing and is both measured and written.
+  Passing `min_size`, `max_lines` or `preserve_breaks` never changes the
+  spacing that is measured.
+* East Asian text also gets the measured family as its East Asian
+  typeface (`<a:ea>`), so it is drawn with the font that measured it.
+
+Font substitution can still differ between renderers, so inspect a
+thumbnail for final layout review.
 
 ### The guarantee is only as good as the font metrics
 
@@ -110,8 +135,11 @@ best_pt = TextFitter.best_fit_font_size(
 )
 ```
 
-`best_fit_font_size` returns an int point size; the caller decides what
-to do with it.
+`best_fit_font_size` returns an int point size (or `None` when nothing
+from `min_size` up fits); the caller decides what to do with it. It
+measures single-spaced text unless given `line_spacing=`;
+`paragraph_formats=` (a `ParagraphFormat` per paragraph) adds per-paragraph
+spacing and tracking. It handles 1,000 words in well under a second.
 
 ## 2. Auto-fit: let PowerPoint shrink at render time
 

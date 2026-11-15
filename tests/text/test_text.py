@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import io
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -252,15 +254,23 @@ class DescribeTextFrame(object):
         )
         _apply_fit_.assert_called_once_with(text_frame, family, font_size, bold, italic)
 
-    def it_calculates_its_best_fit_font_size_to_help_fit_text(self, size_font_fixture):
+    def it_calculates_its_best_fit_font_size_to_help_fit_text(self, request, size_font_fixture):
         text_frame, family, max_size, bold, italic = size_font_fixture[:5]
         find_font_file_, TextFitter_, text, extents = size_font_fixture[5:9]
         font_file_, font_size_ = size_font_fixture[9:]
 
+        from power_pptx.text.layout import ParagraphFormat
+
+        formats = [ParagraphFormat()]
+        method_mock(request, TextFrame, "_measured_paragraphs", return_value=(text, formats))
+        property_mock(request, TextFrame, "_in_table", return_value=False)
+
         font_size = text_frame._best_fit_font_size(family, max_size, bold, italic, None)
 
         find_font_file_.assert_called_once_with(family, bold, italic)
-        TextFitter_.best_fit_font_size.assert_called_once_with(text, extents, max_size, font_file_)
+        TextFitter_.best_fit_font_size.assert_called_once_with(
+            text, extents, max_size, font_file_, paragraph_formats=formats, in_table=False
+        )
         assert font_size is font_size_
 
     def it_calculates_its_effective_size_to_help_fit_text(self):
@@ -1772,3 +1782,194 @@ class DescribeFitTextFontMetrics(object):
         shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
         shape.text_frame.text = "Space-aware authoring, measured"
         return shape.text_frame
+
+
+OUTFIT = str(Path(__file__).parents[1] / "fonts" / "Outfit-Regular.ttf")
+QUARTERLY = (
+    "Quarterly revenue grew faster than forecast across every region, "
+    "driven by enterprise renewals and a strong services attach rate."
+)
+HEADLINES = (
+    "Revenue grew faster than forecast\nEnterprise renewals led the way\n"
+    "Services attach rate beat plan\nChurn fell for a third quarter"
+)
+
+
+class DescribeFitTextMeasuresWhatRenders(object):
+    """`TextFrame.fit_text` measures the text as it will be drawn."""
+
+    def it_fits_the_same_with_and_without_constraints(self, new_frame):
+        size = new_frame(QUARTERLY).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+
+        for options in ({"min_size": 2}, {"min_size": size}, {"max_lines": 50}):
+            frame = new_frame(QUARTERLY)
+            assert frame.fit_text("Outfit", max_size=60, font_file=OUTFIT, **options) == size
+            assert frame.paragraphs[0].line_spacing is None
+
+    def it_measures_runs_set_in_capitals(self, new_frame):
+        plain = new_frame(QUARTERLY).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        frame = new_frame(QUARTERLY)
+        frame.paragraphs[0].runs[0].font.all_caps = True
+
+        size = frame.fit_text("Outfit", max_size=60, font_file=OUTFIT)
+
+        assert size < plain
+        assert _height(frame, QUARTERLY.upper(), size) <= frame._extents[1]
+
+    def it_measures_letter_spacing(self, new_frame):
+        plain = new_frame(QUARTERLY).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        frame = new_frame(QUARTERLY)
+        frame.paragraphs[0].runs[0].font.letter_spacing = Pt(3)
+
+        size = frame.fit_text("Outfit", max_size=60, font_file=OUTFIT)
+
+        assert size < plain
+        assert _height(frame, QUARTERLY, size, letter_spacing=Pt(3)) <= frame._extents[1]
+        assert frame.paragraphs[0].runs[0].font.letter_spacing == Pt(3)
+
+    def it_measures_the_paragraphs_line_spacing(self, new_frame):
+        plain = new_frame(QUARTERLY).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        frame = new_frame(QUARTERLY)
+        frame.paragraphs[0].line_spacing = 1.5
+
+        size = frame.fit_text("Outfit", max_size=60, font_file=OUTFIT)
+
+        assert size < plain
+        assert _height(frame, QUARTERLY, size, line_spacing=1.5) <= frame._extents[1]
+
+    def it_measures_line_spacing_inherited_from_the_list_style(self, new_frame):
+        plain = new_frame(QUARTERLY).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        by_paragraph = new_frame(QUARTERLY)
+        by_paragraph.paragraphs[0].line_spacing = 1.5
+        expected = by_paragraph.fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        frame = new_frame(QUARTERLY)
+        frame._txBody.get_or_add_lstStyle().get_or_add_lvl1pPr().line_spacing = 1.5
+
+        assert frame.fit_text("Outfit", max_size=60, font_file=OUTFIT) == expected < plain
+
+    def it_measures_the_space_between_paragraphs(self, new_frame):
+        plain = new_frame(HEADLINES).fit_text("Outfit", max_size=60, font_file=OUTFIT)
+        frame = new_frame(HEADLINES)
+        for paragraph in frame.paragraphs:
+            paragraph.space_after = Pt(18)
+
+        size = frame.fit_text("Outfit", max_size=60, font_file=OUTFIT)
+
+        assert size < plain
+        lines = sum(len(_measure(frame, p, size).lines) for p in HEADLINES.split("\n"))
+        line_height = _measure(frame, "Ty", size).height
+        assert line_height * lines + Pt(18) * 3 <= frame._extents[1]
+
+    def it_applies_and_measures_the_line_spacing_it_is_given(self, new_frame):
+        frame = new_frame(QUARTERLY)
+        frame.paragraphs[0].line_spacing = 3.0
+
+        size = frame.fit_text("Outfit", max_size=60, font_file=OUTFIT, line_spacing=1.2)
+
+        assert frame.paragraphs[0].line_spacing == pytest.approx(1.2)
+        assert _height(frame, QUARTERLY, size, line_spacing=1.2) <= frame._extents[1]
+        assert _height(frame, QUARTERLY, size + 1, line_spacing=1.2) > frame._extents[1]
+
+    def it_fits_East_Asian_text_by_wrapping_between_characters(self, new_frame):
+        frame = new_frame("四半期の売上高は、すべての地域で予測を上回るペースで成長しました。")
+
+        size = frame.fit_text("Outfit", max_size=40, font_file=OUTFIT)
+
+        assert size >= 20
+
+    def it_names_the_measured_family_for_East_Asian_text(self, new_frame):
+        frame = new_frame("売上高 revenue")
+
+        frame.fit_text("Outfit", max_size=40, font_file=OUTFIT)
+
+        rPr = frame.paragraphs[0].runs[0]._r.rPr
+        assert rPr.find(qn("a:ea")).get("typeface") == "Outfit"
+        assert rPr.find(qn("a:latin")).getnext().tag == qn("a:ea")
+
+    def but_not_for_text_without_any(self, new_frame):
+        frame = new_frame(QUARTERLY)
+
+        frame.fit_text("Outfit", max_size=40, font_file=OUTFIT)
+
+        assert frame.paragraphs[0].runs[0]._r.rPr.find(qn("a:ea")) is None
+
+    def and_the_deck_stays_schema_valid(self, new_frame):
+        from power_pptx.validation import iter_schema_violations
+
+        frame = new_frame("売上高 revenue")
+        frame.fit_text("Outfit", max_size=40, font_file=OUTFIT)
+        stream = io.BytesIO()
+        frame.part.package.presentation_part.presentation.save(stream)
+
+        assert list(iter_schema_violations(stream.getvalue())) == []
+
+    @pytest.fixture
+    def new_frame(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+        def new_frame(text):
+            shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+            shape.text_frame.text = text
+            return shape.text_frame
+
+        return new_frame
+
+
+class DescribeFitTextInheritance(object):
+    """A placeholder's paragraphs inherit spacing from its layout and master."""
+
+    def it_reads_the_masters_body_style(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        body = slide.placeholders[1].text_frame
+        body.text = "one\ntwo"
+
+        text, formats = body._measured_paragraphs()
+
+        # -- the default template's body style has 20% space before each paragraph --
+        assert text == "one\ntwo"
+        assert [f.space_before for f in formats] == [pytest.approx(0.2)] * 2
+
+    def it_reads_the_masters_title_style(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        title = slide.shapes.title.text_frame
+        title.text = "Title"
+
+        assert title._measured_paragraphs()[1][0].space_before == 0
+
+    def it_prefers_the_paragraphs_own_spacing(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        body = slide.placeholders[1].text_frame
+        body.text = "one"
+        body.paragraphs[0].space_before = Pt(7)
+
+        assert body._measured_paragraphs()[1][0].space_before == Pt(7)
+
+
+class DescribeFitTextInTableCells(object):
+    def it_measures_inside_the_cells_own_margins(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(1)).table
+        cell = table.cell(0, 0)
+        default_width = cell.text_frame._extents[0]
+
+        cell.margin_left = cell.margin_right = Inches(0.6)
+
+        assert default_width == Inches(2) - Inches(0.2)
+        assert cell.text_frame._extents[0] == Inches(2) - Inches(1.2)
+        assert cell.text_frame._extents[1] == cell.height - Inches(0.1)
+
+
+def _measure(frame, text, size, **options):
+    from power_pptx.text.measurement import measure_text
+
+    options.setdefault("line_spacing", None)
+    return measure_text(text, frame._extents[0], size_pt=size, font_file=OUTFIT, **options)
+
+
+def _height(frame, text, size, **options):
+    return _measure(frame, text, size, **options).height
