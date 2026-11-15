@@ -496,3 +496,19 @@ prs.set_transition(MSO_TRANSITION.FADE, advance_after=5000)   # ms per slide
   a tool that leaves it out — is created on the first real change and
   removed again when every setting is back at its default. Pen colour,
   colour history, and extension lists in the same part are left alone.
+
+### Hidden slides
+
+```python
+slide.hidden = True      # stays in the deck, skipped in the slide show
+slide.hidden             # True
+slide.hidden = False     # shown again (removes the attribute, no show="1")
+
+for slide, rows in zip(prs.slides, tables):   # drop empty slides from a
+    slide.hidden = not rows                   # generated show, no renumbering
+```
+
+This replaces `slide._element.set("show", "0")`. Only `True`/`False` are
+accepted. Hidden slides are still linted. LibreOffice leaves them out of
+its exports, so `render_slides` fails with a page-count error on a deck
+that has any — render first, hide afterwards.

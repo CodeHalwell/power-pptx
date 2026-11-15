@@ -94,6 +94,7 @@ size.scale                                 # 0.7 -> multiply your coordinates by
 # --- slides ---
 slide = prs.slides.add_slide(prs.slide_layouts[5])   # Title Only
 slide = prs.slides.add_slide(prs.slide_layouts[6])   # Blank
+slide.hidden = True                        # stays in the deck, skipped in the show
 
 # --- geometry (BBox is splattable into add_*) ---
 bb = BBox.from_inches(1, 2, 8, 4)

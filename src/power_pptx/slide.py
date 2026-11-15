@@ -553,6 +553,38 @@ class Slide(_BaseSlide):
         return self.part.has_notes_slide
 
     @property
+    def hidden(self) -> bool:
+        """|True| if this slide is hidden, |False| otherwise. Read/write.
+
+        A hidden slide stays in the deck and can still be edited, but is
+        skipped when the presentation is run as a slide show (PowerPoint's
+        *Hide Slide*)::
+
+            slide.hidden = True      # skipped in the show
+            slide.hidden = False     # shown again
+
+        This is the ``show`` attribute of the slide's ``<p:sld>`` element,
+        which is absent on a slide that is shown. Hiding a slide writes
+        ``show="0"``; un-hiding it removes the attribute rather than writing
+        ``show="1"``, so hiding and un-hiding a slide leaves it as it was.
+
+        Raises |TypeError| if assigned anything other than |True| or |False|.
+        """
+        return self._element.get("show") in ("0", "false")
+
+    @hidden.setter
+    def hidden(self, value: bool) -> None:
+        # -- `slide.hidden = "no"` must not hide the slide, so nothing is coerced --
+        if value is not True and value is not False:
+            raise TypeError("hidden must be True or False, got %r" % (value,))
+        if value:
+            # -- leave a slide that is already hidden (`show="false"`, say) as it is --
+            if not self.hidden:
+                self._element.set("show", "0")
+        elif "show" in self._element.attrib:
+            del self._element.attrib["show"]
+
+    @property
     def notes_slide(self) -> NotesSlide:
         """The |NotesSlide| instance for this slide.
 
