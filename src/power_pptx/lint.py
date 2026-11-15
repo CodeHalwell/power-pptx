@@ -1698,56 +1698,78 @@ def _text_atoms(fragments: Sequence[tuple[str, _RunStyle]]) -> list[_Atom]:
     allowed at whitespace and on either side of an East Asian wide character;
     a word that changes style mid-way stays one atom.
     """
-    atoms: list[_Atom] = []
-    pieces: list[tuple[str, _RunStyle]] = []
-    space = 0.0  # whitespace owed before the atom being built
-    pending = 0.0  # whitespace seen since the last atom was closed
-
-    def close() -> None:
-        nonlocal pieces
-        if pieces:
-            atoms.append(
-                (
-                    sum(_text_width(text, style) for text, style in pieces),
-                    max(style.line_pt for _, style in pieces),
-                    space,
-                    pieces,
-                )
-            )
-            pieces = []
-
+    builder = _AtomBuilder()
     for text, style in fragments:
         for token in _TOKEN_RE.findall(text):
             if token.isspace():
-                close()
-                pending = max(
-                    pending,
-                    _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT + style.spacing,
-                )
-                continue
-            if token.isascii():
-                parts = [token]
+                builder.add_space(style)
             else:
-                parts = []
-                run = ""
-                for char in token:
-                    if _is_wide(char):
-                        if run:
-                            parts.append(run)
-                            run = ""
-                        parts.append(char)
-                    else:
-                        run += char
-                if run:
-                    parts.append(run)
-            for part in parts:
-                if pieces and (_is_wide(part[0]) or _is_wide(pieces[-1][0][-1])):
-                    close()
-                if not pieces:
-                    space, pending = (pending if atoms else 0.0), 0.0
-                pieces.append((part, style))
-    close()
-    return atoms
+                builder.add_word(token, style)
+    builder.close()
+    return builder.atoms
+
+
+def _space_advance(style: _RunStyle) -> float:
+    """Width in EMU of one space set in `style`, before letter spacing."""
+    return _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT
+
+
+def _wide_parts(word: str) -> list[str]:
+    """`word` cut so that each East Asian wide character stands alone."""
+    if word.isascii():
+        return [word]
+    parts: list[str] = []
+    run = ""
+    for char in word:
+        if not _is_wide(char):
+            run += char
+            continue
+        if run:
+            parts.append(run)
+            run = ""
+        parts.append(char)
+    if run:
+        parts.append(run)
+    return parts
+
+
+class _AtomBuilder:
+    """Collects the atoms of :func:`_text_atoms`, one piece of text at a time."""
+
+    def __init__(self):
+        self.atoms: list[_Atom] = []
+        self._pieces: list[tuple[str, _RunStyle]] = []
+        self._space = 0.0  # whitespace owed before the atom being built
+        self._pending = 0.0  # whitespace seen since the last atom was closed
+
+    def add_space(self, style: _RunStyle) -> None:
+        """Whitespace set in `style`: it ends the atom being built."""
+        self.close()
+        self._pending = max(self._pending, _space_advance(style) + style.spacing)
+
+    def add_word(self, word: str, style: _RunStyle) -> None:
+        """Text without whitespace set in `style`, broken around wide characters."""
+        for part in _wide_parts(word):
+            if self._pieces and (_is_wide(part[0]) or _is_wide(self._pieces[-1][0][-1])):
+                self.close()
+            if not self._pieces:
+                self._space, self._pending = (self._pending if self.atoms else 0.0), 0.0
+            self._pieces.append((part, style))
+
+    def close(self) -> None:
+        """Finish the atom being built, if any."""
+        pieces = self._pieces
+        if not pieces:
+            return
+        self.atoms.append(
+            (
+                sum(_text_width(text, style) for text, style in pieces),
+                max(style.line_pt for _, style in pieces),
+                self._space,
+                pieces,
+            )
+        )
+        self._pieces = []
 
 
 def _split_overlong(
@@ -1785,45 +1807,48 @@ def _wrap_fragments(
     so spacing between words matches the engine exactly.
     """
     if not wrap:
-        if not any(text.strip() for text, _ in fragments):
-            return []
-        width = 0.0
-        gap_pending = False  # whitespace seen since the last word
-        for text, style in fragments:
-            words = text.split()
-            if not words:
-                gap_pending = gap_pending or width > 0
-                continue
-            if width > 0 and (gap_pending or text[0].isspace()):
-                width += _ref_space_width(style.font_file) * style.size / _REF_SIZE_PT
-                width += style.spacing
-            width += _text_width(" ".join(words), style)
-            gap_pending = text[-1].isspace()
-        return [(width, max(style.line_pt for _, style in fragments))]
+        return _unwrapped_line(fragments)
     lines: list[tuple[float, float]] = []
-    width = size = 0.0
-    started = False
+    line: tuple[float, float] | None = None  # (width, line_height_pt) being filled
     cap = first_limit
     for atom_width, atom_size, space, pieces in _text_atoms(fragments):
-        if started and (not wrap or width + space + atom_width <= cap):
-            width += space + atom_width
-            size = max(size, atom_size)
-            continue
-        if started:
-            lines.append((width, size))
+        if line is not None:
+            width, size = line
+            if width + space + atom_width <= cap:
+                line = (width + (space + atom_width), max(size, atom_size))
+                continue
+            lines.append(line)
             cap = limit
-        started = True
-        if wrap and atom_width > cap:
-            chunks = _split_overlong(pieces, cap, limit)
-            lines.extend(chunks[:-1])
-            if len(chunks) > 1:
-                cap = limit
-            width, size = chunks[-1]
-        else:
-            width, size = atom_width, atom_size
-    if started:
-        lines.append((width, size))
+        # A word too long for a line of its own is broken at characters.
+        placed = (
+            _split_overlong(pieces, cap, limit) if atom_width > cap else [(atom_width, atom_size)]
+        )
+        lines.extend(placed[:-1])
+        if len(placed) > 1:
+            cap = limit
+        line = placed[-1]
+    if line is not None:
+        lines.append(line)
     return lines
+
+
+def _unwrapped_line(fragments: Sequence[tuple[str, _RunStyle]]) -> list[tuple[float, float]]:
+    """:func:`_wrap_fragments` for a frame whose word wrap is off: one line, or none."""
+    if not any(text.strip() for text, _ in fragments):
+        return []
+    width = 0.0
+    gap_pending = False  # whitespace seen since the last word
+    for text, style in fragments:
+        words = text.split()
+        if not words:
+            gap_pending = gap_pending or width > 0
+            continue
+        if width > 0 and (gap_pending or text[0].isspace()):
+            width += _space_advance(style)
+            width += style.spacing
+        width += _text_width(" ".join(words), style)
+        gap_pending = text[-1].isspace()
+    return [(width, max(style.line_pt for _, style in fragments))]
 
 
 def _fraction(value: str | None) -> float | None:
