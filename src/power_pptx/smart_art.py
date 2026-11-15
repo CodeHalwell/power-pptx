@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterator, Sequence
 
+from lxml import etree
 from lxml.etree import _Element as LxmlElement  # pyright: ignore[reportPrivateUsage]
 
 from power_pptx.oxml.ns import _nsmap as _GLOBAL_NSMAP  # pyright: ignore[reportPrivateUsage]
@@ -40,6 +41,11 @@ if TYPE_CHECKING:
 # <dgm:pt> types that carry visible text content (all others are structural)
 _NODE_TYPES = frozenset({"node", "asst"})
 
+# -- the namespace of the drawing part in which PowerPoint 2010+ caches the
+# -- shapes a diagram was last laid out as (`ppt/diagrams/drawing#.xml`)
+_DSP_URI = "http://schemas.microsoft.com/office/drawing/2008/diagram"
+_NSMAP = dict(_GLOBAL_NSMAP, dsp=_DSP_URI)
+
 
 def _xpath(element: LxmlElement, expr: str) -> list[LxmlElement]:
     """Evaluate *expr* on *element* using the global namespace map.
@@ -48,21 +54,56 @@ def _xpath(element: LxmlElement, expr: str) -> list[LxmlElement]:
     receives the full ``namespaces`` keyword argument, even when *element* is
     a ``BaseOxmlElement`` whose ``xpath`` method has an overridden signature.
     """
-    return LxmlElement.xpath(element, expr, namespaces=_GLOBAL_NSMAP)  # type: ignore[arg-type]
+    return LxmlElement.xpath(element, expr, namespaces=_NSMAP)  # type: ignore[arg-type]
 
 
 def _node_pts(data_element: LxmlElement) -> list[LxmlElement]:
     """Return all ``<dgm:pt>`` elements whose ``type`` marks them as content nodes.
 
+    ``type`` defaults to ``"node"``, and PowerPoint relies on that: it writes
+    the attribute only on the other kinds of point, so a content node is
+    usually one with no ``type`` at all.
+
     The returned list is in document order, which corresponds to the visual
     display order in most SmartArt layouts.
     """
-    return _xpath(data_element, "dgm:ptLst/dgm:pt[@type='node' or @type='asst']")
+    return _xpath(data_element, "dgm:ptLst/dgm:pt[not(@type) or @type='node' or @type='asst']")
 
 
-def _text_runs(pt: LxmlElement) -> list[LxmlElement]:
-    """Return all ``<a:t>`` leaf elements inside a ``<dgm:pt>/<dgm:t>`` text body."""
-    return _xpath(pt, "dgm:t//a:r/a:t")
+def _text_runs(text_body: LxmlElement) -> list[LxmlElement]:
+    """Return all ``<a:t>`` leaf elements of the runs in *text_body*."""
+    return _xpath(text_body, ".//a:r/a:t")
+
+
+def _set_text(text_body: LxmlElement, text: str) -> None:
+    """Make *text* the content of *text_body* (a ``dgm:t`` or ``dsp:txBody``).
+
+    The first run takes the text and any further run is emptied, so the run
+    and paragraph formatting already there is kept. A body without a run,
+    which is what a node still showing its "[Text]" prompt has, gets one in
+    its first paragraph.
+    """
+    runs = _text_runs(text_body)
+    if runs:
+        runs[0].text = text
+        for extra_run in runs[1:]:
+            extra_run.text = ""
+        return
+
+    p = text_body.find(qn("a:p"))
+    if p is None:
+        p = etree.SubElement(text_body, qn("a:p"))
+    r = etree.Element(qn("a:r"))
+    end = p.find(qn("a:endParaRPr"))
+    if end is None:
+        p.append(r)
+    else:
+        # -- runs precede the end-of-paragraph properties, whose settings (the
+        # -- font size a cached shape was laid out with, say) the new run adopts
+        if end.attrib:
+            etree.SubElement(r, qn("a:rPr"), dict(end.attrib))
+        end.addprevious(r)
+    etree.SubElement(r, qn("a:t")).text = text
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +145,7 @@ class SmartArtShape:
         data_el = self._data_element
         result: list[str] = []
         for pt in _node_pts(data_el):
-            runs = _text_runs(pt)
+            runs = _xpath(pt, "dgm:t//a:r/a:t")
             result.append("".join(r.text or "" for r in runs))
         return result
 
@@ -122,6 +163,12 @@ class SmartArtShape:
             When ``False``, extra values are silently ignored and nodes
             without a corresponding value are left unchanged.
 
+        A diagram saved by PowerPoint 2010 or later also carries a drawing
+        part caching the shapes it was last laid out as, which is what gets
+        displayed until the diagram is laid out afresh. The text there is
+        replaced as well, in the shapes as they stand: PowerPoint re-fits the
+        text when the diagram is next edited.
+
         Raises
         ------
         ValueError
@@ -136,35 +183,102 @@ class SmartArtShape:
                 f"{len(nodes)} content node(s).  Pass strict=False to suppress this check."
             )
 
+        drawing = self._cached_drawing
         for i, pt in enumerate(nodes):
             if i >= len(values):
                 break
             new_text = str(values[i])
-            runs = _text_runs(pt)
-            if runs:
-                # Overwrite first run; clear the rest.
-                runs[0].text = new_text
-                for extra_run in runs[1:]:
-                    extra_run.text = ""
-            else:
-                # No existing <a:t>; build a minimal <dgm:t>/<a:p>/<a:r>/<a:t> subtree.
-                t_body = pt.find(qn("dgm:t"))
-                if t_body is None:
-                    from lxml import etree
-
-                    t_body = etree.SubElement(pt, qn("dgm:t"))
-                    etree.SubElement(t_body, qn("a:bodyPr"))
-                    etree.SubElement(t_body, qn("a:lstStyle"))
-                from lxml import etree
-
-                p = etree.SubElement(t_body, qn("a:p"))
-                r = etree.SubElement(p, qn("a:r"))
-                t = etree.SubElement(r, qn("a:t"))
-                t.text = new_text
+            t_body = pt.find(qn("dgm:t"))
+            if t_body is None:
+                # No text body yet; build a minimal one. It goes ahead of any
+                # `dgm:extLst`, which closes the sequence of a point.
+                t_body = etree.Element(qn("dgm:t"))
+                etree.SubElement(t_body, qn("a:bodyPr"))
+                etree.SubElement(t_body, qn("a:lstStyle"))
+                ext_lst = pt.find(qn("dgm:extLst"))
+                if ext_lst is None:
+                    pt.append(t_body)
+                else:
+                    ext_lst.addprevious(t_body)
+            _set_text(t_body, new_text)
+            if new_text:
+                # -- a point holding text of its own is no longer a placeholder --
+                for prSet in pt.findall(qn("dgm:prSet")):
+                    prSet.attrib.pop("phldr", None)
+            if drawing is not None:
+                for text_body in self._cached_text_bodies(drawing, data_el, pt):
+                    _set_text(text_body, new_text)
+        if drawing is not None:
+            self._save_cached_drawing(drawing)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    @property
+    def _drawing_part(self):
+        """The part caching the laid-out shapes of this diagram, or |None|.
+
+        PowerPoint 2010+ names it in an extension of the data part, by the id
+        of the relationship from the slide.
+        """
+        rel_ids = _xpath(self._data_element, "dgm:extLst/a:ext/dsp:dataModelExt/@relId")
+        if not rel_ids:
+            return None
+        try:
+            return self._slide_part.related_part(str(rel_ids[0]))
+        except KeyError:
+            return None
+
+    @property
+    def _cached_drawing(self) -> LxmlElement | None:
+        """Root element of the cached drawing of this diagram, or |None| if it has none."""
+        part = self._drawing_part
+        if part is None:
+            return None
+        element = getattr(part, "_element", None)
+        if element is not None:
+            return element
+        try:
+            return etree.fromstring(part.blob)
+        except etree.XMLSyntaxError:
+            return None
+
+    def _save_cached_drawing(self, drawing: LxmlElement) -> None:
+        """Write *drawing* back to its part, unless the part serializes its own element."""
+        part = self._drawing_part
+        if part is None or getattr(part, "_element", None) is not None:
+            return
+        part.blob = etree.tostring(drawing, encoding="UTF-8", standalone=True)
+
+    @staticmethod
+    def _cached_text_bodies(
+        drawing: LxmlElement, data_el: LxmlElement, pt: LxmlElement
+    ) -> list[LxmlElement]:
+        """The text bodies in *drawing* that display the text of the content node *pt*.
+
+        A cached shape is tied to a presentation point of the data model, which
+        in turn names the content node it presents. The shape whose body holds
+        runs is the one showing the text; when the node was empty there is no
+        such shape, and its text can only be placed if a single shape of the
+        node has a text body at all.
+        """
+        model_id = pt.get("modelId")
+        pres_ids = {
+            pres.get("modelId")
+            for pres in _xpath(data_el, "dgm:ptLst/dgm:pt[@type='pres']")
+            if any(prSet.get("presAssocID") == model_id for prSet in pres.findall(qn("dgm:prSet")))
+        }
+        bodies = [
+            body
+            for sp in drawing.iter("{%s}sp" % _DSP_URI)
+            if sp.get("modelId") in pres_ids
+            for body in sp.findall("{%s}txBody" % _DSP_URI)
+        ]
+        with_runs = [body for body in bodies if _text_runs(body)]
+        if with_runs:
+            return with_runs
+        return bodies if len(bodies) == 1 else []
 
     @property
     def _data_rId(self) -> str:
