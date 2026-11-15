@@ -327,6 +327,8 @@ bottom, so the slide lints clean for 2–8 milestones on either size.
 centred in the content area); `fit="cover"` crops to fill and
 `fit="stretch"` distorts. It accepts Plotly / Matplotlib figures, SVG
 or HTML markup, image paths, raw image bytes and binary file objects.
+A figure it cannot embed (unknown kind, missing file, unreadable bytes,
+rejected `plotly_options`) raises and leaves no half-built slide behind.
 
 `chart_slide` takes `line`, `line_markers`, `bar`, `column`, `pie`,
 `doughnut` and `area` (category charts; build XY scatter with

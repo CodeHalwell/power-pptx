@@ -1400,6 +1400,63 @@ class DescribeFigureSlideFit:
             figure_slide(prs, title="t", figure=12345)
 
 
+class _PlotlyLike:
+    """Stands in for a Plotly figure: dispatched to the Plotly adapter by `.to_image`."""
+
+    def to_image(self, **kwargs):  # pragma: no cover - the options are rejected first
+        raise AssertionError("not reached")
+
+
+class DescribeFigureSlideFailure:
+    """A figure that cannot be embedded leaves no half-built slide behind."""
+
+    @pytest.mark.parametrize(
+        ("figure", "options", "error"),
+        [
+            (12345, {}, TypeError),                                   # no adapter takes it
+            ("no/such/figure.png", {}, FileNotFoundError),            # a missing path
+            (b"\x00\x01 not an image", {}, OSError),                  # unreadable bytes
+            (_PlotlyLike(), {"plotly_options": {"backend": "nope"}}, ValueError),
+            (_PlotlyLike(), {"plotly_options": {"dpi": 300}}, TypeError),
+        ],
+        ids=["kind", "missing-path", "unreadable-bytes", "plotly-option", "unknown-option"],
+    )
+    def it_removes_the_slide_and_reraises(self, prs, figure, options, error):
+        prs.slides.add_slide(prs.slide_layouts[6])
+        before = _schema_violations(prs)
+
+        with pytest.raises(error):
+            figure_slide(prs, title="Title", figure=figure, **options)
+
+        assert len(prs.slides) == 1
+        assert _schema_violations(prs) == before == []
+
+    def it_keeps_the_deck_sections_as_they_were(self, prs):
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.sections.add("Only", start_slide_index=0)
+        before = prs.sections[0].slide_ids
+
+        with pytest.raises(TypeError):
+            figure_slide(prs, title="Title", figure=12345)
+
+        assert prs.sections[0].slide_ids == before
+
+    def it_reraises_the_original_error(self, prs):
+        with pytest.raises(TypeError, match="can't dispatch a figure of type 'int'") as exc:
+            figure_slide(prs, title="Title", figure=12345)
+
+        assert exc.value.__context__ is None
+        assert len(prs.slides) == 0
+
+    def it_removes_the_slide_when_the_transition_is_unknown_too(self, prs, tmp_path):
+        with pytest.raises(ValueError, match="Unknown transition"):
+            figure_slide(
+                prs, title="t", figure=str(_png(tmp_path, "f.png", (4, 4))), transition="nope"
+            )
+
+        assert len(prs.slides) == 0
+
+
 class DescribeItemValidation:
     """Malformed item dicts raise instead of rendering blank cards, markers and rows."""
 

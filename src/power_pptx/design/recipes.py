@@ -65,6 +65,8 @@ from power_pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from power_pptx.util import Emu, Inches, Length, Pt
 
 if TYPE_CHECKING:
+    from typing import Iterator
+
     from power_pptx.presentation import Presentation
     from power_pptx.slide import Slide
 
@@ -2231,6 +2233,10 @@ def figure_slide(
 
     *caption* is rendered in the bottom-right corner if supplied.
 
+    A figure that cannot be embedded — a kind no adapter takes, a missing
+    file, image bytes that cannot be read, a rejected ``plotly_options``
+    value — raises, and leaves no slide behind.
+
     Tokens consumed:
 
     * **palette** — title from ``primary`` (fallback ``neutral``);
@@ -2242,50 +2248,51 @@ def figure_slide(
         raise ValueError(f"fit must be one of {sorted(_FIGURE_FITS)}, got {fit!r}")
 
     slide = _add_blank(prs)
-    slide_w, slide_h = _slide_dims(prs)
-    _apply_background(slide, prs, tokens)
+    with _removed_on_failure(prs, slide):
+        slide_w, slide_h = _slide_dims(prs)
+        _apply_background(slide, prs, tokens)
 
-    margin = Inches(0.6)
-    title_top = Inches(0.5)
-    title_h = Inches(0.9)
-    title_box = slide.shapes.add_textbox(
-        margin, title_top, Length(slide_w - 2 * margin), title_h
-    )
-    _fill_text_frame(
-        title_box.text_frame,
-        title,
-        token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
-        color=_palette(tokens, ("primary", "neutral")),
-        align=PP_ALIGN.LEFT,
-        anchor=MSO_ANCHOR.TOP,
-        shrink_to_fit=True,
-    )
-
-    fig_top = Length(title_top + title_h + Inches(0.2))
-    cap_h = Inches(0.4) if caption else Length(0)
-    fig_h = Length(slide_h - fig_top - Inches(0.5) - cap_h)
-    fig_w = Length(slide_w - 2 * margin)
-
-    _embed_figure(
-        slide, figure, margin, fig_top, fig_w, fig_h, figure_format,
-        html_options, plotly_options, fit,
-    )
-
-    if caption:
-        cap_top = Length(slide_h - Inches(0.5) - cap_h)
-        cap_box = slide.shapes.add_textbox(
-            margin, cap_top, fig_w, cap_h
+        margin = Inches(0.6)
+        title_top = Inches(0.5)
+        title_h = Inches(0.9)
+        title_box = slide.shapes.add_textbox(
+            margin, title_top, Length(slide_w - 2 * margin), title_h
         )
         _fill_text_frame(
-            cap_box.text_frame,
-            caption,
-            token=_typography(tokens, "body", default_size=Pt(12), default_italic=True),
-            color=_palette(tokens, ("muted", "neutral")),
-            align=PP_ALIGN.RIGHT,
+            title_box.text_frame,
+            title,
+            token=_typography(tokens, "heading", default_size=Pt(28), default_bold=True),
+            color=_palette(tokens, ("primary", "neutral")),
+            align=PP_ALIGN.LEFT,
             anchor=MSO_ANCHOR.TOP,
+            shrink_to_fit=True,
         )
 
-    _apply_transition(slide, transition)
+        fig_top = Length(title_top + title_h + Inches(0.2))
+        cap_h = Inches(0.4) if caption else Length(0)
+        fig_h = Length(slide_h - fig_top - Inches(0.5) - cap_h)
+        fig_w = Length(slide_w - 2 * margin)
+
+        _embed_figure(
+            slide, figure, margin, fig_top, fig_w, fig_h, figure_format,
+            html_options, plotly_options, fit,
+        )
+
+        if caption:
+            cap_top = Length(slide_h - Inches(0.5) - cap_h)
+            cap_box = slide.shapes.add_textbox(
+                margin, cap_top, fig_w, cap_h
+            )
+            _fill_text_frame(
+                cap_box.text_frame,
+                caption,
+                token=_typography(tokens, "body", default_size=Pt(12), default_italic=True),
+                color=_palette(tokens, ("muted", "neutral")),
+                align=PP_ALIGN.RIGHT,
+                anchor=MSO_ANCHOR.TOP,
+            )
+
+        _apply_transition(slide, transition)
     return slide
 
 
@@ -2521,6 +2528,21 @@ def _add_blank(prs: "Presentation") -> "Slide":
     for placeholder in list(slide.placeholders):
         placeholder._element.getparent().remove(placeholder._element)
     return slide
+
+
+@contextlib.contextmanager
+def _removed_on_failure(prs: "Presentation", slide: "Slide") -> Iterator[None]:
+    """Remove *slide* from *prs* again if the block building it raises.
+
+    For a recipe whose inputs can only be checked by using them, such as a
+    figure that has to be rendered: the original error propagates, and the
+    deck is left without the half-built slide.
+    """
+    try:
+        yield
+    except BaseException:
+        prs.slides.remove(slide)
+        raise
 
 
 def _apply_background(

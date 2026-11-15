@@ -151,7 +151,10 @@ values as exact widths.  ``code_slide`` writes a single installed
 monospace family (or the ``font=`` you pass) and picks text and syntax
 colours from the panel's brightness.  ``figure_slide`` keeps a figure's
 aspect ratio by default (``fit="contain"``; also ``"cover"`` and
-``"stretch"``) and accepts raw image bytes and binary file objects.
+``"stretch"``) and accepts raw image bytes and binary file objects.  A
+figure it cannot embed — a kind no adapter takes, a missing file, image
+bytes that cannot be read, a rejected ``plotly_options`` value — raises
+the adapter's error and leaves no half-built slide in the deck.
 
 Starter pack
 ------------
