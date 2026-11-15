@@ -2496,13 +2496,11 @@ def _is_markup_string(value: Any) -> bool:
     # ``<tagname`` (opening) or ``</tagname>`` (closing) — both are
     # markup; differentiate from a stray ``<`` in a filename by
     # requiring an ASCII letter after the optional ``/``.
-    rest = s[2:] if s.startswith("</") else s[1:]
-    if rest and rest[0].isalpha():
-        return True
-    # Truly unrecognised ``<…``: treat as a path (rare on real input,
-    # but preserves the historical behaviour for the corner case of
+    # Anything else starting with ``<`` is treated as a path (rare on real
+    # input, but preserves the historical behaviour for the corner case of
     # weird filenames that happen to start with ``<``).
-    return False
+    rest = s[2:] if s.startswith("</") else s[1:]
+    return bool(rest) and rest[0].isalpha()
 
 
 # ---------------------------------------------------------------------------
@@ -3333,13 +3331,11 @@ def _apply_card_styling(shape: Any, tokens: Optional[DesignTokens]) -> None:
         return
     shadow = tokens.shadows.get("card")
     if shadow is not None:
-        try:
+        # Some shape types (graphic frames, group shapes) don't carry a
+        # shadow facade.  Silently skip rather than fail the whole recipe —
+        # the caller can layer one on by hand.
+        with contextlib.suppress(Exception):
             shape.style.shadow = shadow
-        except Exception:
-            # Some shape types (graphic frames, group shapes) don't
-            # carry a shadow facade.  Silently skip rather than fail
-            # the whole recipe — the caller can layer one on by hand.
-            pass
     md = tokens.radii.get("md")
     if md is not None:
         try:

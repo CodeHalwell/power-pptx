@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Iterator, Sequence, cast
 
 from power_pptx.dml.fill import FillFormat
@@ -773,10 +773,8 @@ class Slide(_BaseSlide):
 
         boxes: list[BBox] = []
         for shape in self.shapes:
-            try:
+            with suppress(Exception):
                 boxes.append(BBox.from_shape(shape))
-            except Exception:
-                pass
         return boxes
 
     @staticmethod

@@ -28,6 +28,7 @@ overlap warnings.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
@@ -155,10 +156,8 @@ def add_kpi_card(
     for shape in (card, value_box, label_box, delta_box):
         if shape is None:
             continue
-        try:
+        with contextlib.suppress(AttributeError, NotImplementedError):
             shape.lint_group = group_name
-        except (AttributeError, NotImplementedError):
-            pass
 
     return KpiCard(
         card=card, value_box=value_box, label_box=label_box, delta_box=delta_box
@@ -237,10 +236,8 @@ def add_progress_bar(
 
     group_name = f"progress_bar@{int(left)},{int(top)}"
     for shape in (track, fill):
-        try:
+        with contextlib.suppress(AttributeError, NotImplementedError):
             shape.lint_group = group_name
-        except (AttributeError, NotImplementedError):
-            pass
 
     return ProgressBar(track=track, fill=fill)
 
@@ -328,10 +325,8 @@ def add_gauge(
         target_tick.fill.fore_color.rgb = resolved
         target_tick.line.fill.background()
         # Tag with the same lint group so the linter doesn't warn.
-        try:
+        with contextlib.suppress(AttributeError, NotImplementedError):
             target_tick.lint_group = bar.track.lint_group
-        except (AttributeError, NotImplementedError):
-            pass
 
     return Gauge(track=bar.track, fill=bar.fill, target_tick=target_tick)
 
@@ -397,10 +392,8 @@ def add_status_pill(
 
     group_name = f"status_pill@{int(left)},{int(top)}"
     for shape in (pill, label):
-        try:
+        with contextlib.suppress(AttributeError, NotImplementedError):
             shape.lint_group = group_name
-        except (AttributeError, NotImplementedError):
-            pass
 
     return StatusPill(pill=pill, label=label)
 
@@ -576,9 +569,7 @@ def add_article_card(
 
     group_name = f"article_card@{int(left)},{int(top)}"
     for shape in (card, title_box, blurb_box):
-        try:
+        with contextlib.suppress(AttributeError, NotImplementedError):
             shape.lint_group = group_name
-        except (AttributeError, NotImplementedError):
-            pass
 
     return ArticleCard(card=card, title_box=title_box, blurb_box=blurb_box, cta=cta)

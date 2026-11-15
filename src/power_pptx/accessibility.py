@@ -36,6 +36,7 @@ Issue codes:
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -161,10 +162,8 @@ def _iter_shapes_recursive(shapes: Any) -> "Any":
     for shape in shapes:
         yield shape
         if _shape_type_name(shape) == "GROUP":
-            try:
+            with contextlib.suppress(Exception):
                 yield from shape.walk()
-            except Exception:
-                pass
 
 
 def _tx_body(shape: "BaseShape"):

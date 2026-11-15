@@ -146,10 +146,8 @@ def _tag_group(slide, prefix: str, shapes: list[Any]) -> None:
         slide.lint_group_overlaps(*shapes)
     except Exception:
         for s in shapes:
-            try:
+            with suppress(Exception):
                 s.lint_group = prefix
-            except Exception:
-                pass
 
 
 # Smallest label size, in points, a diagram recipe will produce by default.

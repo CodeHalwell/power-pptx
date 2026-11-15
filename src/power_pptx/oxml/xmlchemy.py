@@ -100,9 +100,7 @@ class XmlString(str):
             return False
         if close != close_2:
             return False
-        if text != text_2:
-            return False
-        return True
+        return text == text_2
 
     def _parse_line(self, line: str):
         """Return front, attrs, close, text 4-tuple result of parsing XML element string `line`."""

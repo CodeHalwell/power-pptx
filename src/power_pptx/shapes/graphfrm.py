@@ -6,6 +6,7 @@ objects.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, cast
 
 from power_pptx.dml.effect import (
@@ -272,10 +273,8 @@ class GraphicFrame(BaseShape):
             Path(persistent).write_bytes(data)
         except Exception:
             # Don't leak the empty temp file when the write fails.
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(persistent)
-            except OSError:
-                pass
             raise
         return Path(persistent)
 

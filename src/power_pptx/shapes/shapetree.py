@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import warnings
@@ -256,11 +257,9 @@ class _LintGroupScope:
 
         for elm in added:
             shape: BaseShape = self._shapetree._shape_factory(elm)
-            try:
+            # Some shape kinds don't carry a cNvPr (rare); skip them.
+            with contextlib.suppress(AttributeError, NotImplementedError):
                 shape.lint_group = name
-            except (AttributeError, NotImplementedError):
-                # Some shape kinds don't carry a cNvPr (rare); skip.
-                pass
         return False  # never suppress exceptions
 
 
@@ -277,11 +276,9 @@ def _apply_horizontal_bar_default(graphic_frame, chart_type) -> None:
     """
     if getattr(chart_type, "name", None) not in _HORIZONTAL_BAR_CHART_NAMES:
         return
-    try:
+    # Defensive: never break chart creation on a styling tweak.
+    with contextlib.suppress(AttributeError, ValueError):
         graphic_frame.chart.category_axis.reverse_order = True
-    except (AttributeError, ValueError):
-        # Defensive: never break chart creation on a styling tweak.
-        pass
 
 
 # +-- _BaseShapes
