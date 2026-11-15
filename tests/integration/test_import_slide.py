@@ -40,6 +40,58 @@ def _first_textbox_text(slide) -> str:
     return ""
 
 
+def _deck_with_a_picture_on_its_blank_layout() -> Presentation:
+    """A one-slide deck on the Blank layout, which carries a picture of its own."""
+    from copy import deepcopy
+
+    from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    src = Presentation()
+    slide = src.slides.add_slide(src.slide_layouts[6])
+    pic = slide.shapes.add_picture(
+        io.BytesIO(_PNG), Inches(8), Inches(6), Inches(1), Inches(1)
+    )
+    layout = src.slide_layouts[6]
+    image_part = slide.part.related_part(pic._element.blip_rId)
+    rId = layout.part.relate_to(image_part, RT.IMAGE)
+    pic_el = deepcopy(pic._element)
+    for el in pic_el.iter():
+        for attr_name in list(el.attrib):
+            if attr_name.endswith("}embed"):
+                el.set(attr_name, rId)
+    for el in pic_el.iter():
+        if el.tag.endswith("}cNvPr"):
+            el.set("id", "999")  # clear of the layout's placeholder ids
+            break
+    layout.shapes._spTree.append(pic_el)
+    pic._element.getparent().remove(pic._element)
+    return src
+
+
+def _dangling_layout_embeds(package) -> list[tuple[str, str]]:
+    """(layout partname, rId) for each layout `r:embed` its `.rels` does not declare."""
+    import re
+    import zipfile
+
+    dangling = []
+    with zipfile.ZipFile(package) as z:
+        layout_names = [
+            n for n in z.namelist()
+            if re.match(r"ppt/slideLayouts/slideLayout\d+\.xml$", n)
+        ]
+        for name in layout_names:
+            xml_text = z.read(name).decode()
+            embeds = re.findall(r'r:embed="([^"]+)"', xml_text)
+            if not embeds:
+                continue
+            rels_name = name.replace("slideLayouts/", "slideLayouts/_rels/") + ".rels"
+            rels_text = z.read(rels_name).decode() if rels_name in z.namelist() else ""
+            dangling += [
+                (name, embed_rId) for embed_rId in embeds if 'Id="%s"' % embed_rId not in rels_text
+            ]
+    return dangling
+
+
 # ---------------------------------------------------------------------------
 # Basic slide import
 # ---------------------------------------------------------------------------
@@ -250,55 +302,14 @@ class Describe_import_slide_dedupe:
         # Regression: cloned layouts lost their image dependencies, leaving
         # dangling r:embed references — a documented repair trigger for any
         # branded template with a logo on a layout.
-        import re
-        import zipfile
-
-        from copy import deepcopy
-
-        from power_pptx.opc.constants import RELATIONSHIP_TYPE as RT
-
-        # Build a source deck whose layout carries a picture.
-        src = Presentation()
-        slide = src.slides.add_slide(src.slide_layouts[6])
-        pic = slide.shapes.add_picture(
-            io.BytesIO(_PNG), Inches(8), Inches(6), Inches(1), Inches(1)
-        )
-        layout = src.slide_layouts[6]
-        image_part = slide.part.related_part(pic._element.blip_rId)
-        rId = layout.part.relate_to(image_part, RT.IMAGE)
-        pic_el = deepcopy(pic._element)
-        for el in pic_el.iter():
-            for attr_name in list(el.attrib):
-                if attr_name.endswith("}embed"):
-                    el.set(attr_name, rId)
-        for el in pic_el.iter():
-            if el.tag.endswith("}cNvPr"):
-                el.set("id", "999")  # clear of the layout's placeholder ids
-                break
-        layout.shapes._spTree.append(pic_el)
-        pic._element.getparent().remove(pic._element)
+        src = _deck_with_a_picture_on_its_blank_layout()
 
         dst = Presentation()
         dst.import_slide(src.slides[0], merge_master="clone")
 
         buf = io.BytesIO()
         dst.save(buf)
-        with zipfile.ZipFile(buf) as z:
-            layout_names = [
-                n for n in z.namelist()
-                if re.match(r"ppt/slideLayouts/slideLayout\d+\.xml$", n)
-            ]
-            dangling = []
-            for name in layout_names:
-                xml_text = z.read(name).decode()
-                embeds = re.findall(r'r:embed="([^"]+)"', xml_text)
-                if not embeds:
-                    continue
-                rels_name = name.replace("slideLayouts/", "slideLayouts/_rels/") + ".rels"
-                rels_text = z.read(rels_name).decode() if rels_name in z.namelist() else ""
-                for embed_rId in embeds:
-                    if 'Id="%s"' % embed_rId not in rels_text:
-                        dangling.append((name, embed_rId))
+        dangling = _dangling_layout_embeds(buf)
         assert dangling == [], "dangling r:embed refs: %s" % dangling
 
 
