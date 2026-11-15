@@ -325,11 +325,13 @@ class _SlideFonts:
     def collect(self, shape: BaseShape, tx_body) -> None:
         bodies = [] if tx_body is None else [tx_body]
         if getattr(shape, "has_table", False):
+            element: Any = shape._element  # pyright: ignore[reportPrivateUsage]
             try:
-                tbl = shape._element.graphic.graphicData.tbl  # pyright: ignore[reportPrivateUsage]
-                bodies.extend(tc.txBody for tc in tbl.iter_tcs() if tc.txBody is not None)
+                tbl = element.graphic.graphicData.tbl
             except AttributeError:
-                pass
+                tbl = None
+            if tbl is not None:
+                bodies.extend(tc.txBody for tc in tbl.iter_tcs() if tc.txBody is not None)
         for body in bodies:
             for latin in body.iter(self._LATIN):
                 face = latin.get("typeface")
