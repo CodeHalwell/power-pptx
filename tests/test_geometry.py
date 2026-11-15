@@ -29,11 +29,11 @@ class DescribeBBox:
 
     def it_unpacks_to_l_t_w_h(self):
         bb = BBox.from_inches(1, 2, 4, 3)
-        l, t, w, h = bb
-        assert l == bb.left
-        assert t == bb.top
-        assert w == bb.width
-        assert h == bb.height
+        left, top, width, height = bb
+        assert left == bb.left
+        assert top == bb.top
+        assert width == bb.width
+        assert height == bb.height
 
     def it_exposes_right_and_bottom(self):
         bb = BBox.from_inches(1, 2, 4, 3)

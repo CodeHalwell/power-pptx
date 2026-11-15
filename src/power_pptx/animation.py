@@ -1680,7 +1680,9 @@ class SlideAnimations:
             "    <p:stCondLst>\n"
             f'      <p:cond delay="{wrapper_delay}"/>\n'
             "    </p:stCondLst>\n"
-            "    <p:childTnLst>\n" + "\n".join("      " + l for l in effect_par.splitlines()) + "\n"
+            "    <p:childTnLst>\n"
+            + "\n".join("      " + line for line in effect_par.splitlines())
+            + "\n"
             "    </p:childTnLst>\n"
             "  </p:cTn>\n"
             "</p:par>\n"

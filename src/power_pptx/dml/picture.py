@@ -45,7 +45,9 @@ class PictureEffects:
 
     @property
     def transparency(self) -> float:
-        """Read/write float in ``[0.0, 1.0]``: ``0.0`` = fully opaque (default), ``1.0`` = invisible.
+        """Read/write float in ``[0.0, 1.0]``.
+
+        ``0.0`` is fully opaque (the default) and ``1.0`` invisible.
 
         Maps to ``<a:alphaModFix amt="N"/>`` where ``amt`` is the *remaining* opacity
         (``100000`` = fully opaque).  Setting to ``0.0`` removes the element entirely,

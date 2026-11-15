@@ -473,25 +473,24 @@ class Presentation(PartElementProxy):
         """
         for slide in self.slides:
             transition = slide.transition
-            if kind is not _UNSET:
-                # Skip slides that already state a kind unless the caller
-                # has opted in to force-overwrite.  A slide states a kind
-                # when its transition has a kind element — including one
-                # of a kind this library has no enum member for, which
-                # reads back as ``None`` but is still the author's choice
-                # — or when it is a bare ``<p:transition/>``, the explicit
-                # "no transition" that reads back as
-                # ``MSO_TRANSITION_TYPE.NONE``.  A kind-less transition
-                # that only carries timing attributes (what an earlier
-                # ``set_transition(advance_after=…)`` leaves behind) states
-                # none, so the kind still applies to it.
-                #
-                # ``kind=None`` on the caller side means "clear" — apply
-                # unconditionally so callers can still wipe the
-                # transition off every slide in one call without an
-                # explicit ``force=True``.
-                if kind is None or force or not transition._states_a_kind:
-                    transition.kind = kind
+            # Skip slides that already state a kind unless the caller
+            # has opted in to force-overwrite.  A slide states a kind
+            # when its transition has a kind element — including one
+            # of a kind this library has no enum member for, which
+            # reads back as ``None`` but is still the author's choice
+            # — or when it is a bare ``<p:transition/>``, the explicit
+            # "no transition" that reads back as
+            # ``MSO_TRANSITION_TYPE.NONE``.  A kind-less transition
+            # that only carries timing attributes (what an earlier
+            # ``set_transition(advance_after=…)`` leaves behind) states
+            # none, so the kind still applies to it.
+            #
+            # ``kind=None`` on the caller side means "clear" — apply
+            # unconditionally so callers can still wipe the
+            # transition off every slide in one call without an
+            # explicit ``force=True``.
+            if kind is not _UNSET and (kind is None or force or not transition._states_a_kind):
+                transition.kind = kind
             if duration is not _UNSET:
                 transition.duration = duration
             if advance_on_click is not _UNSET:

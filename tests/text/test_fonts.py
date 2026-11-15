@@ -119,8 +119,8 @@ class DescribeFontFiles(object):
         # ``FontFiles.find`` call elsewhere in the suite leaves the cache
         # populated with real system fonts and the mock is bypassed).
         FontFiles._font_files = None
-        request.addfinalizer(lambda: setattr(FontFiles, "_font_files", None))
-        return family_name, is_bold, is_italic, expected_path
+        yield family_name, is_bold, is_italic, expected_path
+        FontFiles._font_files = None
 
     @pytest.fixture(params=[("darwin", ["a", "b"]), ("win32", ["c", "d"])])
     def font_dirs_fixture(self, request, _os_x_font_directories_, _windows_font_directories_):

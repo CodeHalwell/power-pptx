@@ -584,7 +584,8 @@ class Describe_BaseGroupShapes(object):
             'a:fontRef idx="minor">\n        <a:schemeClr val="lt1"/>\n     '
             " </a:fontRef>\n    </p:style>\n    <p:txBody>\n      <a:bodyPr "
             'rtlCol="0" anchor="ctr"/>\n      <a:lstStyle/>\n      <a:p>\n  '
-            '      <a:pPr algn="ctr"/>\n        <a:endParaRPr lang="en-US"/>\n      </a:p>\n    </p:txBody>\n  </p'
+            '      <a:pPr algn="ctr"/>\n        <a:endParaRPr lang="en-US"/>\n'
+            "      </a:p>\n    </p:txBody>\n  </p"
             ":sp>\n</p:spTree>"
         )
         return shapes, autoshape_type_, x, y, cx, cy, expected_xml

@@ -445,7 +445,7 @@ def add_stat_strip(
         )
     cards = []
     for i, kpi in enumerate(items):
-        l = Length(int(left) + i * (int(card_w) + int(gutter)))
+        card_left = Length(int(left) + i * (int(card_w) + int(gutter)))
         delta = (
             {"delta": kpi["delta"]}
             if "delta" in kpi
@@ -454,7 +454,7 @@ def add_stat_strip(
         cards.append(
             add_kpi_card(
                 slide,
-                left=l,
+                left=card_left,
                 top=top,
                 width=card_w,
                 height=height,

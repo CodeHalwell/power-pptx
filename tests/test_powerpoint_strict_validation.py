@@ -175,13 +175,15 @@ def _assert_endParaRPr_has_lang(filename: str, tree: etree._Element) -> None:
 def _assert_xfrm_coords_are_integers(filename: str, tree: etree._Element) -> None:
     """Rule 3 — xfrm coordinates must be integer-valued strings."""
     for tag, attr, v in _xfrm_coords(tree):
-        assert "." not in v and "e" not in v.lower(), (
+        message = (
             f"{filename}: <a:{tag}> {attr}={v!r} is not "
             f"integer-valued (would trigger PowerPoint "
             f"Repair?). Likely cause: float coordinate "
             f"passed to a shape constructor — check for "
             f"`/` instead of `//` in the calling code."
         )
+        assert "." not in v, message
+        assert "e" not in v.lower(), message
 
 
 def _xfrm_coords(tree: etree._Element) -> Iterator[tuple[str, str, str]]:
