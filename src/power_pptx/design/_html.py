@@ -105,200 +105,42 @@ def capture_html(
     a thread that is running an asyncio event loop; run it on a worker thread
     (``await asyncio.to_thread(...)``) there.
     """
-    from power_pptx.design.figures import FigureBackendUnavailable
-
-    if len(viewport) != 2 or any(
-        isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in viewport
-    ):
-        raise ValueError("viewport must contain two positive integer CSS pixel dimensions")
-    if not math.isfinite(device_scale_factor) or device_scale_factor <= 0:
-        raise ValueError("device_scale_factor must be finite and positive")
-    if timeout_ms <= 0:
-        raise ValueError("timeout_ms must be positive")
-    if wait_until not in {"load", "domcontentloaded", "networkidle"}:
-        raise ValueError("wait_until must be 'load', 'domcontentloaded', or 'networkidle'")
-    load_state = cast(Literal["load", "domcontentloaded", "networkidle"], wait_until)
-    if selector is not None and (not isinstance(selector, str) or not selector.strip()):
-        raise ValueError("selector must be a non-empty CSS selector or None")
-    if selector is not None and full_page:
-        raise ValueError("full_page and selector cannot be used together")
-    if hybrid and selector is None:
-        raise ValueError("hybrid capture requires an explicit section selector")
-
-    # Strings ending in .html/.htm are accepted as file paths; use bytes to
-    # represent literal text with that suffix. PathLike inputs always mean files.
-    path = None
-    if isinstance(html, os.PathLike) or (
-        isinstance(html, str)
-        and not html.lstrip().startswith("<")
-        and Path(html).suffix.lower() in {".html", ".htm"}
-    ):
-        path = Path(html).expanduser().resolve(strict=True)
-    elif isinstance(html, bytes):
-        html = html.decode("utf-8-sig")
-    elif not isinstance(html, str):
-        raise TypeError("html must be markup, UTF-8 bytes, or a local HTML path")
-
-    try:
-        from playwright.sync_api import Error as PlaywrightError
-        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise FigureBackendUnavailable(
-            "HTML rendering needs Playwright; install with "
-            "`pip install 'power-pptx[html]' && python -m playwright install chromium`."
-        ) from exc
-
-    # Playwright's sync API refuses to start on a thread whose event loop is
-    # running, with an error that names neither this library nor the remedy.
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-    else:
-        raise RuntimeError(
-            "HTML capture drives the browser through Playwright's synchronous API, which "
-            "cannot run on a thread that is already running an asyncio event loop (a "
-            "Jupyter notebook, an async web handler or agent). Run the call on a worker "
-            "thread instead, for example `await asyncio.to_thread(from_html, ...)`."
-        )
+    request = _CaptureRequest(
+        viewport=viewport,
+        device_scale_factor=device_scale_factor,
+        selector=selector,
+        multiple=multiple,
+        wait_until=wait_until,
+        wait_for_function=wait_for_function,
+        full_page=full_page,
+        timeout_ms=timeout_ms,
+        omit_background=omit_background,
+        browser_path=browser_path,
+        check_overflow=check_overflow,
+        export_script=export_script,
+        hybrid=hybrid,
+        allow_network=allow_network,
+    )
+    path, markup = _html_document(html)
+    playwright_error, sync_playwright = _import_playwright()
+    _refuse_running_event_loop()
 
     with ExitStack() as stack:
         source_url = stack.enter_context(_serve_html(path)) if path is not None else None
         pw = stack.enter_context(sync_playwright())
-        executable = browser_path or os.environ.get("POWER_PPTX_CHROMIUM")
-        arguments = (
-            None
-            if allow_network
-            else _offline_arguments(stack.enter_context(_refused_port()), source_url)
-        )
-        try:
-            browser = pw.chromium.launch(
-                executable_path=os.fspath(executable) if executable else None,
-                args=arguments,
-            )
-        except PlaywrightError as exc:
-            raise FigureBackendUnavailable(
-                "Playwright failed to launch Chromium. Run `python -m playwright install chromium` "
-                "or set POWER_PPTX_CHROMIUM to an installed Chromium executable. "
-                f"Original error: {exc}"
-            ) from exc
+        browser = _launch_browser(pw, stack, request, source_url)
         blocked: list[str] = []
         try:
-            context = browser.new_context(
-                viewport={"width": viewport[0], "height": viewport[1]},
-                device_scale_factor=device_scale_factor,
-                reduced_motion="reduce",
-                service_workers="allow" if allow_network else "block",
-            )
-            if not allow_network:
-                _block_network(context, source_url, blocked)
-            page = context.new_page()
-            page.set_default_timeout(timeout_ms)
-            page.set_default_navigation_timeout(timeout_ms)
-            if source_url is not None:
-                page.goto(source_url, wait_until=load_state)
-            else:
-                page.set_content(cast(str, html), wait_until=load_state)
-            if wait_for_function:
-                page.wait_for_function(wait_for_function)
-
-            if selector is None:
-                targets = [page.locator("body")]
-            else:
-                matches = page.locator(selector)
-                # Readiness is settled when the caller defined it, or when the
-                # document has no script that could still add the element.
-                settled = bool(wait_for_function) or page.evaluate(
-                    "() => document.scripts.length === 0"
-                )
-                if matches.count() == 0 and not settled:
-                    with suppress(PlaywrightTimeoutError):
-                        matches.first.wait_for(state="attached")
-                count = matches.count()
-                if count == 0:
-                    raise ValueError(_no_match_message(selector, settled, timeout_ms))
-                try:
-                    if settled and not matches.first.is_visible():
-                        raise PlaywrightTimeoutError("not visible")
-                    matches.first.wait_for(state="visible")
-                except PlaywrightTimeoutError as exc:
-                    raise ValueError(
-                        f"selector {selector!r} matches {count} element(s), but the first is "
-                        "not visible (display:none, visibility:hidden or zero size). Give "
-                        'each captured element a size, e.g. style="width:1280px;height:720px"'
-                    ) from exc
-                if not multiple and count != 1:
-                    raise ValueError(
-                        f"selector {selector!r} must match one element; matched {count}"
-                    )
-                targets = [matches.nth(index) for index in range(count)]
-
-            captures = []
-            for index, target in enumerate(targets):
-                if selector is not None:
-                    target.scroll_into_view_if_needed()
-                target.evaluate(_READY, timeout_ms)
-                if check_overflow and target.evaluate(
-                    "el => el.scrollWidth > el.clientWidth + 1 || "
-                    "el.scrollHeight > el.clientHeight + 1"
-                ):
-                    raise ValueError(
-                        f"HTML section {index + 1} overflows its container; resize it, shorten "
-                        "the content, or set check_overflow=False for intentional overflow"
-                    )
-                text = target.inner_text().strip()
-                title = target.get_attribute("data-title") or target.get_attribute("aria-label")
-                if not title:
-                    headings = target.locator("h1, h2, h3")
-                    title = headings.first.inner_text() if headings.count() else text[:120]
-                png = (
-                    page.screenshot(
-                        full_page=full_page,
-                        type="png",
-                        animations="disabled",
-                        caret="hide",
-                        omit_background=omit_background,
-                    )
-                    if selector is None
-                    else target.screenshot(
-                        type="png",
-                        animations="disabled",
-                        caret="hide",
-                        omit_background=omit_background,
-                    )
-                )
-                reference = None
-                elements = ()
-                size = None
-                if hybrid:
-                    from power_pptx.design._html_layers import capture_layers, restore_layers
-
-                    reference = png
-                    bounds = target.bounding_box()
-                    if bounds is None:
-                        raise ValueError("HTML slide has no visible bounds")
-                    size = (bounds["width"], bounds["height"])
-                    elements, original = capture_layers(target, timeout_ms=timeout_ms)
-                    try:
-                        png = target.screenshot(
-                            type="png",
-                            animations="disabled",
-                            caret="hide",
-                            omit_background=omit_background,
-                        )
-                    finally:
-                        restore_layers(target, original)
-                exported = page.evaluate(export_script) if export_script else None
-                if exported is not None and not isinstance(exported, str):
-                    raise ValueError("HTML export_script must return a string")
-                captures.append(
-                    HtmlCapture(png, title.strip(), text, exported, elements, reference, size)
-                )
+            page = _open_page(browser, request, source_url, blocked)
+            _load_document(page, request, source_url, markup)
+            captures = [
+                _capture_target(page, target, index, request)
+                for index, target in enumerate(_select_targets(page, request))
+            ]
             if blocked:
                 raise _network_blocked(blocked)
             return captures
-        except PlaywrightError as exc:
+        except playwright_error as exc:
             if blocked:
                 # A blocked resource is usually *why* the page failed to
                 # settle (an image that never decodes, a ready flag set by
@@ -307,6 +149,306 @@ def capture_html(
             raise RuntimeError(f"HTML capture failed: {exc}") from exc
         finally:
             browser.close()
+
+
+@dataclass(frozen=True)
+class _CaptureRequest:
+    """The options of one :func:`capture_html` call, checked when it is made."""
+
+    viewport: tuple[int, int]
+    device_scale_factor: float
+    selector: str | None
+    multiple: bool
+    wait_until: str
+    wait_for_function: str | None
+    full_page: bool
+    timeout_ms: int
+    omit_background: bool
+    browser_path: str | os.PathLike[str] | None
+    check_overflow: bool
+    export_script: str | None
+    hybrid: bool
+    allow_network: bool
+
+    def __post_init__(self) -> None:
+        self._check_page()
+        self._check_selection()
+
+    def _check_page(self) -> None:
+        viewport = self.viewport
+        if len(viewport) != 2 or any(
+            isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in viewport
+        ):
+            raise ValueError("viewport must contain two positive integer CSS pixel dimensions")
+        if not math.isfinite(self.device_scale_factor) or self.device_scale_factor <= 0:
+            raise ValueError("device_scale_factor must be finite and positive")
+        if self.timeout_ms <= 0:
+            raise ValueError("timeout_ms must be positive")
+        if self.wait_until not in {"load", "domcontentloaded", "networkidle"}:
+            raise ValueError("wait_until must be 'load', 'domcontentloaded', or 'networkidle'")
+
+    def _check_selection(self) -> None:
+        selector = self.selector
+        if selector is not None and (not isinstance(selector, str) or not selector.strip()):
+            raise ValueError("selector must be a non-empty CSS selector or None")
+        if selector is not None and self.full_page:
+            raise ValueError("full_page and selector cannot be used together")
+        if self.hybrid and selector is None:
+            raise ValueError("hybrid capture requires an explicit section selector")
+
+    @property
+    def load_state(self) -> Literal["load", "domcontentloaded", "networkidle"]:
+        return cast(Literal["load", "domcontentloaded", "networkidle"], self.wait_until)
+
+
+def _html_document(html: HtmlSource) -> tuple[Path | None, str | None]:
+    """Return the file to serve for *html*, or else the markup to load."""
+    # Strings ending in .html/.htm are accepted as file paths; use bytes to
+    # represent literal text with that suffix. PathLike inputs always mean files.
+    if isinstance(html, os.PathLike) or (
+        isinstance(html, str)
+        and not html.lstrip().startswith("<")
+        and Path(html).suffix.lower() in {".html", ".htm"}
+    ):
+        return Path(html).expanduser().resolve(strict=True), None
+    if isinstance(html, bytes):
+        return None, html.decode("utf-8-sig")
+    if not isinstance(html, str):
+        raise TypeError("html must be markup, UTF-8 bytes, or a local HTML path")
+    return None, html
+
+
+def _import_playwright() -> tuple[type[Exception], Any]:
+    """Return Playwright's error class and sync entry point, or say how to install it."""
+    from power_pptx.design.figures import FigureBackendUnavailable
+
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise FigureBackendUnavailable(
+            "HTML rendering needs Playwright; install with "
+            "`pip install 'power-pptx[html]' && python -m playwright install chromium`."
+        ) from exc
+    return PlaywrightError, sync_playwright
+
+
+def _refuse_running_event_loop() -> None:
+    """Fail clearly on a thread that is running an asyncio event loop.
+
+    Playwright's sync API refuses to start there, with an error that names
+    neither this library nor the remedy.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise RuntimeError(
+        "HTML capture drives the browser through Playwright's synchronous API, which "
+        "cannot run on a thread that is already running an asyncio event loop (a "
+        "Jupyter notebook, an async web handler or agent). Run the call on a worker "
+        "thread instead, for example `await asyncio.to_thread(from_html, ...)`."
+    )
+
+
+def _launch_browser(
+    pw: Any, stack: ExitStack, request: _CaptureRequest, source_url: str | None
+) -> Any:
+    """Start Chromium; without network access, with no route out of the machine.
+
+    The refusing proxy port that an offline browser needs is held on *stack*.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    from power_pptx.design.figures import FigureBackendUnavailable
+
+    executable = request.browser_path or os.environ.get("POWER_PPTX_CHROMIUM")
+    arguments = (
+        None
+        if request.allow_network
+        else _offline_arguments(stack.enter_context(_refused_port()), source_url)
+    )
+    try:
+        return pw.chromium.launch(
+            executable_path=os.fspath(executable) if executable else None,
+            args=arguments,
+        )
+    except PlaywrightError as exc:
+        raise FigureBackendUnavailable(
+            "Playwright failed to launch Chromium. Run `python -m playwright install chromium` "
+            "or set POWER_PPTX_CHROMIUM to an installed Chromium executable. "
+            f"Original error: {exc}"
+        ) from exc
+
+
+def _open_page(
+    browser: Any, request: _CaptureRequest, source_url: str | None, blocked: list[str]
+) -> Any:
+    """Open a page with the capture's viewport and timeouts.
+
+    Without network access its requests are routed through
+    :func:`_block_network`, which records what it refuses in *blocked*.
+    """
+    context = browser.new_context(
+        viewport={"width": request.viewport[0], "height": request.viewport[1]},
+        device_scale_factor=request.device_scale_factor,
+        reduced_motion="reduce",
+        service_workers="allow" if request.allow_network else "block",
+    )
+    if not request.allow_network:
+        _block_network(context, source_url, blocked)
+    page = context.new_page()
+    page.set_default_timeout(request.timeout_ms)
+    page.set_default_navigation_timeout(request.timeout_ms)
+    return page
+
+
+def _load_document(
+    page: Any, request: _CaptureRequest, source_url: str | None, markup: str | None
+) -> None:
+    """Load the served file or the markup, then wait for the caller's readiness check."""
+    if source_url is not None:
+        page.goto(source_url, wait_until=request.load_state)
+    else:
+        page.set_content(cast(str, markup), wait_until=request.load_state)
+    if request.wait_for_function:
+        page.wait_for_function(request.wait_for_function)
+
+
+def _select_targets(page: Any, request: _CaptureRequest) -> list[Any]:
+    """Return the elements to capture: the body, or what the selector matches."""
+    selector = request.selector
+    if selector is None:
+        return [page.locator("body")]
+    matches = page.locator(selector)
+    # Readiness is settled when the caller defined it, or when the
+    # document has no script that could still add the element.
+    settled = bool(request.wait_for_function) or page.evaluate(
+        "() => document.scripts.length === 0"
+    )
+    count = _count_matches(matches, selector, settled, request.timeout_ms)
+    _wait_until_visible(matches, selector, count, settled)
+    if not request.multiple and count != 1:
+        raise ValueError(f"selector {selector!r} must match one element; matched {count}")
+    return [matches.nth(index) for index in range(count)]
+
+
+def _count_matches(matches: Any, selector: str, settled: bool, timeout_ms: int) -> int:
+    """Count the matches, first giving a page that still runs scripts time to add one."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    if matches.count() == 0 and not settled:
+        with suppress(PlaywrightTimeoutError):
+            matches.first.wait_for(state="attached")
+    count = matches.count()
+    if count == 0:
+        raise ValueError(_no_match_message(selector, settled, timeout_ms))
+    return count
+
+
+def _wait_until_visible(matches: Any, selector: str, count: int, settled: bool) -> None:
+    """Wait for the first match to show, or explain that it has no visible size."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        if settled and not matches.first.is_visible():
+            raise PlaywrightTimeoutError("not visible")
+        matches.first.wait_for(state="visible")
+    except PlaywrightTimeoutError as exc:
+        raise ValueError(
+            f"selector {selector!r} matches {count} element(s), but the first is "
+            "not visible (display:none, visibility:hidden or zero size). Give "
+            'each captured element a size, e.g. style="width:1280px;height:720px"'
+        ) from exc
+
+
+def _capture_target(page: Any, target: Any, index: int, request: _CaptureRequest) -> HtmlCapture:
+    """Wait for one element's images and fonts, then photograph it and read its text."""
+    if request.selector is not None:
+        target.scroll_into_view_if_needed()
+    target.evaluate(_READY, request.timeout_ms)
+    if request.check_overflow and target.evaluate(
+        "el => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1"
+    ):
+        raise ValueError(
+            f"HTML section {index + 1} overflows its container; resize it, shorten "
+            "the content, or set check_overflow=False for intentional overflow"
+        )
+    text = target.inner_text().strip()
+    title = _title(target, text)
+    png = _screenshot(page, target, request)
+    reference = None
+    elements: tuple[dict[str, Any], ...] = ()
+    size = None
+    if request.hybrid:
+        reference, size = png, _visible_size(target)
+        elements, png = _lift_layers(target, request.timeout_ms, request.omit_background)
+    exported = _exported(page, request.export_script)
+    return HtmlCapture(png, title.strip(), text, exported, elements, reference, size)
+
+
+def _title(target: Any, text: str) -> str:
+    """Name a capture by data-title, aria-label, its first heading, or its text."""
+    title = target.get_attribute("data-title") or target.get_attribute("aria-label")
+    if title:
+        return title
+    headings = target.locator("h1, h2, h3")
+    return headings.first.inner_text() if headings.count() else text[:120]
+
+
+def _screenshot(page: Any, target: Any, request: _CaptureRequest) -> bytes:
+    """Photograph the viewport (or the whole page), or else the selected element."""
+    if request.selector is None:
+        return page.screenshot(
+            full_page=request.full_page,
+            type="png",
+            animations="disabled",
+            caret="hide",
+            omit_background=request.omit_background,
+        )
+    return _element_screenshot(target, request.omit_background)
+
+
+def _element_screenshot(target: Any, omit_background: bool) -> bytes:
+    return target.screenshot(
+        type="png",
+        animations="disabled",
+        caret="hide",
+        omit_background=omit_background,
+    )
+
+
+def _visible_size(target: Any) -> tuple[float, float]:
+    """The element's rendered size in CSS pixels."""
+    bounds = target.bounding_box()
+    if bounds is None:
+        raise ValueError("HTML slide has no visible bounds")
+    return (bounds["width"], bounds["height"])
+
+
+def _lift_layers(
+    target: Any, timeout_ms: int, omit_background: bool
+) -> tuple[tuple[dict[str, Any], ...], bytes]:
+    """Record the element's native layers, then photograph it without them.
+
+    The element is restored afterwards whether or not the photograph succeeds.
+    """
+    from power_pptx.design._html_layers import capture_layers, restore_layers
+
+    elements, original = capture_layers(target, timeout_ms=timeout_ms)
+    try:
+        png = _element_screenshot(target, omit_background)
+    finally:
+        restore_layers(target, original)
+    return elements, png
+
+
+def _exported(page: Any, export_script: str | None) -> str | None:
+    """Run *export_script* in the page; it must return a string or nothing."""
+    exported = page.evaluate(export_script) if export_script else None
+    if exported is not None and not isinstance(exported, str):
+        raise ValueError("HTML export_script must return a string")
+    return exported
 
 
 def _no_match_message(selector: str, settled: bool, timeout_ms: int) -> str:
