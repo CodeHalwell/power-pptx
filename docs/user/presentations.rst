@@ -41,8 +41,8 @@ unchanged to a file named 'test.pptx'. A couple things to note:
 
 * We've called it a *template*, but in fact it's just a regular PowerPoint file
   with all the slides removed. Actual PowerPoint template files (.potx files)
-  are something a bit different. More on those later maybe, but you won't need
-  them to work with |pp|.
+  are something a bit different, though |pp| opens those too (see below). You
+  won't need them to work with |pp|.
 
 
 REALLY opening a presentation
@@ -60,14 +60,23 @@ Things to note:
 * You can open any PowerPoint 2007 or later file this way (.ppt files from
   PowerPoint 2003 and earlier won't work). While you might not be able to
   manipulate all the contents yet, whatever is already in there will load and
-  save just fine. The feature set is still being built out, so you can't add or
-  change things like Notes Pages yet, but if the presentation has them |pp| is
-  polite enough to leave them alone and smart enough to save them without
-  actually understanding what they are.
+  save just fine. Parts |pp| has no API for (SmartArt layouts, say) are left
+  alone and saved without being understood.
+
+* A file that is not a package |pp| can read — a ``.ppt``, a
+  password-protected file, plain text, a zip archive with no presentation in
+  it — raises :class:`~power_pptx.exc.InvalidPackageError` with a message
+  saying what is wrong. It is a subclass of
+  :class:`~power_pptx.exc.PackageNotFoundError` (raised when there is no file
+  at the path at all), :class:`zipfile.BadZipFile` and |KeyError|, so older
+  ``except`` clauses still catch it. A valid package that is not a
+  presentation, such as a Word document, raises |ValueError|.
 
 * If you use the same filename to open and save the file, |pp| will obediently
   overwrite the original file without a peep. You'll want to make sure that's
-  what you intend.
+  what you intend. Saving to a path is atomic: the deck is written to a
+  temporary file beside the target and moved into place, so a save that fails
+  part-way leaves any existing file as it was.
 
 * A PowerPoint template (``.potx``) or slide show (``.ppsx``) opens the same
   way. What gets written follows the name you save under: ``.potx`` saves a
@@ -86,22 +95,25 @@ Opening a 'file-like' presentation
 save to a file-like object. This can be handy when you want to get the source
 or target presentation over a network connection or from a database and don't
 want to (or aren't allowed to) fuss with interacting with the file system. In
-practice this means you can pass an open file or StringIO/BytesIO stream object
-to open or save a presentation like so::
+practice this means you can pass a file opened in binary mode or a ``BytesIO``
+stream object to open or save a presentation like so::
 
-    f = open('foobar.pptx')
-    prs = Presentation(f)
-    f.close()
+    from io import BytesIO
+
+    with open('foobar.pptx', 'rb') as f:
+        prs = Presentation(f)
 
     # or
 
-    with open('foobar.pptx') as f:
-        source_stream = StringIO(f.read())
+    with open('foobar.pptx', 'rb') as f:
+        source_stream = BytesIO(f.read())
     prs = Presentation(source_stream)
     source_stream.close()
     ...
-    target_stream = StringIO()
+    target_stream = BytesIO()
     prs.save(target_stream)
+
+A stream is always saved as an ordinary presentation (``.pptx``).
 
 
 Okay, so you've got a presentation open and are pretty sure you can save it

@@ -185,7 +185,10 @@ Moving slides
 
 ``prs.slides.move(old_index, new_index)`` moves one slide and
 ``prs.slides.reorder(new_order)`` puts them all in a new order; sections follow
-the slides as they do in PowerPoint's slide sorter.
+the slides as they do in PowerPoint's slide sorter. Each section stays one
+contiguous run of slides, so a slide moved away from the rest of its section
+joins the section of the slide now before it (or after it, when it becomes the
+first slide).
 
 
 Up next ...
