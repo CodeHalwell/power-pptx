@@ -62,6 +62,22 @@ Missing keys leave the chart untouched so layouts compose cleanly, and
 charts without category/value axes (e.g. pie) silently skip the
 corresponding keys.
 
+Secondary value axis
+--------------------
+
+``series.axis_group = "secondary"`` moves one series onto a second value
+axis, created the first time it is needed::
+
+    margin = chart.series[1]
+    margin.axis_group = "secondary"
+    chart.secondary_value_axis.maximum_scale = 100
+
+Only that series moves; the others keep the primary axis, which is what
+``chart.value_axis`` always returns.  The series is split into a plot of its
+own, so it changes position in ``chart.series`` (keep a reference to it rather
+than indexing again).  Moving a series back to ``"primary"`` raises
+:class:`ValueError`.
+
 Per-series gradient and pattern fills
 -------------------------------------
 

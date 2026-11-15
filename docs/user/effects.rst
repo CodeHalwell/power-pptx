@@ -52,6 +52,11 @@ the colour, if you set one::
     shadow.direction = None
     shadow.color = None
 
+``color = None`` on its own forgets a colour you chose, on those effects and
+on ``shape.preset_shadow``.  The schema requires these effects to have a
+colour, so while the effect keeps any other setting its colour returns to the
+default black.
+
 When that removes the last effect on the shape, the ``<a:effectLst>``
 goes too; an empty ``<a:effectLst/>`` would keep overriding the theme.
 A preset shadow is defined by its preset and is removed with
@@ -105,7 +110,10 @@ radius on every differently-sized shape.  ``Shape.corner_radius`` reads
 and writes it as a real length instead::
 
     card.corner_radius = Pt(6)
-    card.corner_radius.pt    # -> 6.0
+    card.corner_radius.pt    # -> 5.9997..., on a card 1" on its shorter side
+
+The value is still stored as the fraction, which has five decimal places, so
+it reads back as the nearest radius that fraction can express.
 
 Defined for ``ROUNDED_RECTANGLE``, ``ROUND_1_RECTANGLE``,
 ``ROUND_2_SAME_RECTANGLE`` and ``ROUND_2_DIAG_RECTANGLE``; raises
@@ -206,12 +214,14 @@ Line ends, caps, joins, compound lines
     from power_pptx.enum.dml import (
         MSO_LINE_CAP_STYLE,
         MSO_LINE_COMPOUND_STYLE,
+        MSO_LINE_END_SIZE,
+        MSO_LINE_END_TYPE,
         MSO_LINE_JOIN_STYLE,
     )
 
     line = shape.line
-    line.head_end.type = "TRIANGLE"
-    line.tail_end.length = "LARGE"
+    line.head_end.type = MSO_LINE_END_TYPE.TRIANGLE
+    line.tail_end.length = MSO_LINE_END_SIZE.LARGE
     line.cap = MSO_LINE_CAP_STYLE.ROUND
     line.compound = MSO_LINE_COMPOUND_STYLE.DOUBLE
     line.join = MSO_LINE_JOIN_STYLE.BEVEL

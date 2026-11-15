@@ -69,17 +69,36 @@ Entrance / exit / emphasis presets
 
 ``direction`` is one of ``"bottom"``, ``"top"``, ``"left"``, ``"right"``
 for the presets that have one (fly in/out, wipe); anything else raises
-:class:`ValueError`.  Presets without a direction ignore it.
+:class:`ValueError`.  The other ``Entrance`` and ``Exit`` methods take no
+``direction`` argument.
+
+The same presets can be named as strings through the slide's animation
+collection, which is also where the less common options live::
+
+    slide.animations.add_entrance("wipe", shape, direction="top",
+                                  easing="ease_out")
+    slide.animations.add_exit("fly_out", shape, direction="left")
+    slide.animations.add_emphasis("spin", shape, degrees=180)
+
+``add_entrance`` and ``add_exit`` accept ``direction`` for any preset and
+ignore it where the preset has none.  ``easing`` (entrances only) is
+``"linear"``, ``"ease_in"``, ``"ease_out"``, ``"ease_in_out"`` or an
+``(accel, decel)`` pair of fractions of the duration.
 
 Per-paragraph reveal
 --------------------
 
-Pass ``by_paragraph=True`` to fade, wipe, zoom, wheel, random-bar or
-appear a text frame in one paragraph at a time.  Each paragraph fires
-``AFTER_PREVIOUS`` so the whole sequence plays from a single click;
-``direction`` and ``easing`` apply to every paragraph::
+Pass ``by_paragraph=True`` to reveal a text frame one paragraph at a time.
+Each paragraph fires ``AFTER_PREVIOUS`` so the whole sequence plays from a
+single click::
 
     Entrance.fade(slide, body_text_frame, by_paragraph=True)
+
+``slide.animations.add_entrance(preset, text_frame, by_paragraph=True)``
+does the same for the ``"appear"``, ``"fade"``, ``"wipe"``, ``"zoom"``,
+``"wheel"`` and ``"random_bars"`` presets (any other raises
+:class:`ValueError`), with ``direction`` and ``easing`` applied to every
+paragraph.
 
 Sequencing
 ----------
