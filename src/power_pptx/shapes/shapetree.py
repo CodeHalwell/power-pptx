@@ -338,7 +338,7 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
       the resulting point inward by ``inset_emu`` so an arrowhead won't
       bleed past the target's stroke.
     """
-    if isinstance(target, (tuple, list)) and len(target) == 2:
+    if _is_point(target):
         return (int(target[0]), int(target[1]))
 
     box = _endpoint_box(target)
@@ -347,28 +347,42 @@ def _resolve_endpoint(target, *, opposite, side: str, inset_emu: int):
             "arrow endpoint must be (x, y), a Shape, or a BBox; got %r"
             % (target,)
         )
-    left, top, width, height = box
-
     if side in (None, "auto"):
-        opp_box = _endpoint_box(opposite)
-        if isinstance(opposite, (tuple, list)) and len(opposite) == 2:
-            opp_cx, opp_cy = int(opposite[0]), int(opposite[1])
-        elif opp_box is not None:
-            opp_cx = opp_box[0] + opp_box[2] // 2
-            opp_cy = opp_box[1] + opp_box[3] // 2
-        else:
-            opp_cx, opp_cy = left + width // 2, top + height // 2
+        side = _side_facing(box, _endpoint_centre(opposite, default=_box_centre(box)))
+    return _edge_point(box, side, inset_emu)
 
-        cx = left + width // 2
-        cy = top + height // 2
-        # Pick whichever edge the opposite endpoint is closest to.
-        dx = opp_cx - cx
-        dy = opp_cy - cy
-        if abs(dx) >= abs(dy):
-            side = "right" if dx >= 0 else "left"
-        else:
-            side = "bottom" if dy >= 0 else "top"
 
+def _is_point(endpoint) -> bool:
+    """True if `endpoint` is an ``(x, y)`` pair rather than a box."""
+    return isinstance(endpoint, (tuple, list)) and len(endpoint) == 2
+
+
+def _box_centre(box: tuple[int, int, int, int]) -> tuple[int, int]:
+    """The ``(x, y)`` centre of a ``(left, top, width, height)`` box."""
+    left, top, width, height = box
+    return (left + width // 2, top + height // 2)
+
+
+def _endpoint_centre(endpoint, *, default: tuple[int, int]) -> tuple[int, int]:
+    """The point an arrow end stands for: itself, or the centre of its box; else `default`."""
+    if _is_point(endpoint):
+        return (int(endpoint[0]), int(endpoint[1]))
+    box = _endpoint_box(endpoint)
+    return default if box is None else _box_centre(box)
+
+
+def _side_facing(box: tuple[int, int, int, int], point: tuple[int, int]) -> str:
+    """The edge of `box` that `point` lies beyond: the one along its larger offset."""
+    cx, cy = _box_centre(box)
+    dx, dy = point[0] - cx, point[1] - cy
+    if abs(dx) >= abs(dy):
+        return "right" if dx >= 0 else "left"
+    return "bottom" if dy >= 0 else "top"
+
+
+def _edge_point(box: tuple[int, int, int, int], side, inset_emu: int) -> tuple[int, int]:
+    """The middle of edge `side` of `box`, pulled `inset_emu` into the box."""
+    left, top, width, height = box
     if side == "right":
         return (left + width - inset_emu, top + height // 2)
     if side == "left":
