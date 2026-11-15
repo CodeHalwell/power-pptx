@@ -9,6 +9,7 @@ attributes. Naming generally corresponds to the simple type in the associated XM
 
 from __future__ import annotations
 
+import math
 import numbers
 from typing import Any
 
@@ -245,6 +246,10 @@ class ST_Angle(XsdInt):
     @classmethod
     def validate(cls, value):
         BaseFloatType.validate(value)
+        # -- NaN and infinity have no integer form; say so here, before the
+        # -- caller has created the element the attribute is destined for
+        if not math.isfinite(value):
+            raise ValueError("angle must be a finite number of degrees, got %s" % value)
 
 
 class ST_AxisUnit(XsdDouble):
@@ -640,14 +645,13 @@ class ST_PositiveFixedAngle(ST_Angle):
         """Convert signed angle float like -427.42 to int 60000 per degree.
 
         Value is normalized to a positive value less than 360 degrees.
-        """
-        if degrees < 0.0:
-            degrees %= -360
-            degrees += 360
-        elif degrees > 0.0:
-            degrees %= 360
 
-        return str(int(round(degrees * cls.DEGREE_INCREMENTS)))
+        The modulo is taken on the *rounded* integer, not on the float. Folding
+        the float first lets a value a hair under a full turn (-360, 359.9999999,
+        -1e-6) round up to exactly 21600000, which the schema excludes
+        (`maxExclusive`) and PowerPoint rejects.
+        """
+        return str(int(round(degrees * cls.DEGREE_INCREMENTS)) % cls.THREE_SIXTY)
 
 
 class ST_PositiveFixedPercentage(ST_Percentage):
