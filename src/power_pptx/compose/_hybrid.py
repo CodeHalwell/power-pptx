@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from power_pptx._color import coerce_color
 from power_pptx.chart.data import CategoryChartData
@@ -13,6 +13,9 @@ from power_pptx.enum.text import MSO_AUTO_SIZE
 from power_pptx.geometry import BBox
 from power_pptx.text.fonts import font_is_installed
 from power_pptx.util import Emu, Pt
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeGuard
 
 _CHARTS = {
     "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
@@ -63,41 +66,54 @@ def _font(style, font_map, strict):
     return mapping.get(candidates[0].casefold(), candidates[0])
 
 
+_CHART_OPTIONS = frozenset({"type", "categories", "series", "colors", "title", "legend"})
+
+
 def _chart_spec(record):
     spec = record["chart"]
     if not isinstance(spec, dict):
         raise ValueError("data-pptx-chart must be a JSON object")
-    unknown = set(spec) - {"type", "categories", "series", "colors", "title", "legend"}
+    unknown = set(spec) - _CHART_OPTIONS
     if unknown:
         raise ValueError(f"Unknown chart options: {', '.join(sorted(unknown))}")
     if spec.get("type", "column") not in _CHARTS:
         raise ValueError("Native HTML chart type must be column, bar, line, area, pie, or doughnut")
     categories, series = spec.get("categories"), spec.get("series")
-    if (
-        not isinstance(categories, list)
-        or not categories
-        or not isinstance(series, list)
-        or not series
-    ):
+    if not _is_filled_list(categories) or not _is_filled_list(series):
         raise ValueError("Native chart requires non-empty categories and series lists")
     for item in series:
-        if not isinstance(item, dict) or set(item) - {"name", "values"} or "name" not in item:
-            raise ValueError("Each chart series needs name and values")
-        values = item.get("values")
-        if not isinstance(values, list) or len(values) != len(categories):
-            raise ValueError("Chart series values must match the category count")
-        if any(
-            v is not None
-            and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v))
-            for v in values
-        ):
-            raise ValueError("Chart values must be finite numbers or null")
+        _check_chart_series(item, len(categories))
     if "colors" in spec:
-        if not isinstance(spec["colors"], list) or not spec["colors"]:
-            raise ValueError("Chart colors must be a non-empty list")
-        for color in spec["colors"]:
-            coerce_color(color)
+        _check_chart_colors(spec["colors"])
     return spec
+
+
+def _is_filled_list(value: Any) -> TypeGuard[list[Any]]:
+    return isinstance(value, list) and bool(value)
+
+
+def _check_chart_series(item, category_count):
+    if not isinstance(item, dict) or set(item) - {"name", "values"} or "name" not in item:
+        raise ValueError("Each chart series needs name and values")
+    values = item.get("values")
+    if not isinstance(values, list) or len(values) != category_count:
+        raise ValueError("Chart series values must match the category count")
+    if not all(_is_chart_value(value) for value in values):
+        raise ValueError("Chart values must be finite numbers or null")
+
+
+def _is_chart_value(value):
+    """Return whether *value* is a finite number or ``None`` (a gap in the series)."""
+    if value is None:
+        return True
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _check_chart_colors(colors):
+    if not _is_filled_list(colors):
+        raise ValueError("Chart colors must be a non-empty list")
+    for color in colors:
+        coerce_color(color)
 
 
 def prepare_layers(capture, *, font_map, strict_fonts):
@@ -105,25 +121,33 @@ def prepare_layers(capture, *, font_map, strict_fonts):
     if capture.size is None:
         raise ValueError("Hybrid capture has no canvas dimensions")
     for record in capture.elements:
-        if record["kind"] == "capture":
+        kind = record["kind"]
+        if kind == "capture":
             continue
-        style = record["style"]
-        record["native_font"] = _font(style, font_map, strict_fonts)
-        css_color(style["color"])
-        if record["kind"] == "text":
+        _prepare_styled(record, font_map, strict_fonts)
+        if kind == "text":
             for run in record["runs"]:
-                run["native_font"] = _font(run["style"], font_map, strict_fonts)
-                css_color(run["style"]["color"])
-        elif record["kind"] == "chart":
+                _prepare_styled(run, font_map, strict_fonts)
+        elif kind == "chart":
             _chart_spec(record)
         else:
-            if not record["rows"] or not any(record["rows"]):
-                raise ValueError("Annotated native table cannot be empty")
-            for row in record["rows"]:
-                for cell in row:
-                    cell["native_font"] = _font(cell["style"], font_map, strict_fonts)
-                    css_color(cell["style"]["color"])
-                    css_color(cell["fill"])
+            _prepare_table(record, font_map, strict_fonts)
+
+
+def _prepare_styled(item, font_map, strict_fonts):
+    """Resolve the native font for *item*'s style and check its text colour."""
+    style = item["style"]
+    item["native_font"] = _font(style, font_map, strict_fonts)
+    css_color(style["color"])
+
+
+def _prepare_table(record, font_map, strict_fonts):
+    if not record["rows"] or not any(record["rows"]):
+        raise ValueError("Annotated native table cannot be empty")
+    for row in record["rows"]:
+        for cell in row:
+            _prepare_styled(cell, font_map, strict_fonts)
+            css_color(cell["fill"])
 
 
 def add_layers(slide, capture, *, slide_width, slide_height):
