@@ -11,11 +11,15 @@ so the same words mean the same thing wherever text is styled.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Sequence
 
 from power_pptx._color import coerce_color
 from power_pptx.enum.text import MSO_VERTICAL_ANCHOR, PP_PARAGRAPH_ALIGNMENT
 from power_pptx.util import Length, Pt
+
+if TYPE_CHECKING:
+    from power_pptx.dml.color import RGBColor
 
 ALIGN_MAP = {
     "left": PP_PARAGRAPH_ALIGNMENT.LEFT,
@@ -114,6 +118,7 @@ def apply_text_style(
     align_value = None if align is None else coerce_align(align)
     rgb = None if color is None else coerce_color(color)
     size = None if size_pt is None else coerce_length(size_pt)
+    style = _FontStyle(name=font, size=size, bold=bold, italic=italic, rgb=rgb)
 
     for paragraph in tf.paragraphs:
         if align_value is not None:
@@ -122,16 +127,31 @@ def apply_text_style(
         if paragraph_defaults:
             fonts.append(paragraph.font)
         for f in fonts:
-            if font is not None:
-                f.name = font
-            if size is not None:
-                f.size = size
-            if bold is not None:
-                f.bold = bool(bold)
-            if italic is not None:
-                f.italic = bool(italic)
-            if rgb is not None:
-                f.color.rgb = rgb
+            style.apply(f)
+
+
+@dataclass(frozen=True)
+class _FontStyle:
+    """Coerced font settings; ``None`` leaves that setting as it is."""
+
+    name: str | None
+    size: Length | None
+    bold: bool | None
+    italic: bool | None
+    rgb: RGBColor | None
+
+    def apply(self, font: Any) -> None:
+        """Write each setting that is not ``None`` to `font`."""
+        if self.name is not None:
+            font.name = self.name
+        if self.size is not None:
+            font.size = self.size
+        if self.bold is not None:
+            font.bold = bool(self.bold)
+        if self.italic is not None:
+            font.italic = bool(self.italic)
+        if self.rgb is not None:
+            font.color.rgb = self.rgb
 
 
 def apply_body_defaults(
