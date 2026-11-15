@@ -1038,6 +1038,7 @@ def table_slide(
                 f"table_slide: {n_cols} columns do not fit on a slide this wide; at most "
                 f"{int(table_w) // int(_TABLE_MIN_COL_W)} fit. Split the table across slides."
             )
+    align_map = _coerce_aligns(aligns, n_cols)
 
     header_token = _typography(tokens, "body", default_size=Pt(14), default_bold=True)
     cell_token = _typography(tokens, "body", default_size=Pt(13))
@@ -1086,8 +1087,6 @@ def table_slide(
         # taller than its text.
         for cell in table.rows[i].cells:
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    align_map = _coerce_aligns(aligns, n_cols)
 
     header_fill = _palette(tokens, ("primary", "neutral")) or RGBColor(0x33, 0x33, 0x33)
     header_text = _legible(

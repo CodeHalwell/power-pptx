@@ -1784,6 +1784,14 @@ class DescribeTableSlideInputs:
         if banded:
             assert table.cell(1, 0).fill.fore_color.rgb == RGBColor(0xF4, 0xF2, 0xFB)
 
+    def it_rejects_an_unknown_align_before_adding_a_slide(self, prs):
+        with pytest.raises(ValueError, match=r"align\[1\] must be one of"):
+            table_slide(
+                prs, title="t", columns=["a", "b"], rows=[[1, 2]], aligns=["left", "middle"]
+            )
+        # used to leave a half-built slide (title and an unfilled table) behind
+        assert len(prs.slides) == 0
+
     def it_aligns_columns_past_the_end_of_aligns_to_the_left(self, prs):
         slide = table_slide(
             prs, title="t", columns=["a", "b", "c"], rows=[[1, 2, 3]],
