@@ -327,3 +327,99 @@ class DescribePicture(object):
     @pytest.fixture
     def slide_part_(self, request):
         return instance_mock(request, SlidePart)
+
+
+class DescribePictureEnclosingContainer:
+    """`Picture.enclosing_container()` finds the card a picture sits in."""
+
+    def it_returns_None_when_the_picture_is_not_on_a_slide(self, slide):
+        from types import SimpleNamespace
+
+        picture = _add_picture(slide, 1, 1, 1, 1)
+        detached = Picture(picture._element, SimpleNamespace(part=object()))
+
+        assert detached.enclosing_container() is None
+
+    def it_returns_None_when_no_shape_encloses_the_picture(self, slide):
+        _add_rect(slide, 5, 5, 1, 1)
+        picture = _add_picture(slide, 1, 1, 1, 1)
+
+        assert picture.enclosing_container() is None
+
+    def it_picks_the_smallest_enclosing_shape(self, slide):
+        _add_rect(slide, 0.5, 0.5, 8, 6)
+        _add_rect(slide, 1, 1, 6, 5)
+        picture = _add_picture(slide, 2, 2, 2, 2)
+
+        assert picture.enclosing_container(shrink_around=False) == _bbox(1, 1, 6, 5)
+        # -- the outer card does not lie inside the inner one, so trims nothing --
+        assert picture.enclosing_container() == _bbox(1, 1, 6, 5)
+
+    def it_skips_an_enclosing_shape_that_holds_text_unless_told_not_to(self, slide):
+        card = slide.shapes.add_textbox(*_bbox(1, 1, 6, 5))
+        card.text_frame.text = "label"
+        picture = _add_picture(slide, 2, 2, 2, 2)
+
+        assert picture.enclosing_container() is None
+        assert picture.enclosing_container(exclude_text=False) == _bbox(1, 1, 6, 5)
+
+        card.text_frame.text = "   "
+        assert picture.enclosing_container() == _bbox(1, 1, 6, 5)
+
+    def it_ignores_shapes_that_have_no_geometry(self, slide):
+        _add_rect(slide, 1, 1, 6, 5)
+        shapeless = _add_rect(slide, 1, 1, 1, 1)
+        spPr = shapeless._element.spPr
+        spPr.remove(spPr.xfrm)
+        picture = _add_picture(slide, 2, 2, 2, 2)
+
+        assert picture.enclosing_container() == _bbox(1, 1, 6, 5)
+
+    def it_trims_away_content_beside_the_picture(self, slide):
+        _add_rect(slide, 1, 1, 6, 5)
+        _add_rect(slide, 0.5, 4, 2, 0.5)  # -- not inside the card: ignored --
+        _add_rect(slide, 1.2, 1.5, 0.6, 1)  # -- a strip left of the picture --
+        picture = _add_picture(slide, 2, 2, 4, 3)
+
+        assert picture.enclosing_container() == _bbox(1.8, 1, 5.2, 5)
+
+    def it_trims_away_a_title_strip_above_the_picture(self, slide):
+        from power_pptx import BBox
+
+        _add_rect(slide, 1, 1, 6, 5)
+        slide.shapes.add_text(BBox.from_inches(1.2, 1.2, 5.6, 0.6), text="Architecture")
+        picture = _add_picture(slide, 1.5, 2, 5, 3.5)
+
+        assert picture.enclosing_container() == _bbox(1, 1.8, 6, 4.2)
+
+    # fixtures -------------------------------------------------------
+
+    @pytest.fixture
+    def slide(self):
+        from power_pptx import Presentation
+
+        prs = Presentation()
+        return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+_ONE_PIXEL_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"
+    "53de0000000c4944415478da6300010000000500010d0a2db40000000049"
+    "454e44ae426082"
+)
+
+
+def _bbox(left, top, width, height):
+    from power_pptx import BBox
+
+    return BBox.from_inches(left, top, width, height)
+
+
+def _add_rect(slide, left, top, width, height):
+    return slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, *_bbox(left, top, width, height))
+
+
+def _add_picture(slide, left, top, width, height):
+    import io
+
+    return slide.shapes.add_picture(io.BytesIO(_ONE_PIXEL_PNG), *_bbox(left, top, width, height))
