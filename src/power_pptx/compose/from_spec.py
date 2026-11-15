@@ -1721,10 +1721,24 @@ def _add_kpi_shapes(slide: Any, kpis: Any, *, where: str = "kpis") -> None:
     become too narrow to read.  A grid that cannot fit above the bottom
     margin is an error rather than a set of shapes hanging off the slide.
     """
-    from power_pptx.dml.color import RGBColor
-    from power_pptx.enum.text import PP_ALIGN
-    from power_pptx.util import Emu, Inches, Pt
+    from power_pptx.util import Inches
 
+    kpis = _legacy_kpis(kpis, where)
+    if not kpis:
+        return
+    presentation = slide.part.package.presentation_part.presentation
+    grid = _KpiGrid.fit(
+        len(kpis),
+        presentation.slide_width or Inches(10),
+        presentation.slide_height or Inches(7.5),
+        where=where,
+    )
+    for index, kpi in enumerate(kpis):
+        _add_kpi_card(slide, kpi, grid, index, where=f"{where}[{index}]")
+
+
+def _legacy_kpis(kpis: Any, where: str) -> list[Any]:
+    """Return a legacy ``kpis`` value as a list of checked KPI mappings."""
     kpis = _mapping_items(_KPI_EXAMPLE)(kpis, where)
     for index, kpi in enumerate(kpis):
         unknown = set(kpi) - set(_LEGACY_KPI_KEYS)
@@ -1740,101 +1754,166 @@ def _add_kpi_shapes(slide: Any, kpis: Any, *, where: str = "kpis") -> None:
                     f"{where}[{index}].{key}",
                     f"expected text or a number; got {_describe(kpi[key])}",
                 )
+    return kpis
 
-    n = len(kpis)
-    if n == 0:
-        return
 
-    presentation = slide.part.package.presentation_part.presentation
-    slide_w = presentation.slide_width or Inches(10)
-    slide_h = presentation.slide_height or Inches(7.5)
+@dataclass(frozen=True)
+class _KpiGrid:
+    """Where the legacy ``kpi_grid`` layout puts its cards; lengths are EMU.
 
-    margin = Inches(0.5)
-    gap = Inches(0.2)
-    max_card_w, min_card_w = Inches(2.2), Inches(1.1)
-    value_h, label_h, delta_h = Inches(1.0), Inches(0.4), Inches(0.3)
-    row_h = value_h + label_h + delta_h
-    top = Inches(2.5)
+    A card is a value box over a label box over an optional delta box.
+    """
 
-    available = slide_w - 2 * margin
-    max_per_row = max(1, int((available + gap) // (min_card_w + gap)))
-    max_rows = max(0, int((slide_h - margin - top + gap) // (row_h + gap)))
-    rows = -(-n // max_per_row)
-    if rows > max_rows:
-        raise _spec_error(
-            where,
-            f"{n} KPIs do not fit on this slide (room for {max_per_row * max_rows}); "
-            "split them across slides",
-        )
-    # Balance the rows (8 cards → 4 + 4, not 7 + 1) and size every card
-    # for the fullest row so the grid stays aligned.
-    per_row = -(-n // rows)
-    card_w = Emu(min(int(max_card_w), int((available - (per_row - 1) * gap) // per_row)))
-    value_size = Pt(max(14.0, 32.0 * card_w / max_card_w))
+    count: int
+    per_row: int
+    slide_width: int
+    card_width: int
+    value_size: int
+    gap: int
+    top: int
+    value_height: int
+    label_height: int
+    delta_height: int
 
-    for i, kpi in enumerate(kpis):
-        row, column = divmod(i, per_row)
-        in_row = min(per_row, n - row * per_row)
-        row_w = in_row * card_w + (in_row - 1) * gap
-        left = Emu(int((slide_w - row_w) // 2 + column * (card_w + gap)))
-        row_top = Emu(int(top + row * (row_h + gap)))
-        label = "" if kpi.get("label") is None else str(kpi["label"])
-        value = "" if kpi.get("value") is None else str(kpi["value"])
-        delta = kpi.get("delta")
+    @classmethod
+    def fit(cls, count: int, slide_width: int, slide_height: int, *, where: str) -> "_KpiGrid":
+        """Return the grid for *count* cards, or raise when it cannot fit on the slide."""
+        from power_pptx.util import Emu, Inches, Pt
 
-        # Value textbox (large, centered)
-        tf_value = slide.shapes.add_textbox(left, row_top, card_w, value_h)
-        tf = tf_value.text_frame
-        tf.word_wrap = False
-        p = tf.paragraphs[0]
-        run = p.add_run()
-        run.text = value
-        run.font.size = value_size
-        run.font.bold = True
-        p.alignment = PP_ALIGN.CENTER
+        margin = Inches(0.5)
+        gap = Inches(0.2)
+        max_card_w, min_card_w = Inches(2.2), Inches(1.1)
+        value_h, label_h, delta_h = Inches(1.0), Inches(0.4), Inches(0.3)
+        row_h = value_h + label_h + delta_h
+        top = Inches(2.5)
 
-        # Label textbox
-        label_top = row_top + value_h
-        tf_label = slide.shapes.add_textbox(left, label_top, card_w, label_h)
-        tf2 = tf_label.text_frame
-        p2 = tf2.paragraphs[0]
-        run2 = p2.add_run()
-        run2.text = label
-        run2.font.size = Pt(12)
-        run2.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
-        p2.alignment = PP_ALIGN.CENTER
-
-        # Delta textbox (optional).  A number is a fraction rendered as a
-        # signed percentage; a string is shown as written.
-        if delta is not None:
-            if isinstance(delta, str):
-                delta_str = delta
-                negative = delta.strip().startswith(("-", "−", "–"))
-            elif (
-                isinstance(delta, bool)
-                or not isinstance(delta, (int, float))
-                or not math.isfinite(delta)
-            ):
-                raise _spec_error(
-                    f"{where}[{i}].delta",
-                    "expected a number such as 0.27 (shown as +27%) or a string to show "
-                    f"as written; got {_describe(delta)}",
-                )
-            else:
-                negative = delta < 0
-                sign = "+" if delta >= 0 else ""
-                delta_str = f"{sign}{float(delta):.0%}"
-            delta_top = label_top + label_h
-            tf_delta = slide.shapes.add_textbox(left, delta_top, card_w, delta_h)
-            tf3 = tf_delta.text_frame
-            p3 = tf3.paragraphs[0]
-            run3 = p3.add_run()
-            run3.text = delta_str
-            run3.font.size = Pt(11)
-            run3.font.color.rgb = (
-                RGBColor(0xCC, 0x00, 0x00) if negative else RGBColor(0x00, 0x8A, 0x00)
+        available = slide_width - 2 * margin
+        max_per_row = max(1, int((available + gap) // (min_card_w + gap)))
+        max_rows = max(0, int((slide_height - margin - top + gap) // (row_h + gap)))
+        rows = -(-count // max_per_row)
+        if rows > max_rows:
+            raise _spec_error(
+                where,
+                f"{count} KPIs do not fit on this slide (room for {max_per_row * max_rows}); "
+                "split them across slides",
             )
-            p3.alignment = PP_ALIGN.CENTER
+        # Balance the rows (8 cards → 4 + 4, not 7 + 1) and size every card
+        # for the fullest row so the grid stays aligned.
+        per_row = -(-count // rows)
+        card_w = Emu(min(int(max_card_w), int((available - (per_row - 1) * gap) // per_row)))
+        return cls(
+            count=count,
+            per_row=per_row,
+            slide_width=slide_width,
+            card_width=card_w,
+            value_size=Pt(max(14.0, 32.0 * card_w / max_card_w)),
+            gap=gap,
+            top=top,
+            value_height=value_h,
+            label_height=label_h,
+            delta_height=delta_h,
+        )
+
+    @property
+    def row_height(self) -> int:
+        return self.value_height + self.label_height + self.delta_height
+
+    def card_origin(self, index: int) -> tuple[int, int]:
+        """Return the top-left corner of card *index*; each row is centred."""
+        from power_pptx.util import Emu
+
+        row, column = divmod(index, self.per_row)
+        in_row = min(self.per_row, self.count - row * self.per_row)
+        row_w = in_row * self.card_width + (in_row - 1) * self.gap
+        left = Emu(int((self.slide_width - row_w) // 2 + column * (self.card_width + self.gap)))
+        top = Emu(int(self.top + row * (self.row_height + self.gap)))
+        return left, top
+
+
+def _add_kpi_card(
+    slide: Any, kpi: Mapping[str, Any], grid: _KpiGrid, index: int, *, where: str
+) -> None:
+    """Draw KPI card *index*: its value, its label and, when it has one, its delta."""
+    from power_pptx.dml.color import RGBColor
+    from power_pptx.util import Pt
+
+    left, top = grid.card_origin(index)
+    width = grid.card_width
+    label = "" if kpi.get("label") is None else str(kpi["label"])
+    value = "" if kpi.get("value") is None else str(kpi["value"])
+    delta = kpi.get("delta")
+
+    _add_kpi_text(
+        slide,
+        (left, top, width, grid.value_height),
+        value,
+        grid.value_size,
+        bold=True,
+        wrap=False,
+    )
+    label_top = top + grid.value_height
+    _add_kpi_text(
+        slide,
+        (left, label_top, width, grid.label_height),
+        label,
+        Pt(12),
+        color=RGBColor(0x60, 0x60, 0x60),
+    )
+    if delta is None:
+        return
+    text, negative = _kpi_delta(delta, f"{where}.delta")
+    _add_kpi_text(
+        slide,
+        (left, label_top + grid.label_height, width, grid.delta_height),
+        text,
+        Pt(11),
+        color=RGBColor(0xCC, 0x00, 0x00) if negative else RGBColor(0x00, 0x8A, 0x00),
+    )
+
+
+def _kpi_delta(delta: Any, path: str) -> tuple[str, bool]:
+    """Return a KPI delta's text and whether it is negative.
+
+    A number is a fraction rendered as a signed percentage; a string is
+    shown as written.
+    """
+    if isinstance(delta, str):
+        return delta, delta.strip().startswith(("-", "−", "–"))
+    if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(delta):
+        raise _spec_error(
+            path,
+            "expected a number such as 0.27 (shown as +27%) or a string to show "
+            f"as written; got {_describe(delta)}",
+        )
+    sign = "+" if delta >= 0 else ""
+    return f"{sign}{float(delta):.0%}", delta < 0
+
+
+def _add_kpi_text(
+    slide: Any,
+    box: tuple[int, int, int, int],
+    text: str,
+    size: int,
+    *,
+    bold: bool = False,
+    color: Any = None,
+    wrap: bool = True,
+) -> None:
+    """Add one centred single-run text box of a KPI card."""
+    from power_pptx.enum.text import PP_ALIGN
+
+    text_frame = slide.shapes.add_textbox(*box).text_frame
+    if not wrap:
+        text_frame.word_wrap = False
+    paragraph = text_frame.paragraphs[0]
+    run = paragraph.add_run()
+    run.text = text
+    run.font.size = size
+    if bold:
+        run.font.bold = True
+    if color is not None:
+        run.font.color.rgb = color
+    paragraph.alignment = PP_ALIGN.CENTER
 
 
 # Keys of a ``tokens`` mapping that say where the tokens come from; the
