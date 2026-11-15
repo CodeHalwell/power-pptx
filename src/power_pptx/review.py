@@ -542,19 +542,34 @@ def _review_input(path, target, args, results):
                 font_policy=args.font_policy,
                 fail_on_warnings=args.fail_on_warnings,
             )
-            results.append(
-                {"input": str(path), "passed": not report.has_errors, "directory": str(target)}
-            )
-            print(
-                f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — "
-                f"{target / 'index.html'}",
-                flush=True,
-            )
     except Exception as exc:
         failure = {"input": str(path), "passed": False, "error": str(exc)}
         results.append(failure)
         _write_failure(target, path, exc, failure)
-        print(f"{path.name}: FAIL — {exc}", file=sys.stderr, flush=True)
+        _say(sys.stderr, f"{path.name}: FAIL — {exc}")
+        return
+    # -- reported outside the try, so a console that cannot print the line
+    # -- does not turn a finished review into a second, failed one --
+    results.append({"input": str(path), "passed": not report.has_errors, "directory": str(target)})
+    _say(
+        sys.stdout,
+        f"{path.name}: {'PASS' if not report.has_errors else 'FAIL'} — {target / 'index.html'}",
+    )
+
+
+def _say(stream, text):
+    """Write a line to *stream*, escaping what its encoding cannot represent.
+
+    File names and error messages are arbitrary text, and a CI console is
+    not always UTF-8; a review must not fail because its summary line
+    contains a dash.
+    """
+    try:
+        stream.write(text + "\n")
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        stream.write((text + "\n").encode(encoding, "backslashreplace").decode(encoding))
+    stream.flush()
 
 
 def _review_source(path, args, tmp):

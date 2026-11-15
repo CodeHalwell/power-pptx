@@ -5,7 +5,9 @@ The rendering paths are exercised by `tests/integration/test_review.py`.
 
 from __future__ import annotations
 
+import io
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -766,6 +768,47 @@ class DescribeReviewCliSources:
             "notes.txt: FAIL — Input must be PPTX, HTML, JSON, or YAML\n"
         )
         assert reviews["calls"] == []
+
+
+class DescribeReviewCliConsoleEncoding:
+    """The summary lines contain a dash; an ASCII-only console must not break a review."""
+
+    @staticmethod
+    def _ascii_console(monkeypatch):
+        streams = {
+            name: io.TextIOWrapper(io.BytesIO(), encoding="ascii") for name in ("out", "err")
+        }
+        monkeypatch.setattr(sys, "stdout", streams["out"])
+        monkeypatch.setattr(sys, "stderr", streams["err"])
+        return streams
+
+    @staticmethod
+    def _text(stream):
+        stream.flush()
+        return stream.buffer.getvalue().decode("ascii")
+
+    def it_records_a_finished_review_once_and_escapes_the_dash(
+        self, tmp_path, reviews, monkeypatch
+    ):
+        console = self._ascii_console(monkeypatch)
+        deck = tmp_path / "deck.pptx"
+        out = tmp_path / "out"
+
+        assert main([str(deck), "--out-dir", str(out)]) == 0
+
+        assert len(reviews["calls"]) == 1
+        assert self._text(console["out"]).startswith("deck.pptx: PASS \\u2014 ")
+        assert self._text(console["err"]) == ""
+
+    def and_it_still_reports_a_review_that_raised(self, tmp_path, reviews, monkeypatch):
+        console = self._ascii_console(monkeypatch)
+        # -- a single input is reviewed straight into --out-dir --
+        reviews["raising"] = {"out": RuntimeError("cannot read it")}
+        deck = tmp_path / "deck.pptx"
+
+        assert main([str(deck), "--out-dir", str(tmp_path / "out")]) == 1
+
+        assert self._text(console["err"]) == "deck.pptx: FAIL \\u2014 cannot read it\n"
 
 
 class DescribeReviewCliBatch:
