@@ -83,8 +83,9 @@ def looks_like_svg(blob: bytes) -> bool:
     return name.localname == "svg" and name.namespace in {None, "http://www.w3.org/2000/svg"}
 
 
-# -- `url(...)` naming anything other than a fragment of the same document or a `data:` URL --
-_EXTERNAL_CSS_URL = re.compile(r"""url\(\s*['"]?\s*(?!#|data:)[^)]*\)""", re.IGNORECASE)
+# -- every `url(...)` in a style; whether its argument stays inside the document is decided
+# -- once the quotes and whitespace around it are off, not by the pattern --
+_CSS_URL = re.compile(r"url\(([^)]*)\)", re.IGNORECASE)
 _CSS_IMPORT = re.compile(r"@import\b[^;]*;?", re.IGNORECASE)
 # -- what lxml gives as the `tag` of an entity reference and of a processing instruction --
 _ENTITY: Any = getattr(etree, "Entity")
@@ -104,7 +105,17 @@ def _is_internal_reference(url: str) -> bool:
 
 def _neutralised_css(css: str) -> str:
     """Return `css` with every reference to another resource taken out."""
-    return _EXTERNAL_CSS_URL.sub("none", _CSS_IMPORT.sub("", css))
+    return _CSS_URL.sub(_css_url_or_none, _CSS_IMPORT.sub("", css))
+
+
+def _css_url_or_none(match: re.Match[str]) -> str:
+    """The `url(...)` of `match` as it is when it stays inside the document, else ``none``.
+
+    ``url('#gradient')``, ``url( "#clip" )`` and a quoted ``data:`` URL are as
+    internal as their bare forms.
+    """
+    target = match.group(1).strip().strip("'\"").strip()
+    return match.group(0) if _is_internal_reference(target) else "none"
 
 
 def _neutralise_element(element) -> bool:

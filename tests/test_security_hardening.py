@@ -198,6 +198,12 @@ class DescribeCallerTextInGeneratedXml:
         _assert_nothing_injected(slide.part.package.presentation_part.presentation)
 
 
+def _styled_svg(style: str) -> bytes:
+    """An SVG carrying `style` both in a `<style>` element and in a `style` attribute."""
+    attribute = style.replace('"', "&quot;")
+    return f'<svg {SVG_NS}><style>a{{{style}}}</style><rect style="{attribute}"/></svg>'.encode()
+
+
 class DescribeNeutraliseExternalReferences:
     def it_returns_a_self_contained_svg_unchanged(self):
         svg = (
@@ -206,6 +212,39 @@ class DescribeNeutraliseExternalReferences:
         ).encode()
 
         assert neutralise_external_references(svg) is svg
+
+    @pytest.mark.parametrize(
+        "style",
+        [
+            "fill:url('#gradient')",
+            'clip-path:url("#clip")',
+            "fill:url( #gradient )",
+            "fill:url( '#gradient' )",
+            "background:url('data:image/png;base64,AAAA')",
+            "FILL:URL(#gradient)",
+        ],
+    )
+    def it_keeps_internal_css_references_however_they_are_quoted(self, style):
+        svg = _styled_svg(style)
+
+        assert neutralise_external_references(svg) is svg
+
+    @pytest.mark.parametrize(
+        "style",
+        [
+            "fill:url('file:///etc/passwd')",
+            'fill:url( "ftp://h/x" )',
+            "fill:url( other.svg#a )",
+            "fill:url('  //h/x')",
+        ],
+    )
+    def it_removes_external_css_references_however_they_are_quoted(self, style):
+        svg = _styled_svg(style)
+
+        cleaned = neutralise_external_references(svg).decode()
+
+        assert cleaned.count("fill:none") == 2
+        assert "url(" not in cleaned
 
     def it_removes_everything_that_names_another_resource(self):
         svg = (
