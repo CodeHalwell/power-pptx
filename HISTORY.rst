@@ -99,9 +99,11 @@ Security
 * A package opened from a directory cannot name a file outside it.
 * The XML parser states ``load_dtd=False`` and ``no_network=True`` rather
   than relying on lxml's defaults.
-* CI: every GitHub Action is pinned to a commit, the Qodana job no longer
-  holds a write token, the Pages build job no longer holds the deploy token,
-  and the release build checks out the commit the guard verified.
+* CI: every GitHub Action is pinned to a commit, the Pages build job no
+  longer holds the deploy token, and the release build checks out the commit
+  the guard verified. The Qodana workflow, a third-party action that held a
+  write token and a secret and had been failing on an expired licence, is
+  removed.
 
 
 2.15.0 (2026-11-15)
