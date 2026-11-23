@@ -46,9 +46,9 @@ def styled_html(tmp_path):
     )
     (tmp_path / "style.css").write_text(
         "body { margin:0 } section { box-sizing:border-box; width:320px; height:180px;"
-        "padding:20px; background:#112233; color:white; font:18px TestBrand,sans-serif }"
+        "padding:20px; background:#112233; color:white; font:18px/1.2 TestBrand,sans-serif }"
         "@font-face { font-family:TestBrand; src:url(brand.ttf) }"
-        "section + section { background:#223344 } h1 { margin:0 0 10px }",
+        "section + section { background:#223344 } h1 { margin:0 0 10px } p { margin:6px 0 }",
         encoding="utf-8",
     )
     path = tmp_path / "deck.html"
