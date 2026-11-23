@@ -292,9 +292,9 @@ class DescribeEmbedFont:
         # reports as broken.
         from lxml import etree
 
-        ttf = os.path.join(os.path.dirname(__file__), "test_files", "calibriz.ttf")
+        ttf = os.path.join(os.path.dirname(__file__), "test_files", "Outfit-Bold.ttf")
         if not os.path.isfile(ttf):
-            pytest.skip("calibriz.ttf fixture is unavailable")
+            pytest.skip("Outfit-Bold.ttf fixture is unavailable")
 
         prs = Presentation()
         prs.theme.embed_font(prs, ttf, typeface="OrderTest", weight="regular")
@@ -309,9 +309,9 @@ class DescribeEmbedFont:
     def it_sets_embedTrueTypeFonts_on_the_presentation(self):
         # PowerPoint treats embedding as disabled without this attribute and
         # silently strips the fntdata parts + font list on the next re-save.
-        ttf = os.path.join(os.path.dirname(__file__), "test_files", "calibriz.ttf")
+        ttf = os.path.join(os.path.dirname(__file__), "test_files", "Outfit-Bold.ttf")
         if not os.path.isfile(ttf):
-            pytest.skip("calibriz.ttf fixture is unavailable")
+            pytest.skip("Outfit-Bold.ttf fixture is unavailable")
 
         prs = Presentation()
         prs.theme.embed_font(prs, ttf, typeface="EmbedFlagTest", weight="regular")

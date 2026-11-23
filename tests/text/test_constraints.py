@@ -9,7 +9,7 @@ from power_pptx.text.layout import TextFitter
 from power_pptx.text.measurement import measure_text
 from power_pptx.util import Inches, Pt
 
-FONT = str(Path(__file__).parents[1] / "test_files" / "calibriz.ttf")
+FONT = str(Path(__file__).parents[1] / "test_files" / "Outfit-Bold.ttf")
 
 
 def test_single_line_constraint_shrinks_without_changing_source_text():

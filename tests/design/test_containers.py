@@ -23,7 +23,7 @@ from power_pptx.enum.shapes import MSO_SHAPE
 from power_pptx.util import Inches, Pt
 from power_pptx.validation import validate_presentation
 
-FONT = str(Path(__file__).parents[1] / "test_files" / "calibriz.ttf")
+FONT = str(Path(__file__).parents[1] / "test_files" / "Outfit-Bold.ttf")
 
 
 def label(value, **kwargs):

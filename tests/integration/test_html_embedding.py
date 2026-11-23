@@ -42,7 +42,7 @@ def browser_path():
 def styled_html(tmp_path):
     Image.new("RGB", (20, 20), "#ff9900").save(tmp_path / "asset.png")
     shutil.copyfile(
-        Path(__file__).parents[1] / "test_files" / "calibriz.ttf", tmp_path / "brand.ttf"
+        Path(__file__).parents[1] / "test_files" / "Outfit-Bold.ttf", tmp_path / "brand.ttf"
     )
     (tmp_path / "style.css").write_text(
         "body { margin:0 } section { box-sizing:border-box; width:320px; height:180px;"

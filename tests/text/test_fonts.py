@@ -148,7 +148,7 @@ class DescribeFontFiles(object):
     @pytest.fixture
     def iter_fixture(self, _Font_):
         directory = test_file_dir
-        font_file_path = testfile("calibriz.ttf")
+        font_file_path = testfile("Outfit-Bold.ttf")
         font = _Font_.open.return_value.__enter__.return_value
         font.family_name, font.is_bold, font.is_italic = "Arial", True, True
         expected_calls = [call(font_file_path)]
