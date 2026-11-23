@@ -529,5 +529,5 @@ class Describe_Fonts(object):
 #     ])
 #     def fixture(self, request):
 #         text, point_size, expected_value = request.param
-#         font_file = testfile('calibriz.ttf')
+#         font_file = testfile('Outfit-Bold.ttf')
 #         return text, point_size, font_file, expected_value

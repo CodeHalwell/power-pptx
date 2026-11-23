@@ -1,0 +1,9 @@
+# Changes to what builds, tests and publishes the package need the maintainer's
+# review. The `main` ruleset requires code-owner review, which only has an
+# effect on the paths listed here.
+/.github/                       @CodeHalwell
+/pyproject.toml                 @CodeHalwell
+/MANIFEST.in                    @CodeHalwell
+/requirements*.txt              @CodeHalwell
+/src/power_pptx/__init__.py     @CodeHalwell
+/SECURITY.md                    @CodeHalwell

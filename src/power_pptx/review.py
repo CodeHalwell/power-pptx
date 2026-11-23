@@ -266,6 +266,7 @@ def review_presentation(
     fail_on_warnings: bool = False,
     check_schema: bool = True,
     font_dirs=None,
+    allow_network: bool = True,
 ) -> ReviewReport:
     """Validate and render every slide, producing PPTX, PDF, PNGs, and a gallery.
 
@@ -284,6 +285,8 @@ def review_presentation(
     is one of those folders.
     ``font_dirs`` are registered for font checks and handed to LibreOffice, as
     are folders already registered with ``register_font_dir``.
+    ``allow_network=False`` captures ``reference_html`` with network access
+    blocked, for a reference page that is not trusted.
     """
     from power_pptx import Presentation
 
@@ -347,6 +350,7 @@ def review_presentation(
                     viewport=viewport,
                     browser_path=browser_path,
                     wait_for_function=wait_for_function,
+                    allow_network=allow_network,
                 )
             if reference_dir is not None:
                 manifest["comparisons"] = _compare(images, reference_dir, stage, max_mean_error)
@@ -440,7 +444,7 @@ def _has_warnings(validation):
 
 
 def _capture_html_references(
-    reference_html, stage, *, selector, viewport, browser_path, wait_for_function
+    reference_html, stage, *, selector, viewport, browser_path, wait_for_function, allow_network
 ):
     """Capture each slide of *reference_html* in a browser; return the folder of PNGs."""
     from power_pptx.design._html import capture_html
@@ -454,6 +458,7 @@ def _capture_html_references(
         viewport=viewport,
         browser_path=browser_path,
         wait_for_function=wait_for_function,
+        allow_network=allow_network,
     )
     for i, capture in enumerate(captures):
         (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
@@ -496,6 +501,18 @@ def _build_parser():
     parser.add_argument("--max-error", type=float)
     parser.add_argument("--font-policy", choices=["warn", "error", "ignore"], default="warn")
     parser.add_argument("--fail-on-warnings", action="store_true")
+    parser.add_argument(
+        "--safe",
+        action="store_true",
+        help="Treat JSON, YAML and HTML inputs as untrusted: a spec may only read files "
+        "inside --base-dir, and pages are captured with network access blocked",
+    )
+    parser.add_argument(
+        "--base-dir",
+        type=Path,
+        help="Folder a spec's relative paths resolve against, and with --safe the only "
+        "folder it may read from (default: the current directory)",
+    )
     parser.add_argument(
         "--font-dir",
         action="append",
@@ -541,6 +558,8 @@ def _review_input(path, target, args, results):
                 max_mean_error=args.max_error,
                 font_policy=args.font_policy,
                 fail_on_warnings=args.fail_on_warnings,
+                # -- --safe covers the reference page as well as the input --
+                allow_network=not args.safe,
             )
     except Exception as exc:
         failure = {"input": str(path), "passed": False, "error": str(exc)}
@@ -582,7 +601,7 @@ def _review_source(path, args, tmp):
     if suffix in {".html", ".htm"}:
         return _deck_from_html(path, args, tmp)
     if suffix in {".json", ".yaml", ".yml"}:
-        return _deck_from_spec(path, suffix), args.reference_dir
+        return _deck_from_spec(path, suffix, args), args.reference_dir
     if suffix != ".pptx":
         raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
     return path, args.reference_dir
@@ -608,17 +627,24 @@ def _deck_from_html(path, args, tmp):
         selector=args.selector,
         wait_for_function=args.ready,
         reference_dir=capture_reference,
+        allow_network=not args.safe,
     )
     return source, reference
 
 
-def _deck_from_spec(path, suffix):
-    """Build the JSON or YAML spec at *path* into a deck."""
+def _deck_from_spec(path, suffix, args):
+    """Build the JSON or YAML spec at *path* into a deck.
+
+    ``--safe`` and ``--base-dir`` are handed to ``from_spec``: a spec someone
+    else wrote names the files it wants read, and reviewing it should not mean
+    reading whatever it names.
+    """
     from power_pptx.compose import from_spec, from_yaml
 
+    options = {"safe": args.safe, "base_dir": args.base_dir}
     if suffix == ".json":
-        return from_spec(json.loads(path.read_text(encoding="utf-8")))
-    return from_yaml(path)
+        return from_spec(json.loads(path.read_text(encoding="utf-8")), **options)
+    return from_yaml(path, **options)
 
 
 def _write_failure(target, path, exc, failure):

@@ -79,7 +79,7 @@ def when_I_assign_value_to_text_frame_word_wrap(context, value):
 def when_I_call_TextFrame_fit_text(context):
     from helpers import test_file
 
-    font_file = test_file("calibriz.ttf")
+    font_file = test_file("Outfit-Bold.ttf")
     context.text_frame.fit_text(bold=True, italic=True, font_file=font_file)
     # context.text_frame.fit_text(font_family='Arial', bold=True, italic=True)
 
@@ -120,10 +120,10 @@ def then_text_frame_word_wrap_is_value(context, value):
     assert text_frame.word_wrap is expected_value
 
 
-@then("the size of the text is 10pt or 11pt")
-def then_the_size_of_the_text_is_10pt(context):
-    """Size depends on Pillow version, probably algorithm isn't quite right either."""
+@then("the size of the text is 9pt or 10pt")
+def then_the_size_of_the_text_is_9pt(context):
+    """The size that fits with the bundled Outfit Bold; it can differ by a point with Pillow."""
     text_frame = context.text_frame
     for paragraph in text_frame.paragraphs:
         for run in paragraph.runs:
-            assert run.font.size in (Pt(10.0), Pt(11.0)), "got %s" % run.font.size.pt
+            assert run.font.size in (Pt(9.0), Pt(10.0)), "got %s" % run.font.size.pt

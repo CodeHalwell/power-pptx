@@ -505,6 +505,7 @@ class DescribeReviewPresentationReferences:
                     "viewport": (800, 450),
                     "browser_path": "/opt/chromium",
                     "wait_for_function": "ready()",
+                    "allow_network": True,
                 },
             )
         ]
@@ -587,6 +588,7 @@ def _review_options(**overrides):
         "max_mean_error": None,
         "font_policy": "warn",
         "fail_on_warnings": False,
+        "allow_network": True,
     }
     options.update(overrides)
     return options
@@ -697,6 +699,7 @@ class DescribeReviewCliSources:
             "selector": "[data-slide]",
             "wait_for_function": None,
             "reference_dir": reference,
+            "allow_network": True,
         }
         assert reference.name == "reference"
         assert reviews["calls"] == [
@@ -725,7 +728,9 @@ class DescribeReviewCliSources:
     @pytest.mark.parametrize("suffix", [".json", ".JSON"])
     def it_builds_a_deck_from_a_json_spec(self, suffix, tmp_path, reviews, monkeypatch):
         specs = []
-        monkeypatch.setattr(compose, "from_spec", lambda spec: specs.append(spec) or "deck")
+        monkeypatch.setattr(
+            compose, "from_spec", lambda spec, **options: specs.append(spec) or "deck"
+        )
         source = tmp_path / ("brief" + suffix)
         source.write_text(json.dumps({"slides": []}), encoding="utf-8")
 
@@ -737,7 +742,9 @@ class DescribeReviewCliSources:
     @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
     def it_builds_a_deck_from_a_yaml_spec(self, suffix, tmp_path, reviews, monkeypatch):
         paths = []
-        monkeypatch.setattr(compose, "from_yaml", lambda path: paths.append(path) or "deck")
+        monkeypatch.setattr(
+            compose, "from_yaml", lambda path, **options: paths.append(path) or "deck"
+        )
         source = tmp_path / ("brief" + suffix)
 
         assert main([str(source), "--out-dir", str(tmp_path / "out")]) == 0
@@ -860,3 +867,115 @@ class DescribeReviewCliBatch:
         assert out.is_dir()
         assert not (out / "batch.json").exists()
         assert not (out / "index.html").exists()
+
+
+class DescribeReviewCommandSafeMode:
+    """``--safe`` is for reviewing a spec or page somebody else wrote."""
+
+    @pytest.fixture
+    def spec_calls(self, monkeypatch):
+        from power_pptx import compose
+
+        calls = []
+        monkeypatch.setattr(
+            compose, "from_spec", lambda spec, **options: calls.append(("spec", options))
+        )
+        monkeypatch.setattr(
+            compose, "from_yaml", lambda path, **options: calls.append(("yaml", options))
+        )
+        return calls
+
+    def _args(self, *argv):
+        from power_pptx.review import _build_parser
+
+        return _build_parser().parse_args(["input", "--out-dir", "out", *argv])
+
+    def it_builds_a_spec_as_trusted_by_default(self, spec_calls, tmp_path):
+        from power_pptx.review import _deck_from_spec
+
+        spec = tmp_path / "deck.json"
+        spec.write_text('{"slides": []}')
+
+        _deck_from_spec(spec, ".json", self._args())
+        _deck_from_spec(tmp_path / "deck.yaml", ".yaml", self._args())
+
+        assert spec_calls == [
+            ("spec", {"safe": False, "base_dir": None}),
+            ("yaml", {"safe": False, "base_dir": None}),
+        ]
+
+    def it_confines_a_spec_to_the_base_directory_when_asked(self, spec_calls, tmp_path):
+        from power_pptx.review import _deck_from_spec
+
+        spec = tmp_path / "deck.json"
+        spec.write_text('{"slides": []}')
+        args = self._args("--safe", "--base-dir", str(tmp_path))
+
+        _deck_from_spec(spec, ".json", args)
+        _deck_from_spec(tmp_path / "deck.yml", ".yml", args)
+
+        assert spec_calls == [
+            ("spec", {"safe": True, "base_dir": tmp_path}),
+            ("yaml", {"safe": True, "base_dir": tmp_path}),
+        ]
+
+    def it_refuses_a_file_outside_the_base_directory(self, tmp_path):
+        from power_pptx.compose.from_spec import SpecError
+        from power_pptx.review import _deck_from_spec
+
+        base = tmp_path / "base"
+        base.mkdir()
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"not really a png")
+        spec = base / "deck.json"
+        spec.write_text(
+            json.dumps({"slides": [{"layout": "figure", "title": "t", "figure": str(outside)}]})
+        )
+
+        with pytest.raises(SpecError, match="outside base_dir"):
+            _deck_from_spec(spec, ".json", self._args("--safe", "--base-dir", str(base)))
+
+    @pytest.mark.parametrize(("argv", "allowed"), [((), True), (("--safe",), False)])
+    def it_captures_an_html_input_offline_when_asked(self, monkeypatch, tmp_path, argv, allowed):
+        from power_pptx import compose
+        from power_pptx.review import _review_source
+
+        seen = {}
+        monkeypatch.setattr(compose, "from_html", lambda path, **options: seen.update(options))
+        page = tmp_path / "brief.html"
+        page.write_text("<section data-slide>x</section>")
+
+        _review_source(page, self._args(*argv), tmp_path)
+
+        assert seen["allow_network"] is allowed
+
+    def it_captures_the_reference_page_offline_too(self, monkeypatch, tmp_path):
+        from power_pptx.review import _review_input
+
+        seen = {}
+        monkeypatch.setattr(
+            review,
+            "review_presentation",
+            lambda source, **options: (
+                seen.update(options) or ReviewReport(tmp_path, {"passed": True})
+            ),
+        )
+        deck = tmp_path / "deck.pptx"
+        args = self._args("--safe", "--reference-html", str(tmp_path / "reference.html"))
+
+        _review_input(deck, tmp_path / "out", args, [])
+
+        assert seen["allow_network"] is False
+
+    def it_passes_the_network_policy_on_to_the_reference_capture(
+        self, tmp_path, fake_render, browser_capture
+    ):
+        review_presentation(
+            _deck(),
+            out_dir=tmp_path / "review",
+            reference_html=tmp_path / "deck.html",
+            allow_network=False,
+        )
+
+        ((_, options),) = browser_capture["calls"]
+        assert options["allow_network"] is False

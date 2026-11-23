@@ -200,7 +200,10 @@ No test checkout is needed. Missing fonts warn by default; ``--font-policy error
 fails on them. Theme/implicit font availability is outside this inventory.
 ``--font-dir assets/fonts`` (repeatable) registers a font folder for these checks
 and hands it to LibreOffice, so previews use the real face instead of a fallback.
-``--fail-on-warnings`` also gates audit warnings. ``--mode capture|hybrid`` and
+``--fail-on-warnings`` also gates audit warnings. ``--safe`` builds JSON, YAML
+and HTML inputs as untrusted (a spec reads files only inside ``--base-dir``, by
+default the current directory, and pages are captured without network access);
+use it to review a spec or page you did not write. ``--mode capture|hybrid`` and
 ``--selector`` (default ``[data-slide]``) control how HTML inputs become slides,
 ``--dpi`` (default 120) the PNG resolution, and ``--soffice-bin`` /
 ``--browser-path`` name the LibreOffice and Chromium programs to run.

@@ -270,9 +270,9 @@ def _deck_embedded_font() -> bytes:
 
     from power_pptx.theme import embed_font
 
-    ttf = os.path.join(os.path.dirname(__file__), "..", "test_files", "calibriz.ttf")
+    ttf = os.path.join(os.path.dirname(__file__), "..", "test_files", "Outfit-Bold.ttf")
     if not os.path.isfile(ttf):
-        pytest.skip("calibriz.ttf fixture is unavailable")
+        pytest.skip("Outfit-Bold.ttf fixture is unavailable")
 
     prs = Presentation()
     _blank_slide(prs)

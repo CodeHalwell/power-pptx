@@ -42,13 +42,13 @@ def browser_path():
 def styled_html(tmp_path):
     Image.new("RGB", (20, 20), "#ff9900").save(tmp_path / "asset.png")
     shutil.copyfile(
-        Path(__file__).parents[1] / "test_files" / "calibriz.ttf", tmp_path / "brand.ttf"
+        Path(__file__).parents[1] / "test_files" / "Outfit-Bold.ttf", tmp_path / "brand.ttf"
     )
     (tmp_path / "style.css").write_text(
         "body { margin:0 } section { box-sizing:border-box; width:320px; height:180px;"
-        "padding:20px; background:#112233; color:white; font:18px TestBrand,sans-serif }"
+        "padding:20px; background:#112233; color:white; font:18px/1.2 TestBrand,sans-serif }"
         "@font-face { font-family:TestBrand; src:url(brand.ttf) }"
-        "section + section { background:#223344 } h1 { margin:0 0 10px }",
+        "section + section { background:#223344 } h1 { margin:0 0 10px } p { margin:6px 0 }",
         encoding="utf-8",
     )
     path = tmp_path / "deck.html"

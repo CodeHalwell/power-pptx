@@ -29,9 +29,7 @@ pytestmark = pytest.mark.skipif(
 # -- a diagram saved by PowerPoint: untyped content nodes, and a drawing part
 # -- caching the laid-out shapes (the hand-built fixture under tests/test_files
 # -- uses model ids the schema rejects, so it cannot serve here)
-POWERPOINT = os.path.join(
-    os.path.dirname(__file__), "..", "..", "features", "steps", "test_files", "shp-shapes.pptx"
-)
+POWERPOINT = os.path.join(os.path.dirname(__file__), "..", "test_files", "shp-shapes.pptx")
 
 
 def _diagram_schema() -> etree.XMLSchema:
