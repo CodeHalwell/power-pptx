@@ -30,8 +30,11 @@ Added
 
 * ``power-pptx review --safe`` builds JSON, YAML and HTML inputs as
   untrusted: a spec may read files only inside ``--base-dir`` (default: the
-  current directory) and pages are captured with network access blocked.
-  ``--base-dir`` alone sets where a spec's relative paths resolve.
+  current directory) and pages are captured with network access blocked,
+  the ``--reference-html`` page included. ``--base-dir`` alone sets where a
+  spec's relative paths resolve.
+* ``review_presentation(..., allow_network=True)``: pass ``False`` to capture
+  ``reference_html`` with network access blocked.
 
 Changed
 .......
