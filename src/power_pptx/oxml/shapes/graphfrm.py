@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from xml.sax.saxutils import escape
 
 from power_pptx.oxml import parse_xml
 from power_pptx.oxml.chart.chart import CT_Chart
@@ -249,6 +250,9 @@ class CT_GraphicalObjectFrame(BaseShapeElement):
         the slide: two OLE objects sharing the hardcoded ``id="0"`` used previously collide on a
         duplicate shape id, which PowerPoint reports as a file needing repair.
         """
+        # -- both are caller-supplied text bound for a double-quoted attribute value --
+        name = escape(name, {'"': "&quot;"})
+        progId = escape(progId, {'"': "&quot;"})
         return cast(
             CT_GraphicalObjectFrame,
             parse_xml(

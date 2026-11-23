@@ -12,6 +12,8 @@ Issue types:
 
 * ``TextOverflow``             — text does not fit its text frame, measured
   with the same font metrics ``TextFrame.fit_text`` uses.
+* ``TextUnmeasured``           — a text frame holds text that could not be
+  checked for overflow (INFO), so it is not mistaken for one that fits.
 * ``ShapeCollision``           — two shapes' bounding boxes overlap.
 * ``OffSlide``                 — a shape extends outside the slide.
 * ``MinFontSize``              — a text run is below the legibility threshold.
@@ -110,6 +112,14 @@ class LintIssue:
         return payload
 
 
+def _other_axis_detail(dimension: str, ratio: float, overflow_pt: float) -> str:
+    """The sentence a ``TextOverflow`` adds for the axis that is out, but less far out."""
+    times = f"{ratio:.1f}" if ratio >= 1.15 else f"{ratio:.2f}"
+    if dimension == "width":
+        return f" It also needs {times}× the frame height ({overflow_pt:.0f}pt too tall)."
+    return f" It is also {times}× the frame width ({overflow_pt:.0f}pt too wide)."
+
+
 @dataclass
 class TextOverflow(LintIssue):
     """Text does not fit the text frame (or table row) that holds it.
@@ -136,6 +146,19 @@ class TextOverflow(LintIssue):
     dimension: str = "height"
     #: How far the text runs past the frame, in points.
     overflow_pt: float = 0.0
+    #: Width the text needs divided by the width available, when a line is
+    #: wider than the frame (word wrap off); ``None`` when the width fits.
+    #: Reported whether or not the height is further out, so a threshold can
+    #: be applied to each axis by itself; :attr:`ratio` and
+    #: :attr:`dimension` describe only the axis that is further out.
+    width_ratio: float | None = None
+    #: Height the text needs divided by the height available, when the lines
+    #: do not fit vertically; ``None`` when the height fits.
+    height_ratio: float | None = None
+    #: How far the text runs past the frame's width, in points (0 if it fits).
+    width_overflow_pt: float = 0.0
+    #: How far the text runs past the frame's height, in points (0 if it fits).
+    height_overflow_pt: float = 0.0
     #: The frame's effective auto-size mode: ``"NONE"``,
     #: ``"SHAPE_TO_FIT_TEXT"``, ``"TEXT_TO_FIT_SHAPE"``, or ``None`` when no
     #: mode is set on the shape or anything it inherits from.
@@ -162,6 +185,7 @@ class TextOverflow(LintIssue):
         missing_font: str | None = None,
         row: int | None = None,
         col: int | None = None,
+        other_axis: tuple[float, float] | None = None,
     ):
         times = f"{ratio:.1f}" if ratio >= 1.15 else f"{ratio:.2f}"
         if row is not None:
@@ -177,6 +201,8 @@ class TextOverflow(LintIssue):
             )
         else:
             detail = f"text needs {times}× the text frame height ({overflow_pt:.0f}pt too tall)."
+        if other_axis is not None:
+            detail += _other_axis_detail(dimension, *other_axis)
         if row is None and auto_size == "SHAPE_TO_FIT_TEXT":
             detail += (
                 " The shape is set to resize to its text, so it grows when rendered or "
@@ -202,6 +228,72 @@ class TextOverflow(LintIssue):
         self.overflow_pt = overflow_pt
         self.auto_size = auto_size
         self.estimated = missing_font is not None
+        self.row = row
+        self.col = col
+        # -- each axis by itself: the one further out, then the other if it is out too --
+        own = (ratio, overflow_pt)
+        across, along = (own, other_axis) if dimension == "width" else (other_axis, own)
+        self.width_ratio, self.width_overflow_pt = across or (None, 0.0)
+        self.height_ratio, self.height_overflow_pt = along or (None, 0.0)
+
+
+#: Why a text frame was not measured, by the ``reason`` a
+#: :class:`TextUnmeasured` carries.
+_UNMEASURED_REASONS: dict[str, str] = {
+    "no-size": "the shape has no width or height to measure the text against",
+    "no-room": "the frame's insets leave no room for text",
+    "stacked-text": "stacked (one letter per line) text is not modelled",
+    "rotated-cell-text": "text that runs up or down a table cell is not modelled",
+    "row-span": "the cell spans several rows, whose heights its text is shared between",
+}
+
+
+@dataclass
+class TextUnmeasured(LintIssue):
+    """A text frame that holds text but could not be checked for overflow.
+
+    ``TextOverflow`` reports what the linter measured and found too big.
+    A frame it could not measure is not known to fit, and without this issue
+    it would simply be absent from the report, which reads as clean. It is
+    INFO, so it neither fails a build nor counts as an error unless the
+    caller asks (``report.unmeasured``, or ``power-pptx lint
+    --fail-on-unmeasured``).
+
+    This is different from an *estimated* measurement: text measured with
+    fallback font metrics because its typeface is not installed was measured,
+    and any overflow is a :class:`TextOverflow` with ``estimated`` set.
+    """
+
+    #: Why the text was not measured: one of ``"no-size"``, ``"no-room"``,
+    #: ``"stacked-text"``, ``"rotated-cell-text"`` or ``"row-span"``.
+    reason: str = ""
+    #: The shape's id on its slide (``shape.shape_id``), which stays unique
+    #: where names repeat; ``None`` if it cannot be read.
+    shape_id: int | None = None
+    #: Zero-based table row and column of the cell; ``None`` for a shape's
+    #: own text frame.
+    row: int | None = None
+    col: int | None = None
+
+    def __init__(
+        self, shape: BaseShape, reason: str, *, row: int | None = None, col: int | None = None
+    ):
+        where = "" if row is None else f" cell ({row}, {col})"
+        explanation = _UNMEASURED_REASONS.get(reason, reason)
+        super().__init__(
+            severity=LintSeverity.INFO,
+            code="TextUnmeasured",
+            message=(
+                f"Shape '{shape.name}'{where}: text was not checked for overflow because "
+                f"{explanation}."
+            ),
+            shapes=(shape,),
+        )
+        self.reason = reason
+        try:
+            self.shape_id = int(shape.shape_id)
+        except Exception:
+            self.shape_id = None
         self.row = row
         self.col = col
 
@@ -589,6 +681,18 @@ class SlideLintReport:
         """True when at least one ERROR-severity issue is present."""
         return any(i.severity == LintSeverity.ERROR for i in self._issues)
 
+    @property
+    def unmeasured(self) -> list[TextUnmeasured]:
+        """The text frames that hold text but could not be checked for overflow.
+
+        Empty when every frame with text was measured. A gate that must not
+        pass a slide the linter could not vouch for tests this as well as
+        :attr:`has_errors`. It is empty, whatever the slide holds, when the
+        report was made with ``"TextUnmeasured"`` disabled or with a
+        ``min_severity`` above ``"info"``.
+        """
+        return [i for i in self._issues if isinstance(i, TextUnmeasured)]
+
     def summary(self) -> str:
         """Return a human-readable string summarising the issues found."""
         if not self._issues:
@@ -847,6 +951,7 @@ _SARIF_LEVEL_BY_SEVERITY: dict[LintSeverity, str] = {
 #: itself so a new issue type still produces a valid (if terse) rule.
 _RULE_DESCRIPTIONS: dict[str, str] = {
     "TextOverflow": "Text does not fit the text frame or table row that holds it.",
+    "TextUnmeasured": "A text frame holds text that could not be checked for overflow.",
     "OffSlide": "A shape extends beyond the slide boundary.",
     "OffSlideShadow": "A shape's shadow bleed extends beyond the slide boundary.",
     "ShapeCollision": "Two shapes' bounding boxes overlap.",
@@ -2535,6 +2640,36 @@ def _frame_overflow_of(env: _TextEnv, shape: BaseShape) -> _FrameOverflow | None
     return _FrameOverflow(target, measure, over_w, over_h)
 
 
+def _frame_unmeasured_reason(env: _TextEnv, shape: BaseShape) -> str | None:
+    """Why the text `shape` holds cannot be measured, or ``None`` when it can be.
+
+    ``None`` also for a shape with no text to measure: only a frame someone
+    will read text in is worth reporting. Called for frames that reported no
+    overflow, to tell "fits" from "could not say".
+    """
+    try:
+        if not shape.has_text_frame:
+            return None
+        tx_body = shape._element.txBody  # pyright: ignore[reportPrivateUsage]
+        if tx_body is None or not _has_visible_text(tx_body):
+            return None
+    except Exception:
+        return None
+    target = _shape_text_target(env, shape)
+    if target is None:
+        return "no-size"
+    if target.body.vert in _STACKED_TEXT:
+        return "stacked-text"
+    body = target.body
+    inner_w = target.width - body.l_ins - body.r_ins
+    inner_h = target.height - body.t_ins - body.b_ins
+    if body.vert in _ROTATED_TEXT:
+        inner_w, inner_h = inner_h, inner_w
+    if inner_w - (body.cols - 1) * body.col_gap <= 0 or inner_h <= 0:
+        return "no-room"
+    return None
+
+
 def _frame_overflow_issue(
     target: _TextTarget, measure: _TextMeasure, over_w: float, over_h: float
 ) -> LintIssue:
@@ -2549,14 +2684,19 @@ def _frame_overflow_issue(
     ratio_h = measure.text_h / measure.avail_h if over_h else 0.0
     autofit = measure.body.autofit
     repairable = autofit in (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE)
+    width = (ratio_w, over_w / _EMU_PER_PT)
+    height = (ratio_h, over_h / _EMU_PER_PT)
+    worse, other = (width, height) if ratio_w >= ratio_h else (height, width)
     return TextOverflow(
         target.shape,
-        max(ratio_w, ratio_h),
+        worse[0],
         severity=LintSeverity.WARNING if repairable else LintSeverity.ERROR,
         dimension="width" if ratio_w >= ratio_h else "height",
-        overflow_pt=(over_w if ratio_w >= ratio_h else over_h) / _EMU_PER_PT,
+        overflow_pt=worse[1],
         auto_size=_auto_size_name(autofit),
         missing_font=measure.missing_font,
+        # -- the axis that is less far out is reported too, when it is out at all --
+        other_axis=other if other[0] else None,
     )
 
 
@@ -2723,11 +2863,15 @@ def _analyse_text(env: _TextEnv, shape: BaseShape) -> _TextFinding:
         if getattr(member, "has_table", False):
             row_issues, grow_h = _table_overflows(env, member)
             issues.extend(row_issues)
+            issues.extend(_table_unmeasured(member))
             if member is shape and grow_h:
                 growth = (0.0, 0.0, 0.0, grow_h)
             continue
         overflow = _frame_overflow_of(env, member)
         if overflow is None:
+            reason = _frame_unmeasured_reason(env, member)
+            if reason is not None:
+                issues.append(TextUnmeasured(member, reason))
             continue
         issues.append(_frame_overflow_issue(*overflow))
         if member is shape and overflow.measure.body.autofit == MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT:
@@ -2759,6 +2903,52 @@ def _table_overflows(env: _TextEnv, shape: BaseShape) -> tuple[list[LintIssue], 
             )
         )
     return issues, grow_h
+
+
+def _table_unmeasured(shape: BaseShape) -> list[LintIssue]:
+    """``TextUnmeasured`` for each cell of the table in `shape` whose text is not measured.
+
+    These are the cells the row measurement leaves out although they hold
+    text: one whose text is rotated or stacked, one that spans several rows,
+    and one whose columns or margins leave the text no width to be laid out in.
+    """
+    try:
+        tbl = shape._element.graphic.graphicData.tbl  # pyright: ignore[reportPrivateUsage]
+        rows = list(tbl.tr_lst)
+        col_widths = [int(grid_col.w) for grid_col in tbl.tblGrid.gridCol_lst]
+    except Exception:
+        return []
+    issues: list[LintIssue] = []
+    for row_idx, tr in enumerate(rows):
+        for col_idx, tc in enumerate(tr.tc_lst):
+            reason = _cell_unmeasured_reason(tc, col_widths[col_idx:])
+            if reason is not None:
+                issues.append(TextUnmeasured(shape, reason, row=row_idx, col=col_idx))
+    return issues
+
+
+def _cell_unmeasured_reason(tc, widths_from_here: Sequence[int]) -> str | None:
+    """Why the text in table cell `tc` is not measured, or ``None`` when it is (or has none).
+
+    `widths_from_here` are the widths of the grid columns from the cell's own
+    rightwards, of which it takes as many as it spans.
+    """
+    try:
+        if bool(tc.hMerge) or bool(tc.vMerge):
+            return None  # -- covered by a merge: whatever it holds is not shown --
+        tx_body = tc.txBody
+        if tx_body is None or not _has_visible_text(tx_body):
+            return None
+        if int(tc.rowSpan) > 1:
+            return "row-span"
+        if not _cell_text_runs_along_row(tc):
+            return "rotated-cell-text"
+        width = sum(widths_from_here[: max(1, int(tc.gridSpan))])
+        if width <= 0:
+            return "no-size"
+        return "no-room" if width - int(tc.marL) - int(tc.marR) <= 0 else None
+    except Exception:
+        return None
 
 
 def _check_text_overflow(shape: BaseShape, env: _TextEnv | None = None) -> list[LintIssue]:
@@ -4444,6 +4634,7 @@ _SEVERITY_ORDER = {LintSeverity.ERROR: 0, LintSeverity.WARNING: 1, LintSeverity.
 #: ``min_severity`` — is not run at all.
 _RULE_SEVERITY: dict[str, LintSeverity] = {
     "TextOverflow": LintSeverity.ERROR,
+    "TextUnmeasured": LintSeverity.INFO,
     "OffSlide": LintSeverity.ERROR,
     "OffSlideShadow": LintSeverity.ERROR,
     "ShapeCollision": LintSeverity.WARNING,
@@ -4500,7 +4691,9 @@ def lint_slide(
     # Measure the text first.  It yields the TextOverflow issues, and for a
     # shape that resizes to its text (or a table, whose rows grow) the box it
     # will really occupy, which is what the geometric checks must test.
-    if rules.wanted("TextOverflow", "OffSlide", "OffSlideShadow", *_PAIRWISE_CODES):
+    if rules.wanted(
+        "TextOverflow", "TextUnmeasured", "OffSlide", "OffSlideShadow", *_PAIRWISE_CODES
+    ):
         _measure_texts(text_env, infos)
 
     # Shapes that actually overlap, found by a sweep rather than by trying
@@ -4597,7 +4790,7 @@ def _shape_issues(
     """The issues each shape has on its own, shape by shape in shape-tree order."""
     invalid_geometry = rules.wanted("InvalidGeometry")
     off_slide = slide_size if rules.wanted("OffSlide", "OffSlideShadow") else None
-    text_overflow = rules.wanted("TextOverflow")
+    text_overflow = rules.wanted("TextOverflow", "TextUnmeasured")
     min_font = rules.wanted("MinFontSize")
     issues: list[LintIssue] = []
     for info in infos:

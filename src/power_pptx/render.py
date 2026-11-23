@@ -46,6 +46,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import zipfile
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Union, cast
@@ -226,6 +227,79 @@ def _run(
     return subprocess.CompletedProcess(list(cmd), process.returncode, stdout, stderr)
 
 
+# -- Settings for the profile LibreOffice is started with. `BlockUntrustedRefererLinks`
+# -- stops it loading what a document links to rather than contains, such as a picture
+# -- whose relationship is `TargetMode="External"` with a `file:///` target, which it
+# -- would otherwise read from disk and draw. Macros are never wanted when converting.
+_PROFILE_SETTINGS = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry"\
+ xmlns:xs="http://www.w3.org/2001/XMLSchema"\
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting">\
+<prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting">\
+<prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting">\
+<prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>
+</oor:items>
+"""
+
+
+def _seed_profile(profile: Path) -> None:
+    """Write the settings LibreOffice is to start with into its (new) *profile* directory."""
+    settings = profile / "user" / "registrymodifications.xcu"
+    if settings.exists():
+        return
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(_PROFILE_SETTINGS, encoding="utf-8")
+
+
+def _neutralise_deck(deck_path: Path) -> None:
+    """Rewrite the SVG pictures in the deck at *deck_path* so they draw from themselves alone.
+
+    LibreOffice draws an embedded SVG from the SVG itself, and follows the
+    references in it: ``<image href="file:///...">`` puts that file in the
+    rendered slide. The profile setting that stops linked pictures does not
+    cover this, so the references are removed from the copy being rendered.
+    A deck with no SVG in it, or one that is not a zip archive, is left alone.
+    """
+    from power_pptx._svg import neutralise_external_references
+
+    try:
+        with zipfile.ZipFile(deck_path) as package:
+            svg_names = {m.filename for m in package.infolist() if _holds_svg(package, m)}
+            if not svg_names:
+                return
+            contents = [(m.filename, package.read(m)) for m in package.infolist()]
+    except (OSError, zipfile.BadZipFile):
+        return
+    with zipfile.ZipFile(deck_path, "w", zipfile.ZIP_DEFLATED) as package:
+        for name, data in contents:
+            if name in svg_names:
+                data = neutralise_external_references(data)
+            package.writestr(name, data)
+
+
+def _holds_svg(package: zipfile.ZipFile, member: zipfile.ZipInfo) -> bool:
+    """True when *member* of *package* may be an SVG, whatever its name says.
+
+    A renderer goes by content, so a deck can carry an SVG under any name. The
+    package's own XML (parts and relationships) is not a picture and is left.
+    """
+    name = member.filename.lower()
+    if name.endswith(".svg"):
+        return True
+    if name.endswith((".xml", ".rels")):
+        return False
+    try:
+        with package.open(member) as stream:
+            head = stream.read(4096)
+    except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile):
+        return False
+    return b"<svg" in head.lower() or head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<")
+
+
 def _soffice_convert(
     soffice_bin: str,
     deck_path: Path,
@@ -234,10 +308,21 @@ def _soffice_convert(
     env: Optional[dict],
     target: str,
 ) -> "subprocess.CompletedProcess[bytes]":
-    """Run ``soffice --convert-to <target>`` on *deck_path*, writing into *out_dir*."""
+    """Run ``soffice --convert-to <target>`` on *deck_path*, writing into *out_dir*.
+
+    *deck_path* is the renderer's own temporary copy of the deck. Before
+    LibreOffice sees it, what would make LibreOffice read other files is taken
+    out of it (see :func:`_neutralise_deck`), and the throwaway profile it runs
+    with is told not to follow links (see :func:`_seed_profile`): a deck may
+    come from anywhere, and rendering it must not draw the host's files into
+    the output.
+    """
+    profile = out_dir / ".soffice-profile"
+    _seed_profile(profile)
+    _neutralise_deck(deck_path)
     cmd = [
         soffice_bin,
-        "-env:UserInstallation=" + (out_dir / ".soffice-profile").resolve().as_uri(),
+        "-env:UserInstallation=" + profile.resolve().as_uri(),
         "--headless",
         "--norestore",
         "--nologo",

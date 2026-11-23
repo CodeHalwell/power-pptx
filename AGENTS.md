@@ -190,8 +190,8 @@ A PR must keep all of these green:
 
 Other workflows: `publish.yml` (PyPI), `release-on-version-bump.yml`,
 `pages.yml` (builds and deploys `site/` to GitHub Pages when it changes on
-`master`), `qodana_code_quality.yml`. Dependabot proposes grouped updates for
-the Actions, Python tooling and site dependencies.
+`master`). Dependabot proposes grouped updates for the Actions, Python tooling
+and site dependencies.
 
 ## Conventions
 
@@ -252,7 +252,7 @@ Releases are automated from `master`; nothing is tagged or uploaded by hand.
 If publishing fails after the tag exists, fix the cause and re-run `publish.yml`
 with `workflow_dispatch` on the tag; `--check-url` skips files already uploaded.
 Never move or delete a published tag. Ship a new patch version instead.
-`qodana` is not part of the release gate; `require-ci.cjs` checks only `ci.yml`.
+`require-ci.cjs` checks only `ci.yml`.
 
 ## Useful references in-tree
 

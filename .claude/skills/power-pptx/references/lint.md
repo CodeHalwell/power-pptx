@@ -58,6 +58,18 @@ Every issue carries a `severity` (`LintSeverity.ERROR` / `WARNING` /
 `INFO`), a `code` string, a `message`, and a `shapes` tuple of the
 shapes it implicates.
 
+`TextOverflow.ratio` / `dimension` / `overflow_pt` describe the axis that
+is further out. `width_ratio` / `width_overflow_pt` and `height_ratio` /
+`height_overflow_pt` give each axis by itself (`None` / `0.0` when that
+axis fits), so apply per-axis thresholds to those.
+
+`TextUnmeasured` (INFO) marks a frame or table cell whose text could
+**not** be checked: `reason` is `no-size`, `no-room`, `stacked-text`,
+`rotated-cell-text` or `row-span`. Absence of `TextOverflow` only means
+"fits" when there is no `TextUnmeasured` for the shape; `report.unmeasured`
+lists them. A fallback-font measurement is still a `TextOverflow` with
+`estimated=True`, not this.
+
 `TextOverflow` lays the text out with the same Pillow font metrics
 `fit_text` uses: every run at its effective size and typeface (run, then
 paragraph, then the placeholder / master it inherits from), wrapped inside
@@ -366,6 +378,8 @@ power-pptx lint deck.pptx --fix --in-place        # overwrite (opt-in only)
   `never`; the decks that could be read are still reported.
 - `--min-severity {info,warning,error}` drops lower issues from the
   report *and* from the exit-status decision.
+- `--fail-on-unmeasured` also exits `1` when any `TextUnmeasured` is
+  reported (needs the default `--min-severity info`).
 - `--format json`: `{"decks": [...], "counts", "exit_code", ...}`; each
   slide entry is that slide's `report.to_dict()` plus `index`, `number`,
   `title`, `hidden` (and `fixes` with `--fix`). An unreadable deck is

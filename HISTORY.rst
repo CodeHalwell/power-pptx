@@ -18,6 +18,94 @@ Unreleased
 ++++++++++
 
 
+2.16.0 (2026-11-23)
++++++++++++++++++++
+
+A security release, from a review of everything ``SECURITY.md`` covers.
+Opening or rendering a deck from an untrusted source no longer reads other
+files from the host, caller-supplied text can no longer become markup, and
+a ``from_spec(..., safe=True)`` spec can no longer ask for unbounded work.
+Upgrade if you open, render or build decks from input you do not control,
+above all with lxml older than 5.0. The linter also reports each overflow
+axis by itself and flags text it could not measure (issue #58).
+
+Added
+.....
+
+* ``TextOverflow`` reports each axis by itself: ``width_ratio`` /
+  ``width_overflow_pt`` and ``height_ratio`` / ``height_overflow_pt``, in the
+  Python API and in ``to_dict()`` / JSON. An axis that fits is ``None`` and
+  ``0.0``. ``ratio``, ``dimension`` and ``overflow_pt`` still describe the axis
+  that is further out, so a frame out on both no longer hides the lesser one;
+  its message names both. (refs #58)
+* ``TextUnmeasured`` (``INFO``): a text frame or table cell that holds text
+  the linter could not check for overflow, with a ``reason`` (``"no-size"``,
+  ``"no-room"``, ``"stacked-text"``, ``"rotated-cell-text"``, ``"row-span"``),
+  the ``shape_id`` and, for a table, ``row`` / ``col``. Such a frame used to be
+  absent from the report, which read as clean. ``SlideLintReport.unmeasured``
+  lists them. A measurement made with fallback font metrics is still a
+  ``TextOverflow`` with ``estimated`` set, not this. (refs #58)
+* ``power-pptx lint --fail-on-unmeasured`` exits ``1`` when any
+  ``TextUnmeasured`` is reported; the JSON report gains
+  ``fail_on_unmeasured`` and ``unmeasured_count``. (refs #58)
+* ``power_pptx.opc.serialized.MAX_INFLATION_RATIO`` and
+  ``MAX_INFLATED_SIZE_UNCHECKED``, the limits of the decompression check
+  below, for a caller that has to open an unusual file it trusts.
+
+Changed
+.......
+
+* A new ``INFO`` issue, ``TextUnmeasured``, can appear in lint reports for
+  decks that were reported clean before. It does not affect ``has_errors`` or
+  the default exit status of ``power-pptx lint``; pass
+  ``disable=["TextUnmeasured"]`` to leave it out.
+* In a spec built with ``safe=True``, ``html_options`` / ``plotly_options``
+  may ask for at most a 30 second ``timeout_ms``, a 4096 pixel ``viewport``
+  side and a ``device_scale_factor`` of 4; more is a ``SpecError``.
+  ``from_yaml(..., safe=True)`` refuses a file that uses YAML aliases.
+* An SVG with no ``png_fallback`` that states a size above 32 megapixels is
+  rasterised at 32 megapixels, in proportion
+  (``power_pptx._svg.MAX_RASTER_PIXELS``).
+
+Security
+........
+
+* Opening a deck no longer lets it read local files through SmartArt. The
+  cached drawing of a diagram was parsed with lxml's default parser, which
+  before lxml 5 loads external entities: a crafted deck could have a local
+  file copied into the drawing part by ``SmartArtShape.set_text`` and saved
+  back out. The part is now parsed without entity expansion and a DTD in it
+  raises ``InvalidPackageError``. Affects installs with lxml older than 5.0.
+* Rendering a deck (``power_pptx.render``, ``Presentation.render``,
+  ``power-pptx review``) no longer draws local files into the output.
+  LibreOffice followed a picture linked to a ``file:///`` target and
+  ``<image href="file:///...">`` inside an embedded SVG, including an SVG
+  from a ``from_spec(..., safe=True)`` figure. It is now started with linked
+  content and macros blocked, and the SVGs in the copy it renders have their
+  external references removed.
+* ``from_spec(..., safe=True)`` removes external references from an SVG
+  figure before embedding it, so the deck is safe for whoever renders it
+  next, and applies the recipe's own test for "markup or path", closing a
+  case where a string starting with ``<`` skipped the ``base_dir`` check.
+* A zip package that inflates out of all proportion is refused with
+  ``InvalidPackageError`` instead of being read into memory: past 512 MiB
+  inflated, the members read may total no more than 100 times their
+  compressed size.
+* Caller-supplied text can no longer become markup in the XML written:
+  chart point values and number formats, OLE ``prog_id`` strings, and
+  picture and movie file names are escaped. Before, a string chart value
+  could add elements to the chart part, and a file name containing ``"`` or
+  (for a placeholder picture or a movie) ``&`` raised ``XMLSyntaxError``.
+* A package opened from a directory cannot name a file outside it.
+* The XML parser states ``load_dtd=False`` and ``no_network=True`` rather
+  than relying on lxml's defaults.
+* CI: every GitHub Action is pinned to a commit, the Pages build job no
+  longer holds the deploy token, and the release build checks out the commit
+  the guard verified. The Qodana workflow, a third-party action that held a
+  write token and a secret and had been failing on an expired licence, is
+  removed.
+
+
 2.15.0 (2026-11-15)
 +++++++++++++++++++
 

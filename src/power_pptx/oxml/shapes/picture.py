@@ -15,6 +15,15 @@ if TYPE_CHECKING:
     from power_pptx.util import Length
 
 
+def _attr(text: str) -> str:
+    """Return `text` escaped for use as a double-quoted XML attribute value.
+
+    A picture's name and description come from the caller, the description usually being the
+    image's file name. `escape()` alone leaves `"` as it is, which ends the attribute early.
+    """
+    return escape(text, {'"': "&quot;"})
+
+
 class CT_Picture(BaseShapeElement):
     """`p:pic` element.
 
@@ -63,12 +72,12 @@ class CT_Picture(BaseShapeElement):
         Return a new `p:pic` placeholder element populated with the supplied
         parameters.
         """
-        return parse_xml(cls._pic_ph_tmpl() % (id_, name, desc, rId))
+        return parse_xml(cls._pic_ph_tmpl() % (id_, _attr(name), _attr(desc), rId))
 
     @classmethod
     def new_pic(cls, shape_id, name, desc, rId, x, y, cx, cy):
         """Return new `<p:pic>` element tree configured with supplied parameters."""
-        return parse_xml(cls._pic_tmpl() % (shape_id, name, escape(desc), rId, x, y, cx, cy))
+        return parse_xml(cls._pic_tmpl() % (shape_id, _attr(name), _attr(desc), rId, x, y, cx, cy))
 
     @classmethod
     def new_video_pic(
@@ -90,7 +99,7 @@ class CT_Picture(BaseShapeElement):
                 cls._pic_video_tmpl()
                 % (
                     shape_id,
-                    shape_name,
+                    _attr(shape_name),
                     video_rId,
                     media_rId,
                     poster_frame_rId,

@@ -32,7 +32,8 @@ does not control causes harm:
   files, reach the network, or write outside the destination the caller chose.
   A file that only makes parsing fail or use a lot of memory is a bug; report
   it as an ordinary issue unless the cost is out of all proportion to the size
-  of the file.
+  of the file. A zip that inflates to more than 100 times its size is refused
+  once past 512 MiB; the limits are in `power_pptx.opc.serialized`.
 - **Building a deck from an untrusted specification.** `from_spec` and
   `from_html` can load local files and drive a headless browser. A
   specification written by a model or supplied by a user should be treated as
@@ -41,6 +42,11 @@ does not control causes harm:
 - **Rendering.** `power_pptx.render` and `power-pptx review` run LibreOffice
   and Poppler on the deck. Problems in those programs belong with their
   maintainers; problems in how this library invokes them belong here.
+  LibreOffice is started with a throwaway profile that blocks linked content
+  and macros, on a copy of the deck whose SVGs have had their external
+  references removed. HTML capture runs Chromium without its own sandbox
+  (Playwright's default), so capture untrusted HTML inside a container or
+  other OS-level sandbox.
 
 Behaviour that requires the attacker to already run Python in your process is
 not a vulnerability in this library.

@@ -400,8 +400,10 @@ class DescribeLintCommandJsonReport(object):
             "decks",
             "exit_code",
             "fail_on",
+            "fail_on_unmeasured",
             "issue_count",
             "min_severity",
+            "unmeasured_count",
         ]
         assert document["exit_code"] == 1
         assert document["fail_on"] == "error"

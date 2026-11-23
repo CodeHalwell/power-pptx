@@ -8,6 +8,7 @@ Python::
     power-pptx lint build/*.pptx --fail-on warning
     power-pptx lint deck.pptx --format sarif > lint.sarif
     power-pptx lint deck.pptx --fix --output tidied.pptx
+    power-pptx lint deck.pptx --fail-on-unmeasured   # no unchecked text either
 
 The exit status is ``0`` when no issue at or above ``--fail-on`` was found,
 ``1`` when one was, and ``2`` for a usage error or a deck that could not be read
@@ -50,7 +51,8 @@ _PROG = "power-pptx lint"
 _EPILOG = """\
 exit status:
   0  no issue at or above the --fail-on level
-  1  at least one issue at or above the --fail-on level
+  1  at least one issue at or above the --fail-on level, or, with
+     --fail-on-unmeasured, text that could not be checked for overflow
   2  usage error, or a deck that could not be read or written
 
 Issues below --min-severity are neither reported nor counted. With --fix the
@@ -372,7 +374,13 @@ def _deck_to_dict(deck: _DeckResult, *, fixed: bool) -> dict[str, Any]:
 
 
 def _format_json(
-    decks: Sequence[_DeckResult], *, fixed: bool, min_severity: str, fail_on: str, exit_code: int
+    decks: Sequence[_DeckResult],
+    *,
+    fixed: bool,
+    min_severity: str,
+    fail_on: str,
+    exit_code: int,
+    fail_on_unmeasured: bool = False,
 ) -> str:
     """The whole run as one JSON document."""
     issues = [issue for deck in decks for issue in deck.issues]
@@ -382,6 +390,10 @@ def _format_json(
         "counts": _counts(issues),
         "min_severity": min_severity,
         "fail_on": fail_on,
+        "fail_on_unmeasured": fail_on_unmeasured,
+        "unmeasured_count": sum(
+            1 for issue in issues if getattr(issue, "code", None) == "TextUnmeasured"
+        ),
         "exit_code": exit_code,
     }
     return json.dumps(document, indent=2) + "\n"
@@ -474,6 +486,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "(default: error); 'never' always exits 0 for a deck that could be read",
     )
     parser.add_argument(
+        "--fail-on-unmeasured",
+        action="store_true",
+        help="also exit with status 1 if a text frame holds text that could not be checked "
+        "for overflow (the TextUnmeasured issue, which is only 'info'), so that a deck is "
+        "not passed on the strength of text nothing measured; needs --min-severity info",
+    )
+    parser.add_argument(
         "--fix",
         action="store_true",
         help="apply the safe automatic fixes (slide.tidy()) and report what is left; "
@@ -550,9 +569,13 @@ def _refuse_to_overwrite_a_deck(
                 )
 
 
-def _exit_code(decks: Sequence[_DeckResult], fail_on: str) -> int:
+def _exit_code(decks: Sequence[_DeckResult], fail_on: str, fail_on_unmeasured: bool = False) -> int:
     if any(deck.error is not None for deck in decks):
         return EXIT_USAGE
+    if fail_on_unmeasured and any(
+        getattr(issue, "code", None) == "TextUnmeasured" for deck in decks for issue in deck.issues
+    ):
+        return EXIT_ISSUES
     if fail_on == "never":
         return EXIT_CLEAN
     threshold = _RANK[fail_on]
@@ -567,6 +590,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
         args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+        if args.fail_on_unmeasured and args.min_severity != "info":
+            # -- the issue it looks for is an 'info', which the filter would remove --
+            parser.error("--fail-on-unmeasured needs --min-severity info (the default)")
         outputs = _plan_outputs(parser, args)
     except SystemExit as exit_:
         # -- argparse has already printed its message: 0 for --help, 2 for a mistake --
@@ -579,7 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _check_deck(path, min_severity=args.min_severity, fix=args.fix, output=output)
         for path, output in zip(args.decks, outputs)
     ]
-    exit_code = _exit_code(decks, args.fail_on)
+    exit_code = _exit_code(decks, args.fail_on, args.fail_on_unmeasured)
 
     if args.format == "json":
         report = _format_json(
@@ -588,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_severity=args.min_severity,
             fail_on=args.fail_on,
             exit_code=exit_code,
+            fail_on_unmeasured=args.fail_on_unmeasured,
         )
     elif args.format == "sarif":
         report = _format_sarif(decks)
