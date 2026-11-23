@@ -17,6 +17,18 @@ installs the ``pptx`` import name) is also present in the environment.
 Unreleased
 ++++++++++
 
+
+2.16.0 (2026-11-23)
++++++++++++++++++++
+
+A security release, from a review of everything ``SECURITY.md`` covers.
+Opening or rendering a deck from an untrusted source no longer reads other
+files from the host, caller-supplied text can no longer become markup, and
+a ``from_spec(..., safe=True)`` spec can no longer ask for unbounded work.
+Upgrade if you open, render or build decks from input you do not control,
+above all with lxml older than 5.0. The linter also reports each overflow
+axis by itself and flags text it could not measure (issue #58).
+
 Added
 .....
 
