@@ -19,10 +19,10 @@ Requirements
 ------------
 
 * Python 3.10 to 3.15.
-* ``lxml`` (4.6.3 or later), ``Pillow`` (10.1 or later), ``XlsxWriter`` (1.3.7
+* ``lxml`` (4.9.1 or later), ``Pillow`` (10.3 or later), ``XlsxWriter`` (1.3.7
   or later) and ``typing_extensions``, which ``pip`` installs for you. These
-  minimum versions are the oldest the test suite passes on, and continuous
-  integration runs the suite against exactly those.
+  minimum versions are the oldest supported, and continuous integration runs
+  the suite against exactly those.
 
 Optional features
 -----------------
