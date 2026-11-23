@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Iterator, Sequence
 from lxml import etree
 from lxml.etree import _Element as LxmlElement  # pyright: ignore[reportPrivateUsage]
 
+from power_pptx.exc import InvalidPackageError
 from power_pptx.oxml.ns import _nsmap as _GLOBAL_NSMAP  # pyright: ignore[reportPrivateUsage]
 from power_pptx.oxml.ns import qn
 from power_pptx.spec import GRAPHIC_DATA_URI_DIAGRAM
@@ -44,6 +45,12 @@ _NODE_TYPES = frozenset({"node", "asst"})
 # -- shapes a diagram was last laid out as (`ppt/diagrams/drawing#.xml`)
 _DSP_URI = "http://schemas.microsoft.com/office/drawing/2008/diagram"
 _NSMAP = dict(_GLOBAL_NSMAP, dsp=_DSP_URI)
+
+# -- The cached drawing comes out of the package as raw bytes, so it is parsed here rather
+# -- than by the package loader. lxml's default parser expands entities, and before lxml 5
+# -- that includes external ones: a drawing part declaring `<!ENTITY x SYSTEM "file:///...">`
+# -- would have the named file read into it and saved back out with the deck.
+_DRAWING_PARSER = etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)
 
 
 def _xpath(element: LxmlElement, expr: str) -> list[LxmlElement]:
@@ -254,9 +261,19 @@ class SmartArtShape:
         if element is not None:
             return element
         try:
-            return etree.fromstring(part.blob)
+            drawing = etree.fromstring(part.blob, _DRAWING_PARSER)
         except etree.XMLSyntaxError:
             return None
+        # -- The drawing part has no part class of its own, so the package loader has not
+        # -- looked at its XML. Entity references are not expanded, and a DTD is as unwelcome
+        # -- here as in any other package item.
+        docinfo = drawing.getroottree().docinfo
+        if docinfo.doctype or docinfo.internalDTD is not None:
+            raise InvalidPackageError(
+                "package item '%s' contains a DTD (<!DOCTYPE ...>), which is not allowed in a"
+                " PowerPoint package" % part.partname.membername
+            )
+        return drawing
 
     def _save_cached_drawing(self, drawing: LxmlElement) -> None:
         """Write *drawing* back to its part, unless the part serializes its own element."""

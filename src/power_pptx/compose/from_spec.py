@@ -425,7 +425,15 @@ def from_yaml(
     except ImportError as exc:  # pragma: no cover - import guard
         raise ImportError("from_yaml requires pyyaml; install with `pip install pyyaml`") from exc
     with open(path, encoding="utf-8") as f:
-        spec = yaml.safe_load(f) or {}
+        text = f.read()
+    if safe and any(isinstance(event, yaml.AliasEvent) for event in yaml.parse(text)):
+        # -- An alias repeats a whole subtree for a few bytes, and aliases of aliases
+        # -- multiply: a file of a few hundred bytes can stand for gigabytes of spec.
+        raise ValueError(
+            f"YAML at {path!r} uses an alias (*name); a spec loaded with safe=True may "
+            "not, because aliases let a small file expand without limit"
+        )
+    spec = yaml.safe_load(text) or {}
     if not isinstance(spec, dict):
         raise ValueError(f"YAML at {path!r} did not parse to a mapping")
     return from_spec(spec, vars=vars, safe=safe, base_dir=base_dir)
@@ -976,7 +984,35 @@ _FIGURE_HINT = (
 
 
 def _looks_like_markup(value: str) -> bool:
-    return value.lstrip("﻿ \t\r\n").startswith("<")
+    """True when the figure recipe will read `value` as markup rather than as a path.
+
+    This has to be the recipe's own test, not a looser one: a string this
+    called markup, and so did not check against `base_dir`, but the recipe then
+    opened as a file, would be a way round safe mode.
+    """
+    from power_pptx.design.recipes import _is_markup_string  # pyright: ignore[reportPrivateUsage]
+
+    return _is_markup_string(value)
+
+
+def _safe_markup(value: Any) -> Any:
+    """Return figure markup from an untrusted spec in the form it is safe to embed.
+
+    Leading whitespace and any byte-order mark go, so that every later reader
+    sees the `<` first and agrees it is markup. An SVG document loses whatever
+    would make a program drawing it read another resource: the SVG is stored in
+    the deck as it is given, and a renderer follows the references in it.
+    """
+    from power_pptx._svg import looks_like_svg, neutralise_external_references
+
+    if isinstance(value, str):
+        value = value.lstrip("\ufeff \t\r\n")
+        blob = value.encode("utf-8")
+        return (
+            neutralise_external_references(blob).decode("utf-8") if looks_like_svg(blob) else value
+        )
+    blob = bytes(value)
+    return neutralise_external_references(blob) if looks_like_svg(blob) else value
 
 
 def _image_source(value: Any, path: str, ctx: _Context) -> Any:
@@ -992,11 +1028,9 @@ def _figure_source(value: Any, path: str, ctx: _Context) -> Any:
     """Validate a ``figure`` value: markup, a path to an existing file, or a figure object."""
     if isinstance(value, os.PathLike) or (isinstance(value, str) and not _looks_like_markup(value)):
         return ctx.resolve_file(value, path, hint=_FIGURE_HINT)
-    if (
-        isinstance(value, (str, bytes, bytearray))
-        or callable(getattr(value, "to_image", None))
-        or callable(getattr(value, "savefig", None))
-    ):
+    if isinstance(value, (str, bytes, bytearray)):
+        return _safe_markup(value) if ctx.safe else value
+    if callable(getattr(value, "to_image", None)) or callable(getattr(value, "savefig", None)):
         return value
     raise _spec_error(
         path,
@@ -1061,7 +1095,34 @@ def _capture_options(key: str, value: Any, path: str, ctx: _Context) -> dict[str
                 "a spec built with safe=True cannot turn network access back on",
             )
         options["allow_network"] = False
+        _check_capture_limits(options, path)
     return options
+
+
+# -- The most an untrusted spec may ask of one capture. Each is far beyond what a slide
+# -- figure needs, and without them a spec could hold a worker for as long as it liked or
+# -- have the browser paint a canvas of any size.
+_SAFE_MAX_TIMEOUT_MS = 30_000
+_SAFE_MAX_VIEWPORT_PX = 4096
+_SAFE_MAX_SCALE = 4.0
+
+
+def _check_capture_limits(options: Mapping[str, Any], path: str) -> None:
+    """Raise unless the capture `options` of a safe-mode spec are within the limits above."""
+    limits: list[tuple[str, Any, float]] = [
+        ("timeout_ms", options.get("timeout_ms"), _SAFE_MAX_TIMEOUT_MS),
+        ("device_scale_factor", options.get("device_scale_factor"), _SAFE_MAX_SCALE),
+    ]
+    viewport = options.get("viewport")
+    if isinstance(viewport, (tuple, list)):
+        limits.extend(("viewport", side, _SAFE_MAX_VIEWPORT_PX) for side in viewport)
+    for name, value, limit in limits:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > limit:
+            raise _spec_error(
+                f"{path}.{name}",
+                f"{value!r} is more than a spec built with safe=True may ask for "
+                f"(at most {limit:g})",
+            )
 
 
 _KPI_EXAMPLE = '{"label": "ARR", "value": "$182M"}'

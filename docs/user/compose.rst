@@ -142,7 +142,17 @@ relative paths when ``safe`` is off. ``from_yaml`` takes the same two
 arguments.
 
 An SVG figure is drawn for its PNG fallback without reading any file or URL
-it refers to: only ``data:`` URLs are drawn, in safe mode or not.
+it refers to: only ``data:`` URLs are drawn, in safe mode or not. In safe
+mode the SVG stored in the deck also has those references removed, since a
+program that renders the deck later would follow them.
+
+Safe mode also bounds the work a spec can ask for: ``html_options`` and
+``plotly_options`` may set ``timeout_ms`` up to 30 seconds, a ``viewport``
+side up to 4096 pixels and a ``device_scale_factor`` up to 4, and
+``from_yaml`` refuses a file that uses YAML aliases (``*name``), which let a
+few hundred bytes expand into gigabytes. Safe mode does not sandbox the
+browser itself: run untrusted specs in a worker with its own memory and time
+limits.
 
 Whatever ``safe`` is, a spec cannot choose the browser executable:
 ``browser_path`` in ``html_options`` / ``plotly_options`` is rejected. Set

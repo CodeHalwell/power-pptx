@@ -10,6 +10,16 @@ from power_pptx.oxml import parse_xml
 from power_pptx.oxml.ns import nsdecls
 
 
+def _xml_escaped(text):
+    """Return `text` safe to place in XML character data or a double-quoted attribute value.
+
+    A number format is caller-supplied text that goes into the chart XML both ways. Left as it
+    is, one containing `<`, `&` or `"` produces XML that does not parse, or parses as markup the
+    caller never wrote.
+    """
+    return escape(str(text), {'"': "&quot;"})
+
+
 def ChartXmlWriter(chart_type, chart_data):
     """
     Factory function returning appropriate XML writer object for
@@ -129,7 +139,13 @@ class _BaseSeriesXmlWriter(object):
             "{pt_xml}"
             "              </c:numCache>\n"
             "            </c:numRef>\n"
-        ).format(**{"wksht_ref": wksht_ref, "number_format": number_format, "pt_xml": pt_xml})
+        ).format(
+            **{
+                "wksht_ref": wksht_ref,
+                "number_format": _xml_escaped(number_format),
+                "pt_xml": pt_xml,
+            }
+        )
 
     def pt_xml(self, values):
         """
@@ -150,7 +166,7 @@ class _BaseSeriesXmlWriter(object):
         for idx, value in enumerate(values):
             if value is None:
                 continue
-            xml += pt_tmpl.format(idx=idx, value=value)
+            xml += pt_tmpl.format(idx=idx, value=_xml_escaped(value))
 
         return xml
 
@@ -387,7 +403,7 @@ class _AreaChartXmlWriter(_BaseChartXmlWriter):
                 '        <c:lblOffset val="100"/>\n'
                 '        <c:baseTimeUnit val="days"/>\n'
                 "      </c:dateAx>\n"
-            ).format(**{"nf": categories.number_format})
+            ).format(**{"nf": _xml_escaped(categories.number_format)})
 
         return (
             "      <c:catAx>\n"
@@ -552,7 +568,9 @@ class _BarChartXmlWriter(_BaseChartXmlWriter):
                 '        <c:lblOffset val="100"/>\n'
                 '        <c:baseTimeUnit val="days"/>\n'
                 "      </c:dateAx>\n"
-            ).format(**{"cat_ax_pos": self._cat_ax_pos, "nf": categories.number_format})
+            ).format(
+                **{"cat_ax_pos": self._cat_ax_pos, "nf": _xml_escaped(categories.number_format)}
+            )
 
         return (
             "      <c:catAx>\n"
@@ -819,7 +837,7 @@ class _LineChartXmlWriter(_BaseChartXmlWriter):
                 '        <c:lblOffset val="100"/>\n'
                 '        <c:baseTimeUnit val="days"/>\n'
                 "      </c:dateAx>\n"
-            ).format(**{"nf": categories.number_format})
+            ).format(**{"nf": _xml_escaped(categories.number_format)})
 
         return (
             "      <c:catAx>\n"
@@ -1378,7 +1396,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
                 self._numRef_cat_tmpl.format(
                     **{
                         "wksht_ref": self._series.categories_ref,
-                        "number_format": categories.number_format,
+                        "number_format": _xml_escaped(categories.number_format),
                         "cat_count": categories.leaf_count,
                         "cat_pt_xml": self._cat_num_pt_xml,
                         "nsdecls": " %s" % nsdecls("c"),
@@ -1421,7 +1439,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
             return self._numRef_cat_tmpl.format(
                 **{
                     "wksht_ref": self._series.categories_ref,
-                    "number_format": categories.number_format,
+                    "number_format": _xml_escaped(categories.number_format),
                     "cat_count": categories.leaf_count,
                     "cat_pt_xml": self._cat_num_pt_xml,
                     "nsdecls": "",
@@ -1456,7 +1474,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
             **{
                 "nsdecls": " %s" % nsdecls("c"),
                 "values_ref": self._series.values_ref,
-                "number_format": self._series.number_format,
+                "number_format": _xml_escaped(self._series.number_format),
                 "val_count": len(self._series),
                 "val_pt_xml": self._val_pt_xml,
             }
@@ -1474,7 +1492,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
             **{
                 "nsdecls": "",
                 "values_ref": self._series.values_ref,
-                "number_format": self._series.number_format,
+                "number_format": _xml_escaped(self._series.number_format),
                 "val_count": len(self._series),
                 "val_pt_xml": self._val_pt_xml,
             }
@@ -1495,7 +1513,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
             ).format(
                 **{
                     "cat_idx": idx,
-                    "cat_lbl_str": category.numeric_str_val(self._date_1904),
+                    "cat_lbl_str": _xml_escaped(category.numeric_str_val(self._date_1904)),
                 }
             )
         return xml
@@ -1607,7 +1625,7 @@ class _CategorySeriesXmlWriter(_BaseSeriesXmlWriter):
                 '                <c:pt idx="{val_idx:d}">\n'
                 "                  <c:v>{value}</c:v>\n"
                 "                </c:pt>\n"
-            ).format(**{"val_idx": idx, "value": value})
+            ).format(**{"val_idx": idx, "value": _xml_escaped(value)})
         return xml
 
     @property

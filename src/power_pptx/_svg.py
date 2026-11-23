@@ -16,7 +16,8 @@ clear error message when missing.
 from __future__ import annotations
 
 import os
-from typing import IO, Tuple, Union
+import re
+from typing import IO, Any, Tuple, Union
 
 from lxml import etree
 
@@ -82,6 +83,100 @@ def looks_like_svg(blob: bytes) -> bool:
     return name.localname == "svg" and name.namespace in {None, "http://www.w3.org/2000/svg"}
 
 
+# -- `url(...)` naming anything other than a fragment of the same document or a `data:` URL --
+_EXTERNAL_CSS_URL = re.compile(r"""url\(\s*['"]?\s*(?!#|data:)[^)]*\)""", re.IGNORECASE)
+_CSS_IMPORT = re.compile(r"@import\b[^;]*;?", re.IGNORECASE)
+# -- what lxml gives as the `tag` of an entity reference and of a processing instruction --
+_ENTITY: Any = getattr(etree, "Entity")
+_PI: Any = getattr(etree, "ProcessingInstruction")
+
+
+def _safe_parser() -> etree.XMLParser:
+    """A parser that expands no entity, loads no DTD and never touches the network."""
+    return etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)
+
+
+def _is_internal_reference(url: str) -> bool:
+    """True for a reference that stays inside the document: a fragment or a ``data:`` URL."""
+    url = url.strip()
+    return url.startswith("#") or url[:5].lower() == "data:"
+
+
+def _neutralised_css(css: str) -> str:
+    """Return `css` with every reference to another resource taken out."""
+    return _EXTERNAL_CSS_URL.sub("none", _CSS_IMPORT.sub("", css))
+
+
+def _neutralise_element(element) -> bool:
+    """Take the references to other resources out of `element`; True if it was changed."""
+    changed = False
+    for name, value in list(element.attrib.items()):
+        local = etree.QName(name).localname.lower()
+        if local in ("href", "src"):
+            if not _is_internal_reference(value):
+                del element.attrib[name]
+                changed = True
+        elif "url(" in value.lower():
+            cleaned = _neutralised_css(value)
+            if cleaned != value:
+                element.attrib[name] = cleaned
+                changed = True
+    if etree.QName(element).localname.lower() == "style" and element.text:
+        cleaned = _neutralised_css(element.text)
+        if cleaned != element.text:
+            element.text = cleaned
+            changed = True
+    return changed
+
+
+def neutralise_external_references(svg_blob: bytes) -> bytes:
+    """Return `svg_blob` with everything that makes a viewer read another resource removed.
+
+    An SVG can name images, other SVG documents and stylesheets by URL, and a
+    program that draws it may go and read them: LibreOffice, asked to render a
+    deck, reads a local file named by ``<image href="file:///...">`` and draws
+    it into the output. This takes out every ``href`` / ``src`` that is not a
+    fragment (``#id``) or a ``data:`` URL, every such ``url(...)`` and
+    ``@import`` in styles, any ``<?xml-stylesheet?>`` and any DTD. What is left
+    draws from the document alone.
+
+    A document with none of those comes back as the same bytes. One that is not
+    well-formed XML comes back as an empty SVG, since nothing can be said about
+    what a lenient reader would make of it.
+    """
+    try:
+        root: Any = etree.fromstring(svg_blob, parser=_safe_parser())
+    except (etree.XMLSyntaxError, ValueError):
+        return _EMPTY_SVG
+    tree = root.getroottree()
+    changed = bool(tree.docinfo.doctype) or tree.docinfo.internalDTD is not None
+    # -- a stylesheet named ahead of the root element goes the way of the DTD --
+    changed = changed or any(node.tag is _PI for node in root.itersiblings(preceding=True))
+    for node in list(root.iter()):
+        if isinstance(node.tag, str):
+            changed = _neutralise_element(node) or changed
+        elif node.tag is _ENTITY or node.tag is _PI:
+            # -- an entity reference means nothing once the DTD declaring it is gone --
+            _remove_keeping_tail(node.getparent(), node)
+            changed = True
+    if not changed:
+        return svg_blob
+    # -- serialising the root element, rather than its tree, leaves behind the DTD and
+    # -- whatever else came before the root --
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+
+def _remove_keeping_tail(parent, node) -> None:
+    """Remove `node` from `parent`, leaving the text that followed it where it was."""
+    tail = node.tail or ""
+    previous = node.getprevious()
+    if previous is not None:
+        previous.tail = (previous.tail or "") + tail
+    else:
+        parent.text = (parent.text or "") + tail
+    parent.remove(node)
+
+
 # What CairoSVG draws in place of a resource it was not allowed to fetch.
 _EMPTY_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
@@ -104,6 +199,58 @@ def _fetch_data_url_only(url: str, resource_type: str) -> bytes:
         return response.read()
 
 
+#: The most pixels an SVG is rasterised to when the caller names no size. An SVG states
+#: its own size, so a few bytes can ask for a canvas of gigabytes; one that asks for more
+#: than this is drawn smaller, at the same proportions.
+MAX_RASTER_PIXELS = 32_000_000
+
+_CSS_PX_PER_UNIT = {
+    "": 1.0,
+    "px": 1.0,
+    "pt": 96 / 72,
+    "pc": 16.0,
+    "mm": 96 / 25.4,
+    "cm": 96 / 2.54,
+    "in": 96.0,
+    "em": 16.0,
+    "ex": 8.0,
+}
+_SVG_LENGTH = re.compile(r"^\s*([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*([a-zA-Z]*)\s*$")
+
+
+def _svg_length_px(value: str | None) -> float | None:
+    """`value`, an SVG length such as ``"30cm"``, in CSS pixels; None if it is not absolute."""
+    match = _SVG_LENGTH.match(value or "")
+    if match is None or match.group(2).lower() not in _CSS_PX_PER_UNIT:
+        return None
+    return float(match.group(1)) * _CSS_PX_PER_UNIT[match.group(2).lower()]
+
+
+def _capped_size(svg_blob: bytes) -> tuple[int, int] | None:
+    """The size to rasterise `svg_blob` at when its own would be over `MAX_RASTER_PIXELS`.
+
+    ``None`` when the SVG's stated size is within the limit, or cannot be read
+    here, in which case CairoSVG is left to work it out.
+    """
+    try:
+        root = etree.fromstring(svg_blob, parser=_safe_parser())
+    except (etree.XMLSyntaxError, ValueError):
+        return None
+    width, height = _svg_length_px(root.get("width")), _svg_length_px(root.get("height"))
+    if width is None or height is None:
+        try:
+            box = [float(n) for n in (root.get("viewBox") or "").replace(",", " ").split()]
+        except ValueError:
+            box = []
+        if len(box) != 4:
+            return None
+        width, height = width or box[2], height or box[3]
+    if width <= 0 or height <= 0 or width * height <= MAX_RASTER_PIXELS:
+        return None
+    scale = (MAX_RASTER_PIXELS / (width * height)) ** 0.5
+    return max(1, int(width * scale)), max(1, int(height * scale))
+
+
 def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None) -> bytes:
     """Rasterise `svg_blob` to PNG bytes using ``cairosvg``.
 
@@ -124,6 +271,8 @@ def rasterize_svg(svg_blob: bytes, *, output_size: tuple[int, int] | None = None
         ) from exc
 
     kwargs = {}
+    if output_size is None:
+        output_size = _capped_size(svg_blob)
     if output_size is not None:
         kwargs["output_width"] = int(output_size[0])
         kwargs["output_height"] = int(output_size[1])

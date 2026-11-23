@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import posixpath
 import secrets
 import stat
 import zipfile
@@ -22,6 +21,15 @@ from power_pptx.util import lazyproperty
 
 if TYPE_CHECKING:
     from power_pptx.opc.package import Part, _Relationships  # pyright: ignore[reportPrivateUsage]
+
+
+# -- Limits on what a zip package may inflate to, checked as its members are read. Up to
+# -- `MAX_INFLATED_SIZE_UNCHECKED` bytes are read whatever the ratio, since a small file that
+# -- compresses very well is harmless. Past that, the members read may not total more than
+# -- `MAX_INFLATION_RATIO` times their compressed size. Both are module attributes so a caller
+# -- with an unusual but trusted file can raise them.
+MAX_INFLATED_SIZE_UNCHECKED = 512 * 1024 * 1024
+MAX_INFLATION_RATIO = 100
 
 
 class PackageReader(Container[bytes]):
@@ -216,16 +224,35 @@ class _DirPkgReader(_PhysPkgReader):
         """Return True when part identified by `pack_uri` is present in zip archive."""
         if not isinstance(pack_uri, PackURI):
             return False
-        return os.path.exists(posixpath.join(self._path, pack_uri.membername))
+        path = self._path_for(pack_uri)
+        return path is not None and os.path.exists(path)
 
     def __getitem__(self, pack_uri: PackURI) -> bytes:
         """Return bytes of file corresponding to `pack_uri` in package directory."""
-        path = os.path.join(self._path, pack_uri.membername)
+        path = self._path_for(pack_uri)
+        if path is None:
+            raise KeyError("no member '%s' in package" % pack_uri)
         try:
             with open(path, "rb") as f:
                 return f.read()
         except IOError:
             raise KeyError("no member '%s' in package" % pack_uri)
+
+    def _path_for(self, pack_uri: PackURI) -> str | None:
+        """Return the file-system path of the item `pack_uri` names, or None if it has none.
+
+        A partname comes from the package's own relationships, so it is not to be trusted to
+        stay inside the package directory. `..` segments are already folded away by |PackURI|,
+        but on Windows a backslash is a path separator too and a name can carry a drive, so
+        `..\\..\\secret.txt` or `C:/secret.txt` would otherwise be read from wherever it
+        points. Anything that does not resolve to a path under the directory is no member.
+        """
+        path = os.path.abspath(os.path.join(self._path, pack_uri.membername))
+        try:
+            inside = os.path.commonpath([self._path, path]) == self._path
+        except ValueError:  # -- different drives --
+            inside = False
+        return path if inside else None
 
 
 class _ZipPkgReader(_PhysPkgReader):
@@ -238,6 +265,9 @@ class _ZipPkgReader(_PhysPkgReader):
 
     def __init__(self, pkg_file: str | IO[bytes]):
         self._pkg_file = pkg_file
+        # -- running totals of the members read, for `_raise_on_decompression_bomb()` --
+        self._inflated_size = 0
+        self._stored_size = 0
 
     def __contains__(self, pack_uri: object) -> bool:
         """Return True when part identified by `pack_uri` is present in zip archive."""
@@ -250,8 +280,10 @@ class _ZipPkgReader(_PhysPkgReader):
         """
         if pack_uri not in self._members:
             raise KeyError("no member '%s' in package" % pack_uri)
+        zinfo = self._members[pack_uri]
+        self._raise_on_decompression_bomb(zinfo)
         try:
-            return self._zipf.read(self._members[pack_uri])
+            return self._zipf.read(zinfo)
         except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as e:
             # -- a bad CRC, a truncated or corrupt deflate stream, a compression method this
             # -- Python cannot read, or an encrypted member --
@@ -268,6 +300,30 @@ class _ZipPkgReader(_PhysPkgReader):
         zipf = self.__dict__.pop("_zipf", None)
         if zipf is not None:
             zipf.close()
+
+    def _raise_on_decompression_bomb(self, zinfo: zipfile.ZipInfo) -> None:
+        """Raise |InvalidPackageError| if reading `zinfo` too would inflate out of all proportion.
+
+        Deflate can pack about a thousand bytes into one, so a file of a few megabytes can
+        ask for gigabytes of memory. What has been read so far is totalled, both as stored
+        and as inflated, and once the inflated total is past `MAX_INFLATED_SIZE_UNCHECKED` it
+        may be no more than `MAX_INFLATION_RATIO` times the stored total. Real presentations
+        are nowhere near: their bulk is pictures and video, which barely compress, and their
+        XML shrinks ten or twenty to one. The check comes before the read, on the size the
+        zip directory declares, which is also the most `zipfile` will inflate for the member.
+        """
+        self._inflated_size += zinfo.file_size
+        self._stored_size += zinfo.compress_size
+        if self._inflated_size <= MAX_INFLATED_SIZE_UNCHECKED:
+            return
+        if self._inflated_size > MAX_INFLATION_RATIO * self._stored_size:
+            raise InvalidPackageError(
+                "cannot read '%s' from package: its contents expand to more than %d times"
+                " their compressed size (%d bytes read so far, from %d), which no real"
+                " presentation does. If this file is to be trusted, raise"
+                " `power_pptx.opc.serialized.MAX_INFLATION_RATIO`."
+                % (zinfo.filename, MAX_INFLATION_RATIO, self._inflated_size, self._stored_size)
+            )
 
     @lazyproperty
     def _members(self) -> dict[PackURI, zipfile.ZipInfo]:

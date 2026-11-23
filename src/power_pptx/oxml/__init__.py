@@ -18,7 +18,13 @@ if TYPE_CHECKING:
 
 # -- configure etree XML parser ----------------------------
 element_class_lookup = etree.ElementNamespaceClassLookup()
-oxml_parser = etree.XMLParser(remove_blank_text=True, resolve_entities=False)
+# -- A package may come from anywhere, so nothing in it is allowed to make the parser read
+# -- another file or reach the network: entities are left unexpanded, no DTD is loaded and
+# -- network access is off. The last two are lxml's defaults; they are spelled out so that a
+# -- change of default in some future lxml cannot quietly undo them.
+oxml_parser = etree.XMLParser(
+    remove_blank_text=True, resolve_entities=False, load_dtd=False, no_network=True
+)
 oxml_parser.set_element_class_lookup(element_class_lookup)
 
 
