@@ -259,6 +259,8 @@ images, `manifest.json`, `index.html`, and `REVIEW.md`. XSDs ship in the package
 no repository test modules are needed. Missing explicit fonts are warnings;
 use `--font-policy error` for a strict gate. Theme/implicit fonts are outside
 this font inventory's scope. `--fail-on-warnings` also gates audit warnings.
+`--safe` (with optional `--base-dir DIR`) builds JSON/YAML/HTML inputs as untrusted:
+spec files are confined to the base directory and pages are captured offline.
 The round-trip check opens and saves the deck, then compares each part's
 content, relationships and content type. It passes for decks written by
 PowerPoint or other tools as long as nothing is lost or altered.

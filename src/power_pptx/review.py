@@ -497,6 +497,18 @@ def _build_parser():
     parser.add_argument("--font-policy", choices=["warn", "error", "ignore"], default="warn")
     parser.add_argument("--fail-on-warnings", action="store_true")
     parser.add_argument(
+        "--safe",
+        action="store_true",
+        help="Treat JSON, YAML and HTML inputs as untrusted: a spec may only read files "
+        "inside --base-dir, and pages are captured with network access blocked",
+    )
+    parser.add_argument(
+        "--base-dir",
+        type=Path,
+        help="Folder a spec's relative paths resolve against, and with --safe the only "
+        "folder it may read from (default: the current directory)",
+    )
+    parser.add_argument(
         "--font-dir",
         action="append",
         type=Path,
@@ -582,7 +594,7 @@ def _review_source(path, args, tmp):
     if suffix in {".html", ".htm"}:
         return _deck_from_html(path, args, tmp)
     if suffix in {".json", ".yaml", ".yml"}:
-        return _deck_from_spec(path, suffix), args.reference_dir
+        return _deck_from_spec(path, suffix, args), args.reference_dir
     if suffix != ".pptx":
         raise ValueError("Input must be PPTX, HTML, JSON, or YAML")
     return path, args.reference_dir
@@ -608,17 +620,24 @@ def _deck_from_html(path, args, tmp):
         selector=args.selector,
         wait_for_function=args.ready,
         reference_dir=capture_reference,
+        allow_network=not args.safe,
     )
     return source, reference
 
 
-def _deck_from_spec(path, suffix):
-    """Build the JSON or YAML spec at *path* into a deck."""
+def _deck_from_spec(path, suffix, args):
+    """Build the JSON or YAML spec at *path* into a deck.
+
+    ``--safe`` and ``--base-dir`` are handed to ``from_spec``: a spec someone
+    else wrote names the files it wants read, and reviewing it should not mean
+    reading whatever it names.
+    """
     from power_pptx.compose import from_spec, from_yaml
 
+    options = {"safe": args.safe, "base_dir": args.base_dir}
     if suffix == ".json":
-        return from_spec(json.loads(path.read_text(encoding="utf-8")))
-    return from_yaml(path)
+        return from_spec(json.loads(path.read_text(encoding="utf-8")), **options)
+    return from_yaml(path, **options)
 
 
 def _write_failure(target, path, exc, failure):
