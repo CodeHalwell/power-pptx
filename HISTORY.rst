@@ -18,6 +18,49 @@ Unreleased
 ++++++++++
 
 
+2.16.1 (2026-11-23)
++++++++++++++++++++
+
+Follow-up to the 2.16.0 security review: nothing here changes how the library
+behaves, but the package no longer declares or ships things a dependency or
+licence scan would flag.
+
+Added
+.....
+
+* ``power-pptx review --safe`` builds JSON, YAML and HTML inputs as
+  untrusted: a spec may read files only inside ``--base-dir`` (default: the
+  current directory) and pages are captured with network access blocked.
+  ``--base-dir`` alone sets where a spec's relative paths resolve.
+
+Changed
+.......
+
+* The minimum dependency versions are now ``lxml>=4.9.1`` and
+  ``Pillow>=10.3.0`` (from 4.6.3 and 10.1.0). The older releases still work
+  with this code, but carry well-known vulnerabilities (CVE-2022-2309;
+  CVE-2023-50447 and CVE-2024-28219), and a declared range that admits them
+  is reported by dependency scanners.
+* The source distribution no longer contains ``features/`` (about 10 MB of
+  acceptance-test decks) and now contains ``tests/fonts/``, so the unit
+  tests it ships can run. It is about 2 MB, down from 11.
+
+Fixed
+.....
+
+* The test suite no longer ships a Microsoft font. ``calibriz.ttf`` (Calibri
+  Bold Italic, which its licence does not allow to be redistributed) is
+  replaced by Outfit Bold under the SIL Open Font License in the test
+  fixtures, and so in the source distribution.
+
+Security
+........
+
+* ``.github/CODEOWNERS`` names the maintainer for the workflows, the build
+  configuration and the version file, which gives the repository's
+  code-owner review rule something to act on.
+
+
 2.16.0 (2026-11-23)
 +++++++++++++++++++
 
