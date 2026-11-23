@@ -52,12 +52,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.check.outputs.publish }}
+      sha: ${{ steps.check.outputs.sha }}
     if: >-
       github.event_name != 'workflow_run'
       || (github.event.workflow_run.conclusion == 'success'
           && github.event.workflow_run.head_branch == 'master')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           # Tags are needed to resolve the version tag; a shallow clone
           # has no tag refs.
@@ -75,6 +76,10 @@ jobs:
         run: |
           set -euo pipefail
           HEAD_SHA=$(git rev-parse HEAD)
+          # The build job checks out exactly this commit, not the tag name
+          # again: a tag moved between the two jobs must not change what
+          # is built.
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           version=$(python -c "import re; print(re.search(r'__version__\s*=\s*[\"\']([^\"\']+)[\"\']', open('src/power_pptx/__init__.py').read()).group(1))")
           tag="v$version"
           if ! tagged=$(git rev-parse -q --verify "refs/tags/$tag^{commit}"); then
@@ -101,7 +106,7 @@ jobs:
 
       - name: Require successful CI for the version tag's commit
         if: steps.check.outputs.publish == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7.1.0
         with:
           script: |
             const requireCI = require('./.github/scripts/require-ci.cjs');
@@ -115,19 +120,18 @@ jobs:
     needs: guard
     if: needs.guard.outputs.publish == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
-          # workflow_run checks out the default branch by default; pin to
-          # the commit the release was actually cut from.
-          ref: >-
-            ${{ github.event_name == 'workflow_run'
-                && github.event.workflow_run.head_sha
-                || github.ref }}
+          # The commit the guard job verified: the one the version tag
+          # points at and CI passed on.
+          ref: ${{ needs.guard.outputs.sha }}
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
-          enable-cache: true
+          # A release is built from a clean resolve, never from a cache.
+          enable-cache: false
 
       - name: Set up Python
         run: uv python install 3.12
@@ -140,7 +144,7 @@ jobs:
           uv tool run --from twine twine check dist/*
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist
           path: dist/
@@ -156,14 +160,13 @@ jobs:
       id-token: write
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: dist
           path: dist/
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
       - name: Publish to PyPI
         # ``--check-url`` skips files the index already has instead of
         # failing the run.  The ``guard`` job is what keeps an unreleased
