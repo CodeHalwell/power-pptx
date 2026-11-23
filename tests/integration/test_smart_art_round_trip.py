@@ -12,9 +12,7 @@ from .round_trip import _canonicalize_xml, _parts, _save_to_bytes, assert_round_
 # -- saved by PowerPoint: its diagram has untyped content nodes and a drawing
 # -- part caching the laid-out shapes, neither of which the hand-built fixture
 # -- under tests/test_files has --
-POWERPOINT = os.path.join(
-    os.path.dirname(__file__), "..", "..", "features", "steps", "test_files", "shp-shapes.pptx"
-)
+POWERPOINT = os.path.join(os.path.dirname(__file__), "..", "test_files", "shp-shapes.pptx")
 
 
 def _diagram_parts(pptx: bytes) -> dict[str, bytes]:

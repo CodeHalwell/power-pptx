@@ -33,7 +33,7 @@ from power_pptx.util import Inches
 
 HERE = Path(__file__).parent
 TEST_FILES = HERE / "test_files"
-SMART_ART_DECK = HERE.parent / "features" / "steps" / "test_files" / "shp-shapes.pptx"
+SMART_ART_DECK = TEST_FILES / "shp-shapes.pptx"
 
 # -- markup a hostile string tries to smuggle in; it must come out as text --
 INJECTED = '<evil:x xmlns:evil="urn:evil"/>'

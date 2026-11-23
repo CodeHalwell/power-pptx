@@ -299,9 +299,7 @@ class DescribePowerPointAuthoredSmartArt:
         assert end.get("sz") is not None
 
 
-POWERPOINT_FIXTURE_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "features", "steps", "test_files", "shp-shapes.pptx"
-)
+POWERPOINT_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "test_files", "shp-shapes.pptx")
 
 
 def _powerpoint_smart_art():
