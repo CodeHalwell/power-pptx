@@ -266,6 +266,7 @@ def review_presentation(
     fail_on_warnings: bool = False,
     check_schema: bool = True,
     font_dirs=None,
+    allow_network: bool = True,
 ) -> ReviewReport:
     """Validate and render every slide, producing PPTX, PDF, PNGs, and a gallery.
 
@@ -284,6 +285,8 @@ def review_presentation(
     is one of those folders.
     ``font_dirs`` are registered for font checks and handed to LibreOffice, as
     are folders already registered with ``register_font_dir``.
+    ``allow_network=False`` captures ``reference_html`` with network access
+    blocked, for a reference page that is not trusted.
     """
     from power_pptx import Presentation
 
@@ -347,6 +350,7 @@ def review_presentation(
                     viewport=viewport,
                     browser_path=browser_path,
                     wait_for_function=wait_for_function,
+                    allow_network=allow_network,
                 )
             if reference_dir is not None:
                 manifest["comparisons"] = _compare(images, reference_dir, stage, max_mean_error)
@@ -440,7 +444,7 @@ def _has_warnings(validation):
 
 
 def _capture_html_references(
-    reference_html, stage, *, selector, viewport, browser_path, wait_for_function
+    reference_html, stage, *, selector, viewport, browser_path, wait_for_function, allow_network
 ):
     """Capture each slide of *reference_html* in a browser; return the folder of PNGs."""
     from power_pptx.design._html import capture_html
@@ -454,6 +458,7 @@ def _capture_html_references(
         viewport=viewport,
         browser_path=browser_path,
         wait_for_function=wait_for_function,
+        allow_network=allow_network,
     )
     for i, capture in enumerate(captures):
         (refs / f"slide-{i:02d}.png").write_bytes(capture.png)
@@ -553,6 +558,8 @@ def _review_input(path, target, args, results):
                 max_mean_error=args.max_error,
                 font_policy=args.font_policy,
                 fail_on_warnings=args.fail_on_warnings,
+                # -- --safe covers the reference page as well as the input --
+                allow_network=not args.safe,
             )
     except Exception as exc:
         failure = {"input": str(path), "passed": False, "error": str(exc)}

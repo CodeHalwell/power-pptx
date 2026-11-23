@@ -505,6 +505,7 @@ class DescribeReviewPresentationReferences:
                     "viewport": (800, 450),
                     "browser_path": "/opt/chromium",
                     "wait_for_function": "ready()",
+                    "allow_network": True,
                 },
             )
         ]
@@ -587,6 +588,7 @@ def _review_options(**overrides):
         "max_mean_error": None,
         "font_policy": "warn",
         "fail_on_warnings": False,
+        "allow_network": True,
     }
     options.update(overrides)
     return options
@@ -946,3 +948,34 @@ class DescribeReviewCommandSafeMode:
         _review_source(page, self._args(*argv), tmp_path)
 
         assert seen["allow_network"] is allowed
+
+    def it_captures_the_reference_page_offline_too(self, monkeypatch, tmp_path):
+        from power_pptx.review import _review_input
+
+        seen = {}
+        monkeypatch.setattr(
+            review,
+            "review_presentation",
+            lambda source, **options: (
+                seen.update(options) or ReviewReport(tmp_path, {"passed": True})
+            ),
+        )
+        deck = tmp_path / "deck.pptx"
+        args = self._args("--safe", "--reference-html", str(tmp_path / "reference.html"))
+
+        _review_input(deck, tmp_path / "out", args, [])
+
+        assert seen["allow_network"] is False
+
+    def it_passes_the_network_policy_on_to_the_reference_capture(
+        self, tmp_path, fake_render, browser_capture
+    ):
+        review_presentation(
+            _deck(),
+            out_dir=tmp_path / "review",
+            reference_html=tmp_path / "deck.html",
+            allow_network=False,
+        )
+
+        ((_, options),) = browser_capture["calls"]
+        assert options["allow_network"] is False
