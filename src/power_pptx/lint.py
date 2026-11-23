@@ -2908,24 +2908,31 @@ def _table_overflows(env: _TextEnv, shape: BaseShape) -> tuple[list[LintIssue], 
 def _table_unmeasured(shape: BaseShape) -> list[LintIssue]:
     """``TextUnmeasured`` for each cell of the table in `shape` whose text is not measured.
 
-    These are the cells :func:`_own_cells` leaves out although they hold text:
-    one whose text is rotated or stacked, and one that spans several rows.
+    These are the cells the row measurement leaves out although they hold
+    text: one whose text is rotated or stacked, one that spans several rows,
+    and one whose columns or margins leave the text no width to be laid out in.
     """
     try:
-        rows = list(shape._element.graphic.graphicData.tbl.tr_lst)  # pyright: ignore[reportPrivateUsage]
+        tbl = shape._element.graphic.graphicData.tbl  # pyright: ignore[reportPrivateUsage]
+        rows = list(tbl.tr_lst)
+        col_widths = [int(grid_col.w) for grid_col in tbl.tblGrid.gridCol_lst]
     except Exception:
         return []
     issues: list[LintIssue] = []
     for row_idx, tr in enumerate(rows):
         for col_idx, tc in enumerate(tr.tc_lst):
-            reason = _cell_unmeasured_reason(tc)
+            reason = _cell_unmeasured_reason(tc, col_widths[col_idx:])
             if reason is not None:
                 issues.append(TextUnmeasured(shape, reason, row=row_idx, col=col_idx))
     return issues
 
 
-def _cell_unmeasured_reason(tc) -> str | None:
-    """Why the text in table cell `tc` is not measured, or ``None`` when it is (or has none)."""
+def _cell_unmeasured_reason(tc, widths_from_here: Sequence[int]) -> str | None:
+    """Why the text in table cell `tc` is not measured, or ``None`` when it is (or has none).
+
+    `widths_from_here` are the widths of the grid columns from the cell's own
+    rightwards, of which it takes as many as it spans.
+    """
     try:
         if bool(tc.hMerge) or bool(tc.vMerge):
             return None  # -- covered by a merge: whatever it holds is not shown --
@@ -2934,7 +2941,12 @@ def _cell_unmeasured_reason(tc) -> str | None:
             return None
         if int(tc.rowSpan) > 1:
             return "row-span"
-        return None if _cell_text_runs_along_row(tc) else "rotated-cell-text"
+        if not _cell_text_runs_along_row(tc):
+            return "rotated-cell-text"
+        width = sum(widths_from_here[: max(1, int(tc.gridSpan))])
+        if width <= 0:
+            return "no-size"
+        return "no-room" if width - int(tc.marL) - int(tc.marR) <= 0 else None
     except Exception:
         return None
 

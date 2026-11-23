@@ -140,6 +140,28 @@ class DescribeTextUnmeasured:
         ]
         assert all("cell (0, " in i.message for i in issues)
 
+    def it_reports_a_table_cell_whose_margins_leave_no_room(self, slide):
+        frame = slide.shapes.add_table(1, 2, Inches(1), Inches(1), Inches(2.1), Inches(0.5))
+        table = frame.table
+        table.columns[0].width = Inches(0.1)
+        squeezed = table.cell(0, 0)
+        squeezed.text = "hello"
+        squeezed.margin_left = squeezed.margin_right = Inches(0.1)
+        table.cell(0, 1).text = "fine"
+
+        issues = [i for i in slide.lint().issues if isinstance(i, TextUnmeasured)]
+
+        assert [(i.row, i.col, i.reason) for i in issues] == [(0, 0, "no-room")]
+
+    def it_reports_a_table_cell_in_a_column_with_no_width(self, slide):
+        frame = slide.shapes.add_table(1, 2, Inches(1), Inches(1), Inches(2), Inches(0.5))
+        frame.table.columns[0].width = 0
+        frame.table.cell(0, 0).text = "hello"
+
+        issues = [i for i in slide.lint().issues if isinstance(i, TextUnmeasured)]
+
+        assert [(i.row, i.col, i.reason) for i in issues] == [(0, 0, "no-size")]
+
     def it_says_nothing_about_frames_it_measured_or_that_hold_no_text(self, slide):
         _textbox(slide, "Fits", "ok", width=4.0, height=1.0)
         slide.shapes.add_textbox(Inches(5), Inches(5), 0, 0).name = "Empty"
