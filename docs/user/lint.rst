@@ -53,7 +53,20 @@ built — can be checked at save time with
 Issue types
 -----------
 
+* :class:`power_pptx.lint.TextUnmeasured` — a text frame or table cell holds
+  text that could not be checked for overflow, so it is not known to fit:
+  the shape has no size, its insets leave no room, the text is stacked, or
+  it is a table cell with rotated text or one spanning several rows. The
+  ``reason`` field says which. It is ``INFO`` and never fails a run by
+  itself; ``report.unmeasured`` lists them and ``power-pptx lint
+  --fail-on-unmeasured`` turns them into a failure. Text measured with
+  fallback font metrics is not this: it is measured, and an overflow is a
+  ``TextOverflow`` with ``estimated`` set.
 * :class:`power_pptx.lint.TextOverflow` — text does not fit its text frame.
+  ``ratio``, ``dimension`` and ``overflow_pt`` describe the axis that is
+  further out; ``width_ratio`` / ``width_overflow_pt`` and ``height_ratio`` /
+  ``height_overflow_pt`` give each axis by itself (``None`` and ``0.0`` for
+  one that fits), so a threshold can be set per axis.
   The text is laid out with the same Pillow font metrics
   :meth:`TextFrame.fit_text <power_pptx.text.text.TextFrame.fit_text>` uses:
   every run at its effective size and typeface (run, then paragraph, then the
@@ -433,6 +446,11 @@ are reported all the same, and the reason goes to standard error.
 
 ``--min-severity info|warning|error`` leaves the lower issues out of the
 report, and out of the exit status too.
+
+``--fail-on-unmeasured`` also exits ``1`` when a text frame holds text that
+could not be checked for overflow (``TextUnmeasured``), whatever
+``--fail-on`` says. Use it where a deck must not pass on the strength of
+text nothing measured. It needs ``--min-severity info``, the default.
 
 Machine-readable reports
 ~~~~~~~~~~~~~~~~~~~~~~~~

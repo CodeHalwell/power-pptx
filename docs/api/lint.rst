@@ -21,6 +21,11 @@ Linter
    :show-inheritance:
 
 
+.. autoclass:: TextUnmeasured
+   :members:
+   :show-inheritance:
+
+
 .. autoclass:: OffSlide
    :members:
    :show-inheritance:
