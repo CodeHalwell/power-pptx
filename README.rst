@@ -1,7 +1,7 @@
 power-pptx
 ==========
 
-.. image:: docs/_static/img/power-pptx-readme-banner.png
+.. image:: https://raw.githubusercontent.com/CodeHalwell/power-pptx/53fd2f66c32286cec82ba361c159637f25b9b79a/docs/_static/img/power-pptx-readme-banner.png
    :alt: power-pptx: Build slides that fit.
 
 |PyPI| |PyPI - Python Versions| |CI| |License| |Documentation|
