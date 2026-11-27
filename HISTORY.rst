@@ -17,6 +17,10 @@ installs the ``pptx`` import name) is also present in the environment.
 Unreleased
 ++++++++++
 
+Documentation
+.............
+
+* Add an illustrated banner to the GitHub README.
 
 2.16.1 (2026-11-23)
 +++++++++++++++++++
