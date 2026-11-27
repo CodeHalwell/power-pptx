@@ -1,6 +1,9 @@
 power-pptx
 ==========
 
+.. image:: docs/_static/img/power-pptx-readme-banner.png
+   :alt: power-pptx: Build slides that fit.
+
 |PyPI| |PyPI - Python Versions| |CI| |License| |Documentation|
 
 .. |PyPI| image:: https://img.shields.io/pypi/v/power-pptx.svg
