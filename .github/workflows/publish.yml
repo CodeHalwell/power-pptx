@@ -65,7 +65,7 @@ jobs:
           fetch-depth: 0
           ref: >-
             ${{ github.event_name == 'workflow_run'
-                && github.event.workflow_run.head_sha
+                && 'refs/heads/master'
                 || github.ref }}
 
       - name: Check the version tag against this commit
